@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "allmail-edge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-17",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "INGRESS_URL": "https://edge.example.com/ingress/domain-mail/receive",
+    "INGRESS_KEY_ID": "allmail-edge-main",
+    "INGRESS_PROVIDER": "CLOUDFLARE_EMAIL_ROUTING",
+    "RAW_EMAIL_OBJECT_PREFIX": "allmail-edge/raw"
+  },
+  "r2_buckets": [
+    {
+      "binding": "RAW_EMAIL_BUCKET",
+      "bucket_name": "mail-eml"
+    }
+  ]
+}

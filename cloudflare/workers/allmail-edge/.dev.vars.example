@@ -1,0 +1,6 @@
+INGRESS_URL=http://127.0.0.1:3002/ingress/domain-mail/receive
+INGRESS_KEY_ID=allmail-edge-main
+INGRESS_PROVIDER=CLOUDFLARE_EMAIL_ROUTING
+RAW_EMAIL_OBJECT_PREFIX=allmail-edge/raw
+RAW_EMAIL_BUCKET_NAME=mail-eml
+INGRESS_SIGNING_SECRET=replace-with-the-same-secret-used-by-server

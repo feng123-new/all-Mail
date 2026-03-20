@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+server/dist/
+web/dist/
+cloudflare/workers/allmail-edge/dist/
+**/dist/
+
+# Environment files (contain secrets)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.sqlite
+
+# Lock files (optional - some prefer to include these)
+# package-lock.json
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.ruff_cache/
+.sisyphus/
+.tmp-emails-page.png
+__pycache__/
+
+# Local migration / operator snapshots
+allmail_outlook_migration_result.json
+
+# OAuth helper runtime files
+oauth-temp/config.env
+oauth-temp/runtime/*
+!oauth-temp/runtime/.gitkeep
+gmail_oauth/gmail_oauth.env
+gmail_oauth/runtime/*
+!gmail_oauth/runtime/.gitkeep
+
+# Cloudflare worker local deploy files
+cloudflare/workers/allmail-edge/.dev.vars
+cloudflare/workers/allmail-edge/.wrangler/
+
+# Local operator artifacts
+cloudflare/state/
+cloudflare/screenshots/

@@ -1,0 +1,56 @@
+# Dependencies
+node_modules
+**/node_modules
+
+# Build outputs
+dist
+**/dist
+
+# Development files
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Runtime artifacts
+.sisyphus
+oauth-temp
+gmail_oauth
+server/.env
+web/.env
+
+# Test
+coverage
+.nyc_output
+
+# Misc
+*.md
+!README.md
+.dockerignore
+docker-compose*.yml
+
+# Old backend files (no longer needed)
+main.js
+config.js
+routes/
+controllers/
+services/
+middlewares/
+utils/
+sql/

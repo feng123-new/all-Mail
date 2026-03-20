@@ -1,0 +1,105 @@
+name: ${COMPOSE_PROJECT_NAME:-all-mail}
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${APP_PORT:-3002}:${APP_INTERNAL_PORT:-3000}"
+    environment:
+      NODE_ENV: production
+      PORT: ${APP_INTERNAL_PORT:-3000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
+      REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: 2h
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_LOGIN_MAX_ATTEMPTS: ${ADMIN_LOGIN_MAX_ATTEMPTS:-5}
+      ADMIN_LOGIN_LOCK_MINUTES: ${ADMIN_LOGIN_LOCK_MINUTES:-15}
+      SEND_ENABLED_DOMAINS: ${SEND_ENABLED_DOMAINS:-}
+      ADMIN_2FA_SECRET: ${ADMIN_2FA_SECRET:-}
+      ADMIN_2FA_WINDOW: ${ADMIN_2FA_WINDOW:-1}
+      API_LOG_RETENTION_DAYS: ${API_LOG_RETENTION_DAYS:-30}
+      API_LOG_CLEANUP_INTERVAL_MINUTES: ${API_LOG_CLEANUP_INTERVAL_MINUTES:-60}
+      DOMAIN_BOOTSTRAP_ADMIN_USERNAME: ${DOMAIN_BOOTSTRAP_ADMIN_USERNAME:-}
+      DOMAIN_BOOTSTRAP_ADMIN_PASSWORD: ${DOMAIN_BOOTSTRAP_ADMIN_PASSWORD:-}
+      INGRESS_SIGNING_SECRET: ${INGRESS_SIGNING_SECRET:-}
+      INGRESS_ALLOWED_SKEW_SECONDS: ${INGRESS_ALLOWED_SKEW_SECONDS:-300}
+      OBJECT_STORAGE_PROVIDER: ${OBJECT_STORAGE_PROVIDER:-}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-}
+      OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:-}
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:-}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:-}
+      RESEND_DEFAULT_FROM_NAME: ${RESEND_DEFAULT_FROM_NAME:-}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+      GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-}
+      MICROSOFT_OAUTH_CLIENT_ID: ${MICROSOFT_OAUTH_CLIENT_ID:-}
+      MICROSOFT_OAUTH_CLIENT_SECRET: ${MICROSOFT_OAUTH_CLIENT_SECRET:-}
+      MICROSOFT_OAUTH_REDIRECT_URI: ${MICROSOFT_OAUTH_REDIRECT_URI:-}
+      MICROSOFT_OAUTH_TENANT: ${MICROSOFT_OAUTH_TENANT:-}
+      MICROSOFT_OAUTH_SCOPES: ${MICROSOFT_OAUTH_SCOPES:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:${APP_INTERNAL_PORT:-3000}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6380}:${REDIS_INTERNAL_PORT:-6379}"
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p ${REDIS_INTERNAL_PORT:-6379} ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis_data:/data
+    command: ["sh", "-c", "redis-server --appendonly yes --port ${REDIS_INTERNAL_PORT:-6379}"]
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "${POSTGRES_PORT:-15433}:${POSTGRES_INTERNAL_PORT:-5432}"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-allmail}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-allmail_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-allmail}
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-allmail} -p ${POSTGRES_INTERNAL_PORT:-5432}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command: ["postgres", "-p", "${POSTGRES_INTERNAL_PORT:-5432}"]
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  postgres_data:

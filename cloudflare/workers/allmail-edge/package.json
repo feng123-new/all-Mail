@@ -1,0 +1,29 @@
+{
+  "name": "allmail-edge-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "tsx --test src/**/*.test.ts",
+    "check": "npm run build && npm run lint && npm run test",
+    "doctor": "node bin/doctor.js",
+    "deploy": "wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run",
+    "deploy:prod": "node bin/deploy-prod.js"
+  },
+  "dependencies": {
+    "postal-mime": "^2.7.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^22.10.2",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.46.4",
+    "wrangler": "^4.74.0"
+  }
+}
