@@ -24,7 +24,7 @@ This project provided early reference material for:
 - Fastify + Prisma + React based control-plane structure
 - external mailbox API surfaces and admin workflows
 
-### `feng123-new/mailfree`
+### `idinging/freemail`
 
 This project provided early reference material for:
 
@@ -44,6 +44,6 @@ Compared with those earlier references, the current repository has moved toward 
 
 ## Repository policy
 
-Upstream inspirations are acknowledged here so the main product documentation can stay focused on the current repository itself.
+These earlier public repositories are acknowledged here so the main product documentation can stay focused on the current repository itself.
 
 The main README, package metadata, helper scripts, and operator docs use `all-Mail` as the primary project identity.
