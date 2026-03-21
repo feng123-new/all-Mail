@@ -64,3 +64,4 @@ cloudflare/state/
 cloudflare/screenshots/
 local-backups/
 docs/screenshots/
+.all-mail-runtime/

@@ -1,6 +1,20 @@
 #!/bin/sh
 set -eu
 
+ALL_MAIL_STATE_DIR=${ALL_MAIL_STATE_DIR:-/var/lib/all-mail}
+mkdir -p "$ALL_MAIL_STATE_DIR"
+eval "$(node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR" --format shell)"
+
+if [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
+    printf '%s\n' "Generated bootstrap secrets in ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE}"
+    case ",${ALL_MAIL_GENERATED_SECRETS}," in
+        *,ADMIN_PASSWORD,*)
+            printf '%s\n' "Generated bootstrap admin password for ${ADMIN_USERNAME:-admin}: ${ADMIN_PASSWORD}"
+            printf '%s\n' 'Change this password after the first successful admin login.'
+            ;;
+    esac
+fi
+
 set +e
 migration_output=$(npx prisma migrate deploy 2>&1)
 migration_exit=$?

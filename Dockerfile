@@ -24,14 +24,13 @@ FROM node:20-alpine AS runtime
 WORKDIR /app/server
 ENV NODE_ENV=production
 
-RUN apk add --no-cache wget
-
 COPY --from=builder /app/server/dist ./dist
 COPY --from=builder /app/server/node_modules ./node_modules
 COPY --from=builder /app/server/package*.json ./
 COPY --from=builder /app/server/prisma ./prisma
 COPY --from=builder /app/web/dist ../public
 COPY docker/entrypoint.sh /usr/local/bin/all-mail-entrypoint
+COPY scripts ../scripts
 
 RUN chmod +x /usr/local/bin/all-mail-entrypoint
 

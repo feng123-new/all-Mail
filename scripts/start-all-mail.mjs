@@ -3,6 +3,7 @@ import { constants as fsConstants } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureBootstrapSecrets, parseEnvText } from './bootstrap-secrets.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,27 +11,6 @@ const repoRoot = path.resolve(__dirname, '..');
 const serverDir = path.join(repoRoot, 'server');
 const serverDistEntry = path.join(serverDir, 'dist', 'index.js');
 const publicIndexFile = path.join(repoRoot, 'public', 'index.html');
-
-function parseEnvText(content) {
-  const entries = {};
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) {
-      continue;
-    }
-    const separatorIndex = line.indexOf('=');
-    if (separatorIndex === -1) {
-      continue;
-    }
-    const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
-    if (!key) {
-      continue;
-    }
-    entries[key] = value.replace(/^['"]|['"]$/g, '');
-  }
-  return entries;
-}
 
 async function resolveEnvFile() {
   const candidates = [
@@ -130,9 +110,22 @@ async function main() {
     normalizedEnv.REDIS_URL = `redis://${redisHost}:${redisPort}`;
   }
 
+  const stateDir = process.env.ALL_MAIL_STATE_DIR
+    ? path.resolve(process.env.ALL_MAIL_STATE_DIR)
+    : path.join(repoRoot, '.all-mail-runtime');
+  const bootstrapSecrets = await ensureBootstrapSecrets({ stateDir, env: normalizedEnv });
+  Object.assign(normalizedEnv, bootstrapSecrets.secrets);
+
   const runtimeEnv = { ...normalizedEnv, ...process.env };
 
   console.log(`Using env file: ${envFile}`);
+  if (bootstrapSecrets.createdKeys.length > 0) {
+    console.log(`Generated bootstrap secrets in ${bootstrapSecrets.secretsFile}`);
+    if (bootstrapSecrets.createdKeys.includes('ADMIN_PASSWORD')) {
+      console.log(`Generated bootstrap admin password for ${runtimeEnv.ADMIN_USERNAME || 'admin'}: ${bootstrapSecrets.secrets.ADMIN_PASSWORD}`);
+      console.log('Change this password after the first successful admin login.');
+    }
+  }
 
   try {
     await run('npm', ['run', 'db:migrate'], { cwd: serverDir, env: runtimeEnv });

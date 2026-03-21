@@ -30,6 +30,8 @@
     "Dockerfile",
     "README.md",
     ".env.example",
+    ".env.basic.example",
+    ".env.cloudflare.example",
     "server/.env.example"
   ],
   "engines": {

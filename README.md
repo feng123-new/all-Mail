@@ -131,6 +131,82 @@ docker compose up -d --build
 docker compose ps
 ```
 
+## Docker deployment modes
+
+### Basic Docker mode
+
+This is the recommended beginner path. It only assumes:
+
+- app + postgres + redis
+- no Cloudflare ingress setup
+- no object storage / advanced ingress extras
+
+```bash
+cp .env.basic.example .env
+docker compose up -d --build
+```
+
+### Advanced Docker + Cloudflare-ready mode
+
+Use this when you want to prepare the app for:
+
+- signed ingress
+- Cloudflare Email Routing / Worker integration
+- object storage or advanced mail-ingress extensions
+
+```bash
+cp .env.cloudflare.example .env
+docker compose up -d --build
+```
+
+Then continue with the worker/ingress steps in `CLOUDFLARE-DEPLOY.md`.
+
+### Important clarification
+
+These variables are **not Cloudflare-only** — they are base app secrets required even in basic Docker mode:
+
+- `JWT_SECRET`
+- `ENCRYPTION_KEY`
+- `ADMIN_PASSWORD`
+
+They are also **not** the same thing as mailbox/provider credentials entered later in the UI.
+
+- `JWT_SECRET` → signs admin / mailbox-portal login tokens
+- `ENCRYPTION_KEY` → encrypts stored mailbox passwords, OAuth client secrets, and refresh tokens in the database
+- `ADMIN_PASSWORD` → bootstrap admin password for the first console login
+
+Mailbox/provider-side credentials are different fields, such as:
+
+- Outlook / Gmail OAuth client secrets
+- refresh tokens
+- app passwords
+- mailbox passwords
+
+Those are configured later in the admin UI when you add or edit mailbox connectors.
+
+### Can I leave these blank?
+
+Now, yes — in the supported Docker and npm/CLI startup paths, you can leave these blank on first boot:
+
+- `JWT_SECRET`
+- `ENCRYPTION_KEY`
+- `ADMIN_PASSWORD`
+
+all-Mail will generate them automatically and persist them for reuse.
+
+- Docker mode stores them in the named volume mounted at `/var/lib/all-mail/bootstrap-secrets.env`
+- npm/CLI mode stores them in `.all-mail-runtime/bootstrap-secrets.env`
+
+If `ADMIN_PASSWORD` is auto-generated, the startup log prints it once and reminds you to change it after first login.
+
+If you prefer to control them manually, you can still set them explicitly in `.env`.
+
+Cloudflare-related values are things like:
+
+- `INGRESS_SIGNING_SECRET`
+- `OBJECT_STORAGE_*`
+- worker-side deployment/configuration in `cloudflare/workers/allmail-edge`
+
 ## Non-Docker / npm deployment
 
 The repository is **not Docker-only**. You can also run it directly with npm as long as you provide:

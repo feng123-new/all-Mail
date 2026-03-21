@@ -10,14 +10,15 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${APP_INTERNAL_PORT:-3000}
+      ALL_MAIL_STATE_DIR: /var/lib/all-mail
       DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
       REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:-}
       JWT_EXPIRES_IN: 2h
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ADMIN_LOGIN_MAX_ATTEMPTS: ${ADMIN_LOGIN_MAX_ATTEMPTS:-5}
       ADMIN_LOGIN_LOCK_MINUTES: ${ADMIN_LOGIN_LOCK_MINUTES:-15}
       SEND_ENABLED_DOMAINS: ${SEND_ENABLED_DOMAINS:-}
@@ -50,10 +51,12 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    volumes:
+      - app_runtime_data:/var/lib/all-mail
     networks:
       - app-network
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:${APP_INTERNAL_PORT:-3000}/health || exit 1"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then((r)=>process.exit(r.ok ? 0 : 1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -101,5 +104,6 @@ networks:
     driver: bridge
 
 volumes:
+  app_runtime_data:
   redis_data:
   postgres_data:
