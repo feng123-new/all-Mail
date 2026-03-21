@@ -1,0 +1,50 @@
+{
+  "name": "all-mail",
+  "private": true,
+  "version": "2.0.0",
+  "description": "all-Mail repository-level CLI and npm deployment scripts",
+  "license": "MIT",
+  "preferGlobal": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/feng123-new/all-Mail.git"
+  },
+  "keywords": [
+    "mail",
+    "email",
+    "self-hosted",
+    "cli",
+    "fastify",
+    "react"
+  ],
+  "bin": {
+    "all-mail": "bin/all-mail.mjs"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "server",
+    "web",
+    "README.md",
+    ".env.example",
+    "server/.env.example"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "postinstall": "node bin/all-mail.mjs internal-postinstall",
+    "setup": "node bin/all-mail.mjs setup",
+    "install:server": "npm --prefix server install",
+    "install:web": "npm --prefix web install --legacy-peer-deps",
+    "install:all": "npm run install:server && npm run install:web",
+    "build:server": "npm --prefix server run db:generate && npm --prefix server run build",
+    "build:web": "npm --prefix web run build && node scripts/prepare-public.mjs",
+    "build": "npm run build:server && npm run build:web",
+    "start:npm": "node scripts/start-all-mail.mjs",
+    "deploy:npm": "npm run build && npm run start:npm",
+    "lint": "npm --prefix server run lint && npm --prefix web run lint",
+    "test": "npm --prefix server run test",
+    "check": "npm run lint && npm run test && npm --prefix web run build"
+  }
+}

@@ -7,6 +7,7 @@ server/dist/
 web/dist/
 cloudflare/workers/allmail-edge/dist/
 **/dist/
+public/
 
 # Environment files (contain secrets)
 .env

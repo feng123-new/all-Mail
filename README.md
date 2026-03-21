@@ -131,6 +131,65 @@ docker compose up -d --build
 docker compose ps
 ```
 
+## Non-Docker / npm deployment
+
+The repository is **not Docker-only**. You can also run it directly with npm as long as you provide:
+
+- a reachable PostgreSQL instance
+- a reachable Redis instance (recommended; optional in env schema but expected by most real deployments)
+- a real env file (`server/.env` or root `.env`)
+
+Recommended non-Docker path:
+
+```bash
+# 1. install subproject dependencies
+npm run install:all
+
+# 2. create env (prefer server/.env for npm mode)
+cp server/.env.example server/.env
+
+# 3. build backend + frontend and copy web/dist -> ./public
+npm run build
+
+# 4. start server with migrate deploy -> db push fallback
+npm run start:npm
+```
+
+## Global CLI usage
+
+You can also install the repository as a **global CLI** from a local clone:
+
+```bash
+npm install -g /path/to/all-Mail
+```
+
+After global install, these commands are available:
+
+```bash
+all-mail setup
+all-mail install
+all-mail build
+all-mail start --env-file /path/to/.env --port 3102
+all-mail deploy --env-file /path/to/.env --port 3102
+all-mail check
+```
+
+Notes:
+
+- `all-mail start` uses the same env resolution and Prisma fallback logic as the Docker entrypoint
+- `all-mail setup` installs nested `server` / `web` dependencies and builds everything
+- the package is still source-based and expects PostgreSQL + Redis to be available outside the process
+- this is now a real globally installable CLI entrypoint, but it is **not yet** a slim single-binary installer or zero-dependency desktop-style package
+
+What these new root scripts do:
+
+- `npm run install:all` → installs `server` and `web` dependencies
+- `npm run build` → builds `server`, builds `web`, and copies `web/dist` into repo-root `public/`
+- `npm run start:npm` → starts the compiled server and reuses the same Prisma migration fallback logic as Docker entrypoint
+- `npm run deploy:npm` → convenience alias for `build + start:npm`
+
+Important: this is **npm-based source deployment**, not a polished `npm install -g all-mail` registry package. The project still expects external runtime services (PostgreSQL / Redis) and env configuration.
+
 ### 3. Health check
 
 ```bash
