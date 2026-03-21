@@ -15,7 +15,7 @@ COPY --from=web-deps /app/web/node_modules ./web/node_modules
 COPY server ./server
 COPY web ./web
 
-RUN cd server && npx prisma generate
+RUN cd server && npm run db:generate
 RUN cd server && npm run build
 RUN cd server && npm prune --omit=dev
 RUN cd web && npm run build
