@@ -1,14 +1,19 @@
-FROM node:20-alpine AS server-deps
+FROM node:20-bookworm-slim AS base
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends openssl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+FROM base AS server-deps
 WORKDIR /app/server
 COPY server/package*.json ./
 RUN npm ci --include=dev
 
-FROM node:20-alpine AS web-deps
+FROM base AS web-deps
 WORKDIR /app/web
 COPY web/package*.json ./
 RUN npm ci --include=dev --legacy-peer-deps
 
-FROM node:20-alpine AS builder
+FROM base AS builder
 WORKDIR /app
 COPY --from=server-deps /app/server/node_modules ./server/node_modules
 COPY --from=web-deps /app/web/node_modules ./web/node_modules
@@ -20,7 +25,7 @@ RUN cd server && npm run build
 RUN cd server && npm prune --omit=dev
 RUN cd web && npm run build
 
-FROM node:20-alpine AS runtime
+FROM base AS runtime
 WORKDIR /app/server
 ENV NODE_ENV=production
 
