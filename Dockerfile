@@ -1,12 +1,12 @@
 FROM node:20-alpine AS server-deps
 WORKDIR /app/server
 COPY server/package*.json ./
-RUN npm ci
+RUN npm ci --include=dev
 
 FROM node:20-alpine AS web-deps
 WORKDIR /app/web
 COPY web/package*.json ./
-RUN npm ci --legacy-peer-deps
+RUN npm ci --include=dev --legacy-peer-deps
 
 FROM node:20-alpine AS builder
 WORKDIR /app
