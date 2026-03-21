@@ -25,6 +25,9 @@
     "scripts",
     "server",
     "web",
+    "cloudflare/workers/allmail-edge",
+    "docker-compose.yml",
+    "Dockerfile",
     "README.md",
     ".env.example",
     "server/.env.example"
@@ -35,6 +38,11 @@
   "scripts": {
     "postinstall": "node bin/all-mail.mjs internal-postinstall",
     "setup": "node bin/all-mail.mjs setup",
+    "doctor": "node bin/all-mail.mjs doctor",
+    "deps:docker": "node bin/all-mail.mjs deps up",
+    "deps:down": "node bin/all-mail.mjs deps down",
+    "up:npm": "node bin/all-mail.mjs up",
+    "up:hybrid": "node bin/all-mail.mjs up --docker-deps",
     "install:server": "npm --prefix server install",
     "install:web": "npm --prefix web install --legacy-peer-deps",
     "install:all": "npm run install:server && npm run install:web",
@@ -45,6 +53,6 @@
     "deploy:npm": "npm run build && npm run start:npm",
     "lint": "npm --prefix server run lint && npm --prefix web run lint",
     "test": "npm --prefix server run test",
-    "check": "npm run lint && npm run test && npm --prefix web run build"
+    "check": "npm run lint && npm run test && npm --prefix web run build && npm --prefix cloudflare/workers/allmail-edge run check"
   }
 }

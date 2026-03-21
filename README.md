@@ -135,9 +135,81 @@ docker compose ps
 
 The repository is **not Docker-only**. You can also run it directly with npm as long as you provide:
 
-- a reachable PostgreSQL instance
-- a reachable Redis instance (recommended; optional in env schema but expected by most real deployments)
+- a reachable PostgreSQL instance (**required**)
+- a reachable Redis instance (**recommended**, not a hard startup blocker)
 - a real env file (`server/.env` or root `.env`)
+
+### What must exist before npm/CLI deployment
+
+| Dependency | Required | Why |
+|---|---|---|
+| PostgreSQL | Yes | `DATABASE_URL` is mandatory in `server/src/config/env.ts`, and the server exits on startup if Prisma cannot connect |
+| Redis | Recommended | `REDIS_URL` is optional in env schema; without Redis the app still starts, but OAuth state caching, token caching, and login-rate-limit storage degrade to weaker/local fallback behavior |
+
+### If you do **not** already have PostgreSQL / Redis
+
+You have three practical options:
+
+1. **Simplest:** keep using full Docker Compose for everything  
+   Best if you do not want to provision infra manually.
+
+2. **Hybrid mode:** only run PostgreSQL + Redis with Docker, but run all-Mail itself via npm / CLI  
+   This is usually the easiest non-Docker app path.
+
+3. **Manual install:** install PostgreSQL + Redis directly on your machine/server  
+   Suitable when you already operate system services or want systemd-managed dependencies.
+
+### Recommended hybrid example
+
+If you want npm/CLI deployment without moving database/cache setup out of containers yet, you can start only the dependencies first:
+
+```bash
+docker compose up -d postgres redis
+```
+
+Then run the app from source:
+
+```bash
+npm run install:all
+npm run build
+npm run start:npm
+```
+
+Or from the global CLI:
+
+```bash
+all-mail setup
+all-mail start --env-file /path/to/.env --port 3102
+```
+
+### Near one-click hybrid deployment
+
+If you want the app itself outside Docker, but you still want PostgreSQL + Redis to be prepared automatically, use the CLI hybrid path:
+
+```bash
+all-mail up --docker-deps --env-file /path/to/.env --port 3102
+```
+
+What it does:
+
+1. `docker compose up -d postgres redis`
+2. installs/builds the app only if required artifacts are missing
+3. starts all-Mail through the same npm/CLI runtime path
+
+### Health / dependency check before startup
+
+You can verify env + dependency readiness first:
+
+```bash
+all-mail doctor --env-file /path/to/.env
+```
+
+This checks:
+
+- env file resolution
+- PostgreSQL reachability (**required**)
+- Redis reachability (**recommended**)
+- whether built backend/frontend artifacts already exist
 
 Recommended non-Docker path:
 
@@ -169,6 +241,9 @@ After global install, these commands are available:
 all-mail setup
 all-mail install
 all-mail build
+all-mail doctor --env-file /path/to/.env
+all-mail deps up
+all-mail up --docker-deps --env-file /path/to/.env --port 3102
 all-mail start --env-file /path/to/.env --port 3102
 all-mail deploy --env-file /path/to/.env --port 3102
 all-mail check
