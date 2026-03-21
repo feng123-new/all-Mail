@@ -323,8 +323,8 @@ const SettingsPage: FC = () => {
                     <Alert
                         type="info"
                         showIcon
-                        message="Provider OAuth 配置已迁移到邮箱管理的各 Provider 添加入口"
-                        description="Google OAuth 请到“邮箱管理 → 添加 Gmail 邮箱”；Microsoft OAuth 请到“邮箱管理 → 添加 Outlook 邮箱”。现在在对应 Provider 的添加弹窗里就可以手工填写回调地址、Client ID / Secret、Scopes，并直接生成授权链接完成认证。"
+                        message="Provider OAuth 配置已迁移到外部邮箱连接的各 Provider 添加入口"
+                        description="Google OAuth 请到“外部邮箱连接 → 添加 Gmail 邮箱”；Microsoft OAuth 请到“外部邮箱连接 → 添加 Outlook 邮箱”。现在在对应 Provider 的添加弹窗里就可以手工填写回调地址、Client ID / Secret、Scopes，并直接生成授权链接完成认证。"
                     />
                 </Card>
 
@@ -335,19 +335,19 @@ const SettingsPage: FC = () => {
 
                     <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 16 }}>
                         <Text code style={{ display: 'block', marginBottom: 8 }}>
-                            # 通过 Header 传递 API Key
+                            # 通过 Header 传递访问密钥
                         </Text>
                         <Text code style={{ display: 'block', wordBreak: 'break-all' }}>
-                            curl -H "X-API-Key: your_api_key" https://your-domain.com/api/mail_all
+                            curl -H "X-API-Key: your_api_key" https://your-domain.com/api/messages
                         </Text>
                     </div>
 
                     <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8 }}>
                         <Text code style={{ display: 'block', marginBottom: 8 }}>
-                            # 通过 Query 参数传递 API Key
+                            # 通过 Query 参数传递访问密钥
                         </Text>
                         <Text code style={{ display: 'block', wordBreak: 'break-all' }}>
-                            curl "https://your-domain.com/api/mail_all?api_key=your_api_key&email=xxx@outlook.com"
+                            curl "https://your-domain.com/api/messages?api_key=your_api_key&email=xxx@outlook.com"
                         </Text>
                     </div>
                 </Card>

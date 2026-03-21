@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../plugins/error.js';
 import { mailService } from '../mail/mail.service.js';
@@ -20,6 +20,16 @@ const domainMailboxTextSchema = z.object({
     email: z.string().trim().email(),
     match: z.string().trim().optional(),
 });
+
+const DOMAIN_API_ROUTE_PATHS = {
+    allocate: ['/mailboxes/allocate', '/get-mailbox'],
+    latestMessage: ['/messages/latest', '/mail_new'],
+    listMessages: ['/messages', '/mail_all'],
+    messageText: ['/messages/text', '/mail_text'],
+    listMailboxes: ['/mailboxes', '/list-mailboxes'],
+    allocationStats: ['/mailboxes/allocation-stats', '/pool-stats'],
+    resetAllocation: ['/mailboxes/allocation-reset', '/reset-pool'],
+} as const;
 
 function getInputFromRequest<T>(request: { method: string; query: unknown; body: unknown }, schema: z.ZodType<T>): T {
     return schema.parse(request.method === 'GET' ? request.query : request.body);
@@ -47,7 +57,7 @@ function getErrorMessage(err: unknown): string {
 const domainMailboxApiRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.addHook('preHandler', fastify.authenticateApiKey);
 
-    fastify.all('/get-mailbox', async (request) => {
+    const allocateDomainMailbox = async (request: FastifyRequest) => {
         const startTime = Date.now();
         try {
             if (!request.apiKey?.id) {
@@ -62,9 +72,12 @@ const domainMailboxApiRoutes: FastifyPluginAsync = async (fastify) => {
             await mailService.logApiCall(MAIL_LOG_ACTIONS.DOMAIN_GET_MAILBOX, request.apiKey?.id, undefined, request.ip, getErrorStatusCode(err), Date.now() - startTime, request.id);
             throw err;
         }
-    });
+    };
+    for (const path of DOMAIN_API_ROUTE_PATHS.allocate) {
+        fastify.all(path, allocateDomainMailbox);
+    }
 
-    fastify.all('/mail_new', async (request) => {
+    const readLatestDomainMessage = async (request: FastifyRequest) => {
         const startTime = Date.now();
         try {
             if (!request.apiKey?.id) {
@@ -79,9 +92,12 @@ const domainMailboxApiRoutes: FastifyPluginAsync = async (fastify) => {
             await mailService.logApiCall(MAIL_LOG_ACTIONS.DOMAIN_MAIL_NEW, request.apiKey?.id, undefined, request.ip, getErrorStatusCode(err), Date.now() - startTime, request.id);
             throw err;
         }
-    });
+    };
+    for (const path of DOMAIN_API_ROUTE_PATHS.latestMessage) {
+        fastify.all(path, readLatestDomainMessage);
+    }
 
-    fastify.all('/mail_all', async (request) => {
+    const listDomainMessages = async (request: FastifyRequest) => {
         const startTime = Date.now();
         try {
             if (!request.apiKey?.id) {
@@ -96,9 +112,12 @@ const domainMailboxApiRoutes: FastifyPluginAsync = async (fastify) => {
             await mailService.logApiCall(MAIL_LOG_ACTIONS.DOMAIN_MAIL_ALL, request.apiKey?.id, undefined, request.ip, getErrorStatusCode(err), Date.now() - startTime, request.id);
             throw err;
         }
-    });
+    };
+    for (const path of DOMAIN_API_ROUTE_PATHS.listMessages) {
+        fastify.all(path, listDomainMessages);
+    }
 
-    fastify.all('/mail_text', async (request, reply) => {
+    const readDomainMessageText = async (request: FastifyRequest, reply: FastifyReply) => {
         const startTime = Date.now();
         if (!request.apiKey?.id) {
             reply.code(401).type('text/plain').send('Error: API Key required');
@@ -141,9 +160,12 @@ const domainMailboxApiRoutes: FastifyPluginAsync = async (fastify) => {
             await mailService.logApiCall(MAIL_LOG_ACTIONS.DOMAIN_MAIL_TEXT, request.apiKey?.id, undefined, request.ip, getErrorStatusCode(err), Date.now() - startTime, request.id);
             reply.code(getErrorStatusCode(err)).type('text/plain').send(`Error: ${getErrorMessage(err)}`);
         }
-    });
+    };
+    for (const path of DOMAIN_API_ROUTE_PATHS.messageText) {
+        fastify.all(path, readDomainMessageText);
+    }
 
-    fastify.all('/list-mailboxes', async (request) => {
+    const listDomainMailboxes = async (request: FastifyRequest) => {
         const startTime = Date.now();
         try {
             if (!request.apiKey?.id) {
@@ -158,9 +180,12 @@ const domainMailboxApiRoutes: FastifyPluginAsync = async (fastify) => {
             await mailService.logApiCall(MAIL_LOG_ACTIONS.DOMAIN_LIST_MAILBOXES, request.apiKey?.id, undefined, request.ip, getErrorStatusCode(err), Date.now() - startTime, request.id);
             throw err;
         }
-    });
+    };
+    for (const path of DOMAIN_API_ROUTE_PATHS.listMailboxes) {
+        fastify.all(path, listDomainMailboxes);
+    }
 
-    fastify.all('/pool-stats', async (request) => {
+    const getDomainMailboxAllocationStats = async (request: FastifyRequest) => {
         const startTime = Date.now();
         try {
             if (!request.apiKey?.id) {
@@ -175,9 +200,12 @@ const domainMailboxApiRoutes: FastifyPluginAsync = async (fastify) => {
             await mailService.logApiCall(MAIL_LOG_ACTIONS.DOMAIN_POOL_STATS, request.apiKey?.id, undefined, request.ip, getErrorStatusCode(err), Date.now() - startTime, request.id);
             throw err;
         }
-    });
+    };
+    for (const path of DOMAIN_API_ROUTE_PATHS.allocationStats) {
+        fastify.all(path, getDomainMailboxAllocationStats);
+    }
 
-    fastify.all('/reset-pool', async (request) => {
+    const resetDomainMailboxAllocation = async (request: FastifyRequest) => {
         const startTime = Date.now();
         try {
             if (!request.apiKey?.id) {
@@ -192,7 +220,10 @@ const domainMailboxApiRoutes: FastifyPluginAsync = async (fastify) => {
             await mailService.logApiCall(MAIL_LOG_ACTIONS.DOMAIN_POOL_RESET, request.apiKey?.id, undefined, request.ip, getErrorStatusCode(err), Date.now() - startTime, request.id);
             throw err;
         }
-    });
+    };
+    for (const path of DOMAIN_API_ROUTE_PATHS.resetAllocation) {
+        fastify.all(path, resetDomainMailboxAllocation);
+    }
 };
 
 export default domainMailboxApiRoutes;

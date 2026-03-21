@@ -6,6 +6,7 @@ import fastifyHelmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { access } from 'node:fs/promises';
 
 import { env } from './config/env.js';
 import errorPlugin from './plugins/error.js';
@@ -112,7 +113,15 @@ export async function buildApp() {
 
     // 静态文件（前端）- 禁用 fastify-static 的默认 404 处理
     const staticRoot = join(__dirname, '../../public');
-    if (env.NODE_ENV === 'production') {
+    let hasStaticRoot = false;
+    try {
+        await access(staticRoot);
+        hasStaticRoot = true;
+    } catch {
+        fastify.log.info({ staticRoot }, 'Static asset directory not found; skipping SPA asset registration');
+    }
+
+    if (hasStaticRoot && env.NODE_ENV === 'production') {
         try {
             const compressionResult = await ensurePrecompressedAssets(staticRoot);
             fastify.log.info({
@@ -124,12 +133,14 @@ export async function buildApp() {
         }
     }
 
-    await fastify.register(fastifyStatic, {
-        root: staticRoot,
-        prefix: '/',
-        wildcard: false, // 禁用通配符，让我们自定义处理 SPA
-        preCompressed: true,
-    });
+    if (hasStaticRoot) {
+        await fastify.register(fastifyStatic, {
+            root: staticRoot,
+            prefix: '/',
+            wildcard: false, // 禁用通配符，让我们自定义处理 SPA
+            preCompressed: true,
+        });
+    }
 
     // API 路由
     await fastify.register(authRoutes, { prefix: '/admin/auth' });
@@ -175,7 +186,15 @@ export async function buildApp() {
         }
 
         // 否则返回 index.html（SPA）
-        return reply.sendFile('index.html');
+        if (hasStaticRoot) {
+            return reply.sendFile('index.html');
+        }
+
+        return reply.status(404).send({
+            success: false,
+            requestId: request.id,
+            error: { code: 'NOT_FOUND', message: 'Static frontend assets are not available in this runtime' },
+        });
     });
 
     return fastify;

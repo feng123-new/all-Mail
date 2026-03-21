@@ -23,6 +23,7 @@ const DomainMessagesPage = lazy(() => import('./pages/domain-messages'));
 const SendingConfigsPage = lazy(() => import('./pages/sending-configs'));
 const MailboxLayout = lazy(() => import('./layouts/MailboxLayout'));
 const MailPortalLoginPage = lazy(() => import('./pages/mail-portal/login'));
+const MailPortalOverviewPage = lazy(() => import('./pages/mail-portal/overview'));
 const MailPortalInboxPage = lazy(() => import('./pages/mail-portal/inbox'));
 const MailPortalSettingsPage = lazy(() => import('./pages/mail-portal/settings'));
 
@@ -81,8 +82,13 @@ const App: FC = () => {
       theme={{
         cssVar: {},
         token: {
-          colorPrimary: '#1890ff',
-          borderRadius: 6,
+          colorPrimary: '#5865f2',
+          colorInfo: '#5865f2',
+          colorSuccess: '#2f9e77',
+          colorWarning: '#d97706',
+          colorError: '#dc2626',
+          colorBgLayout: '#f4f7fb',
+          borderRadius: 14,
         },
       }}
     >
@@ -132,7 +138,8 @@ const App: FC = () => {
                 </MailboxProtectedRoute>
               }
             >
-              <Route index element={<Navigate to="/mail/inbox" replace />} />
+              <Route index element={<Navigate to="/mail/overview" replace />} />
+              <Route path="overview" element={withSuspense(<MailPortalOverviewPage />)} />
               <Route path="inbox" element={withSuspense(<MailPortalInboxPage />)} />
               <Route path="settings" element={withSuspense(<MailPortalSettingsPage />)} />
             </Route>

@@ -525,25 +525,25 @@ export const apiKeyApi = {
             invalidatePrefixes: ['/admin/api-keys', `/admin/api-keys/${id}`, '/admin/dashboard/stats'],
         }),
 
-    getUsage: (id: number, groupName?: string) =>
-        requestGet<{ total: number; used: number; remaining: number }>(`/admin/api-keys/${id}/usage`, {
+    getAllocationStats: (id: number, groupName?: string) =>
+        requestGet<{ total: number; used: number; remaining: number }>(`/admin/api-keys/${id}/allocation-stats`, {
             params: { group: groupName },
             cacheMs: 1000,
         }),
 
-    resetPool: (id: number, groupName?: string) =>
-        requestPost<Record<string, unknown>, { group?: string }>(`/admin/api-keys/${id}/reset-pool`, {
+    resetAllocation: (id: number, groupName?: string) =>
+        requestPost<Record<string, unknown>, { group?: string }>(`/admin/api-keys/${id}/allocation-reset`, {
             group: groupName,
-        }, { invalidatePrefixes: [`/admin/api-keys/${id}/usage`, `/admin/api-keys/${id}/pool-emails`] }),
+        }, { invalidatePrefixes: [`/admin/api-keys/${id}/usage`, `/admin/api-keys/${id}/assigned-mailboxes`] }),
 
-    getPoolEmails: <T = Record<string, unknown>>(id: number, groupId?: number) =>
-        requestGet<T[]>(`/admin/api-keys/${id}/pool-emails`, { params: { groupId }, cacheMs: 800 }),
+    getAssignedMailboxes: <T = Record<string, unknown>>(id: number, groupId?: number) =>
+        requestGet<T[]>(`/admin/api-keys/${id}/assigned-mailboxes`, { params: { groupId }, cacheMs: 800 }),
 
-    updatePoolEmails: (id: number, emailIds: number[], groupId?: number) =>
-        requestPut<{ count: number }, { emailIds: number[]; groupId?: number }>(`/admin/api-keys/${id}/pool-emails`, {
+    updateAssignedMailboxes: (id: number, emailIds: number[], groupId?: number) =>
+        requestPut<{ count: number }, { emailIds: number[]; groupId?: number }>(`/admin/api-keys/${id}/assigned-mailboxes`, {
             emailIds,
             groupId,
-        }, { invalidatePrefixes: [`/admin/api-keys/${id}/usage`, `/admin/api-keys/${id}/pool-emails`] }),
+        }, { invalidatePrefixes: [`/admin/api-keys/${id}/usage`, `/admin/api-keys/${id}/assigned-mailboxes`] }),
 };
 
 // ========================================

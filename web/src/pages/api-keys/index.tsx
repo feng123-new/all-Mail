@@ -276,7 +276,7 @@ const ApiKeysPage = () => {
         try {
             const detail = await requestData<ApiKeyDetail>(
                 () => apiKeyApi.getById(record.id),
-                '获取 API Key 详情失败'
+                '获取访问密钥详情失败'
             );
             if (detail) {
                 const selectedPermissions = detail.permissions
@@ -381,12 +381,12 @@ const ApiKeysPage = () => {
         setPoolModalVisible(true);
         setPoolLoading(true);
         try {
-            const res = await apiKeyApi.getUsage(record.id);
+            const res = await apiKeyApi.getAllocationStats(record.id);
             if (res.code === 200) {
                 setPoolStats(res.data);
             }
         } catch {
-            message.error('获取邮箱池数据失败');
+            message.error('获取分配统计失败');
         } finally {
             setPoolLoading(false);
         }
@@ -397,12 +397,12 @@ const ApiKeysPage = () => {
         if (!currentApiKey) return;
         setPoolLoading(true);
         try {
-            const res = await apiKeyApi.getUsage(currentApiKey.id, groupName);
+            const res = await apiKeyApi.getAllocationStats(currentApiKey.id, groupName);
             if (res.code === 200) {
                 setPoolStats(res.data);
             }
         } catch {
-            message.error('获取邮箱池数据失败');
+            message.error('获取分配统计失败');
         } finally {
             setPoolLoading(false);
         }
@@ -411,11 +411,10 @@ const ApiKeysPage = () => {
     const handleResetPool = async () => {
         if (!currentApiKey) return;
         try {
-            const res = await apiKeyApi.resetPool(currentApiKey.id, poolGroupName);
+            const res = await apiKeyApi.resetAllocation(currentApiKey.id, poolGroupName);
             if (res.code === 200) {
-                message.success('邮箱池已重置');
-                // 刷新统计
-                const statsRes = await apiKeyApi.getUsage(currentApiKey.id, poolGroupName);
+                message.success('分配记录已重置');
+                const statsRes = await apiKeyApi.getAllocationStats(currentApiKey.id, poolGroupName);
                 if (statsRes.code === 200) {
                     setPoolStats(statsRes.data);
                 }
@@ -427,14 +426,13 @@ const ApiKeysPage = () => {
         }
     };
 
-    // 打开邮箱管理弹窗
     const handleManageEmails = useCallback(async (record: ApiKey) => {
         setCurrentApiKey(record);
         setEmailGroupId(undefined);
         setEmailModalVisible(true);
         setEmailLoading(true);
         try {
-            const res = await apiKeyApi.getPoolEmails<PoolEmailItem>(record.id);
+            const res = await apiKeyApi.getAssignedMailboxes<PoolEmailItem>(record.id);
             if (res.code === 200) {
                 const emails = res.data;
                 setEmailList(emails);
@@ -442,7 +440,7 @@ const ApiKeysPage = () => {
                 setEmailKeyword('');
             }
         } catch {
-            message.error('获取邮箱列表失败');
+            message.error('获取资源邮箱列表失败');
         } finally {
             setEmailLoading(false);
         }
@@ -453,7 +451,7 @@ const ApiKeysPage = () => {
         if (!currentApiKey) return;
         setEmailLoading(true);
         try {
-            const res = await apiKeyApi.getPoolEmails<PoolEmailItem>(currentApiKey.id, groupId);
+            const res = await apiKeyApi.getAssignedMailboxes<PoolEmailItem>(currentApiKey.id, groupId);
             if (res.code === 200) {
                 const emails = res.data;
                 setEmailList(emails);
@@ -461,23 +459,21 @@ const ApiKeysPage = () => {
                 setEmailKeyword('');
             }
         } catch {
-            message.error('获取邮箱列表失败');
+            message.error('获取资源邮箱列表失败');
         } finally {
             setEmailLoading(false);
         }
     }, [currentApiKey, extractUsedEmailIds]);
 
-    // 保存邮箱选择
     const handleSaveEmails = async () => {
         if (!currentApiKey) return;
         setSavingEmails(true);
         try {
-            const res = await apiKeyApi.updatePoolEmails(currentApiKey.id, selectedEmails, emailGroupId);
+            const res = await apiKeyApi.updateAssignedMailboxes(currentApiKey.id, selectedEmails, emailGroupId);
             if (res.code === 200) {
-                message.success(`已保存，共 ${res.data.count} 个邮箱`);
+                message.success(`已保存，共 ${res.data.count} 个资源邮箱`);
                 setEmailModalVisible(false);
-                // 刷新统计
-                const statsRes = await apiKeyApi.getUsage(currentApiKey.id);
+                const statsRes = await apiKeyApi.getAllocationStats(currentApiKey.id);
                 if (statsRes.code === 200) {
                     setPoolStats(statsRes.data);
                 }
@@ -504,7 +500,7 @@ const ApiKeysPage = () => {
             ),
         },
         {
-            title: 'Key 前缀',
+            title: '密钥前缀',
             dataIndex: 'keyPrefix',
             key: 'keyPrefix',
             width: 120,
@@ -563,14 +559,14 @@ const ApiKeysPage = () => {
             width: 180,
             render: (_, record) => (
                 <Space size="small">
-                    <Tooltip title="邮箱池">
+                    <Tooltip title="分配统计">
                         <Button
                             type="text"
                             icon={<DatabaseOutlined />}
                             onClick={() => handleViewPool(record)}
                         />
                     </Tooltip>
-                    <Tooltip title="管理邮箱">
+                    <Tooltip title="管理资源邮箱">
                         <Button
                             type="text"
                             icon={<ThunderboltOutlined />}
@@ -586,7 +582,7 @@ const ApiKeysPage = () => {
                     </Tooltip>
                     <Tooltip title="删除">
                         <Popconfirm
-                            title="确定要删除此 API Key 吗？"
+                            title="确定要删除此访问密钥吗？"
                             onConfirm={() => handleDelete(record.id)}
                         >
                             <Button type="text" danger icon={<DeleteOutlined />} />
@@ -689,14 +685,14 @@ const ApiKeysPage = () => {
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <Title level={4} style={{ margin: 0 }}>
-                    API Key 管理
+                    访问密钥与资源范围
                 </Title>
                 <Space>
                     <Button icon={<ReloadOutlined />} onClick={fetchData}>
                         刷新
                     </Button>
                     <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-                        创建 API Key
+                        创建访问密钥
                     </Button>
                 </Space>
             </div>
@@ -713,7 +709,7 @@ const ApiKeysPage = () => {
 
             {/* 创建/编辑弹窗 */}
             <Modal
-                title={editingId ? '编辑 API Key' : '创建 API Key'}
+                title={editingId ? '编辑访问密钥' : '创建访问密钥'}
                 open={modalVisible}
                 onOk={handleSubmit}
                 onCancel={() => setModalVisible(false)}
@@ -783,8 +779,8 @@ const ApiKeysPage = () => {
                     </Form.Item>
                     <Form.Item
                         name="allowedEmailIds"
-                        label="可用邮箱（可选）"
-                        tooltip="不选择表示使用分组范围内全部邮箱"
+                        label="可分配邮箱（可选）"
+                        tooltip="不选择表示使用分组范围内全部邮箱资源"
                     >
                         <Select
                             mode="multiple"
@@ -799,7 +795,7 @@ const ApiKeysPage = () => {
                     <Form.Item
                         name="allowedDomainIds"
                         label="可用域名邮箱域名（可选）"
-                        tooltip="用于新的域名邮箱 API Key 接口，不选择表示不限制域名范围"
+                        tooltip="用于域名邮箱自动化接口；不选择表示不限制域名范围"
                     >
                         <Select
                             mode="multiple"
@@ -819,7 +815,7 @@ const ApiKeysPage = () => {
 
             {/* 新建 Key 显示弹窗 */}
             <Modal
-                title="API Key 已创建"
+                title="访问密钥已创建"
                 open={newKeyModalVisible}
                 onOk={() => setNewKeyModalVisible(false)}
                 onCancel={() => setNewKeyModalVisible(false)}
@@ -832,7 +828,7 @@ const ApiKeysPage = () => {
             >
                 <Card>
                     <Text type="warning" style={{ display: 'block', marginBottom: 16 }}>
-                        ⚠️ 请立即复制并妥善保存此 API Key，它不会再次显示！
+                        ⚠️ 请立即复制并妥善保存此访问密钥，它不会再次显示！
                     </Text>
                     <Paragraph
                         copyable={{
@@ -852,13 +848,12 @@ const ApiKeysPage = () => {
                 </Card>
             </Modal>
 
-            {/* 邮箱池弹窗 */}
             {poolModalVisible && (
                 <Modal
                     title={
                         <Space>
                             <DatabaseOutlined />
-                            <span>邮箱池管理 - {currentApiKey?.name}</span>
+                            <span>分配统计 - {currentApiKey?.name}</span>
                         </Space>
                     }
                     open={poolModalVisible}
@@ -886,7 +881,7 @@ const ApiKeysPage = () => {
                                 <Col span={8}>
                                     <div className="stat-blue">
                                         <Statistic
-                                            title="总邮箱数"
+                                            title="总资源数"
                                             value={poolStats.total}
                                         />
                                     </div>
@@ -894,7 +889,7 @@ const ApiKeysPage = () => {
                                 <Col span={8}>
                                     <div className="stat-orange">
                                         <Statistic
-                                            title="已使用"
+                                            title="已分配"
                                             value={poolStats.used}
                                         />
                                     </div>
@@ -902,7 +897,7 @@ const ApiKeysPage = () => {
                                 <Col span={8}>
                                     <div className={poolStats.remaining > 0 ? 'stat-green' : 'stat-red'}>
                                         <Statistic
-                                            title="剩余可用"
+                                            title="剩余可分配"
                                             value={poolStats.remaining}
                                         />
                                     </div>
@@ -917,7 +912,7 @@ const ApiKeysPage = () => {
 
                             <div style={{ marginBottom: 24 }}>
                                 <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                                    使用进度
+                                    分配进度
                                 </Text>
                                 <Progress
                                     percent={poolStats.total > 0 ? Math.round((poolStats.used / poolStats.total) * 100) : 0}
@@ -933,11 +928,11 @@ const ApiKeysPage = () => {
 
                             <div style={{ textAlign: 'center' }}>
                                 <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                                    重置后，此 API Key 可重新使用所有邮箱
+                                    重置后，此访问密钥会清空当前分配记录，可重新分配邮箱资源
                                 </Text>
                                 <Popconfirm
-                                    title="确定要重置邮箱池吗？"
-                                    description={poolGroupName ? `仅重置分组 "${poolGroupName}" 的使用记录` : '重置后该 API Key 可重新使用所有邮箱'}
+                                    title="确定要重置分配记录吗？"
+                                    description={poolGroupName ? `仅重置分组 "${poolGroupName}" 的分配记录` : '重置后该访问密钥可重新分配所有邮箱资源'}
                                     onConfirm={handleResetPool}
                                 >
                                     <Button
@@ -945,7 +940,7 @@ const ApiKeysPage = () => {
                                         danger
                                         icon={<ThunderboltOutlined />}
                                     >
-                                        重置邮箱池
+                                        重置分配记录
                                     </Button>
                                 </Popconfirm>
                             </div>
@@ -958,13 +953,12 @@ const ApiKeysPage = () => {
                 </Modal>
             )}
 
-            {/* 邮箱管理弹窗 */}
             {emailModalVisible && (
                 <Modal
                     title={
                         <Space>
                             <ThunderboltOutlined />
-                            <span>管理邮箱 - {currentApiKey?.name}</span>
+                            <span>资源邮箱范围 - {currentApiKey?.name}</span>
                         </Space>
                     }
                     open={emailModalVisible}
@@ -1006,7 +1000,7 @@ const ApiKeysPage = () => {
                             </div>
                             <div style={{ marginBottom: 16 }}>
                                 <Text type="secondary">
-                                    勾选的邮箱表示该 API Key 已使用过（不会再自动分配）
+                                    勾选的邮箱表示该访问密钥已占用这些邮箱资源，自动分配时会跳过它们
                                 </Text>
                             </div>
                             <div style={{ marginBottom: 16 }}>

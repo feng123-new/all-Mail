@@ -71,6 +71,32 @@ const MAIL_FETCH_STRATEGY_LABELS: Record<MailFetchStrategy, string> = {
     IMAP_ONLY: '仅 IMAP',
 };
 
+type EmailAccountStatus = EmailAccount['status'];
+
+const EMAIL_STATUS_FILTER_OPTIONS: Array<{ value: EmailAccountStatus; label: string }> = [
+    { value: 'ACTIVE', label: '正常' },
+    { value: 'ERROR', label: '异常' },
+    { value: 'DISABLED', label: '禁用' },
+];
+
+function parseEmailStatus(value: string | null | undefined): EmailAccountStatus | undefined {
+    if (!value) {
+        return undefined;
+    }
+    const normalized = value.toUpperCase();
+    return normalized === 'ACTIVE' || normalized === 'ERROR' || normalized === 'DISABLED'
+        ? normalized
+        : undefined;
+}
+
+function parsePositiveInt(value: string | null | undefined): number | undefined {
+    if (!value) {
+        return undefined;
+    }
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 const renderCenteredColumnTitle = (label: string) => <div style={{ textAlign: 'center' }}>{label}</div>;
 const centeredHeaderCell = () => ({ style: { textAlign: 'center' as const } });
 
@@ -240,7 +266,7 @@ interface OAuthAuthorizationStatusResult {
 }
 
 const DEFAULT_GOOGLE_OAUTH_SCOPES = 'openid email profile https://www.googleapis.com/auth/gmail.modify https://mail.google.com/';
-const DEFAULT_OUTLOOK_OAUTH_SCOPES = 'offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://outlook.office.com/IMAP.AccessAsUser.All https://graph.microsoft.com/Contacts.Read https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.Read https://graph.microsoft.com/MailboxSettings.ReadWrite';
+const DEFAULT_OUTLOOK_OAUTH_SCOPES = 'offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.ReadWrite';
 const DEFAULT_OUTLOOK_OAUTH_TENANT = 'consumers';
 
 const EMPTY_OAUTH_PROVIDER_STATUS: OAuthProviderStatus = {
@@ -272,6 +298,9 @@ const getOutlookOAuthFormDefaults = (status: OAuthProviderStatus) => ({
 const EmailsPage: FC = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
+    const initialKeyword = searchParams.get('keyword')?.trim() || '';
+    const initialFilterStatus = parseEmailStatus(searchParams.get('status'));
+    const initialFocusedEmailId = parsePositiveInt(searchParams.get('emailId'));
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<EmailAccount[]>([]);
     const [total, setTotal] = useState(0);
@@ -282,10 +311,12 @@ const EmailsPage: FC = () => {
     const [importModalVisible, setImportModalVisible] = useState(false);
     const [mailModalVisible, setMailModalVisible] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
-    const [keyword, setKeyword] = useState('');
-    const [debouncedKeyword, setDebouncedKeyword] = useState('');
+    const [keyword, setKeyword] = useState(initialKeyword);
+    const [debouncedKeyword, setDebouncedKeyword] = useState(initialKeyword);
     const [filterGroupId, setFilterGroupId] = useState<number | undefined>(undefined);
     const [filterProvider, setFilterProvider] = useState<EmailProvider | undefined>(undefined);
+    const [filterStatus, setFilterStatus] = useState<EmailAccountStatus | undefined>(initialFilterStatus);
+    const [focusedEmailId, setFocusedEmailId] = useState<number | undefined>(initialFocusedEmailId);
     const [importContent, setImportContent] = useState('');
     const [separator, setSeparator] = useState('----');
     const [importGroupId, setImportGroupId] = useState<number | undefined>(undefined);
@@ -385,8 +416,9 @@ const EmailsPage: FC = () => {
             keyword: debouncedKeyword || undefined,
             groupId: filterGroupId,
             provider: filterProvider,
+            status: filterStatus,
         };
-    }, [debouncedKeyword, filterGroupId, filterProvider, selectedRowKeys]);
+    }, [debouncedKeyword, filterGroupId, filterProvider, filterStatus, selectedRowKeys]);
 
     const patchMailboxStatusForEmail = useCallback((emailId: number, mailbox: MailboxName, patch: Partial<MailboxState>) => {
         setData((prev) => prev.map((item) => {
@@ -479,9 +511,10 @@ const EmailsPage: FC = () => {
     const fetchData = useCallback(async () => {
         const currentRequestId = ++latestListRequestIdRef.current;
         setLoading(true);
-        const params: { page: number; pageSize: number; keyword: string; groupId?: number; provider?: EmailProvider } = { page, pageSize, keyword: debouncedKeyword };
+        const params: { page: number; pageSize: number; keyword: string; groupId?: number; provider?: EmailProvider; status?: EmailAccountStatus } = { page, pageSize, keyword: debouncedKeyword };
         if (filterGroupId !== undefined) params.groupId = filterGroupId;
         if (filterProvider !== undefined) params.provider = filterProvider;
+        if (filterStatus !== undefined) params.status = filterStatus;
 
         const result = await requestData<EmailListResult>(
             () => emailApi.getList(params),
@@ -498,7 +531,20 @@ const EmailsPage: FC = () => {
             setTotal(result.total);
         }
         setLoading(false);
-    }, [debouncedKeyword, filterGroupId, filterProvider, page, pageSize]);
+    }, [debouncedKeyword, filterGroupId, filterProvider, filterStatus, page, pageSize]);
+
+    useEffect(() => {
+        const nextKeyword = searchParams.get('keyword')?.trim() || '';
+        const nextStatus = parseEmailStatus(searchParams.get('status'));
+        const nextFocusedEmailId = parsePositiveInt(searchParams.get('emailId'));
+        setKeyword(nextKeyword);
+        setDebouncedKeyword(nextKeyword);
+        setFilterStatus(nextStatus);
+        setFocusedEmailId(nextFocusedEmailId);
+        if (nextKeyword || nextStatus || nextFocusedEmailId) {
+            setPage(1);
+        }
+    }, [searchParams]);
 
     const handleOAuthCompletionFeedback = useCallback((result: OAuthCompletionPayload) => {
         const label = result.provider === 'GMAIL' ? 'Gmail' : 'Outlook';
@@ -712,6 +758,11 @@ const EmailsPage: FC = () => {
             setEmailEditLoading(false);
         }
     }, [form, oauthProviderStatuses.GMAIL, oauthProviderStatuses.OUTLOOK, resetAllOAuthFlows]);
+
+    const focusedEmailRecord = useMemo(
+        () => (focusedEmailId ? data.find((item) => item.id === focusedEmailId) : undefined),
+        [data, focusedEmailId]
+    );
 
     const handleDelete = useCallback(async (id: number) => {
         try {
@@ -1732,7 +1783,7 @@ const EmailsPage: FC = () => {
     // ========================================
     return (
         <div>
-            <Title level={4} style={{ margin: '0 0 16px' }}>邮箱管理</Title>
+                <Title level={4} style={{ margin: '0 0 16px' }}>外部邮箱连接</Title>
             <Tabs
                 defaultActiveKey="emails"
                 animated={false}
@@ -1761,6 +1812,17 @@ const EmailsPage: FC = () => {
                                             options={EMAIL_PROVIDER_OPTIONS}
                                             onChange={(value: EmailProvider | undefined) => {
                                                 setFilterProvider(value);
+                                                setPage(1);
+                                            }}
+                                        />
+                                        <Select
+                                            placeholder="按状态筛选"
+                                            allowClear
+                                            style={{ width: 140 }}
+                                            value={filterStatus}
+                                            options={EMAIL_STATUS_FILTER_OPTIONS}
+                                            onChange={(value: EmailAccountStatus | undefined) => {
+                                                setFilterStatus(value);
                                                 setPage(1);
                                             }}
                                         />
@@ -1828,6 +1890,46 @@ const EmailsPage: FC = () => {
                                     message="收件箱 / 已发送按钮变红表示检测到新邮件；点开对应邮箱夹后会恢复默认颜色。"
                                     description={`批量操作默认作用于${getBatchActionScopeLabel()}。一键检查会同步检查收件箱、已发送和垃圾箱，并刷新“最后检查”时间；批量清空支持收件箱或垃圾箱。`}
                                 />
+
+                                {filterStatus === 'ERROR' ? (
+                                    <Alert
+                                        type={focusedEmailRecord ? 'error' : 'warning'}
+                                        showIcon
+                                        style={{ marginBottom: 16 }}
+                                        message={focusedEmailRecord ? `已定位异常邮箱：${focusedEmailRecord.email}` : '当前正在查看异常邮箱列表'}
+                                        description={focusedEmailRecord
+                                            ? `${focusedEmailRecord.errorMessage || '当前连接检查失败，建议重新检查或重新走 OAuth 授权。'}${focusedEmailRecord.lastCheckAt ? ` 最后检查：${dayjs(focusedEmailRecord.lastCheckAt).format('YYYY-MM-DD HH:mm:ss')}` : ''}`
+                                            : '这里会只显示 status=ERROR 的外部邮箱，适合集中排查 OAuth 续期、网络超时和 Provider 配置问题。'}
+                                        action={
+                                            <Space wrap>
+                                                {focusedEmailRecord ? (
+                                                    <Button
+                                                        size="small"
+                                                        icon={<ReloadOutlined />}
+                                                        loading={checkingEmailIds.includes(focusedEmailRecord.id)}
+                                                        onClick={() => void handleCheckSingleMailbox(focusedEmailRecord)}
+                                                    >
+                                                        重新检查
+                                                    </Button>
+                                                ) : null}
+                                                {focusedEmailRecord ? (
+                                                    <Button size="small" onClick={() => void handleEdit(focusedEmailRecord)}>
+                                                        查看配置
+                                                    </Button>
+                                                ) : null}
+                                                <Button
+                                                    size="small"
+                                                    onClick={() => {
+                                                        setFocusedEmailId(undefined);
+                                                        navigate('/emails', { replace: true });
+                                                    }}
+                                                >
+                                                    清除定位
+                                                </Button>
+                                            </Space>
+                                        }
+                                    />
+                                ) : null}
 
                                 <Table
                                     columns={columns}
@@ -1945,7 +2047,7 @@ const EmailsPage: FC = () => {
                                     <Input value="Microsoft OAuth" disabled />
                                 </Form.Item>
                                 <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-                                    使用 Microsoft OAuth 接入 Outlook / Microsoft 365，支持 Graph 读信与清空邮箱。
+                                    使用 Microsoft OAuth 接入 Outlook / Microsoft 365，默认按 Graph-only scopes 生成授权链接，覆盖读信、清空和发信能力。
                                 </Text>
                                 <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }} size="small">
                                     <div>
@@ -1987,7 +2089,11 @@ const EmailsPage: FC = () => {
                                 <Form.Item name="outlookOAuthTenant" label="Microsoft Tenant">
                                     <Input placeholder="consumers / common / tenant-id" />
                                 </Form.Item>
-                                <Form.Item name="outlookOAuthScopes" label="Microsoft OAuth Scopes">
+                                <Form.Item
+                                    name="outlookOAuthScopes"
+                                    label="Microsoft OAuth Scopes"
+                                    extra="默认值只包含 Microsoft Graph scopes。`https://outlook.office.com/IMAP.AccessAsUser.All` 属于另一个资源，不能和 Graph scopes 混在同一次授权请求里；如需 IMAP OAuth，请单独申请。"
+                                >
                                     <TextArea rows={3} placeholder={DEFAULT_OUTLOOK_OAUTH_SCOPES} />
                                 </Form.Item>
                                 <Space wrap style={{ marginBottom: 12 }}>

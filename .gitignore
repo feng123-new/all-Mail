@@ -61,3 +61,5 @@ cloudflare/workers/allmail-edge/.wrangler/
 # Local operator artifacts
 cloudflare/state/
 cloudflare/screenshots/
+local-backups/
+docs/screenshots/

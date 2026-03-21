@@ -27,10 +27,10 @@ cp oauth-temp/config.example.env oauth-temp/config.env
 - `CLIENT_SECRET`
 - `REDIRECT_URI`
 
-默认值提供一套可重复的公开示例组合：
+默认值提供一套可重复的公开示例组合（Graph-only 默认授权）：
 
 - `TENANT=consumers`
-- `SCOPES=offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://outlook.office.com/IMAP.AccessAsUser.All https://graph.microsoft.com/Contacts.Read https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.Read https://graph.microsoft.com/MailboxSettings.ReadWrite`
+- `SCOPES=offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.ReadWrite`
 - `SEPARATOR=----`
 
 如果脚本无法从 `id_token` 推断邮箱地址，再补 `ACCOUNT_EMAIL=你的邮箱地址`。
@@ -76,7 +76,7 @@ ALLOW_TARGET_ID_REPLACE=true
 3. 提示你粘贴浏览器最后跳转的完整回调 URL
 4. 自动完成：
    - 授权码兑换 token
-   - 为 Graph 邮件、联系人、日历、邮箱设置与 Outlook IMAP 一次性完成 consent
+   - 为 Graph 邮件、联系人、日历、邮箱设置完成 consent
    - 验证旧逻辑（不带 `client_secret`）为何失败
    - 验证修复后逻辑（带 `client_secret`）是否刷新成功
    - 尝试 IMAP XOAUTH2 登录
@@ -153,19 +153,20 @@ example@outlook.com----00000000-0000-0000-0000-000000000000----secret-value----o
 - 支持个人 Microsoft 账号
 - Redirect URI 与 `config.env` 中的 `REDIRECT_URI` 完全一致
 - 使用 `consumers`（或你自行改成 `common`，但两边必须一致）
-- IMAP scope 必须包含：
-  - `https://outlook.office.com/IMAP.AccessAsUser.All`
-  - `offline_access`
 - Graph scope 默认包含：
   - `https://graph.microsoft.com/User.Read`
   - `https://graph.microsoft.com/Mail.ReadWrite`
   - `https://graph.microsoft.com/Mail.Send`
-  - `https://graph.microsoft.com/Contacts.Read`
   - `https://graph.microsoft.com/Contacts.ReadWrite`
-  - `https://graph.microsoft.com/Calendars.Read`
   - `https://graph.microsoft.com/Calendars.ReadWrite`
-  - `https://graph.microsoft.com/MailboxSettings.Read`
   - `https://graph.microsoft.com/MailboxSettings.ReadWrite`
+- 如果你要走 Outlook IMAP OAuth，单独使用：
+  - `offline_access`
+  - `openid`
+  - `profile`
+  - `email`
+  - `https://outlook.office.com/IMAP.AccessAsUser.All`
+- 不要把 `https://outlook.office.com/IMAP.AccessAsUser.All` 和 `https://graph.microsoft.com/*` scopes 混到同一次授权请求里
 - 如果是 Web / 机密客户端：
   - 授权码兑换必须带 `client_secret`
   - refresh token 换 access token 也必须带 `client_secret`
@@ -191,16 +192,18 @@ http://localhost:8765/callback?code=...&state=...
 
 对于 Web / 机密客户端，微软会返回 `401 invalid_client`。本仓库已修复为可选带 `client_secret`。
 
-### 3. 为什么现在默认把 `Mail.ReadWrite` / `Mail.Send` 也加进 scope
+### 3. 为什么现在默认是 Graph-only scopes
 
-all-Mail 现在不仅要通过 Graph API 拉信，还支持 Outlook 账号直接发信，并且为了避免以后再因为联系人、日历、邮箱设置功能扩展而重复重授权，默认会把这几组常用 Outlook 能力一起申请。
+all-Mail 默认要解决的是 Outlook 账号的 Graph 读信、清空、发信，以及后续联系人、日历、邮箱设置扩展能力，所以默认会把这几组 **Microsoft Graph** scope 一起申请。
 
-如果授权时只有部分旧 scope，常见问题会变成：
+如果授权时只有部分 Graph scope，常见问题会变成：
 
 - 只能读信，不能发信（缺 `Mail.Send`）
 - Graph 读取或清空邮箱能力不完整（缺 `Mail.ReadWrite`）
 - `/me` 资料探测不完整（缺 `User.Read`）
-- UI 选择 Graph / IMAP fallback 时权限不对齐（缺 `IMAP.AccessAsUser.All`）
+- Graph 相关扩展能力不完整（缺联系人 / 日历 / MailboxSettings 写权限）
+
+而 `https://outlook.office.com/IMAP.AccessAsUser.All` 属于另一个资源，不能和 `https://graph.microsoft.com/*` scope 放进同一个 OAuth 请求。混用时会触发 Microsoft 的 scope 兼容性错误。
 
 因此脚本默认会一起完成：
 
@@ -211,13 +214,9 @@ all-Mail 现在不仅要通过 Graph API 拉信，还支持 Outlook 账号直接
 - `https://graph.microsoft.com/User.Read`
 - `https://graph.microsoft.com/Mail.ReadWrite`
 - `https://graph.microsoft.com/Mail.Send`
-- `https://graph.microsoft.com/Contacts.Read`
 - `https://graph.microsoft.com/Contacts.ReadWrite`
-- `https://graph.microsoft.com/Calendars.Read`
 - `https://graph.microsoft.com/Calendars.ReadWrite`
-- `https://graph.microsoft.com/MailboxSettings.Read`
 - `https://graph.microsoft.com/MailboxSettings.ReadWrite`
-- `https://outlook.office.com/IMAP.AccessAsUser.All`
 
 对应理由可以直接理解为：
 
@@ -226,8 +225,13 @@ all-Mail 现在不仅要通过 Graph API 拉信，还支持 Outlook 账号直接
 - `User.Read`：读取 `/me` 基础信息，确认当前授权的是哪一个 Outlook 账号
 - `Mail.ReadWrite`：保证邮件读取、列表同步、清空等 Graph 邮件能力完整
 - `Mail.Send`：保证 Outlook 账号可直接发信
-- `IMAP.AccessAsUser.All`：保留 IMAP 回退链路，和当前 Graph / IMAP 双通道策略一致
-- `Contacts.* / Calendars.* / MailboxSettings.*`：为联系人、日历、邮箱设置相关扩展预留，减少后续重新授权
+- `Contacts.ReadWrite / Calendars.ReadWrite / MailboxSettings.ReadWrite`：为联系人、日历、邮箱设置相关扩展预留，减少后续重新授权
+
+如果你要专门调试 IMAP OAuth，请把 `SCOPES=` 改成单独的 IMAP 集合，例如：
+
+```text
+offline_access openid profile email https://outlook.office.com/IMAP.AccessAsUser.All
+```
 
 如果你想按自己产品的最小权限模型收缩 scope，可以改 `SCOPES=`，但相应功能也会一起收缩。
 

@@ -2,8 +2,31 @@ import { MAIL_LOG_ACTIONS } from '../modules/mail/mail.actions.js';
 
 export type ApiPermissions = Record<string, boolean>;
 
+const LEGACY_PERMISSION_ALIASES: Record<string, string> = {
+    get_email: MAIL_LOG_ACTIONS.GET_EMAIL,
+    mail_new: MAIL_LOG_ACTIONS.MAIL_NEW,
+    mail_text: MAIL_LOG_ACTIONS.MAIL_TEXT,
+    mail_all: MAIL_LOG_ACTIONS.MAIL_ALL,
+    process_mailbox: MAIL_LOG_ACTIONS.PROCESS_MAILBOX,
+    list_emails: MAIL_LOG_ACTIONS.LIST_EMAILS,
+    pool_stats: MAIL_LOG_ACTIONS.POOL_STATS,
+    pool_reset: MAIL_LOG_ACTIONS.POOL_RESET,
+    domain_get_mailbox: MAIL_LOG_ACTIONS.DOMAIN_GET_MAILBOX,
+    domain_mail_new: MAIL_LOG_ACTIONS.DOMAIN_MAIL_NEW,
+    domain_mail_text: MAIL_LOG_ACTIONS.DOMAIN_MAIL_TEXT,
+    domain_mail_all: MAIL_LOG_ACTIONS.DOMAIN_MAIL_ALL,
+    domain_list_mailboxes: MAIL_LOG_ACTIONS.DOMAIN_LIST_MAILBOXES,
+    domain_pool_stats: MAIL_LOG_ACTIONS.DOMAIN_POOL_STATS,
+    domain_pool_reset: MAIL_LOG_ACTIONS.DOMAIN_POOL_RESET,
+};
+
+function resolvePermissionAlias(key: string): string {
+    const normalizedKey = key.trim().toLowerCase().replace(/-/g, '_');
+    return LEGACY_PERMISSION_ALIASES[normalizedKey] ?? normalizedKey;
+}
+
 export function normalizeApiPermissionKey(key: string): string {
-    return key.trim().toLowerCase().replace(/-/g, '_');
+    return resolvePermissionAlias(key);
 }
 
 const ALLOWED_ACTION_KEYS = new Set(

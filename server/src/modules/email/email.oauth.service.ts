@@ -15,7 +15,7 @@ const MICROSOFT_GRAPH_ME_URL = 'https://graph.microsoft.com/v1.0/me?$select=mail
 const OAUTH_STATE_TTL_SECONDS = 10 * 60;
 const OAUTH_RESULT_TTL_SECONDS = 15 * 60;
 const GOOGLE_DEFAULT_SCOPES = 'openid email profile https://www.googleapis.com/auth/gmail.modify https://mail.google.com/';
-const MICROSOFT_DEFAULT_SCOPES = 'offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://outlook.office.com/IMAP.AccessAsUser.All https://graph.microsoft.com/Contacts.Read https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.Read https://graph.microsoft.com/MailboxSettings.ReadWrite';
+const MICROSOFT_DEFAULT_SCOPES = 'offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.ReadWrite';
 
 type OAuthProvider = 'GMAIL' | 'OUTLOOK';
 type OAuthResultStatus = 'success' | 'warning' | 'error';

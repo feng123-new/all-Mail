@@ -6,4 +6,8 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
-- Initial open-source hygiene cleanup
+- hardened production dependency tree and reduced `npm audit --omit=dev` to zero known vulnerabilities across `web`, `server`, and `cloudflare/workers/allmail-edge`
+- upgraded core runtime packages including `axios`, `react-router-dom`, `fastify`, `mailparser`, `nodemailer`, `undici`, `prisma`, and `@prisma/client`
+- added safe public screenshots for dashboard and Outlook OAuth setup to improve repository presentation
+- documented publish-readiness and open-source release closure guidance in the main README
+- made backend static asset registration degrade gracefully when local `public/` assets are absent during tests or non-Docker runtimes

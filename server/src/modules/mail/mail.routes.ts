@@ -1,4 +1,4 @@
-import { type FastifyPluginAsync } from 'fastify';
+import { type FastifyPluginAsync, type FastifyReply, type FastifyRequest } from 'fastify';
 import { mailService } from './mail.service.js';
 import { poolService } from './pool.service.js';
 import { emailService } from '../email/email.service.js';
@@ -55,6 +55,17 @@ function getGroupNameFromRequest(method: string, query: unknown, body: unknown):
 
 const MAX_LIST_PAGE_SIZE = 100;
 
+const EXTERNAL_ROUTE_PATHS = {
+    allocate: ['/mailboxes/allocate', '/get-email'],
+    latestMessage: ['/messages/latest', '/mail_new'],
+    messageText: ['/messages/text', '/mail_text'],
+    listMessages: ['/messages', '/mail_all'],
+    clearMailbox: ['/mailboxes/clear', '/process-mailbox'],
+    listMailboxes: ['/mailboxes', '/list-emails'],
+    allocationStats: ['/mailboxes/allocation-stats', '/pool-stats'],
+    resetAllocation: ['/mailboxes/allocation-reset', '/reset-pool'],
+} as const;
+
 async function fetchAllActiveEmails(groupName?: string) {
     let page = 1;
     let total = 0;
@@ -82,7 +93,7 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
     // ========================================
     // 新增：获取一个未使用的邮箱地址 (带重试机制)
     // ========================================
-    fastify.all('/get-email', async (request) => {
+    const allocateExternalMailbox = async (request: FastifyRequest) => {
         const startTime = Date.now();
         try {
             if (!request.apiKey?.id) {
@@ -143,12 +154,15 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
             );
             throw err;
         }
-    });
+    };
+    for (const path of EXTERNAL_ROUTE_PATHS.allocate) {
+        fastify.all(path, allocateExternalMailbox);
+    }
 
     // ========================================
     // 获取最新邮件（必须指定 email）
     // ========================================
-    fastify.all('/mail_new', async (request) => {
+    const readLatestExternalMessage = async (request: FastifyRequest) => {
         const startTime = Date.now();
         const input = mailRequestSchema.parse(
             request.method === 'GET' ? request.query : request.body
@@ -216,12 +230,15 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
             );
             throw err;
         }
-    });
+    };
+    for (const path of EXTERNAL_ROUTE_PATHS.latestMessage) {
+        fastify.all(path, readLatestExternalMessage);
+    }
 
     // ========================================
     // 新增：获取最新邮件的纯文本内容 (脚本友好)
     // ========================================
-    fastify.all('/mail_text', async (request, reply) => {
+    const readExternalMessageText = async (request: FastifyRequest, reply: FastifyReply) => {
         const startTime = Date.now();
         const input = mailTextRequestSchema.parse(
             request.method === 'GET' ? request.query : request.body
@@ -322,12 +339,15 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
             );
             reply.code(500).type('text/plain').send(`Error: ${getErrorMessage(err)}`);
         }
-    });
+    };
+    for (const path of EXTERNAL_ROUTE_PATHS.messageText) {
+        fastify.all(path, readExternalMessageText);
+    }
 
     // ========================================
     // 获取所有邮件（必须指定 email）
     // ========================================
-    fastify.all('/mail_all', async (request) => {
+    const listExternalMessages = async (request: FastifyRequest) => {
         const startTime = Date.now();
         const input = mailRequestSchema.parse(
             request.method === 'GET' ? request.query : request.body
@@ -393,12 +413,15 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
             );
             throw err;
         }
-    });
+    };
+    for (const path of EXTERNAL_ROUTE_PATHS.listMessages) {
+        fastify.all(path, listExternalMessages);
+    }
 
     // ========================================
     // 清空邮箱（必须指定 email）
     // ========================================
-    fastify.all('/process-mailbox', async (request) => {
+    const clearExternalMailbox = async (request: FastifyRequest) => {
         const startTime = Date.now();
         const input = mailRequestSchema.parse(
             request.method === 'GET' ? request.query : request.body
@@ -457,12 +480,15 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
             );
             throw err;
         }
-    });
+    };
+    for (const path of EXTERNAL_ROUTE_PATHS.clearMailbox) {
+        fastify.all(path, clearExternalMailbox);
+    }
 
     // ========================================
     // 列出系统 ACTIVE 邮箱（支持分组过滤）
     // ========================================
-    fastify.all('/list-emails', async (request) => {
+    const listExternalMailboxes = async (request: FastifyRequest) => {
         const startTime = Date.now();
         try {
             if (!request.apiKey?.id) {
@@ -520,12 +546,15 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
             );
             throw err;
         }
-    });
+    };
+    for (const path of EXTERNAL_ROUTE_PATHS.listMailboxes) {
+        fastify.all(path, listExternalMailboxes);
+    }
 
     // ========================================
     // 邮箱池统计（支持分组过滤）
     // ========================================
-    fastify.all('/pool-stats', async (request) => {
+    const getExternalMailboxAllocationStats = async (request: FastifyRequest) => {
         const startTime = Date.now();
         try {
             if (!request.apiKey?.id) {
@@ -558,12 +587,15 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
             );
             throw err;
         }
-    });
+    };
+    for (const path of EXTERNAL_ROUTE_PATHS.allocationStats) {
+        fastify.all(path, getExternalMailboxAllocationStats);
+    }
 
     // ========================================
     // 重置邮箱池（支持分组过滤）
     // ========================================
-    fastify.all('/reset-pool', async (request) => {
+    const resetExternalMailboxAllocation = async (request: FastifyRequest) => {
         const startTime = Date.now();
         try {
             if (!request.apiKey?.id) {
@@ -596,7 +628,10 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
             );
             throw err;
         }
-    });
+    };
+    for (const path of EXTERNAL_ROUTE_PATHS.resetAllocation) {
+        fastify.all(path, resetExternalMailboxAllocation);
+    }
 };
 
 export default mailRoutes;

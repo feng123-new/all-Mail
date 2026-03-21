@@ -1,4 +1,4 @@
-import { type FastifyPluginAsync } from 'fastify';
+import { type FastifyPluginAsync, type FastifyRequest } from 'fastify';
 import { apiKeyService } from './apiKey.service.js';
 import { poolService } from '../mail/pool.service.js';
 import { createApiKeySchema, updateApiKeySchema, listApiKeySchema } from './apiKey.schema.js';
@@ -7,6 +7,10 @@ import { z } from 'zod';
 const apiKeyRoutes: FastifyPluginAsync = async (fastify) => {
     // 所有路由需要 JWT 认证
     fastify.addHook('preHandler', fastify.authenticateJwt);
+
+    const allocationStatsPaths = ['/:id/allocation-stats', '/:id/usage'];
+    const allocationResetPaths = ['/:id/allocation-reset', '/:id/reset-pool'];
+    const assignedMailboxPaths = ['/:id/assigned-mailboxes', '/:id/pool-emails'];
 
     // 列表
     fastify.get('/', async (request) => {
@@ -30,21 +34,25 @@ const apiKeyRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     // 使用统计（调用次数）
-    fastify.get('/:id/usage', async (request) => {
+    const getAllocationStats = async (request: FastifyRequest) => {
         const { id } = request.params as { id: string };
         const { group } = request.query as { group?: string };
-        // 获取邮箱池统计
         const poolStats = await poolService.getStats(parseInt(id), group);
         return { success: true, data: poolStats };
-    });
+    };
+    for (const path of allocationStatsPaths) {
+        fastify.get(path, getAllocationStats);
+    }
 
-    // 重置邮箱池
-    fastify.post('/:id/reset-pool', async (request) => {
+    const resetAllocation = async (request: FastifyRequest) => {
         const { id } = request.params as { id: string };
         const { group } = request.body as { group?: string };
         await poolService.reset(parseInt(id), group);
-        return { success: true, data: { message: '邮箱池已重置' } };
-    });
+        return { success: true, data: { message: '分配记录已重置' } };
+    };
+    for (const path of allocationResetPaths) {
+        fastify.post(path, resetAllocation);
+    }
 
     // 更新
     fastify.put('/:id', async (request) => {
@@ -61,16 +69,17 @@ const apiKeyRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: { message: 'API Key deleted' } };
     });
 
-    // 获取邮箱列表及使用状态
-    fastify.get('/:id/pool-emails', async (request) => {
+    const getAssignedMailboxes = async (request: FastifyRequest) => {
         const { id } = request.params as { id: string };
         const { groupId } = request.query as { groupId?: string };
         const emails = await poolService.getEmailsWithUsage(parseInt(id), groupId ? parseInt(groupId) : undefined);
         return { success: true, data: emails };
-    });
+    };
+    for (const path of assignedMailboxPaths) {
+        fastify.get(path, getAssignedMailboxes);
+    }
 
-    // 更新邮箱使用状态
-    fastify.put('/:id/pool-emails', async (request) => {
+    const updateAssignedMailboxes = async (request: FastifyRequest) => {
         const { id } = request.params as { id: string };
         const input = z.object({
             emailIds: z.array(z.number().int().positive()).default([]),
@@ -78,8 +87,10 @@ const apiKeyRoutes: FastifyPluginAsync = async (fastify) => {
         }).parse(request.body);
         const result = await poolService.updateEmailUsage(parseInt(id), input.emailIds, input.groupId);
         return { success: true, data: result };
-    });
+    };
+    for (const path of assignedMailboxPaths) {
+        fastify.put(path, updateAssignedMailboxes);
+    }
 };
 
 export default apiKeyRoutes;
-

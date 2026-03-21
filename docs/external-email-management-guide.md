@@ -40,21 +40,17 @@
 
 如果老账号缺少 `Mail.Send` scope，重新走一次 Outlook OAuth 授权即可。
 
-#### Outlook 默认 scopes 为什么开这么多
+#### Outlook 默认 scopes 为什么现在改成 Graph-only
 
-all-Mail 当前默认会申请下面这组 Outlook scopes：
+all-Mail 当前默认会申请下面这组 **Microsoft Graph** scopes：
 
 ```text
 offline_access openid profile email
 https://graph.microsoft.com/User.Read
 https://graph.microsoft.com/Mail.ReadWrite
 https://graph.microsoft.com/Mail.Send
-https://outlook.office.com/IMAP.AccessAsUser.All
-https://graph.microsoft.com/Contacts.Read
 https://graph.microsoft.com/Contacts.ReadWrite
-https://graph.microsoft.com/Calendars.Read
 https://graph.microsoft.com/Calendars.ReadWrite
-https://graph.microsoft.com/MailboxSettings.Read
 https://graph.microsoft.com/MailboxSettings.ReadWrite
 ```
 
@@ -65,14 +61,20 @@ https://graph.microsoft.com/MailboxSettings.ReadWrite
 - `User.Read`：读取 `/me` 基础信息，校验当前 Outlook 账号归属
 - `Mail.ReadWrite`：读取和管理邮件内容
 - `Mail.Send`：支持直接发信
-- `IMAP.AccessAsUser.All`：让 Outlook 账号既能走 Graph，也能在需要时走 IMAP 回退
-- `Contacts.Read / Contacts.ReadWrite`：给联系人同步、自动补全等能力预留
-- `Calendars.Read / Calendars.ReadWrite`：给日历/会议能力预留
-- `MailboxSettings.Read / MailboxSettings.ReadWrite`：给邮箱设置、自动回复、时区等能力预留
+- `Contacts.ReadWrite`：给联系人同步、自动补全等能力预留
+- `Calendars.ReadWrite`：给日历/会议能力预留
+- `MailboxSettings.ReadWrite`：给邮箱设置、自动回复、时区等能力预留
 
-设计原因很简单：一次授权尽量覆盖已实现能力和明确会继续扩展的周边能力，减少“功能刚上线，又要让用户补一次授权”的情况。
+`https://outlook.office.com/IMAP.AccessAsUser.All` **不再出现在同一个默认 scope 字符串里**，因为它和 `https://graph.microsoft.com/*` 不属于同一个资源；把两类资源混到一次授权请求里，会触发 Microsoft 的 scope 兼容性错误。
 
-如果你希望最小化权限，也可以改小 `MICROSOFT_OAUTH_SCOPES`，但要自己接受相应能力被关闭或重新授权的代价。
+如果你确实要用 Outlook IMAP OAuth，请单独申请：
+
+```text
+offline_access openid profile email
+https://outlook.office.com/IMAP.AccessAsUser.All
+```
+
+不要把这条 IMAP scope 和上面的 Graph scopes 混在同一次授权请求里。
 
 ## 4. 后台操作路径
 
