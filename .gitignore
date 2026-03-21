@@ -13,6 +13,8 @@ public/
 .env
 .env.*
 !.env.example
+!.env.basic.example
+!.env.cloudflare.example
 
 # Logs
 *.log
