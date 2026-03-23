@@ -9,8 +9,10 @@ if [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
     printf '%s\n' "Generated bootstrap secrets in ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE}"
     case ",${ALL_MAIL_GENERATED_SECRETS}," in
         *,ADMIN_PASSWORD,*)
-            printf '%s\n' "Generated bootstrap admin password for ${ADMIN_USERNAME:-admin}: ${ADMIN_PASSWORD}"
-            printf '%s\n' 'Change this password after the first successful admin login.'
+            printf '%s\n' "Temporary admin password for ${ADMIN_USERNAME:-admin}: ${ADMIN_PASSWORD}"
+            printf '%s\n' 'IMPORTANT: This password is shown only once.'
+            printf '%s\n' 'You must log in and change it immediately before using the rest of the application.'
+            printf '%s\n' 'After the password is changed, this temporary password will no longer be valid.'
             ;;
     esac
 fi

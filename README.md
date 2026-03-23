@@ -199,6 +199,8 @@ all-Mail will generate them automatically and persist them for reuse.
 
 If `ADMIN_PASSWORD` is auto-generated, the startup log prints it once and reminds you to change it after first login.
 
+When that temporary admin password is used for the first successful login, the admin session is restricted to the password-change flow until a new password is set. Other admin pages and protected admin APIs remain blocked until the password is updated.
+
 If you prefer to control them manually, you can still set them explicitly in `.env`.
 
 Cloudflare-related values are things like:

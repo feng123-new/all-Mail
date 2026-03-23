@@ -28,6 +28,12 @@ const SettingsPage: FC = () => {
     const [form] = Form.useForm();
     const [disable2FaForm] = Form.useForm();
     const { admin, token, setAuth } = useAuthStore();
+    const mustChangePassword = Boolean(admin?.mustChangePassword);
+    const effectiveTwoFactorStatus = mustChangePassword
+        ? { enabled: false, pending: false, legacyEnv: false }
+        : twoFactorStatus;
+    const showTwoFactorStatusLoading = mustChangePassword ? false : twoFactorStatusLoading;
+    const visibleSetupData = mustChangePassword ? null : setupData;
 
     const syncStoreTwoFactor = useCallback((enabled: boolean) => {
         if (!token || !admin) {
@@ -37,6 +43,10 @@ const SettingsPage: FC = () => {
     }, [admin, setAuth, token]);
 
     const loadTwoFactorStatus = async (silent: boolean = false) => {
+        if (mustChangePassword) {
+            return;
+        }
+
         const result = await requestData<TwoFactorStatus>(
             () => authApi.getTwoFactorStatus(),
             '获取二次验证状态失败',
@@ -54,6 +64,12 @@ const SettingsPage: FC = () => {
 
     useEffect(() => {
         let cancelled = false;
+
+        if (mustChangePassword) {
+            return () => {
+                cancelled = true;
+            };
+        }
 
         const init = async () => {
             const result = await requestData<TwoFactorStatus>(
@@ -77,7 +93,7 @@ const SettingsPage: FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [syncStoreTwoFactor]);
+    }, [mustChangePassword, syncStoreTwoFactor]);
 
     const handleChangePassword = async (values: {
         oldPassword: string;
@@ -95,7 +111,13 @@ const SettingsPage: FC = () => {
             '密码修改失败'
         );
         if (result) {
-            message.success('密码修改成功');
+            if (token && admin) {
+                setAuth(token, {
+                    ...admin,
+                    mustChangePassword: false,
+                });
+            }
+            message.success(mustChangePassword ? '初始密码已更新，系统已解锁全部功能' : '密码修改成功');
             form.resetFields();
         }
         setPasswordLoading(false);
@@ -170,7 +192,16 @@ const SettingsPage: FC = () => {
                     </div>
                 </Card>
 
-                <Card title="修改密码">
+                {mustChangePassword ? (
+                    <Alert
+                        type="warning"
+                        showIcon
+                        message="当前管理员仍在使用首次初始化的临时密码"
+                        description="在设置新密码之前，系统会阻止访问控制台其他页面以及受保护的管理接口。先完成这一步，再继续配置邮箱、域名和 API 密钥。"
+                    />
+                ) : null}
+
+                <Card title={mustChangePassword ? '设置新的管理员密码' : '修改密码'}>
                     <Form
                         form={form}
                         layout="vertical"
@@ -190,7 +221,7 @@ const SettingsPage: FC = () => {
                             label="新密码"
                             rules={[
                                 { required: true, message: '请输入新密码' },
-                                { min: 6, message: '密码至少 6 个字符' },
+                                { min: 8, message: '密码至少 8 个字符' },
                             ]}
                         >
                             <Input.Password prefix={<LockOutlined />} placeholder="新密码" />
@@ -213,27 +244,28 @@ const SettingsPage: FC = () => {
                         >
                             <Input.Password prefix={<LockOutlined />} placeholder="确认新密码" />
                         </Form.Item>
-
+                        
                         <Form.Item>
                             <Button type="primary" htmlType="submit" loading={passwordLoading}>
-                                修改密码
+                                {mustChangePassword ? '设置新密码并解锁系统' : '修改密码'}
                             </Button>
                         </Form.Item>
                     </Form>
                 </Card>
 
-                <Card title="二次验证（2FA）">
-                    {twoFactorStatusLoading ? (
+                {!mustChangePassword ? (
+                    <Card title="二次验证（2FA）">
+                    {showTwoFactorStatusLoading ? (
                         <Text type="secondary">加载中...</Text>
                     ) : (
                         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                             <div>
                                 <Text type="secondary">当前状态：</Text>{' '}
-                                {twoFactorStatus.enabled ? <Tag color="success">已启用</Tag> : <Tag>未启用</Tag>}
-                                {twoFactorStatus.pending && !twoFactorStatus.enabled ? <Tag color="processing">待验证</Tag> : null}
+                                {effectiveTwoFactorStatus.enabled ? <Tag color="success">已启用</Tag> : <Tag>未启用</Tag>}
+                                {effectiveTwoFactorStatus.pending && !effectiveTwoFactorStatus.enabled ? <Tag color="processing">待验证</Tag> : null}
                             </div>
 
-                            {twoFactorStatus.legacyEnv ? (
+                            {effectiveTwoFactorStatus.legacyEnv ? (
                                 <Alert
                                     type="warning"
                                     showIcon
@@ -241,7 +273,7 @@ const SettingsPage: FC = () => {
                                 />
                             ) : null}
 
-                            {!twoFactorStatus.enabled ? (
+                            {!effectiveTwoFactorStatus.enabled ? (
                                 <Button
                                     type="primary"
                                     icon={<SafetyCertificateOutlined />}
@@ -252,22 +284,22 @@ const SettingsPage: FC = () => {
                                 </Button>
                             ) : null}
 
-                            {setupData ? (
+                            {visibleSetupData ? (
                                 <Card size="small" title="绑定信息">
                                     <Space direction="vertical" style={{ width: '100%' }}>
                                         <div style={{ textAlign: 'center' }}>
                                             <Text type="secondary">扫码绑定（推荐）</Text>
                                             <div style={{ marginTop: 8 }}>
-                                                <QRCode value={setupData.otpauthUrl} size={180} />
+                                                <QRCode value={visibleSetupData.otpauthUrl} size={180} />
                                             </div>
                                         </div>
                                         <div>
                                             <Text type="secondary">手动密钥（可复制）</Text>
-                                            <div><Text copyable>{setupData.secret}</Text></div>
+                                            <div><Text copyable>{visibleSetupData.secret}</Text></div>
                                         </div>
                                         <div>
                                             <Text type="secondary">otpauth 链接（可复制）</Text>
-                                            <div><Text copyable>{setupData.otpauthUrl}</Text></div>
+                                            <div><Text copyable>{visibleSetupData.otpauthUrl}</Text></div>
                                         </div>
                                         <Input
                                             value={enableOtp}
@@ -283,7 +315,7 @@ const SettingsPage: FC = () => {
                                 </Card>
                             ) : null}
 
-                            {twoFactorStatus.enabled ? (
+                            {effectiveTwoFactorStatus.enabled ? (
                                 <Card size="small" title="禁用二次验证">
                                     <Form form={disable2FaForm} layout="vertical" onFinish={handleDisable2Fa}>
                                         <Form.Item
@@ -317,40 +349,45 @@ const SettingsPage: FC = () => {
                             ) : null}
                         </Space>
                     )}
-                </Card>
+                    </Card>
+                ) : null}
 
-                <Card title="Provider OAuth 配置">
-                    <Alert
-                        type="info"
-                        showIcon
-                        message="Provider OAuth 配置已迁移到外部邮箱连接的各 Provider 添加入口"
-                        description="Google OAuth 请到“外部邮箱连接 → 添加 Gmail 邮箱”；Microsoft OAuth 请到“外部邮箱连接 → 添加 Outlook 邮箱”。现在在对应 Provider 的添加弹窗里就可以手工填写回调地址、Client ID / Secret、Scopes，并直接生成授权链接完成认证。"
-                    />
-                </Card>
+                {!mustChangePassword ? (
+                    <Card title="Provider OAuth 配置">
+                        <Alert
+                            type="info"
+                            showIcon
+                            message="Provider OAuth 配置已迁移到外部邮箱连接的各 Provider 添加入口"
+                            description="Google OAuth 请到“外部邮箱连接 → 添加 Gmail 邮箱”；Microsoft OAuth 请到“外部邮箱连接 → 添加 Outlook 邮箱”。现在在对应 Provider 的添加弹窗里就可以手工填写回调地址、Client ID / Secret、Scopes，并直接生成授权链接完成认证。"
+                        />
+                    </Card>
+                ) : null}
 
-                <Card title="API 使用说明">
-                    <div style={{ marginBottom: 16 }}>
-                        <Text strong>外部 API 调用方式</Text>
-                    </div>
+                {!mustChangePassword ? (
+                    <Card title="API 使用说明">
+                        <div style={{ marginBottom: 16 }}>
+                            <Text strong>外部 API 调用方式</Text>
+                        </div>
 
-                    <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 16 }}>
-                        <Text code style={{ display: 'block', marginBottom: 8 }}>
-                            # 通过 Header 传递访问密钥
-                        </Text>
-                        <Text code style={{ display: 'block', wordBreak: 'break-all' }}>
-                            curl -H "X-API-Key: your_api_key" https://your-domain.com/api/messages
-                        </Text>
-                    </div>
+                        <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 16 }}>
+                            <Text code style={{ display: 'block', marginBottom: 8 }}>
+                                # 通过 Header 传递访问密钥
+                            </Text>
+                            <Text code style={{ display: 'block', wordBreak: 'break-all' }}>
+                                curl -H "X-API-Key: your_api_key" https://your-domain.com/api/messages
+                            </Text>
+                        </div>
 
-                    <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8 }}>
-                        <Text code style={{ display: 'block', marginBottom: 8 }}>
-                            # 通过 Query 参数传递访问密钥
-                        </Text>
-                        <Text code style={{ display: 'block', wordBreak: 'break-all' }}>
-                            curl "https://your-domain.com/api/messages?api_key=your_api_key&email=xxx@outlook.com"
-                        </Text>
-                    </div>
-                </Card>
+                        <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8 }}>
+                            <Text code style={{ display: 'block', marginBottom: 8 }}>
+                                # 通过 Query 参数传递访问密钥
+                            </Text>
+                            <Text code style={{ display: 'block', wordBreak: 'break-all' }}>
+                                curl "https://your-domain.com/api/messages?api_key=your_api_key&email=xxx@outlook.com"
+                            </Text>
+                        </div>
+                    </Card>
+                ) : null}
             </Space>
         </div>
     );

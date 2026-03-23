@@ -82,11 +82,16 @@ export async function ensureBootstrapSecrets({ stateDir, env }) {
 
   const persistedSecrets = { ...existingSecrets };
   const createdKeys = [];
+  const managedKeys = [];
 
   for (const key of ['JWT_SECRET', 'ENCRYPTION_KEY', 'ADMIN_PASSWORD']) {
     if (isMissing(env[key]) && isMissing(persistedSecrets[key])) {
       persistedSecrets[key] = generateSecret(key);
       createdKeys.push(key);
+    }
+
+    if (isMissing(env[key]) && !isMissing(persistedSecrets[key])) {
+      managedKeys.push(key);
     }
   }
 
@@ -97,6 +102,7 @@ export async function ensureBootstrapSecrets({ stateDir, env }) {
   return {
     secretsFile,
     createdKeys,
+    managedKeys,
     secrets: persistedSecrets,
   };
 }
@@ -113,6 +119,7 @@ async function main() {
   if (format === 'shell') {
     console.log(`export ALL_MAIL_BOOTSTRAP_SECRETS_FILE=${shellQuote(result.secretsFile)}`);
     console.log(`export ALL_MAIL_GENERATED_SECRETS=${shellQuote(result.createdKeys.join(','))}`);
+    console.log(`export ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS=${shellQuote(result.managedKeys.join(','))}`);
     for (const [key, value] of Object.entries(result.secrets)) {
       console.log(`export ${key}=${shellQuote(value)}`);
     }

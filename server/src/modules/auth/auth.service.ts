@@ -169,14 +169,22 @@ function getBootstrapAdminCredentials(): { username: string; password: string } 
     };
 }
 
+function shouldForceBootstrapPasswordChange(): boolean {
+    return String(process.env.ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS || process.env.ALL_MAIL_GENERATED_SECRETS || '')
+        .split(',')
+        .map((item) => item.trim())
+        .includes('ADMIN_PASSWORD');
+}
+
 async function createBootstrapAdmin(username: string, password: string) {
     const passwordHash = await hashPassword(password);
     return prisma.admin.create({
         data: {
-            username,
+            username: username.trim(),
             passwordHash,
             role: 'SUPER_ADMIN',
             status: 'ACTIVE',
+            mustChangePassword: shouldForceBootstrapPasswordChange(),
         },
     });
 }
@@ -216,6 +224,7 @@ export const authService = {
                 passwordHash: true,
                 role: true,
                 status: true,
+                mustChangePassword: true,
                 twoFactorEnabled: true,
                 twoFactorSecret: true,
             },
@@ -251,6 +260,7 @@ export const authService = {
                         id: newAdmin.id,
                         username: newAdmin.username,
                         role: newAdmin.role,
+                        mustChangePassword: newAdmin.mustChangePassword,
                         twoFactorEnabled: false,
                     },
                 };
@@ -314,6 +324,7 @@ export const authService = {
                 id: admin.id,
                 username: admin.username,
                 role: admin.role,
+                mustChangePassword: admin.mustChangePassword,
                 twoFactorEnabled: admin.twoFactorEnabled,
             },
         };
@@ -347,10 +358,16 @@ export const authService = {
         const newHash = await hashPassword(newPassword);
         await prisma.admin.update({
             where: { id: adminId },
-            data: { passwordHash: newHash },
+            data: {
+                passwordHash: newHash,
+                mustChangePassword: false,
+            },
         });
 
-        return { success: true };
+        return {
+            success: true,
+            mustChangePassword: false,
+        };
     },
 
     /**
@@ -362,6 +379,7 @@ export const authService = {
                 id: 0,
                 username: env.ADMIN_USERNAME,
                 role: 'SUPER_ADMIN',
+                mustChangePassword: false,
                 twoFactorEnabled: isLegacy2FaEnabled(),
             };
         }
@@ -373,6 +391,7 @@ export const authService = {
                 username: true,
                 email: true,
                 role: true,
+                mustChangePassword: true,
                 twoFactorEnabled: true,
                 lastLoginAt: true,
                 createdAt: true,
