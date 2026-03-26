@@ -5,8 +5,6 @@
 It is designed for the gray area between a simple automation inbox helper and a full mail platform: one backend, one admin console, and one deployment shape that can cover Outlook / Gmail / QQ connectors, domain mailboxes, Cloudflare-based inbound routing, outbound sending, and script-friendly retrieval workflows.
 
 > Current repository focus: multi-provider mailbox connectivity, domain-mail closed loop, portal access, outbound sending, Docker deployment, and a clean public-facing repository boundary.
->
-> Repository status note: GitHub's default branch is `main`, but the latest bootstrap-login and license updates currently live on `feat/bootstrap-admin-password-change` and PR [#1](https://github.com/feng123-new/all-Mail/pull/1) until they are merged. If the default repository view looks unchanged, switch the branch selector or open that PR to see the latest work.
 
 ## Why this project exists
 
