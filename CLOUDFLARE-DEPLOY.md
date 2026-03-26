@@ -268,6 +268,112 @@ After the Worker deploys, finish the Cloudflare-side setup manually:
 
 If you have already done these Cloudflare-side actions once and your domain/tunnel topology is stable, later Worker updates usually only require local commands (`npm run doctor`, `npm run check`, `npm run deploy:prod`) plus a quick post-deploy validation.
 
+## Cloudflare Dashboard click-path checklist
+
+Use this section when you want the UI path spelled out instead of only seeing the conceptual steps. Menu names can shift slightly across Cloudflare UI revisions, but the flow below matches the March 2026 layout family.
+
+### A. Domain onboarding
+
+If the domain is not in Cloudflare yet:
+
+1. Cloudflare Dashboard
+2. **Websites**
+3. **Add a site**
+4. complete the domain onboarding and nameserver verification
+
+If the domain is already in Cloudflare, open that domain directly from **Websites**.
+
+### B. Enable Email Routing
+
+1. open the target domain
+2. left navigation: **Email**
+3. open **Email Routing**
+4. click **Get started** / **Enable Email Routing** if it has not been enabled yet
+5. complete any required destination-address verification steps Cloudflare requests
+
+This is still a manual Cloudflare step. `npm run deploy:prod` does not enable Email Routing for you.
+
+### C. Confirm Worker / workers.dev context
+
+1. Cloudflare Dashboard home
+2. left navigation: **Workers & Pages**
+3. open the Workers overview for the account
+4. if Cloudflare asks you to create a `workers.dev` subdomain, complete it once
+
+This needs to exist before the post-deploy `workers.dev` health URL becomes useful.
+
+### D. Optional manual R2 bucket creation
+
+You usually do **not** need to create the bucket manually because `npm run deploy:prod` can create it for you.
+
+If you still want to verify or create it in the UI:
+
+1. Cloudflare Dashboard home
+2. left navigation: **R2**
+3. open **Overview**
+4. click **Create bucket**
+5. enter the same value you plan to use for `RAW_EMAIL_BUCKET_NAME`
+
+Again: bucket creation can be manual or automatic, but uploading the actual `.eml` objects is not a required manual step for all-Mail.
+
+### E. Tunnel setup for a cloud server backend
+
+Only do this section if the backend is not exposed directly and you want Cloudflare Tunnel in front of it.
+
+1. Cloudflare Dashboard home
+2. left navigation: **Zero Trust** (or **Cloudflare One** entrypoint)
+3. **Networks**
+4. **Tunnels**
+5. **Create a tunnel**
+6. choose the `cloudflared` connector path
+7. install and authenticate `cloudflared` on the cloud server
+8. in the tunnel configuration, open **Public Hostnames**
+9. add a hostname such as `edge.example.com`
+10. point it to the backend service URL, for example `http://127.0.0.1:3002`
+
+After this, set:
+
+```env
+INGRESS_URL=https://edge.example.com/ingress/domain-mail/receive
+```
+
+in `cloudflare/workers/allmail-edge/.dev.vars`.
+
+### F. Bind Email Routing to the Worker
+
+After the Worker is deployed successfully:
+
+1. open the target domain
+2. left navigation: **Email**
+3. open **Email Routing**
+4. go to the address/rule management area
+5. create or edit the target custom address or catch-all rule
+6. choose the destination/action that routes the email to a Worker
+7. select **`allmail-edge`**
+8. save the rule
+
+This binding step is the most common reason a deployment looks healthy while real email never reaches the backend.
+
+### G. What you can do locally after the dashboard work is done
+
+Once sections A-F are already in place and stable, later updates are mostly local-command driven:
+
+```bash
+cd cloudflare/workers/allmail-edge
+npm run doctor
+npm run check
+npm run deploy:prod
+npm run doctor -- --postdeploy
+```
+
+In that steady-state workflow, you usually only need to return to the Cloudflare Dashboard when:
+
+- changing the domain
+- changing the Email Routing rule shape
+- changing the Worker binding target
+- changing Tunnel topology / public hostname
+- verifying account-level setup after a Cloudflare-side change
+
 Cloudflare's official Email Worker onboarding references:
 
 - Email Routing overview: <https://developers.cloudflare.com/email-routing/>
