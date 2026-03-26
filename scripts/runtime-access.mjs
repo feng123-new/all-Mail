@@ -18,6 +18,14 @@ function normalizeBaseUrl(value) {
   return value.replace(/\/+$/, '');
 }
 
+function getHostname(value) {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
+}
+
 function resolveCorsOrigin(env) {
   if (typeof env?.CORS_ORIGIN !== 'string') {
     return null;
@@ -57,4 +65,9 @@ export function resolveLoginBaseUrl(env = {}) {
 
 export function resolveLoginUrl(env = {}) {
   return `${resolveLoginBaseUrl(env)}/login`;
+}
+
+export function usesLocalLoginBaseUrl(env = {}) {
+  const hostname = getHostname(resolveLoginBaseUrl(env));
+  return hostname === '127.0.0.1' || hostname === 'localhost';
 }

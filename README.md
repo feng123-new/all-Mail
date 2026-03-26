@@ -124,6 +124,8 @@ If you deploy on a remote server and want the first-boot log to print the public
 export PUBLIC_BASE_URL="http://your-server-ip:3002"
 ```
 
+Do not leave this as `127.0.0.1` when you expect to open the console from another machine. Replace it with the cloud server public IP, your domain, or the correct local network address.
+
 Default local ports:
 
 - `APP_PORT=3002`
@@ -205,7 +207,7 @@ all-Mail will generate them automatically and persist them for reuse.
 
 If `ADMIN_PASSWORD` is auto-generated, the startup log prints it once and reminds you to change it after first login.
 
-If `PUBLIC_BASE_URL` is set (or `CORS_ORIGIN` points at the public console origin), the same first-boot log also prints the login URL. Otherwise it falls back to a local `127.0.0.1` URL derived from the current app port.
+If `PUBLIC_BASE_URL` is set (or `CORS_ORIGIN` points at the public console origin), the same first-boot log also prints the login URL. Otherwise it falls back to a local `127.0.0.1` URL derived from the current app port and prints a reminder to replace that address when accessing the app from another machine.
 
 When that temporary admin password is used for the first successful login, the admin session is restricted to the password-change flow until a new password is set. Other admin pages and protected admin APIs remain blocked until the password is updated.
 
@@ -467,4 +469,8 @@ That said, if you intend to make the repository public, provenance is not just a
 
 ## License
 
-MIT
+This repository is released under the custom **all-Mail Non-Commercial License**.
+
+- non-commercial use, study, modification, and redistribution are allowed under the license terms
+- commercial use is **not** allowed without prior written permission
+- if you want commercial use rights, contact the repository owner first to discuss licensing

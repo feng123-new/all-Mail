@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveLoginBaseUrl, resolveLoginUrl } from './runtime-access.mjs';
+import { resolveLoginBaseUrl, resolveLoginUrl, usesLocalLoginBaseUrl } from './runtime-access.mjs';
 
 void test('resolveLoginUrl prefers explicit public base URL', () => {
   assert.equal(
@@ -29,4 +29,9 @@ void test('resolveLoginUrl falls back to runtime port when app port is unavailab
     resolveLoginUrl({ PORT: '3300' }),
     'http://127.0.0.1:3300/login'
   );
+});
+
+void test('usesLocalLoginBaseUrl detects localhost fallback and ignores explicit public URLs', () => {
+  assert.equal(usesLocalLoginBaseUrl({ APP_PORT: '3002' }), true);
+  assert.equal(usesLocalLoginBaseUrl({ PUBLIC_BASE_URL: 'https://mail.example.com' }), false);
 });

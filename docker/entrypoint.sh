@@ -11,6 +11,11 @@ fi
 
 if [ "${ALL_MAIL_CREATED_STATE_FILE:-0}" = "1" ] || [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
     printf '%s\n' "First login URL: ${ALL_MAIL_LOGIN_URL}"
+    case "${ALL_MAIL_LOGIN_URL}" in
+        http://127.0.0.1:*|http://localhost:*|https://127.0.0.1:*|https://localhost:*)
+            printf '%s\n' 'NOTE: 127.0.0.1/localhost only works on the same machine. Replace it with your cloud server public IP, domain, or the correct local address when accessing remotely.'
+            ;;
+    esac
     printf '%s\n' "Bootstrap admin username: ${ADMIN_USERNAME:-admin}"
     case ",${ALL_MAIL_GENERATED_SECRETS}," in
         *,ADMIN_PASSWORD,*)

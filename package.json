@@ -3,7 +3,7 @@
   "private": true,
   "version": "2.0.0",
   "description": "all-Mail repository-level CLI and npm deployment scripts",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "preferGlobal": true,
   "repository": {
     "type": "git",
