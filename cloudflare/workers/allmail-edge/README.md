@@ -3,6 +3,7 @@
 Thin Cloudflare Email Worker for the all-Mail domain-mail ingress.
 
 > Main deployment guide: `CLOUDFLARE-DEPLOY.md` in the repository root.
+> Use the root guide for the full production runbook: prerequisites, `.dev.vars` meaning, Cloudflare Dashboard binding steps, validation, troubleshooting, and rollback.
 
 ## Purpose
 
@@ -70,6 +71,12 @@ node scripts/post-signed-fixture.mjs
 npm install
 npm run doctor
 npm run deploy:prod
+```
+
+After deploy, finish the Email Routing address/worker binding in the Cloudflare Dashboard and run:
+
+```bash
+npm run doctor -- --postdeploy
 ```
 
 ## Public repo hygiene
