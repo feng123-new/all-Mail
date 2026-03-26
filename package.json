@@ -54,7 +54,8 @@
     "start:npm": "node scripts/start-all-mail.mjs",
     "deploy:npm": "npm run build && npm run start:npm",
     "lint": "npm --prefix server run lint && npm --prefix web run lint",
-    "test": "npm --prefix server run test",
+    "test:runtime": "node --test scripts/*.test.mjs",
+    "test": "npm run test:runtime && npm --prefix server run test",
     "check": "npm run lint && npm run test && npm --prefix web run build && npm --prefix cloudflare/workers/allmail-edge run check"
   }
 }

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { resolveLoginUrl } from './runtime-access.mjs';
 
 const PLACEHOLDER_PREFIXES = ['replace-with-', 'changeme-', 'example-'];
 
@@ -75,8 +76,9 @@ function generateSecret(key) {
 export async function ensureBootstrapSecrets({ stateDir, env }) {
   await mkdir(stateDir, { recursive: true });
   const secretsFile = path.join(stateDir, 'bootstrap-secrets.env');
+  const hadExistingSecretsFile = await pathExists(secretsFile);
 
-  const existingSecrets = (await pathExists(secretsFile))
+  const existingSecrets = hadExistingSecretsFile
     ? parseEnvText(await readFile(secretsFile, 'utf8'))
     : {};
 
@@ -103,6 +105,8 @@ export async function ensureBootstrapSecrets({ stateDir, env }) {
     secretsFile,
     createdKeys,
     managedKeys,
+    createdStateFile: !hadExistingSecretsFile,
+    loginUrl: resolveLoginUrl(env),
     secrets: persistedSecrets,
   };
 }
@@ -120,6 +124,8 @@ async function main() {
     console.log(`export ALL_MAIL_BOOTSTRAP_SECRETS_FILE=${shellQuote(result.secretsFile)}`);
     console.log(`export ALL_MAIL_GENERATED_SECRETS=${shellQuote(result.createdKeys.join(','))}`);
     console.log(`export ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS=${shellQuote(result.managedKeys.join(','))}`);
+    console.log(`export ALL_MAIL_CREATED_STATE_FILE=${shellQuote(result.createdStateFile ? '1' : '0')}`);
+    console.log(`export ALL_MAIL_LOGIN_URL=${shellQuote(result.loginUrl)}`);
     for (const [key, value] of Object.entries(result.secrets)) {
       console.log(`export ${key}=${shellQuote(value)}`);
     }

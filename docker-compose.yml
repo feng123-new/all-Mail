@@ -10,6 +10,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${APP_INTERNAL_PORT:-3000}
+      APP_PORT: ${APP_PORT:-3002}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       ALL_MAIL_STATE_DIR: /var/lib/all-mail
       DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
       REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}

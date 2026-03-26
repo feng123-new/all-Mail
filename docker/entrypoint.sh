@@ -7,12 +7,22 @@ eval "$(node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR
 
 if [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
     printf '%s\n' "Generated bootstrap secrets in ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE}"
+fi
+
+if [ "${ALL_MAIL_CREATED_STATE_FILE:-0}" = "1" ] || [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
+    printf '%s\n' "First login URL: ${ALL_MAIL_LOGIN_URL}"
+    printf '%s\n' "Bootstrap admin username: ${ADMIN_USERNAME:-admin}"
     case ",${ALL_MAIL_GENERATED_SECRETS}," in
         *,ADMIN_PASSWORD,*)
-            printf '%s\n' "Temporary admin password for ${ADMIN_USERNAME:-admin}: ${ADMIN_PASSWORD}"
+            printf '%s\n' "Temporary admin password: ${ADMIN_PASSWORD}"
             printf '%s\n' 'IMPORTANT: This password is shown only once.'
             printf '%s\n' 'You must log in and change it immediately before using the rest of the application.'
             printf '%s\n' 'After the password is changed, this temporary password will no longer be valid.'
+            ;;
+        *)
+            if [ -n "${ADMIN_PASSWORD:-}" ]; then
+                printf '%s\n' "Bootstrap admin password: ${ADMIN_PASSWORD}"
+            fi
             ;;
     esac
 fi
