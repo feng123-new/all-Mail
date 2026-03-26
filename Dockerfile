@@ -37,7 +37,7 @@ COPY --from=builder /app/web/dist ../public
 COPY docker/entrypoint.sh /usr/local/bin/all-mail-entrypoint
 COPY scripts ../scripts
 
-RUN chmod +x /usr/local/bin/all-mail-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/all-mail-entrypoint && chmod +x /usr/local/bin/all-mail-entrypoint
 
 EXPOSE 3000
 
