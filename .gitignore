@@ -67,3 +67,7 @@ cloudflare/screenshots/
 local-backups/
 docs/screenshots/
 .all-mail-runtime/
+
+# OpenCode / local mailbox-ops artifacts
+docs/opencode-all-mail-ops.md
+tools/

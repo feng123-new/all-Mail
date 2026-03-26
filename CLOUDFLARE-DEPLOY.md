@@ -361,9 +361,181 @@ curl https://allmail-edge.<your-subdomain>.workers.dev/health
 
 4. only rebind Email Routing to the Worker after the health check and ingress validation succeed again
 
+## 中文操作摘要
+
+如果你只是想快速完成一次可用部署，可以按下面的顺序做：
+
+1. 在云服务器上先把 all-Mail 后端跑起来，确认：
+
+   ```bash
+   curl http://127.0.0.1:3002/health
+   ```
+
+2. 在后端 `.env` 里配置好 `INGRESS_SIGNING_SECRET`，然后执行：
+
+   ```bash
+   cd server
+   npm run ingress:ensure
+   npm run ingress:check
+   ```
+
+3. 在 `cloudflare/workers/allmail-edge/.dev.vars` 里填写：
+   - `INGRESS_URL`
+   - `INGRESS_KEY_ID`
+   - `INGRESS_PROVIDER`
+   - `RAW_EMAIL_OBJECT_PREFIX`
+   - `RAW_EMAIL_BUCKET_NAME`
+   - `INGRESS_SIGNING_SECRET`
+
+4. 在 Worker 目录执行：
+
+   ```bash
+   cd cloudflare/workers/allmail-edge
+   npm install
+   npm run doctor
+   npm run check
+   ```
+
+5. 导出 Cloudflare API Token 后部署：
+
+   ```bash
+   export CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
+   npm run deploy:prod
+   ```
+
+6. 到 Cloudflare Dashboard 的 **Email Routing** 里，把目标地址或 catch-all 规则绑定到 `worker: allmail-edge`
+
+7. 最后执行：
+
+   ```bash
+   npm run doctor -- --postdeploy
+   curl https://allmail-edge.<your-subdomain>.workers.dev/health
+   ```
+
+8. 发送一封真实邮件到绑定地址，确认：
+   - Cloudflare Email Routing 显示已处理
+   - Worker 没有 reject
+   - all-Mail 后端收到了 `/ingress/domain-mail/receive` 请求
+   - 如果启用了 R2，原始 `.eml` 已写入对应前缀
+
+## Example: cloud server + Cloudflare Tunnel + Email Routing
+
+Use this example when your all-Mail backend runs on a cloud server and you want Cloudflare to reach it through a Tunnel-managed hostname instead of exposing the backend port directly.
+
+### Topology
+
+```text
+Inbound email
+  -> Cloudflare Email Routing
+  -> Worker: allmail-edge
+  -> fetch(INGRESS_URL)
+  -> Cloudflare Tunnel public hostname
+  -> cloudflared on your server
+  -> all-Mail backend :3002
+```
+
+### Step A: keep all-Mail local on the server
+
+On the cloud server, keep the backend listening locally or on a private interface. You do not need to open `3002` publicly if Tunnel is the only ingress path.
+
+Example local check on the server:
+
+```bash
+curl http://127.0.0.1:3002/health
+```
+
+### Step B: create the Tunnel
+
+Cloudflare official references:
+
+- Tunnel overview: <https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/>
+- Tunnel setup: <https://developers.cloudflare.com/tunnel/setup/>
+- Route public hostnames to Tunnel: <https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/>
+
+Recommended operator path:
+
+1. In Cloudflare Dashboard, open **Networks → Tunnels**
+2. Create a named Tunnel
+3. Install `cloudflared` on the cloud server
+4. Authenticate and install it as a persistent service
+
+Typical commands on the server:
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create allmail-ingress
+cloudflared service install
+```
+
+Use a persistent service/systemd-style run mode. One-off `cloudflared tunnel run` sessions are fine for testing, but not for production.
+
+### Step C: publish the backend hostname
+
+In the Tunnel configuration, publish a hostname such as:
+
+- public hostname: `edge.example.com`
+- service: `http://127.0.0.1:3002`
+
+That gives the Worker a stable backend target without exposing the backend port directly on the public internet.
+
+Then set:
+
+```env
+INGRESS_URL=https://edge.example.com/ingress/domain-mail/receive
+```
+
+in `cloudflare/workers/allmail-edge/.dev.vars`.
+
+### Step D: deploy the Worker against the Tunnel hostname
+
+After the Tunnel hostname works, run the normal Worker deployment flow:
+
+```bash
+cd cloudflare/workers/allmail-edge
+npm run doctor
+npm run deploy:prod
+```
+
+### Step E: bind Email Routing to the Worker
+
+In Cloudflare Email Routing:
+
+1. enable Email Routing for the domain
+2. create the target custom address or catch-all rule
+3. bind that route to `worker: allmail-edge`
+
+At runtime the Worker still receives the email first. The Tunnel is only the path that lets the Worker reach your backend `INGRESS_URL` safely.
+
+### Common Tunnel-specific mistakes
+
+- `INGRESS_URL` still points to `127.0.0.1` or a private LAN IP instead of the Tunnel hostname
+- `cloudflared` is not running persistently on the cloud server
+- the Tunnel hostname routes to the wrong port or wrong protocol
+- the backend health check works locally but the Tunnel hostname does not actually reach the same backend instance
+- Email Routing is enabled, but the route was not bound to `worker: allmail-edge`
+
+### Tunnel-specific validation
+
+From a machine outside the server, verify the public hostname first:
+
+```bash
+curl https://edge.example.com/health
+```
+
+Then verify the Worker itself:
+
+```bash
+curl https://allmail-edge.<your-subdomain>.workers.dev/health
+```
+
+Only after both pass should you send a real email through Email Routing.
+
 ## Additional official references
 
 - Workers best practices: <https://developers.cloudflare.com/workers/best-practices/workers-best-practices/>
 - Wrangler general commands: <https://developers.cloudflare.com/workers/wrangler/commands/general/>
 - Local development for Email Workers: <https://developers.cloudflare.com/email-routing/email-workers/local-development/>
 - Email Routing limits: <https://developers.cloudflare.com/email-routing/limits/>
+- Cloudflare Tunnel overview: <https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/>
+- Cloudflare Tunnel setup: <https://developers.cloudflare.com/tunnel/setup/>
+- Cloudflare Tunnel public hostname routing: <https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/>
