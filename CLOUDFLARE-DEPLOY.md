@@ -103,8 +103,47 @@ INGRESS_SIGNING_SECRET=replace-with-the-same-secret-used-by-server
 | `INGRESS_KEY_ID` | Yes | Key identifier used by the Worker and by `server/scripts/ensure-ingress-endpoint.ts`. The default repo automation expects `allmail-edge-main`. |
 | `INGRESS_PROVIDER` | Yes | Stored provider label for ingress records. Default is `CLOUDFLARE_EMAIL_ROUTING`. |
 | `RAW_EMAIL_OBJECT_PREFIX` | Yes | Prefix used when writing raw email objects to R2. The Worker normalizes leading/trailing slashes. |
-| `RAW_EMAIL_BUCKET_NAME` | Yes | R2 bucket name that `bin/deploy-prod.js` checks or creates before deploy. |
+| `RAW_EMAIL_BUCKET_NAME` | Yes | R2 bucket name that `bin/deploy-prod.js` checks or creates before deploy. You do not need to pre-upload email files into this bucket. |
 | `INGRESS_SIGNING_SECRET` | Yes | Secret uploaded to Cloudflare and used to sign ingress requests. It must exactly match the backend `INGRESS_SIGNING_SECRET`. |
+
+## What is automatic vs. manual
+
+This is the exact operator boundary for the all-Mail Cloudflare flow.
+
+### Automatic once local config is ready
+
+After your local `.dev.vars`, backend env, and Cloudflare auth are correct, the repo commands can do all of the following for you:
+
+- run worker quality checks
+- verify or create the configured R2 bucket
+- upload `INGRESS_SIGNING_SECRET` to Cloudflare as a Worker secret
+- deploy the Worker with the values derived from `.dev.vars`
+- run post-deploy Worker health checks
+- verify the backend ingress endpoint configuration
+
+### Manual in Cloudflare
+
+These actions still require a real Cloudflare account/domain decision and are not completed by `npm run deploy:prod`:
+
+1. add and verify the domain in Cloudflare
+2. enable Email Routing for that domain
+3. create or verify the `workers.dev` subdomain / Wrangler auth context
+4. if you use Tunnel, create the Tunnel and publish the backend hostname
+5. create or edit the Email Routing address/catch-all rule and bind it to `worker: allmail-edge`
+
+### R2 clarification
+
+The bucket may be created automatically by the repo deploy helper, but the email objects inside it are **not** something you upload manually during normal setup.
+
+The Worker writes raw `.eml` content into R2 at runtime via `rawEmailBucket.put(...)` after it receives real inbound mail. A newly created bucket being empty right after deploy is normal.
+
+Manual object upload into R2 is only useful for your own debugging or ad-hoc inspection workflows; it is not a required deployment step for all-Mail.
+
+Official Cloudflare R2 references:
+
+- Create buckets: <https://developers.cloudflare.com/r2/buckets/create-buckets/>
+- Upload objects manually: <https://developers.cloudflare.com/r2/objects/upload-objects/>
+- Workers R2 API usage: <https://developers.cloudflare.com/r2/api/workers/workers-api-usage/>
 
 ## Recommended deployment sequence
 
@@ -214,6 +253,8 @@ What `npm run deploy:prod` does in this repo:
 8. runs `wrangler deploy`
 9. attempts a post-deploy health check against the inferred `workers.dev` URL
 
+If the Cloudflare account/domain prerequisites are already complete, this is the point where local command-based deployment is usually enough. The remaining manual work is mainly Email Routing rule binding (or later route changes) inside the Cloudflare Dashboard.
+
 ## Cloudflare Dashboard steps after deploy
 
 After the Worker deploys, finish the Cloudflare-side setup manually:
@@ -224,6 +265,8 @@ After the Worker deploys, finish the Cloudflare-side setup manually:
 4. bind the route to **Worker: `allmail-edge`**
 5. if you use a catch-all route, confirm it points to the same Worker intentionally
 6. confirm the backend hostname referenced by `INGRESS_URL` resolves and reaches the live all-Mail backend
+
+If you have already done these Cloudflare-side actions once and your domain/tunnel topology is stable, later Worker updates usually only require local commands (`npm run doctor`, `npm run check`, `npm run deploy:prod`) plus a quick post-deploy validation.
 
 Cloudflare's official Email Worker onboarding references:
 
