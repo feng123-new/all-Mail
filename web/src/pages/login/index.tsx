@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, type FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button, Card, Form, Input, Modal, Space, Tag, Typography, message } from 'antd';
 import { ApiOutlined, CloudServerOutlined, LockOutlined, SafetyCertificateOutlined, SendOutlined, UserOutlined } from '@ant-design/icons';
@@ -15,7 +15,7 @@ interface LoginForm {
     password: string;
 }
 
-const LoginPage: React.FC = () => {
+const LoginPage: FC = () => {
     const navigate = useNavigate();
     const { setAuth: setAdminAuth, clearAuth: clearAdminAuth } = useAuthStore();
     const { setAuth: setMailboxAuth, clearAuth: clearMailboxAuth } = useMailboxAuthStore();
@@ -25,9 +25,14 @@ const LoginPage: React.FC = () => {
     const [otpCode, setOtpCode] = useState('');
     const [pendingCredentials, setPendingCredentials] = useState<{ username: string; password: string } | null>(null);
 
-    const finishLogin = (result: { token: string; admin: { id: number; username: string; email?: string; role: 'SUPER_ADMIN' | 'ADMIN'; twoFactorEnabled?: boolean } }) => {
+    const finishLogin = (result: { token: string; admin: { id: number; username: string; email?: string; role: 'SUPER_ADMIN' | 'ADMIN'; mustChangePassword?: boolean; twoFactorEnabled?: boolean } }) => {
         clearMailboxAuth();
         setAdminAuth(result.token, result.admin);
+        if (result.admin.mustChangePassword) {
+            message.warning('这是首次初始化生成的临时密码，请先完成改密再继续使用系统');
+            navigate('/settings');
+            return;
+        }
         message.success('登录成功');
         navigate('/');
     };
@@ -42,10 +47,10 @@ const LoginPage: React.FC = () => {
     const handleSubmit = async (values: LoginForm) => {
         setLoading(true);
         try {
-            const response = await authApi.login(values.username, values.password);
-            if (response.code === 200) {
-                finishLogin(response.data as { token: string; admin: { id: number; username: string; email?: string; role: 'SUPER_ADMIN' | 'ADMIN'; twoFactorEnabled?: boolean } });
-            }
+                const response = await authApi.login(values.username, values.password);
+                if (response.code === 200) {
+                    finishLogin(response.data as { token: string; admin: { id: number; username: string; email?: string; role: 'SUPER_ADMIN' | 'ADMIN'; mustChangePassword?: boolean; twoFactorEnabled?: boolean } });
+                }
         } catch (err: unknown) {
             const errCode = String((err as { code?: unknown })?.code || '').toUpperCase();
             if (errCode === 'INVALID_OTP') {
@@ -87,7 +92,7 @@ const LoginPage: React.FC = () => {
                 setOtpModalVisible(false);
                 setPendingCredentials(null);
                 setOtpCode('');
-                finishLogin(response.data as { token: string; admin: { id: number; username: string; email?: string; role: 'SUPER_ADMIN' | 'ADMIN'; twoFactorEnabled?: boolean } });
+                finishLogin(response.data as { token: string; admin: { id: number; username: string; email?: string; role: 'SUPER_ADMIN' | 'ADMIN'; mustChangePassword?: boolean; twoFactorEnabled?: boolean } });
             }
         } catch (err: unknown) {
             const errCode = String((err as { code?: unknown })?.code || '').toUpperCase();

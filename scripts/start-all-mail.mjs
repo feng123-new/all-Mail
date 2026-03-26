@@ -1,9 +1,10 @@
-import { access, readFile } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureBootstrapSecrets, parseEnvText } from './bootstrap-secrets.mjs';
+import { resolveLoginUrl, usesLocalLoginBaseUrl } from './runtime-access.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -116,14 +117,36 @@ async function main() {
   const bootstrapSecrets = await ensureBootstrapSecrets({ stateDir, env: normalizedEnv });
   Object.assign(normalizedEnv, bootstrapSecrets.secrets);
 
-  const runtimeEnv = { ...normalizedEnv, ...process.env };
+  const runtimeEnv = {
+    ...normalizedEnv,
+    ...process.env,
+    ALL_MAIL_BOOTSTRAP_SECRETS_FILE: bootstrapSecrets.secretsFile,
+    ALL_MAIL_GENERATED_SECRETS: bootstrapSecrets.createdKeys.join(','),
+    ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS: bootstrapSecrets.managedKeys.join(','),
+  };
+  const loginUrl = resolveLoginUrl(runtimeEnv);
+  const shouldPrintBootstrapLogin = bootstrapSecrets.createdStateFile || bootstrapSecrets.createdKeys.includes('ADMIN_PASSWORD');
 
   console.log(`Using env file: ${envFile}`);
   if (bootstrapSecrets.createdKeys.length > 0) {
     console.log(`Generated bootstrap secrets in ${bootstrapSecrets.secretsFile}`);
+  }
+  if (shouldPrintBootstrapLogin) {
+    console.log(`First login URL: ${loginUrl}`);
+    if (usesLocalLoginBaseUrl(runtimeEnv)) {
+      console.log('NOTE: 127.0.0.1/localhost only works on the same machine. Replace it with your cloud server public IP, domain, or the correct local address when accessing remotely.');
+    }
+    console.log(`Bootstrap admin username: ${runtimeEnv.ADMIN_USERNAME || 'admin'}`);
+    if (runtimeEnv.ADMIN_PASSWORD) {
+      const passwordLabel = bootstrapSecrets.createdKeys.includes('ADMIN_PASSWORD')
+        ? 'Temporary admin password'
+        : 'Bootstrap admin password';
+      console.log(`${passwordLabel}: ${runtimeEnv.ADMIN_PASSWORD}`);
+    }
     if (bootstrapSecrets.createdKeys.includes('ADMIN_PASSWORD')) {
-      console.log(`Generated bootstrap admin password for ${runtimeEnv.ADMIN_USERNAME || 'admin'}: ${bootstrapSecrets.secrets.ADMIN_PASSWORD}`);
-      console.log('Change this password after the first successful admin login.');
+      console.log('IMPORTANT: This password is shown only once.');
+      console.log('You must log in and change it immediately before using the rest of the application.');
+      console.log('After the password is changed, this temporary password will no longer be valid.');
     }
   }
 

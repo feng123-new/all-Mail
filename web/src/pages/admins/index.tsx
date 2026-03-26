@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type FC } from 'react';
 import {
     Table,
     Button,
@@ -41,7 +41,7 @@ interface AdminListResult {
     total: number;
 }
 
-const AdminsPage: React.FC = () => {
+const AdminsPage: FC = () => {
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<Admin[]>([]);
     const [total, setTotal] = useState(0);
@@ -283,7 +283,7 @@ const AdminsPage: React.FC = () => {
                                 ? []
                                 : [
                                     { required: true, message: '请输入密码' },
-                                    { min: 6, message: '密码至少 6 个字符' },
+                                    { min: 8, message: '密码至少 8 个字符' },
                                 ]
                         }
                     >

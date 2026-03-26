@@ -1,5 +1,5 @@
 import { Suspense, lazy, type FC, type ReactElement, type ReactNode } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useAuthStore } from './stores/authStore';
@@ -35,10 +35,15 @@ const PageFallback: FC = () => (
 
 // 路由守卫组件
 const ProtectedRoute: FC<{ children: ReactNode }> = ({ children }) => {
+  const location = useLocation();
   const { isAuthenticated, token, admin } = useAuthStore();
 
   if (!isAuthenticated || !token || !admin?.username) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (admin.mustChangePassword && location.pathname !== '/settings') {
+    return <Navigate to="/settings" replace />;
   }
 
   return <>{children}</>;

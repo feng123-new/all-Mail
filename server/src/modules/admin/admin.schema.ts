@@ -2,14 +2,14 @@ import { z } from 'zod';
 
 export const createAdminSchema = z.object({
     username: z.string().min(3).max(50),
-    password: z.string().min(6),
+    password: z.string().min(8),
     email: z.string().email().optional(),
     role: z.enum(['SUPER_ADMIN', 'ADMIN']).optional(),
 });
 
 export const updateAdminSchema = z.object({
     username: z.string().min(3).max(50).optional(),
-    password: z.string().min(6).optional(),
+    password: z.string().min(8).optional(),
     email: z.string().email().nullable().optional(),
     role: z.enum(['SUPER_ADMIN', 'ADMIN']).optional(),
     status: z.enum(['ACTIVE', 'DISABLED']).optional(),

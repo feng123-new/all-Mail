@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\"",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test src/*.test.ts",
     "check": "npm run build && npm run lint && npm run test",
     "doctor": "node bin/doctor.js",
     "deploy": "wrangler deploy",

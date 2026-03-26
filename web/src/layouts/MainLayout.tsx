@@ -10,6 +10,7 @@ import {
     Space,
     Breadcrumb,
     Button,
+    Tag,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -58,6 +59,7 @@ const MainLayout: FC = () => {
     const location = useLocation();
     const { admin, clearAuth } = useAuthStore();
     const { token } = theme.useToken();
+    const mustChangePassword = Boolean(admin?.mustChangePassword);
 
     const hasSuperAdminPermission = isSuperAdmin(admin?.role);
     const displayName = admin?.username?.trim() || 'Admin';
@@ -67,6 +69,7 @@ const MainLayout: FC = () => {
         .map((item) => ({
             key: item.key,
             icon: item.icon,
+            disabled: mustChangePassword && item.key !== '/settings',
             label: <Link to={item.key}>{item.label}</Link>,
         }));
 
@@ -201,6 +204,7 @@ const MainLayout: FC = () => {
                                 {avatarText}
                             </Avatar>
                             <Text>{displayName}</Text>
+                            {mustChangePassword ? <Tag color="warning" style={{ marginInlineStart: 0 }}>需先改密</Tag> : null}
                         </Space>
                     </Dropdown>
                 </Header>

@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { type FastifyPluginAsync, type FastifyRequest, type FastifyReply } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { verifyToken } from '../lib/jwt.js';
 import { hashApiKey } from '../lib/crypto.js';
@@ -15,6 +15,7 @@ declare module 'fastify' {
             id: number;
             username: string;
             role: string;
+            mustChangePassword: boolean;
         };
         apiKey?: {
             id: number;
@@ -38,6 +39,11 @@ declare module 'fastify' {
 }
 
 const MAILBOX_JWT_AUDIENCE = 'mailbox-portal';
+
+function isAdminPasswordChangeAllowedPath(request: FastifyRequest): boolean {
+    const path = request.url.split('?')[0];
+    return path === '/admin/auth/me' || path === '/admin/auth/change-password';
+}
 
 /**
  * 提取 Token（从 Header 或 Cookie）
@@ -205,11 +211,40 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
             throw new AppError('INVALID_TOKEN', 'Invalid or expired token', 401);
         }
 
+        const adminId = Number.parseInt(payload.sub, 10);
+        if (!Number.isInteger(adminId) || adminId <= 0) {
+            throw new AppError('INVALID_TOKEN', 'Invalid or expired token', 401);
+        }
+
+        const admin = await prisma.admin.findUnique({
+            where: { id: adminId },
+            select: {
+                id: true,
+                username: true,
+                role: true,
+                status: true,
+                mustChangePassword: true,
+            },
+        });
+
+        if (!admin) {
+            throw new AppError('INVALID_TOKEN', 'Admin session is no longer valid', 401);
+        }
+
+        if (admin.status !== 'ACTIVE') {
+            throw new AppError('ACCOUNT_DISABLED', 'Account is disabled', 403);
+        }
+
         request.user = {
-            id: parseInt(payload.sub),
-            username: payload.username,
-            role: payload.role,
+            id: admin.id,
+            username: admin.username,
+            role: admin.role,
+            mustChangePassword: admin.mustChangePassword,
         };
+
+        if (admin.mustChangePassword && !isAdminPasswordChangeAllowedPath(request)) {
+            throw new AppError('PASSWORD_CHANGE_REQUIRED', 'You must change the initial password before continuing.', 403);
+        }
     });
 
     /**
