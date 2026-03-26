@@ -154,6 +154,19 @@ cp .env.basic.example .env
 docker compose up -d --build
 ```
 
+#### If first boot fails with Prisma `P3009`
+
+This usually means the database already recorded an earlier failed migration attempt. On a brand-new Docker deployment, the most common pattern is: first boot fails during migration, and the second boot only reports `P3009` because Prisma now sees the stored failed row in `_prisma_migrations`.
+
+If this is a **fresh disposable install** and you do **not** need to preserve PostgreSQL data yet:
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+If the PostgreSQL data must be preserved, do **not** wipe volumes blindly. Inspect `_prisma_migrations` first and resolve the failed migration intentionally before restarting the app. `P3009` is a safety stop, not a retryable warning.
+
 ### Advanced Docker + Cloudflare-ready mode
 
 Use this when you want to prepare the app for:
