@@ -1,136 +1,52 @@
 # all-Mail
 
-`all-Mail` is a self-hostable email control plane for operators who need one place to manage **external mailbox providers**, **domain mailboxes**, **portal users**, **inbound ingress**, and **automation-facing mail APIs**.
+`all-Mail` is a self-hostable email control plane for operators who need one place to manage:
 
-It is designed for the gray area between a simple automation inbox helper and a full mail platform: one backend, one admin console, and one deployment shape that can cover Outlook / Gmail / QQ connectors, domain mailboxes, Cloudflare-based inbound routing, outbound sending, and script-friendly retrieval workflows.
+- external mailbox providers (Outlook / Gmail / QQ and related IMAP/SMTP families)
+- domain mailboxes, aliases, and portal users
+- signed inbound ingress for domain mail flows
+- outbound sending and automation-facing mailbox APIs
 
-> Current repository focus: multi-provider mailbox connectivity, domain-mail closed loop, portal access, outbound sending, Docker deployment, and a clean public-facing repository boundary.
-
-## Why this project exists
-
-Most mailbox tools stop at one narrow slice:
-
-- a narrow automation inbox helper for scripts
-- a temporary-email style inbox tool
-- a domain mailbox panel with no external provider support
-- an inbound-only worker without operator workflows
-
-`all-Mail` tries to combine those concerns into a single operator-facing system:
-
-- **external provider accounts** for Outlook / Gmail / QQ
-- **domain mailbox operations** for hosted mailboxes and aliases
-- **portal users** who can log in and work with assigned mailboxes
-- **inbound ingress** for Cloudflare Email Routing and signed delivery
-- **outbound sending** and send-history management
-- **automation APIs** for script-driven mailbox retrieval and allocation scenarios
+The repository is **Docker-first**. The default deployment shape is one Docker Compose stack for the app, jobs worker, PostgreSQL, and Redis.
 
 ## Product shape
 
-### Control planes in one repository
+`all-Mail` combines several operator workflows in one system:
 
-1. **External mailbox control**  
-   Connect and operate Outlook, Gmail, and QQ accounts from one admin console.
-
-2. **Domain mailbox control**  
-   Manage domains, domain mailboxes, mailbox users, and message visibility.
-
-3. **Edge ingress control**  
-   Receive inbound mail through a Cloudflare Worker and deliver it into the backend through a signed ingress path.
-
-4. **Outbound message control**  
-   Manage send configs, outbound messages, and mailbox-originated sending flows.
-
-5. **Automation control**  
-   Expose API-key-protected retrieval and allocation APIs for script or verification workflows.
-
-## Key capabilities
-
-| Area | What it does |
-|---|---|
-| Multi-provider mailbox management | Connect Outlook / Gmail / QQ with OAuth or app-password style flows |
-| Unified admin console | One React UI for mailbox, domain, API key, portal, ingress, and send operations |
-| Domain mailbox workflows | Create domains, mailboxes, mailbox users, aliases, and message views |
-| Portal access | Let mailbox users sign in and work with assigned mailboxes |
-| Signed inbound ingress | Accept Cloudflare-routed mail through a dedicated worker + backend ingress path |
-| Outbound sending | Send and track outbound messages through configured mailbox/domain paths |
-| Automation-facing APIs | Script-friendly mailbox allocation, message reading, and access-scoped automation workflows |
+- **external mailbox control** — connect and operate provider mailboxes from one admin console
+- **domain mailbox control** — manage domains, mailboxes, aliases, and portal access
+- **ingress control** — receive inbound mail through a signed Cloudflare worker path when needed
+- **outbound sending** — manage send configs and outbound delivery flows
+- **automation APIs** — expose script-friendly mailbox allocation and message retrieval endpoints
 
 ## Provider support
 
-| Provider | Access model | Inbox read | Junk read | Clear mailbox | Send |
-|---|---|---|---|---|---|
+| Provider family | Typical auth path | Inbox read | Junk read | Clear mailbox | Send |
+| --- | --- | --- | --- | --- | --- |
 | Outlook | Microsoft OAuth | Yes | Yes | Yes | Yes |
 | Gmail | Google OAuth / App Password | Yes | Yes | Google OAuth only | Yes |
 | QQ | IMAP / SMTP auth code | Yes | Yes | No | Yes |
+| 163 / 126 | IMAP / SMTP auth code | Yes | Yes | No | Yes |
+| iCloud / Yahoo / Zoho / Aliyun | IMAP / SMTP app password | Yes | Yes | No | Yes |
+| Fastmail / AOL / GMX / Mail.com / Yandex | IMAP / SMTP password or app password | Yes | Yes | No | Yes |
+| Amazon WorkMail | IMAP / SMTP password + region-specific host | Yes | Yes | No | Yes |
+| Custom IMAP / SMTP | User-defined IMAP / SMTP server settings | Yes | Yes | No | Yes |
 
-## Screenshots
+## Quick start (canonical Docker path)
 
-This private sanitized push intentionally omits repository screenshots until all UI captures have been reviewed and redacted for real mailbox addresses, tenant/application identifiers, and operator-side metadata.
+### 1. Choose an environment template
 
-## Repository strengths that already stand on their own
-
-These areas already give `all-Mail` a stronger identity than a generic mailbox automation project:
-
-- **domain mailbox management** — `server/src/modules/domain/*`, `server/src/modules/domain-mailbox/*`, `web/src/pages/domains/index.tsx`, `web/src/pages/domain-mailboxes/index.tsx`
-- **mailbox portal users** — `server/src/modules/mailbox-user/*`, `web/src/pages/mail-portal/*`
-- **domain message browsing and ingress** — `server/src/modules/message/*`, `server/src/modules/ingress/*`, `cloudflare/workers/allmail-edge/src/index.ts`
-- **outbound sending** — `server/src/modules/send/*`, `web/src/pages/sending-configs/index.tsx`
-- **multi-provider provider abstraction** — `server/src/modules/mail/providers/*`
-- **operational deployment docs** — `CLOUDFLARE-DEPLOY.md`, `docs/*`, worker README, security/support docs
-
-## Architecture
-
-- **Frontend**: React + Ant Design + Vite
-- **Backend**: Fastify 5 + TypeScript + Prisma 6
-- **Database**: PostgreSQL
-- **Cache**: Redis
-- **Edge ingress**: Cloudflare Worker (`cloudflare/workers/allmail-edge`)
-- **Deployment**: Docker + docker compose
-
-## Repository layout
-
-```text
-├── server/                              # Fastify + Prisma backend
-├── web/                                 # React admin console
-├── cloudflare/workers/allmail-edge/     # Signed inbound mail worker
-├── gmail_oauth/                         # Gmail OAuth helper tooling
-├── oauth-temp/                          # Outlook OAuth helper tooling
-├── docs/                                # supporting design / naming / release docs
-├── docker-compose.yml
-└── Dockerfile
-```
-
-## Quick start
-
-### 1. Prepare environment values
-
-Set secrets outside the repository:
-
-```bash
-export JWT_SECRET="replace-with-at-least-32-char-random-secret"
-export ENCRYPTION_KEY="replace-with-32-character-secret-key"
-export ADMIN_PASSWORD="replace-with-strong-password"
-```
-
-Copy the example environment file:
+Default Docker deployment:
 
 ```bash
 cp .env.example .env
 ```
 
-If you deploy on a remote server and want the first-boot log to print the public login link, also set:
+If you also need Cloudflare Email Routing / signed ingress for domain-mail delivery:
 
 ```bash
-export PUBLIC_BASE_URL="http://your-server-ip:3002"
+cp .env.cloudflare.example .env
 ```
-
-Do not leave this as `127.0.0.1` when you expect to open the console from another machine. Replace it with the cloud server public IP, your domain, or the correct local network address.
-
-Default local ports:
-
-- `APP_PORT=3002`
-- `REDIS_PORT=6380`
-- `POSTGRES_PORT=15433`
 
 ### 2. Start the stack
 
@@ -139,237 +55,19 @@ docker compose up -d --build
 docker compose ps
 ```
 
-## Docker deployment modes
+Expected baseline services:
 
-### Basic Docker mode
+- `app`
+- `jobs`
+- `postgres`
+- `redis`
 
-This is the recommended beginner path. It only assumes:
+After startup, `app` and `jobs` should settle into a healthy state in `docker compose ps`, while `postgres` and `redis` should report healthy from their own checks.
 
-- app + postgres + redis
-- no Cloudflare ingress setup
-- no object storage / advanced ingress extras
-
-```bash
-cp .env.basic.example .env
-docker compose up -d --build
-```
-
-#### If first boot fails with Prisma `P3009`
-
-This usually means the database already recorded an earlier failed migration attempt. On a brand-new Docker deployment, the most common pattern is: first boot fails during migration, and the second boot only reports `P3009` because Prisma now sees the stored failed row in `_prisma_migrations`.
-
-If this is a **fresh disposable install** and you do **not** need to preserve PostgreSQL data yet:
+### 3. Probe health
 
 ```bash
-docker compose down -v
-docker compose up -d --build
-```
-
-If the PostgreSQL data must be preserved, do **not** wipe volumes blindly. Inspect `_prisma_migrations` first and resolve the failed migration intentionally before restarting the app. `P3009` is a safety stop, not a retryable warning.
-
-### Advanced Docker + Cloudflare-ready mode
-
-Use this when you want to prepare the app for:
-
-- signed ingress
-- Cloudflare Email Routing / Worker integration
-- object storage or advanced mail-ingress extensions
-
-```bash
-cp .env.cloudflare.example .env
-docker compose up -d --build
-```
-
-Then continue with the worker/ingress steps in `CLOUDFLARE-DEPLOY.md`.
-
-### Important clarification
-
-These variables are **not Cloudflare-only** — they are base app secrets required even in basic Docker mode:
-
-- `JWT_SECRET`
-- `ENCRYPTION_KEY`
-- `ADMIN_PASSWORD`
-
-They are also **not** the same thing as mailbox/provider credentials entered later in the UI.
-
-- `JWT_SECRET` → signs admin / mailbox-portal login tokens
-- `ENCRYPTION_KEY` → encrypts stored mailbox passwords, OAuth client secrets, and refresh tokens in the database
-- `ADMIN_PASSWORD` → bootstrap admin password for the first console login
-
-Mailbox/provider-side credentials are different fields, such as:
-
-- Outlook / Gmail OAuth client secrets
-- refresh tokens
-- app passwords
-- mailbox passwords
-
-Those are configured later in the admin UI when you add or edit mailbox connectors.
-
-### Can I leave these blank?
-
-Now, yes — in the supported Docker and npm/CLI startup paths, you can leave these blank on first boot:
-
-- `JWT_SECRET`
-- `ENCRYPTION_KEY`
-- `ADMIN_PASSWORD`
-
-all-Mail will generate them automatically and persist them for reuse.
-
-- Docker mode stores them in the named volume mounted at `/var/lib/all-mail/bootstrap-secrets.env`
-- npm/CLI mode stores them in `.all-mail-runtime/bootstrap-secrets.env`
-
-If `ADMIN_PASSWORD` is auto-generated, the startup log prints it once and reminds you to change it after first login.
-
-If `PUBLIC_BASE_URL` is set (or `CORS_ORIGIN` points at the public console origin), the same first-boot log also prints the login URL. Otherwise it falls back to a local `127.0.0.1` URL derived from the current app port and prints a reminder to replace that address when accessing the app from another machine.
-
-When that temporary admin password is used for the first successful login, the admin session is restricted to the password-change flow until a new password is set. Other admin pages and protected admin APIs remain blocked until the password is updated.
-
-If you prefer to control them manually, you can still set them explicitly in `.env`.
-
-Cloudflare-related values are things like:
-
-- `INGRESS_SIGNING_SECRET`
-- `OBJECT_STORAGE_*`
-- worker-side deployment/configuration in `cloudflare/workers/allmail-edge`
-
-## Non-Docker / npm deployment
-
-The repository is **not Docker-only**. You can also run it directly with npm as long as you provide:
-
-- a reachable PostgreSQL instance (**required**)
-- a reachable Redis instance (**recommended**, not a hard startup blocker)
-- a real env file (`server/.env` or root `.env`)
-
-### What must exist before npm/CLI deployment
-
-| Dependency | Required | Why |
-|---|---|---|
-| PostgreSQL | Yes | `DATABASE_URL` is mandatory in `server/src/config/env.ts`, and the server exits on startup if Prisma cannot connect |
-| Redis | Recommended | `REDIS_URL` is optional in env schema; without Redis the app still starts, but OAuth state caching, token caching, and login-rate-limit storage degrade to weaker/local fallback behavior |
-
-### If you do **not** already have PostgreSQL / Redis
-
-You have three practical options:
-
-1. **Simplest:** keep using full Docker Compose for everything  
-   Best if you do not want to provision infra manually.
-
-2. **Hybrid mode:** only run PostgreSQL + Redis with Docker, but run all-Mail itself via npm / CLI  
-   This is usually the easiest non-Docker app path.
-
-3. **Manual install:** install PostgreSQL + Redis directly on your machine/server  
-   Suitable when you already operate system services or want systemd-managed dependencies.
-
-### Recommended hybrid example
-
-If you want npm/CLI deployment without moving database/cache setup out of containers yet, you can start only the dependencies first:
-
-```bash
-docker compose up -d postgres redis
-```
-
-Then run the app from source:
-
-```bash
-npm run install:all
-npm run build
-npm run start:npm
-```
-
-Or from the global CLI:
-
-```bash
-all-mail setup
-all-mail start --env-file /path/to/.env --port 3102
-```
-
-### Near one-click hybrid deployment
-
-If you want the app itself outside Docker, but you still want PostgreSQL + Redis to be prepared automatically, use the CLI hybrid path:
-
-```bash
-all-mail up --docker-deps --env-file /path/to/.env --port 3102
-```
-
-What it does:
-
-1. `docker compose up -d postgres redis`
-2. installs/builds the app only if required artifacts are missing
-3. starts all-Mail through the same npm/CLI runtime path
-
-### Health / dependency check before startup
-
-You can verify env + dependency readiness first:
-
-```bash
-all-mail doctor --env-file /path/to/.env
-```
-
-This checks:
-
-- env file resolution
-- PostgreSQL reachability (**required**)
-- Redis reachability (**recommended**)
-- whether built backend/frontend artifacts already exist
-
-Recommended non-Docker path:
-
-```bash
-# 1. install subproject dependencies
-npm run install:all
-
-# 2. create env (prefer server/.env for npm mode)
-cp server/.env.example server/.env
-
-# 3. build backend + frontend and copy web/dist -> ./public
-npm run build
-
-# 4. start server with migrate deploy -> db push fallback
-npm run start:npm
-```
-
-## Global CLI usage
-
-You can also install the repository as a **global CLI** from a local clone:
-
-```bash
-npm install -g /path/to/all-Mail
-```
-
-After global install, these commands are available:
-
-```bash
-all-mail setup
-all-mail install
-all-mail build
-all-mail doctor --env-file /path/to/.env
-all-mail deps up
-all-mail up --docker-deps --env-file /path/to/.env --port 3102
-all-mail start --env-file /path/to/.env --port 3102
-all-mail deploy --env-file /path/to/.env --port 3102
-all-mail check
-```
-
-Notes:
-
-- `all-mail start` uses the same env resolution and Prisma fallback logic as the Docker entrypoint
-- `all-mail setup` installs nested `server` / `web` dependencies and builds everything
-- the package is still source-based and expects PostgreSQL + Redis to be available outside the process
-- this is now a real globally installable CLI entrypoint, but it is **not yet** a slim single-binary installer or zero-dependency desktop-style package
-
-What these new root scripts do:
-
-- `npm run install:all` → installs `server` and `web` dependencies
-- `npm run build` → builds `server`, builds `web`, and copies `web/dist` into repo-root `public/`
-- `npm run start:npm` → starts the compiled server and reuses the same Prisma migration fallback logic as Docker entrypoint
-- `npm run deploy:npm` → convenience alias for `build + start:npm`
-
-Important: this is **npm-based source deployment**, not a polished `npm install -g all-mail` registry package. The project still expects external runtime services (PostgreSQL / Redis) and env configuration.
-
-### 3. Health check
-
-```bash
-curl http://localhost:3002/health
+curl http://127.0.0.1:3002/health
 ```
 
 Expected response:
@@ -378,107 +76,75 @@ Expected response:
 {"success":true,"data":{"status":"ok"}}
 ```
 
-## OAuth and provider onboarding
+### 4. First-login note
 
-### Recommended path
+You may leave `JWT_SECRET`, `ENCRYPTION_KEY`, and `ADMIN_PASSWORD` blank on first boot.
 
-- **Gmail OAuth**: configure callback URI + client secret JSON in the admin UI, generate the auth link, complete Google authorization in a signed-in browser
-- **Outlook OAuth**: configure callback URI, client ID / secret, tenant, and scopes in the admin UI, then complete Microsoft authorization
-- **QQ / Gmail App Password**: enter provider auth credentials manually in the console
+`all-Mail` will generate them automatically and persist them for reuse:
 
-### Outlook OAuth default scope note
+- Docker runtime: `/var/lib/all-mail/bootstrap-secrets.env`
+- source runtime: defaults to `.all-mail-runtime/bootstrap-secrets.env`; export `ALL_MAIL_STATE_DIR` before launch if you need a different bootstrap-state location
 
-The default Outlook OAuth scope bundle is now **Graph-only**. It covers:
+If the admin password is auto-generated, startup prints it once. Change it immediately after the first login.
 
-- mailbox read/write through Microsoft Graph
-- direct sending support
-- mailbox settings / contacts / calendar extensions
+## Canonical verification entrypoints
 
-`https://outlook.office.com/IMAP.AccessAsUser.All` is **not** included in the same default scope string, because it belongs to a different resource than the `https://graph.microsoft.com/*` scopes and cannot be mixed into one Microsoft authorization request.
+Use repo-root commands as the default verification contract:
 
-If you explicitly need Outlook IMAP OAuth, request the IMAP scope in a separate authorization flow or use a dedicated IMAP-oriented scope override.
+| Command | Purpose |
+| --- | --- |
+| `./bin/all-mail doctor` | preferred readiness check; sanitizes Node proxy startup flags before running the local doctor |
+| `./bin/all-mail check` | preferred full local release gate; sanitizes Node proxy startup flags before running lint + test + build verification |
+| `npm run verify:release` | compatibility alias for the full local release gate |
+| `npm run check` | compatibility alias for `npm run verify:release` |
 
-## API surfaces
+If your shell exports `NODE_USE_ENV_PROXY` or `HTTP[S]_PROXY`, prefer the `./bin/all-mail ...` entrypoints above. They avoid noisy `UNDICI-EHPA` warnings by sanitizing those startup flags before Node/npm bootstraps.
 
-### Admin APIs
+`./bin/all-mail doctor` is **not** the full release gate.
 
-- `/admin/auth/*`
-- `/admin/dashboard/*`
-- `/admin/emails/*`
-- `/admin/email-groups/*`
-- `/admin/domains/*`
-- `/admin/domain-mailboxes/*`
-- `/admin/domain-messages/*`
-- `/admin/mailbox-users/*`
-- `/admin/send/*`
-- `/admin/api-keys/*`
+## Documentation map
 
-### External automation APIs
+Use the authoritative doc that matches the task instead of treating this README as the full runbook.
 
-All external APIs use API-key-based access control.
+| Need | Canonical doc |
+| --- | --- |
+| Deploy, update, smoke check, rollback entry | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+| Day-2 operations and recovery | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
+| Env variables and template ownership | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
+| Cloudflare worker deployment and ingress troubleshooting | [`CLOUDFLARE-DEPLOY.md`](CLOUDFLARE-DEPLOY.md) |
+| Secondary npm/CLI source runtime | [`docs/advanced-runtime.md`](docs/advanced-runtime.md) |
+| Contribution workflow | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| Provenance / release-governance context | [`PROVENANCE.md`](PROVENANCE.md), [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md) |
 
-Current compatibility endpoints include mailbox allocation, latest-message access, text extraction, mailbox listing, and allocation-reset flows. The public documentation now uses the new resource-oriented path families; legacy script paths remain as compatibility aliases during migration.
+## Repository layout
 
-Example:
-
-```bash
-curl "http://localhost:3002/api/messages/text?email=example@gmail.com&match=\\d{6}" \
-  -H "X-API-Key: sk_xxx"
+```text
+├── server/                          # Fastify + Prisma backend
+├── web/                             # React admin console
+├── cloudflare/workers/allmail-edge/ # Signed inbound mail worker
+├── docs/                            # deployment, environment, runbook, and supporting docs
+├── docker-compose.yml
+└── Dockerfile
 ```
 
-## Quality gates
+## Secondary runtime notes
 
-```bash
-# web
-cd web
-npm run lint
-npm run build
+The npm/CLI source-runtime path is still supported, but it is **not** the default onboarding path. Use it only when you intentionally need:
 
-# server
-cd ../server
-npm run lint
-npm run build
-npm run test
+- app runtime outside the main Docker container
+- hybrid mode (`docker compose` only for PostgreSQL / Redis)
+- source-based global CLI workflows
 
-# worker
-cd ../cloudflare/workers/allmail-edge
-npm run check
-```
+See [`docs/advanced-runtime.md`](docs/advanced-runtime.md) for that path.
 
-## Security posture
+## Related release and support docs
 
-- secrets should stay in environment variables, not tracked files
-- runtime OAuth outputs and helper artifacts should never be committed
-- screenshots intended for the public repo should be sanitized first
-- current production dependency trees for `web`, `server`, and `allmail-edge` are expected to pass `npm audit --omit=dev`
-
-## Open-source release status
-
-From a technical perspective, the repository can now pass lint/build/test and production dependency audit checks.  
-From a release-governance perspective, public release still depends on confirming provenance and redistribution rights for any historically derived areas.
-
-If you plan to publish this repository, review:
-
-- `PROVENANCE.md`
-- `docs/open-source-release-checklist.md`
-- `docs/gongxi-rewrite-boundary-checklist.md`
-
-## Provenance and release note
-
-This repository acknowledges earlier projects that informed parts of its evolution, but the main product narrative, docs, naming, deployment path, and current scope are centered on `all-Mail` itself.
-
-That said, if you intend to make the repository public, provenance is not just a courtesy issue — it is also a release-governance issue. Resolve that first, then publish.
-
-## Related docs
-
-- `PROVENANCE.md` — project origin and acknowledgement boundary
-- `docs/open-source-release-checklist.md` — release closure checklist for going public
-- `docs/gongxi-rewrite-boundary-checklist.md` — which areas should be rewritten first if you want stronger independence from GongXi-Mail-like flows
-- `MULTI_PROVIDER_CLOSED_LOOP.md` — multi-provider design notes
-- `CLOUDFLARE-DEPLOY.md` — Cloudflare deployment entrypoint
-- `docs/external-email-management-guide.md` — provider operation guide
-- `docs/naming-conventions.md` — all-Mail naming rules
-- `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, `CHANGELOG.md`
+- [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- [`SECURITY.md`](SECURITY.md)
+- [`SUPPORT.md`](SUPPORT.md)
+- [`CHANGELOG.md`](CHANGELOG.md)
+- [`PROVENANCE.md`](PROVENANCE.md)
+- [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md)
 
 ## License
 

@@ -37,8 +37,11 @@ COPY --from=builder /app/web/dist ../public
 COPY docker/entrypoint.sh /usr/local/bin/all-mail-entrypoint
 COPY scripts ../scripts
 
-RUN sed -i 's/\r$//' /usr/local/bin/all-mail-entrypoint && chmod +x /usr/local/bin/all-mail-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/all-mail-entrypoint && \
+    sed -i 's/\r$//' /app/scripts/sanitize-runtime-env.sh && \
+    chmod +x /usr/local/bin/all-mail-entrypoint /app/scripts/sanitize-runtime-env.sh
 
 EXPOSE 3000
 
-CMD ["all-mail-entrypoint"]
+ENTRYPOINT ["all-mail-entrypoint"]
+CMD ["api"]

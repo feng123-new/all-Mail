@@ -5,12 +5,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureBootstrapSecrets, parseEnvText } from './bootstrap-secrets.mjs';
 import { resolveLoginUrl, usesLocalLoginBaseUrl } from './runtime-access.mjs';
+import { sanitizeNodeRuntimeEnv } from './runtime-env.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const serverDir = path.join(repoRoot, 'server');
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const serverDistEntry = path.join(serverDir, 'dist', 'index.js');
+const serverWorkerDistEntry = path.join(serverDir, 'dist', 'worker.js');
 const publicIndexFile = path.join(repoRoot, 'public', 'index.html');
 
 async function resolveEnvFile() {
@@ -83,12 +86,13 @@ async function run(command, args, options = {}) {
 }
 
 async function main() {
-  await ensureReadable(serverDistEntry, 'server build output is missing. Run `npm run build` at repo root first.');
-  await ensureReadable(publicIndexFile, 'public/index.html is missing. Run `npm run build` at repo root first so the frontend is copied into ./public.');
+  await ensureReadable(serverDistEntry, 'server build output is missing. This script is for the advanced source-runtime path; run `./bin/all-mail build` at repo root first, or use the default Docker path with `docker compose up -d --build`.');
+  await ensureReadable(serverWorkerDistEntry, 'server worker build output is missing. This script is for the advanced source-runtime path; run `./bin/all-mail build` at repo root first so the jobs runtime is compiled, or use the default Docker path with `docker compose up -d --build`.');
+  await ensureReadable(publicIndexFile, 'public/index.html is missing. This script is for the advanced source-runtime path; run `./bin/all-mail build` at repo root first so the frontend is copied into ./public, or use the default Docker path with `docker compose up -d --build`.');
 
   const envFile = await resolveEnvFile();
   if (!envFile) {
-    console.error('No env file found. Create server/.env from server/.env.example, or root .env from .env.example, then retry.');
+    console.error('No env file found. For the default Docker path, copy `.env.example` to `.env` and run `docker compose up -d --build`. For the advanced source-runtime path, create `server/.env` from `server/.env.example`, or provide a root `.env`, then retry.');
     process.exit(1);
   }
 
@@ -117,13 +121,13 @@ async function main() {
   const bootstrapSecrets = await ensureBootstrapSecrets({ stateDir, env: normalizedEnv });
   Object.assign(normalizedEnv, bootstrapSecrets.secrets);
 
-  const runtimeEnv = {
+  const runtimeEnv = sanitizeNodeRuntimeEnv({
     ...normalizedEnv,
     ...process.env,
     ALL_MAIL_BOOTSTRAP_SECRETS_FILE: bootstrapSecrets.secretsFile,
     ALL_MAIL_GENERATED_SECRETS: bootstrapSecrets.createdKeys.join(','),
     ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS: bootstrapSecrets.managedKeys.join(','),
-  };
+  });
   const loginUrl = resolveLoginUrl(runtimeEnv);
   const shouldPrintBootstrapLogin = bootstrapSecrets.createdStateFile || bootstrapSecrets.createdKeys.includes('ADMIN_PASSWORD');
 
@@ -158,27 +162,67 @@ async function main() {
       throw error;
     }
     console.log('Prisma migrate deploy skipped for legacy non-empty database; falling back to db push.');
+    await run('npm', ['run', 'db:repair:legacy-p3005'], { cwd: serverDir, env: runtimeEnv });
     await run('npm', ['run', 'db:push', '--', '--skip-generate'], { cwd: serverDir, env: runtimeEnv });
   }
 
-  const child = spawn('npm', ['run', 'start'], {
-    cwd: serverDir,
-    env: runtimeEnv,
-    stdio: 'inherit',
-  });
+  const processes = [
+    spawn(npmCommand, ['run', 'start:api'], {
+      cwd: serverDir,
+      env: runtimeEnv,
+      stdio: 'inherit',
+    }),
+    spawn(npmCommand, ['run', 'start:jobs'], {
+      cwd: serverDir,
+      env: runtimeEnv,
+      stdio: 'inherit',
+    }),
+  ];
+
+  let shuttingDown = false;
+  let completedChildren = 0;
+  let exitCode = 0;
+
+  const stopChildren = (signal, excludeChild = null) => {
+    for (const child of processes) {
+      if (child === excludeChild) {
+        continue;
+      }
+      if (child.exitCode === null && !child.killed) {
+        child.kill(signal);
+      }
+    }
+  };
 
   const forwardSignal = (signal) => {
-    if (!child.killed) {
-      child.kill(signal);
+    if (shuttingDown) {
+      return;
     }
+
+    shuttingDown = true;
+    stopChildren(signal);
   };
 
   process.on('SIGINT', forwardSignal);
   process.on('SIGTERM', forwardSignal);
 
-  child.on('close', (code) => {
-    process.exit(code ?? 0);
-  });
+  for (const child of processes) {
+    child.on('close', (code) => {
+      completedChildren += 1;
+      if ((code ?? 0) !== 0 && exitCode === 0) {
+        exitCode = code ?? 1;
+      }
+
+      if (!shuttingDown) {
+        shuttingDown = true;
+        stopChildren('SIGTERM', child);
+      }
+
+      if (completedChildren === processes.length) {
+        process.exit(exitCode);
+      }
+    });
+  }
 }
 
 main().catch((error) => {

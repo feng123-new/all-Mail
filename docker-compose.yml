@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${APP_PORT:-3002}:${APP_INTERNAL_PORT:-3000}"
+      - "${APP_PUBLISH_HOST:-127.0.0.1}:${APP_PORT:-3002}:${APP_INTERNAL_PORT:-3000}"
     environment:
       NODE_ENV: production
       PORT: ${APP_INTERNAL_PORT:-3000}
@@ -15,6 +15,7 @@ services:
       ALL_MAIL_STATE_DIR: /var/lib/all-mail
       DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
       REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}
+      ALLOW_LOCAL_RATE_LIMIT_FALLBACK: ${ALLOW_LOCAL_RATE_LIMIT_FALLBACK:-false}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       JWT_SECRET: ${JWT_SECRET:-}
       JWT_EXPIRES_IN: 2h
@@ -28,16 +29,12 @@ services:
       ADMIN_2FA_WINDOW: ${ADMIN_2FA_WINDOW:-1}
       API_LOG_RETENTION_DAYS: ${API_LOG_RETENTION_DAYS:-30}
       API_LOG_CLEANUP_INTERVAL_MINUTES: ${API_LOG_CLEANUP_INTERVAL_MINUTES:-60}
+      FORWARDING_WORKER_INTERVAL_SECONDS: ${FORWARDING_WORKER_INTERVAL_SECONDS:-30}
+      FORWARDING_WORKER_BATCH_SIZE: ${FORWARDING_WORKER_BATCH_SIZE:-10}
       DOMAIN_BOOTSTRAP_ADMIN_USERNAME: ${DOMAIN_BOOTSTRAP_ADMIN_USERNAME:-}
       DOMAIN_BOOTSTRAP_ADMIN_PASSWORD: ${DOMAIN_BOOTSTRAP_ADMIN_PASSWORD:-}
       INGRESS_SIGNING_SECRET: ${INGRESS_SIGNING_SECRET:-}
       INGRESS_ALLOWED_SKEW_SECONDS: ${INGRESS_ALLOWED_SKEW_SECONDS:-300}
-      OBJECT_STORAGE_PROVIDER: ${OBJECT_STORAGE_PROVIDER:-}
-      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-}
-      OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:-}
-      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:-}
-      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:-}
-      RESEND_DEFAULT_FROM_NAME: ${RESEND_DEFAULT_FROM_NAME:-}
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
@@ -58,16 +55,76 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then((r)=>process.exit(r.ok ? 0 : 1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "/app/scripts/sanitize-runtime-env.sh", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then((r)=>process.exit(r.ok ? 0 : 1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
 
+  jobs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["jobs"]
+    environment:
+      NODE_ENV: production
+      PORT: ${APP_INTERNAL_PORT:-3000}
+      APP_PORT: ${APP_PORT:-3002}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      ALL_MAIL_STATE_DIR: /var/lib/all-mail
+      ALL_MAIL_RUN_MIGRATIONS: "0"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
+      REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}
+      ALLOW_LOCAL_RATE_LIMIT_FALLBACK: ${ALLOW_LOCAL_RATE_LIMIT_FALLBACK:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_EXPIRES_IN: 2h
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_LOGIN_MAX_ATTEMPTS: ${ADMIN_LOGIN_MAX_ATTEMPTS:-5}
+      ADMIN_LOGIN_LOCK_MINUTES: ${ADMIN_LOGIN_LOCK_MINUTES:-15}
+      SEND_ENABLED_DOMAINS: ${SEND_ENABLED_DOMAINS:-}
+      ADMIN_2FA_SECRET: ${ADMIN_2FA_SECRET:-}
+      ADMIN_2FA_WINDOW: ${ADMIN_2FA_WINDOW:-1}
+      API_LOG_RETENTION_DAYS: ${API_LOG_RETENTION_DAYS:-30}
+      API_LOG_CLEANUP_INTERVAL_MINUTES: ${API_LOG_CLEANUP_INTERVAL_MINUTES:-60}
+      FORWARDING_WORKER_INTERVAL_SECONDS: ${FORWARDING_WORKER_INTERVAL_SECONDS:-30}
+      FORWARDING_WORKER_BATCH_SIZE: ${FORWARDING_WORKER_BATCH_SIZE:-10}
+      DOMAIN_BOOTSTRAP_ADMIN_USERNAME: ${DOMAIN_BOOTSTRAP_ADMIN_USERNAME:-}
+      DOMAIN_BOOTSTRAP_ADMIN_PASSWORD: ${DOMAIN_BOOTSTRAP_ADMIN_PASSWORD:-}
+      INGRESS_SIGNING_SECRET: ${INGRESS_SIGNING_SECRET:-}
+      INGRESS_ALLOWED_SKEW_SECONDS: ${INGRESS_ALLOWED_SKEW_SECONDS:-300}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+      GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-}
+      MICROSOFT_OAUTH_CLIENT_ID: ${MICROSOFT_OAUTH_CLIENT_ID:-}
+      MICROSOFT_OAUTH_CLIENT_SECRET: ${MICROSOFT_OAUTH_CLIENT_SECRET:-}
+      MICROSOFT_OAUTH_REDIRECT_URI: ${MICROSOFT_OAUTH_REDIRECT_URI:-}
+      MICROSOFT_OAUTH_TENANT: ${MICROSOFT_OAUTH_TENANT:-}
+      MICROSOFT_OAUTH_SCOPES: ${MICROSOFT_OAUTH_SCOPES:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - app_runtime_data:/var/lib/all-mail
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "/app/scripts/sanitize-runtime-env.sh", "node", "-e", "const fs=require('node:fs'); const file=(process.env.ALL_MAIL_STATE_DIR||'/var/lib/all-mail') + '/jobs-heartbeat.txt'; const maxAgeMs=((((Number(process.env.FORWARDING_WORKER_INTERVAL_SECONDS)||30)*3)+30)*1000); try { const ageMs=Date.now()-fs.statSync(file).mtimeMs; process.exit(ageMs <= maxAgeMs ? 0 : 1); } catch { process.exit(1); }"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
   redis:
     image: redis:7-alpine
     ports:
-      - "${REDIS_PORT:-6380}:${REDIS_INTERNAL_PORT:-6379}"
+      - "${REDIS_PUBLISH_HOST:-127.0.0.1}:${REDIS_PORT:-6380}:${REDIS_INTERNAL_PORT:-6379}"
     restart: unless-stopped
     networks:
       - app-network
@@ -83,7 +140,7 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "${POSTGRES_PORT:-15433}:${POSTGRES_INTERNAL_PORT:-5432}"
+      - "${POSTGRES_PUBLISH_HOST:-127.0.0.1}:${POSTGRES_PORT:-15433}:${POSTGRES_INTERNAL_PORT:-5432}"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-allmail}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-allmail_dev_password}

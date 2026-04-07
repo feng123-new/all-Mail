@@ -5,9 +5,25 @@ on:
     branches: [main, master]
   push:
     branches: [main, master]
+  merge_group:
   workflow_dispatch:
 
 jobs:
+  runtime:
+    name: runtime-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Test runtime scripts
+        run: ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs
+
   web:
     name: web-lint-build
     runs-on: ubuntu-latest
@@ -26,16 +42,16 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install deps
-        run: npm ci
+        run: ../scripts/sanitize-runtime-env.sh npm ci
 
       - name: Lint
-        run: npm run lint
-
-      - name: Build
-        run: npm run build
+        run: ../scripts/sanitize-runtime-env.sh npm run lint
 
       - name: Test
-        run: npm run test --if-present
+        run: ../scripts/sanitize-runtime-env.sh npm run test
+
+      - name: Build
+        run: ../scripts/sanitize-runtime-env.sh npm run build && ../scripts/sanitize-runtime-env.sh node ../scripts/prepare-public.mjs
 
   server:
     name: server-lint-build
@@ -55,16 +71,16 @@ jobs:
           cache-dependency-path: server/package-lock.json
 
       - name: Install deps
-        run: npm ci
+        run: ../scripts/sanitize-runtime-env.sh npm ci
 
       - name: Lint
-        run: npm run lint
-
-      - name: Build
-        run: npm run build
+        run: ../scripts/sanitize-runtime-env.sh npm run lint
 
       - name: Test
-        run: npm run test --if-present
+        run: ../scripts/sanitize-runtime-env.sh npm run test
+
+      - name: Build
+        run: ../scripts/sanitize-runtime-env.sh npm run db:generate && ../scripts/sanitize-runtime-env.sh npm run build
 
   worker:
     name: worker-check
@@ -84,7 +100,51 @@ jobs:
           cache-dependency-path: cloudflare/workers/allmail-edge/package-lock.json
 
       - name: Install deps
-        run: npm ci
+        run: ../../../scripts/sanitize-runtime-env.sh npm ci
 
       - name: Check
-        run: npm run check
+        run: ../../../scripts/sanitize-runtime-env.sh npm run check
+
+  release-gate:
+    name: release-gate
+    runs-on: ubuntu-latest
+    needs: [runtime, web, server, worker]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Prepare default env file
+        run: cp .env.example .env
+
+      - name: Install server deps
+        run: ./scripts/sanitize-runtime-env.sh npm ci --prefix server
+
+      - name: Install web deps
+        run: ./scripts/sanitize-runtime-env.sh npm ci --prefix web
+
+      - name: Install worker deps
+        run: ./scripts/sanitize-runtime-env.sh npm ci --prefix cloudflare/workers/allmail-edge
+
+      - name: Verify release contract
+        run: ./bin/all-mail check
+
+      - name: Start Docker stack
+        run: docker compose up -d --build
+
+      - name: Run doctor
+        run: ./bin/all-mail doctor
+
+      - name: Check container health
+        run: docker compose ps
+
+      - name: Check application health endpoint
+        run: curl --fail --silent --show-error http://127.0.0.1:3002/health
+
+      - name: Stop Docker stack
+        if: always()
+        run: docker compose down -v

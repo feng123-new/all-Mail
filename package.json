@@ -2,7 +2,7 @@
   "name": "all-mail",
   "private": true,
   "version": "2.0.0",
-  "description": "all-Mail repository-level CLI and npm deployment scripts",
+  "description": "all-Mail Docker-first runtime with compatibility CLI scripts",
   "license": "SEE LICENSE IN LICENSE",
   "preferGlobal": true,
   "repository": {
@@ -18,7 +18,7 @@
     "react"
   ],
   "bin": {
-    "all-mail": "bin/all-mail.mjs"
+    "all-mail": "bin/all-mail"
   },
   "files": [
     "bin",
@@ -38,24 +38,42 @@
     "node": ">=20.0.0"
   },
   "scripts": {
+    "docker:up": "./scripts/sanitize-runtime-env.sh docker compose up -d --build",
+    "docker:down": "./scripts/sanitize-runtime-env.sh docker compose down",
+    "docker:ps": "./scripts/sanitize-runtime-env.sh docker compose ps",
+    "docker:restart": "./scripts/sanitize-runtime-env.sh docker compose down && ./scripts/sanitize-runtime-env.sh docker compose up -d --build",
+    "docker:deps:up": "node bin/all-mail.mjs deps up",
+    "docker:deps:down": "node bin/all-mail.mjs deps down",
     "postinstall": "node bin/all-mail.mjs internal-postinstall",
     "setup": "node bin/all-mail.mjs setup",
-    "doctor": "node bin/all-mail.mjs doctor",
+    "doctor": "./scripts/sanitize-runtime-env.sh node bin/all-mail.mjs doctor",
     "deps:docker": "node bin/all-mail.mjs deps up",
     "deps:down": "node bin/all-mail.mjs deps down",
-    "up:npm": "node bin/all-mail.mjs up",
-    "up:hybrid": "node bin/all-mail.mjs up --docker-deps",
-    "install:server": "npm --prefix server install",
-    "install:web": "npm --prefix web install --legacy-peer-deps",
-    "install:all": "npm run install:server && npm run install:web",
-    "build:server": "npm --prefix server run db:generate && npm --prefix server run build",
-    "build:web": "npm --prefix web run build && node scripts/prepare-public.mjs",
-    "build": "npm run build:server && npm run build:web",
-    "start:npm": "node scripts/start-all-mail.mjs",
-    "deploy:npm": "npm run build && npm run start:npm",
-    "lint": "npm --prefix server run lint && npm --prefix web run lint",
-    "test:runtime": "node --test scripts/*.test.mjs",
-    "test": "npm run test:runtime && npm --prefix server run test",
-    "check": "npm run lint && npm run test && npm --prefix web run build && npm --prefix cloudflare/workers/allmail-edge run check"
+    "up:npm": "./scripts/sanitize-runtime-env.sh node bin/all-mail.mjs up",
+    "up:hybrid": "./scripts/sanitize-runtime-env.sh node bin/all-mail.mjs up --docker-deps",
+    "install:server": "./scripts/sanitize-runtime-env.sh npm --prefix server install",
+    "install:web": "./scripts/sanitize-runtime-env.sh npm --prefix web install --legacy-peer-deps",
+    "install:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install",
+    "install:all": "./scripts/sanitize-runtime-env.sh npm --prefix server install && ./scripts/sanitize-runtime-env.sh npm --prefix web install --legacy-peer-deps && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install",
+    "build:server": "./scripts/sanitize-runtime-env.sh npm --prefix server run db:generate && ./scripts/sanitize-runtime-env.sh npm --prefix server run build",
+    "build:web": "./scripts/sanitize-runtime-env.sh npm --prefix web run build && ./scripts/sanitize-runtime-env.sh node scripts/prepare-public.mjs",
+    "build": "./scripts/sanitize-runtime-env.sh npm --prefix server run db:generate && ./scripts/sanitize-runtime-env.sh npm --prefix server run build && ./scripts/sanitize-runtime-env.sh npm --prefix web run build && ./scripts/sanitize-runtime-env.sh node scripts/prepare-public.mjs",
+    "build:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run build",
+    "start:npm": "./scripts/sanitize-runtime-env.sh node scripts/start-all-mail.mjs",
+    "start:npm:api": "./scripts/sanitize-runtime-env.sh npm --prefix server run start:api",
+    "start:npm:jobs": "./scripts/sanitize-runtime-env.sh npm --prefix server run start:jobs",
+    "deploy:npm": "./scripts/sanitize-runtime-env.sh npm --prefix server run db:generate && ./scripts/sanitize-runtime-env.sh npm --prefix server run build && ./scripts/sanitize-runtime-env.sh npm --prefix web run build && ./scripts/sanitize-runtime-env.sh node scripts/prepare-public.mjs && ./scripts/sanitize-runtime-env.sh node scripts/start-all-mail.mjs",
+    "lint": "./scripts/sanitize-runtime-env.sh npm --prefix server run lint && ./scripts/sanitize-runtime-env.sh npm --prefix web run lint",
+    "test:runtime": "./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs",
+    "test:web": "./scripts/sanitize-runtime-env.sh npm --prefix web run test",
+    "test:server": "./scripts/sanitize-runtime-env.sh npm --prefix server run test",
+    "test": "./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs && ./scripts/sanitize-runtime-env.sh npm --prefix server run test && ./scripts/sanitize-runtime-env.sh npm --prefix web run test",
+    "audit:server": "./scripts/sanitize-runtime-env.sh npm --prefix server audit --omit=dev",
+    "audit:web": "./scripts/sanitize-runtime-env.sh npm --prefix web audit --omit=dev",
+    "audit:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge audit --omit=dev",
+    "audit:prod": "./scripts/sanitize-runtime-env.sh npm --prefix server audit --omit=dev && ./scripts/sanitize-runtime-env.sh npm --prefix web audit --omit=dev && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge audit --omit=dev",
+    "check:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check",
+    "verify:release": "./scripts/sanitize-runtime-env.sh npm --prefix server run lint && ./scripts/sanitize-runtime-env.sh npm --prefix web run lint && ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs && ./scripts/sanitize-runtime-env.sh npm --prefix server run test && ./scripts/sanitize-runtime-env.sh npm --prefix web run test && ./scripts/sanitize-runtime-env.sh npm --prefix server run db:generate && ./scripts/sanitize-runtime-env.sh npm --prefix server run build && ./scripts/sanitize-runtime-env.sh npm --prefix web run build && ./scripts/sanitize-runtime-env.sh node scripts/prepare-public.mjs && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check && ./scripts/sanitize-runtime-env.sh npm run audit:prod",
+    "check": "./scripts/sanitize-runtime-env.sh npm --prefix server run lint && ./scripts/sanitize-runtime-env.sh npm --prefix web run lint && ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs && ./scripts/sanitize-runtime-env.sh npm --prefix server run test && ./scripts/sanitize-runtime-env.sh npm --prefix web run test && ./scripts/sanitize-runtime-env.sh npm --prefix server run db:generate && ./scripts/sanitize-runtime-env.sh npm --prefix server run build && ./scripts/sanitize-runtime-env.sh npm --prefix web run build && ./scripts/sanitize-runtime-env.sh node scripts/prepare-public.mjs && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check"
   }
 }

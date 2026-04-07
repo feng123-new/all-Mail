@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { access, readFile } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
+import { access, readFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sanitizeNodeRuntimeEnv } from '../scripts/runtime-env.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,7 +35,7 @@ Commands:
   doctor    Check env, build artifacts, PostgreSQL, and Redis reachability
   deps      Start or stop PostgreSQL + Redis via docker compose
   up        One-command app startup; optionally boot dockerized deps first
-  start     Start compiled all-Mail server with env resolution and Prisma fallback
+  start     Start compiled all-Mail API + jobs runtimes with env resolution and Prisma fallback
   deploy    Build first, then start
   check     Run lint/test/build verification across the repository
   setup     Install nested dependencies, then build everything
@@ -70,7 +71,6 @@ function parseOptions(argv) {
     }
     if (arg === '--docker-deps') {
       options.dockerDeps = true;
-      continue;
     }
   }
 
@@ -144,7 +144,7 @@ async function loadRuntimeEnv(explicitEnvFile, portOverride) {
 
   const fileEnv = parseEnvText(await readFile(envFile, 'utf8'));
   const normalizedEnv = normalizeEnv(fileEnv);
-  const runtimeEnv = { ...normalizedEnv, ...process.env };
+  const runtimeEnv = sanitizeNodeRuntimeEnv({ ...normalizedEnv, ...process.env });
   if (portOverride) {
     runtimeEnv.PORT = String(portOverride);
   }
@@ -191,7 +191,7 @@ async function run(command, args, options = {}) {
   return await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd ?? repoRoot,
-      env: options.env ?? process.env,
+      env: sanitizeNodeRuntimeEnv(options.env ?? process.env),
       stdio: options.stdio ?? 'inherit',
     });
 
@@ -209,6 +209,8 @@ async function run(command, args, options = {}) {
 async function installAll(force = false) {
   const serverNodeModules = path.join(serverDir, 'node_modules');
   const webNodeModules = path.join(webDir, 'node_modules');
+  const workerDir = path.join(repoRoot, 'cloudflare', 'workers', 'allmail-edge');
+  const workerNodeModules = path.join(workerDir, 'node_modules');
 
   if (force || !(await pathExists(serverNodeModules))) {
     await run(npmCommand, ['--prefix', 'server', 'install']);
@@ -216,6 +218,10 @@ async function installAll(force = false) {
 
   if (force || !(await pathExists(webNodeModules))) {
     await run(npmCommand, ['--prefix', 'web', 'install', '--legacy-peer-deps']);
+  }
+
+  if (force || !(await pathExists(workerNodeModules))) {
+    await run(npmCommand, ['--prefix', 'cloudflare/workers/allmail-edge', 'install']);
   }
 }
 
@@ -286,8 +292,10 @@ async function runDoctor(options) {
     }
 
     const serverDistEntry = path.join(serverDir, 'dist', 'index.js');
+    const serverWorkerDistEntry = path.join(serverDir, 'dist', 'worker.js');
     const publicIndexFile = path.join(repoRoot, 'public', 'index.html');
     results.push({ level: (await pathExists(serverDistEntry)) ? 'ok' : 'warn', message: (await pathExists(serverDistEntry)) ? 'Server build artifacts exist.' : 'Server build artifacts are missing. Run `all-mail setup` or `all-mail build`.' });
+    results.push({ level: (await pathExists(serverWorkerDistEntry)) ? 'ok' : 'warn', message: (await pathExists(serverWorkerDistEntry)) ? 'Jobs runtime build artifacts exist.' : 'Jobs runtime build artifacts are missing. Run `all-mail setup` or `all-mail build`.' });
     results.push({ level: (await pathExists(publicIndexFile)) ? 'ok' : 'warn', message: (await pathExists(publicIndexFile)) ? 'Frontend public assets exist.' : 'Frontend public assets are missing. Run `all-mail setup` or `all-mail build`.' });
   } catch (error) {
     results.push({ level: 'error', message: error instanceof Error ? error.message : String(error) });
