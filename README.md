@@ -85,7 +85,7 @@ You may leave `JWT_SECRET`, `ENCRYPTION_KEY`, and `ADMIN_PASSWORD` blank on firs
 - Docker runtime: `/var/lib/all-mail/bootstrap-secrets.env`
 - source runtime: defaults to `.all-mail-runtime/bootstrap-secrets.env`; export `ALL_MAIL_STATE_DIR` before launch if you need a different bootstrap-state location
 
-If the admin password is auto-generated, startup prints it once. Change it immediately after the first login.
+By default, startup prints the first-login URL and bootstrap admin username but keeps `ADMIN_PASSWORD` out of stdout. Retrieve generated passwords from the persisted bootstrap-secret file above, or set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only for short-lived recovery in a controlled terminal. Change any generated password immediately after the first login.
 
 ## Canonical verification entrypoints
 
@@ -94,7 +94,7 @@ Use repo-root commands as the default verification contract:
 | Command | Purpose |
 | --- | --- |
 | `./bin/all-mail doctor` | preferred readiness check; sanitizes Node proxy startup flags before running the local doctor |
-| `./bin/all-mail check` | preferred full local release gate; sanitizes Node proxy startup flags before running lint + test + build verification |
+| `./bin/all-mail check` | preferred full local release gate; sanitizes Node proxy startup flags before running lint, tests, builds, worker checks, and production dependency audits |
 | `npm run verify:release` | compatibility alias for the full local release gate |
 | `npm run check` | compatibility alias for `npm run verify:release` |
 

@@ -77,7 +77,7 @@ Expected baseline:
 - `postgres` is healthy
 - `redis` is healthy
 
-If this is the first boot and secrets were generated automatically, startup output also prints the first-login URL and the bootstrap admin username. When `ADMIN_PASSWORD` was generated, the temporary password is shown once and must be changed immediately after login.
+If this is the first boot and secrets were generated automatically, startup output prints the first-login URL and the bootstrap admin username. `ADMIN_PASSWORD` stays out of startup logs by default; retrieve it from the persisted bootstrap-secret file unless you explicitly set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` for short-lived recovery. Any generated password must be changed immediately after login.
 
 ## Health and smoke checks
 
@@ -102,7 +102,7 @@ Repo verification entrypoints:
 | Command | What it proves |
 | --- | --- |
 | `./bin/all-mail doctor` | Preferred readiness check; sanitizes Node proxy startup flags before running the local doctor |
-| `./bin/all-mail check` | Preferred full local release gate; sanitizes Node proxy startup flags before running lint + test + build verification |
+| `./bin/all-mail check` | Preferred full local release gate; sanitizes Node proxy startup flags before running lint, tests, builds, worker checks, and production dependency audits |
 | `npm run verify:release` | Compatibility alias for the full local release gate |
 | `npm run check` | Compatibility alias for `npm run verify:release` |
 

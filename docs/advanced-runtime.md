@@ -123,7 +123,7 @@ Repo-root verification entrypoints remain the canonical release contract when yo
 ```
 
 - `./bin/all-mail doctor` checks env resolution, PostgreSQL reachability, Redis reachability, and required build artifacts.
-- `./bin/all-mail check` runs the full local release gate.
+- `./bin/all-mail check` runs the full local release gate, including production dependency audits.
 - If your shell exports `NODE_USE_ENV_PROXY` or `HTTP[S]_PROXY`, these `./bin/all-mail ...` entrypoints avoid noisy `UNDICI-EHPA` startup warnings by sanitizing the env before Node/npm bootstraps.
 
 Basic HTTP health probe after startup:

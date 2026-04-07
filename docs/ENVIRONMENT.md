@@ -62,6 +62,8 @@ Persistence location depends on runtime:
 - Docker: `/var/lib/all-mail/bootstrap-secrets.env`
 - Source runtime: defaults to `.all-mail-runtime/bootstrap-secrets.env`; export `ALL_MAIL_STATE_DIR` in the parent shell before launch if you need the bootstrap-secret file written elsewhere.
 
+Startup wrappers print the first-login URL and bootstrap admin username, but they keep `ADMIN_PASSWORD` out of stdout by default. Set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only if you explicitly want one-time startup password output in a controlled terminal.
+
 Source-runtime caveat: `scripts/start-all-mail.mjs` reads `process.env.ALL_MAIL_STATE_DIR` before env-file values are merged. Setting `ALL_MAIL_STATE_DIR` only inside `server/.env` or repo-root `.env` can leave the bootstrap-secret file in the default `.all-mail-runtime` path while child runtimes later honor the merged override.
 
 This repo documents bootstrap generation and persistence. It does not provide a full secret-rotation automation layer.
@@ -80,6 +82,7 @@ This repo documents bootstrap generation and persistence. It does not provide a 
 | `ALL_MAIL_PUBLIC_BASE_URL` | legacy fallback | runtime helper only | Consumed by `scripts/runtime-access.mjs` when `PUBLIC_BASE_URL` is unset; prefer `PUBLIC_BASE_URL` for new setups |
 | `CORS_ORIGIN` | optional | `.env.example`, `.env.basic.example`, `.env.cloudflare.example`, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Cross-origin allowance; when `PUBLIC_BASE_URL` and `ALL_MAIL_PUBLIC_BASE_URL` are unset, `scripts/runtime-access.mjs` uses the first listed origin as the login/base URL fallback |
 | `ALL_MAIL_STATE_DIR` | advanced runtime override | `docker-compose.yml`, `docker/entrypoint.sh`, `scripts/start-all-mail.mjs`, `server/src/runtime/jobsHealth.ts` | Controls the persisted runtime state directory; Docker defaults to `/var/lib/all-mail`; source-runtime child processes honor the merged env, but bootstrap-secret creation only sees the parent-shell value |
+| `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD` | wrapper-only recovery flag | root templates, `docker-compose.yml`, `server/.env.example`, `docker/entrypoint.sh`, `scripts/start-all-mail.mjs` | Defaults to `false`; when `true`, startup wrappers echo `ADMIN_PASSWORD` to stdout instead of directing operators to the persisted secret source |
 
 ### Database and Redis
 

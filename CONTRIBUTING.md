@@ -60,7 +60,7 @@ Use repo-root verification commands as the default contributor contract:
 Notes:
 
 - `./bin/all-mail doctor` is the readiness check (env resolution, PostgreSQL, Redis, build artifacts).
-- `./bin/all-mail check` is the full local release gate (`lint + test + build:server + build:web + worker check`).
+- `./bin/all-mail check` is the full local release gate (`lint + test + build:server + build:web + worker check + production dependency audits`).
 - If your shell exports `NODE_USE_ENV_PROXY` or `HTTP[S]_PROXY`, prefer the `./bin/all-mail ...` entrypoints because they sanitize those startup flags before Node/npm bootstraps.
 - If `./bin/all-mail doctor` cannot pass because your environment intentionally lacks running services, say that explicitly in your PR and still run the strongest truthful local gate available.
 

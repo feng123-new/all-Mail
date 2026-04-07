@@ -194,7 +194,8 @@ docker compose up -d --build
 - Docker persists generated values under `/var/lib/all-mail/bootstrap-secrets.env`.
 - Source runtime defaults to `.all-mail-runtime/bootstrap-secrets.env`; if `ALL_MAIL_STATE_DIR` was exported before startup, inspect that directory instead.
 - Setting `ALL_MAIL_STATE_DIR` only inside the env file does not move the initial bootstrap-secret write performed by `scripts/start-all-mail.mjs`.
-- Generated admin passwords are only printed once when newly created.
+- Startup wrappers keep `ADMIN_PASSWORD` out of stdout by default and point operators to the persisted bootstrap-secret source instead.
+- Set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only for short-lived recovery in a controlled terminal if you explicitly need startup password output.
 - First-login URL output prefers `PUBLIC_BASE_URL`, then `ALL_MAIL_PUBLIC_BASE_URL`, then the first `CORS_ORIGIN`, and only falls back to localhost when none of those are set.
 
 ### Response steps
@@ -212,7 +213,7 @@ cat "${ALL_MAIL_STATE_DIR:-.all-mail-runtime}/bootstrap-secrets.env"
 ```
 
 3. Confirm the active admin username from env or startup output. If you used the default bootstrap path and did not override it, the admin username is usually `ADMIN_USERNAME` or `admin`.
-4. If the temporary admin password was generated and used once, complete the password-change flow before expecting normal admin access.
+4. If the temporary admin password was generated, complete the password-change flow before expecting normal admin access.
 
 ### Validation
 
