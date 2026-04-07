@@ -13,6 +13,7 @@ services:
       APP_PORT: ${APP_PORT:-3002}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       ALL_MAIL_STATE_DIR: /var/lib/all-mail
+      ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD: ${ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD:-false}
       DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
       REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}
       ALLOW_LOCAL_RATE_LIMIT_FALLBACK: ${ALLOW_LOCAL_RATE_LIMIT_FALLBACK:-false}
@@ -72,6 +73,7 @@ services:
       APP_PORT: ${APP_PORT:-3002}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       ALL_MAIL_STATE_DIR: /var/lib/all-mail
+      ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD: ${ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD:-false}
       ALL_MAIL_RUN_MIGRATIONS: "0"
       DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
       REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}

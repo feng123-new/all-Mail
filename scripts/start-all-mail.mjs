@@ -3,7 +3,13 @@ import { constants as fsConstants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureBootstrapSecrets, parseEnvText } from './bootstrap-secrets.mjs';
+import {
+  buildBootstrapAdminPasswordMessages,
+  ensureBootstrapSecrets,
+  parseEnvText,
+  resolveBootstrapAdminPasswordSource,
+  shouldPrintBootstrapPassword,
+} from './bootstrap-secrets.mjs';
 import { resolveLoginUrl, usesLocalLoginBaseUrl } from './runtime-access.mjs';
 import { sanitizeNodeRuntimeEnv } from './runtime-env.mjs';
 
@@ -130,6 +136,11 @@ async function main() {
   });
   const loginUrl = resolveLoginUrl(runtimeEnv);
   const shouldPrintBootstrapLogin = bootstrapSecrets.createdStateFile || bootstrapSecrets.createdKeys.includes('ADMIN_PASSWORD');
+  const adminPasswordSource = resolveBootstrapAdminPasswordSource({
+    password: runtimeEnv.ADMIN_PASSWORD,
+    createdKeys: bootstrapSecrets.createdKeys,
+    managedKeys: bootstrapSecrets.managedKeys,
+  });
 
   console.log(`Using env file: ${envFile}`);
   if (bootstrapSecrets.createdKeys.length > 0) {
@@ -141,16 +152,15 @@ async function main() {
       console.log('NOTE: 127.0.0.1/localhost only works on the same machine. Replace it with your cloud server public IP, domain, or the correct local address when accessing remotely.');
     }
     console.log(`Bootstrap admin username: ${runtimeEnv.ADMIN_USERNAME || 'admin'}`);
-    if (runtimeEnv.ADMIN_PASSWORD) {
-      const passwordLabel = bootstrapSecrets.createdKeys.includes('ADMIN_PASSWORD')
-        ? 'Temporary admin password'
-        : 'Bootstrap admin password';
-      console.log(`${passwordLabel}: ${runtimeEnv.ADMIN_PASSWORD}`);
-    }
-    if (bootstrapSecrets.createdKeys.includes('ADMIN_PASSWORD')) {
-      console.log('IMPORTANT: This password is shown only once.');
-      console.log('You must log in and change it immediately before using the rest of the application.');
-      console.log('After the password is changed, this temporary password will no longer be valid.');
+    for (const line of buildBootstrapAdminPasswordMessages({
+      password: runtimeEnv.ADMIN_PASSWORD,
+      passwordSource: adminPasswordSource,
+      secretsFile: bootstrapSecrets.secretsFile,
+      envFile,
+      printPassword: shouldPrintBootstrapPassword(runtimeEnv),
+      runtimeKind: 'source',
+    })) {
+      console.log(line);
     }
   }
 

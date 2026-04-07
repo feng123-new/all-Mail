@@ -30,6 +30,32 @@ if [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
     printf '%s\n' "Generated bootstrap secrets in ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE}"
 fi
 
+print_bootstrap_password=0
+case "$(printf '%s' "${ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on)
+        print_bootstrap_password=1
+        ;;
+esac
+
+admin_password_source=""
+case ",${ALL_MAIL_GENERATED_SECRETS:-}," in
+    *,ADMIN_PASSWORD,*)
+        admin_password_source="generated"
+        ;;
+    *)
+        case ",${ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS:-}," in
+            *,ADMIN_PASSWORD,*)
+                admin_password_source="state-file"
+                ;;
+            *)
+                if [ -n "${ADMIN_PASSWORD:-}" ]; then
+                    admin_password_source="env"
+                fi
+                ;;
+        esac
+        ;;
+esac
+
 if [ "${ALL_MAIL_CREATED_STATE_FILE:-0}" = "1" ] || [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
     printf '%s\n' "First login URL: ${ALL_MAIL_LOGIN_URL}"
     case "${ALL_MAIL_LOGIN_URL}" in
@@ -38,19 +64,39 @@ if [ "${ALL_MAIL_CREATED_STATE_FILE:-0}" = "1" ] || [ -n "${ALL_MAIL_GENERATED_S
             ;;
     esac
     printf '%s\n' "Bootstrap admin username: ${ADMIN_USERNAME:-admin}"
-    case ",${ALL_MAIL_GENERATED_SECRETS}," in
-        *,ADMIN_PASSWORD,*)
-            printf '%s\n' "Temporary admin password: ${ADMIN_PASSWORD}"
-            printf '%s\n' 'IMPORTANT: This password is shown only once.'
-            printf '%s\n' 'You must log in and change it immediately before using the rest of the application.'
-            printf '%s\n' 'After the password is changed, this temporary password will no longer be valid.'
-            ;;
-        *)
-            if [ -n "${ADMIN_PASSWORD:-}" ]; then
-                printf '%s\n' "Bootstrap admin password: ${ADMIN_PASSWORD}"
+    if [ -n "${ADMIN_PASSWORD:-}" ]; then
+        if [ "$print_bootstrap_password" = "1" ]; then
+            case "$admin_password_source" in
+                generated)
+                    printf '%s\n' "Temporary admin password: ${ADMIN_PASSWORD}"
+                    ;;
+                *)
+                    printf '%s\n' "Bootstrap admin password: ${ADMIN_PASSWORD}"
+                    ;;
+            esac
+            printf '%s\n' 'WARNING: Startup logs may retain this password. Disable ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD after recovery.'
+            if [ "$admin_password_source" = "generated" ]; then
+                printf '%s\n' 'You must log in and change it immediately before using the rest of the application.'
+                printf '%s\n' 'After the password is changed, this temporary password will no longer be valid.'
             fi
-            ;;
-    esac
+        else
+            case "$admin_password_source" in
+                generated|state-file)
+                    printf '%s\n' "Bootstrap admin password is stored in ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE}."
+                    printf '%s\n' 'Retrieve it from the runtime state file instead of startup logs.'
+                    printf '%s\n' "Example: docker compose exec app sh -lc \"grep '^ADMIN_PASSWORD=' ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE} | cut -d= -f2-\""
+                    if [ "$admin_password_source" = "generated" ]; then
+                        printf '%s\n' 'You must log in and change this temporary password immediately before using the rest of the application.'
+                    fi
+                    ;;
+                env)
+                    printf '%s\n' 'Bootstrap admin password is configured via the container environment and is not echoed to startup logs.'
+                    printf '%s\n' 'Review ADMIN_PASSWORD in the env source used for this runtime.'
+                    printf '%s\n' 'Set ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true only if you explicitly want startup password output.'
+                    ;;
+            esac
+        fi
+    fi
 fi
 
 if [ "$run_migrations" = "1" ]; then

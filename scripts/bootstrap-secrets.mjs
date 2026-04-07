@@ -40,6 +40,14 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
+function isTruthyEnvFlag(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
 function isMissing(value) {
   if (value === undefined || value === null) {
     return true;
@@ -71,6 +79,85 @@ function generateSecret(key) {
     default:
       throw new Error(`Unsupported bootstrap secret key: ${key}`);
   }
+}
+
+export function shouldPrintBootstrapPassword(env = {}) {
+  return isTruthyEnvFlag(env.ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD);
+}
+
+export function resolveBootstrapAdminPasswordSource({ password, createdKeys = [], managedKeys = [] }) {
+  if (isMissing(password)) {
+    return null;
+  }
+
+  if (createdKeys.includes('ADMIN_PASSWORD')) {
+    return 'generated';
+  }
+
+  if (managedKeys.includes('ADMIN_PASSWORD')) {
+    return 'state-file';
+  }
+
+  return 'env';
+}
+
+export function buildBootstrapAdminPasswordMessages({
+  password,
+  passwordSource,
+  secretsFile,
+  envFile,
+  printPassword = false,
+  runtimeKind = 'source',
+}) {
+  if (isMissing(password) || !passwordSource) {
+    return [];
+  }
+
+  if (printPassword) {
+    const label = passwordSource === 'generated' ? 'Temporary admin password' : 'Bootstrap admin password';
+    const lines = [
+      `${label}: ${password}`,
+      'WARNING: Startup logs may retain this password. Disable ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD after recovery.',
+    ];
+
+    if (passwordSource === 'generated') {
+      lines.push('You must log in and change it immediately before using the rest of the application.');
+      lines.push('After the password is changed, this temporary password will no longer be valid.');
+    }
+
+    return lines;
+  }
+
+  if (passwordSource === 'generated' || passwordSource === 'state-file') {
+    const accessCommand = runtimeKind === 'docker'
+      ? `docker compose exec app sh -lc "grep '^ADMIN_PASSWORD=' ${secretsFile} | cut -d= -f2-"`
+      : `grep '^ADMIN_PASSWORD=' ${shellQuote(secretsFile)} | cut -d= -f2-`;
+    const lines = [
+      `Bootstrap admin password is stored in ${secretsFile}.`,
+      'Retrieve it from the runtime state file instead of startup logs.',
+      `Example: ${accessCommand}`,
+    ];
+
+    if (passwordSource === 'generated') {
+      lines.push('You must log in and change this temporary password immediately before using the rest of the application.');
+    }
+
+    return lines;
+  }
+
+  const lines = [
+    'Bootstrap admin password is configured via the active environment source and is not echoed to startup logs.',
+  ];
+
+  if (envFile) {
+    lines.push(`Review ADMIN_PASSWORD in ${envFile}.`);
+  } else {
+    lines.push('Review ADMIN_PASSWORD in the environment source used for this runtime.');
+  }
+
+  lines.push('Set ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true only if you explicitly want startup password output.');
+
+  return lines;
 }
 
 export async function ensureBootstrapSecrets({ stateDir, env }) {
