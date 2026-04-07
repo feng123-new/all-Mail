@@ -91,6 +91,17 @@ vi.mock('../pages/mail-portal/settings', () => ({
 
 import App from '../App';
 
+function setAuthenticatedAdmin(role: 'SUPER_ADMIN' | 'ADMIN' = 'SUPER_ADMIN') {
+  useAuthStore.setState({
+    admin: {
+      id: 1,
+      username: 'operator',
+      role,
+    },
+    isAuthenticated: true,
+  });
+}
+
 describe('App auth routing', () => {
   beforeEach(() => {
     useAuthStore.setState({ admin: null, isAuthenticated: false });
@@ -109,14 +120,7 @@ describe('App auth routing', () => {
   });
 
   it('renders the admin shell when an authenticated admin session exists', async () => {
-    useAuthStore.setState({
-      admin: {
-        id: 1,
-        username: 'operator',
-        role: 'SUPER_ADMIN',
-      },
-      isAuthenticated: true,
-    });
+    setAuthenticatedAdmin();
     window.history.pushState({}, '', '/dashboard');
 
     render(<App />);
@@ -125,19 +129,49 @@ describe('App auth routing', () => {
   });
 
   it('renders the forwarding jobs route inside the authenticated admin shell', async () => {
-    useAuthStore.setState({
-      admin: {
-        id: 1,
-        username: 'operator',
-        role: 'SUPER_ADMIN',
-      },
-      isAuthenticated: true,
-    });
+    setAuthenticatedAdmin();
     window.history.pushState({}, '', '/forwarding-jobs');
 
     render(<App />);
 
     expect(await screen.findByText('Forwarding Jobs Route')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['/api-keys', 'Api Keys Route'],
+    ['/operation-logs', 'Operation Logs Route'],
+    ['/domain-mailboxes', 'Domain Mailboxes Route'],
+    ['/sending-configs', 'Sending Configs Route'],
+    ['/settings', 'Settings Route'],
+  ])('renders %s inside the authenticated admin shell', async (path, label) => {
+    setAuthenticatedAdmin();
+    window.history.pushState({}, '', path);
+
+    render(<App />);
+
+    expect(await screen.findByText('Admin Shell Layout')).toBeInTheDocument();
+    expect(await screen.findByText(label)).toBeInTheDocument();
+  });
+
+  it('renders the admins route for authenticated super admins', async () => {
+    setAuthenticatedAdmin('SUPER_ADMIN');
+    window.history.pushState({}, '', '/admins');
+
+    render(<App />);
+
+    expect(await screen.findByText('Admins Route')).toBeInTheDocument();
+  });
+
+  it('redirects non-super-admin users away from the admins route', async () => {
+    setAuthenticatedAdmin('ADMIN');
+    window.history.pushState({}, '', '/admins');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/dashboard');
+    });
+    expect(await screen.findByText('Dashboard Route')).toBeInTheDocument();
   });
 
   it('redirects unauthenticated portal routes to the portal login page', async () => {
