@@ -27,11 +27,12 @@ import {
     Tag,
     Typography,
 } from 'antd';
-import { type FC, useState } from 'react';
+import { type FC, useCallback, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { authApi } from '../api';
-import { PageSurface } from '../components';
+import { LanguageToggle, PageSurface } from '../components';
 import { APP_NAME, APP_SHORT_NAME } from '../constants/product';
+import { useI18n } from '../i18n';
 import { useAuthStore } from '../stores/authStore';
 import {
     contentFrameStyle,
@@ -69,11 +70,12 @@ const MainLayout: FC = () => {
     const [collapsed, setCollapsed] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
+    const { t } = useI18n();
     const { admin, clearAuth } = useAuthStore();
     const mustChangePassword = Boolean(admin?.mustChangePassword);
 
     const hasSuperAdminPermission = isSuperAdmin(admin?.role);
-    const displayName = admin?.username?.trim() || 'Admin';
+    const displayName = admin?.username?.trim() || t('Admin');
     const avatarText = displayName.charAt(0).toUpperCase();
     const menuItems: MenuProps['items'] = menuConfig
         .filter((item) => !item.superAdmin || hasSuperAdminPermission)
@@ -81,10 +83,10 @@ const MainLayout: FC = () => {
             key: item.key,
             icon: item.icon,
             disabled: mustChangePassword && item.key !== '/settings',
-            label: <Link to={item.key}>{item.label}</Link>,
+            label: <Link to={item.key}>{t(item.label)}</Link>,
         }));
 
-    const handleLogout = async () => {
+    const handleLogout = useCallback(async () => {
         try {
             await authApi.logout();
         } catch {
@@ -92,24 +94,24 @@ const MainLayout: FC = () => {
         }
         clearAuth();
         navigate('/login');
-    };
+    }, [clearAuth, navigate]);
 
-    const userMenuItems: MenuProps['items'] = [
+    const userMenuItems: MenuProps['items'] = useMemo(() => [
         {
             key: 'profile',
             icon: <UserOutlined />,
-            label: '个人设置',
+            label: t('个人设置'),
             onClick: () => navigate('/settings'),
         },
-        { type: 'divider' },
+        { type: 'divider' as const },
         {
             key: 'logout',
             icon: <LogoutOutlined />,
-            label: '退出登录',
+            label: t('退出登录'),
             danger: true,
             onClick: handleLogout,
         },
-    ];
+    ], [handleLogout, navigate, t]);
 
     const selectedKeys = menuConfig
         .filter((item) => location.pathname.startsWith(item.key))
@@ -144,7 +146,7 @@ const MainLayout: FC = () => {
                         {!collapsed && (
                             <Space orientation="vertical" size={0}>
                                 <Text strong style={{ fontSize: 16, color: shellPalette.sidebarText, letterSpacing: 0.2 }}>{APP_NAME}</Text>
-                                <Text style={{ fontSize: 12, color: shellPalette.sidebarMuted }}>control plane</Text>
+                                <Text style={{ fontSize: 12, color: shellPalette.sidebarMuted }}>{t('control plane')}</Text>
                             </Space>
                         )}
                     </Space>
@@ -153,7 +155,7 @@ const MainLayout: FC = () => {
                 <div style={{ padding: collapsed ? '12px 8px 20px' : '14px 10px 20px' }}>
                     {!collapsed ? (
                         <Text style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase', color: shellPalette.muted, paddingInline: 10, marginBottom: 8 }}>
-                            Navigation
+                            {t('Navigation')}
                         </Text>
                     ) : null}
                     <Menu
@@ -173,28 +175,31 @@ const MainLayout: FC = () => {
                     <Space size={12} align="center">
                         <Button
                             type="text"
-                            aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+                            aria-label={collapsed ? t('展开侧边栏') : t('收起侧边栏')}
                             onClick={() => setCollapsed(!collapsed)}
                             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                             style={{ fontSize: 16, color: shellPalette.inkSoft }}
                         />
                         <div style={shellHeaderContextStyle}>
-                            <div style={shellHeaderLabelStyle}>Admin workspace</div>
+                            <div style={shellHeaderLabelStyle}>{t('Admin workspace')}</div>
                         </div>
                     </Space>
 
-                    <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-                        <Space style={shellUserTriggerStyle}>
-                            <Avatar size="small" style={{ background: shellPalette.primary }}>
-                                {avatarText}
-                            </Avatar>
-                            <div style={{ lineHeight: 1.15 }}>
-                                <div style={{ color: shellPalette.ink }}>{displayName}</div>
-                                <Text style={{ fontSize: 12, color: shellPalette.muted }}>{hasSuperAdminPermission ? 'Super admin' : 'Admin'}</Text>
-                            </div>
-                            {mustChangePassword ? <Tag color="warning" style={{ marginInlineStart: 0 }}>需先改密</Tag> : null}
-                        </Space>
-                    </Dropdown>
+                    <Space size={12}>
+                        <LanguageToggle />
+                        <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
+                            <Space style={shellUserTriggerStyle}>
+                                <Avatar size="small" style={{ background: shellPalette.primary }}>
+                                    {avatarText}
+                                </Avatar>
+                                <div style={{ lineHeight: 1.15 }}>
+                                    <div style={{ color: shellPalette.ink }}>{displayName}</div>
+                                    <Text style={{ fontSize: 12, color: shellPalette.muted }}>{hasSuperAdminPermission ? t('Super admin') : t('Admin')}</Text>
+                                </div>
+                                {mustChangePassword ? <Tag color="warning" style={{ marginInlineStart: 0 }}>{t('需先改密')}</Tag> : null}
+                            </Space>
+                        </Dropdown>
+                    </Space>
                 </Header>
 
                 <Content
