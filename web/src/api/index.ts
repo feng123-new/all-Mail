@@ -1,11 +1,12 @@
-import axios from 'axios';
-import type {
-    AxiosError,
-    AxiosRequestConfig,
-    AxiosResponse,
-    InternalAxiosRequestConfig,
+import axios, {
+    type AxiosError,
+    type AxiosRequestConfig,
+    type AxiosResponse,
+    type InternalAxiosRequestConfig,
 } from 'axios';
-import type { EmailAuthType, EmailProvider } from '../constants/providers';
+import type { EmailAuthType, EmailProvider, RepresentativeProtocol } from '../constants/providers';
+import { type Admin, useAuthStore } from '../stores/authStore';
+import { type MailboxUser, useMailboxAuthStore } from '../stores/mailboxAuthStore';
 
 export interface ApiResponse<T = unknown> {
     code: number;
@@ -59,6 +60,7 @@ const MAILBOX_PORTAL_PREFIX = '/mail/api';
 const api = axios.create({
     baseURL: API_BASE_URL,
     timeout: 30000,
+    withCredentials: true,
     headers: {
         'Content-Type': 'application/json',
     },
@@ -171,6 +173,19 @@ const shouldClearAuthOnUnauthorized = (
     return false;
 };
 
+const shouldRedirectMailboxPasswordChange = (
+    status: number,
+    payload?: ApiErrorPayload,
+    requestUrl?: string
+): boolean => {
+    if (status !== 403 || !String(requestUrl || '').includes(MAILBOX_PORTAL_PREFIX)) {
+        return false;
+    }
+
+    const code = String(payload?.error?.code || '').toUpperCase();
+    return code === 'PASSWORD_CHANGE_REQUIRED';
+};
+
 const toApiResponse = <T>(payload: unknown): ApiResponse<T> => {
     if (isObject(payload) && typeof payload.success === 'boolean') {
         const envelope = payload as unknown as ApiSuccessEnvelope<T>;
@@ -206,13 +221,6 @@ const toApiResponse = <T>(payload: unknown): ApiResponse<T> => {
 api.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
         const headers = config.headers as Record<string, string>;
-        const requestUrl = typeof config.url === 'string' ? config.url : '';
-        const mailboxToken = localStorage.getItem('mailbox_token');
-        const adminToken = localStorage.getItem('token');
-        const bearerToken = requestUrl.startsWith(MAILBOX_PORTAL_PREFIX) ? mailboxToken : adminToken;
-        if (bearerToken && !headers.Authorization) {
-            headers.Authorization = `Bearer ${bearerToken}`;
-        }
         if (!headers[REQUEST_ID_HEADER] && !headers['x-request-id']) {
             headers[REQUEST_ID_HEADER] = createClientRequestId();
         }
@@ -251,18 +259,20 @@ api.interceptors.response.use(
             const isMailboxPortalLoginRequest = requestUrl?.includes(`${MAILBOX_PORTAL_PREFIX}/login`);
 
             if (shouldClearAuthOnUnauthorized(status, data, requestUrl)) {
-                // Token 过期或无效，跳转到登录页
-                localStorage.removeItem('token');
-                localStorage.removeItem('admin');
-                window.location.href = '/login';
+                useAuthStore.getState().clearAuth();
             }
 
             if (status === 401 && requestUrl?.includes(MAILBOX_PORTAL_PREFIX) && !isMailboxPortalLoginRequest) {
-                localStorage.removeItem('mailbox_token');
-                localStorage.removeItem('mailbox_user');
-                if (!window.location.pathname.startsWith('/mail/login')) {
-                    window.location.href = '/mail/login';
-                }
+                useMailboxAuthStore.getState().clearAuth();
+            }
+
+            if (shouldRedirectMailboxPasswordChange(status, data, requestUrl)) {
+                useMailboxAuthStore.setState((state) => ({
+                    isAuthenticated: Boolean(state.mailboxUser),
+                    mailboxUser: state.mailboxUser
+                        ? { ...state.mailboxUser, mustChangePassword: true }
+                        : state.mailboxUser,
+                }));
             }
 
             // 新格式错误处理
@@ -384,7 +394,7 @@ const requestDelete = <T>(url: string, config?: MutationConfig): ApiResult<T> =>
 
 export const authApi = {
     login: (username: string, password: string, otp?: string) =>
-        requestPost<{ token: string; admin: Record<string, unknown> }, { username: string; password: string; otp?: string }>(
+        requestPost<{ admin: Admin }, { username: string; password: string; otp?: string }>(
             '/admin/auth/login',
             { username, password, otp }
         ),
@@ -393,7 +403,7 @@ export const authApi = {
         requestPost<Record<string, unknown>>('/admin/auth/logout'),
 
     getMe: () =>
-        requestGet<Record<string, unknown>>('/admin/auth/me'),
+        requestGet<Admin>('/admin/auth/me'),
 
     changePassword: (oldPassword: string, newPassword: string) =>
         requestPost<Record<string, unknown>, { oldPassword: string; newPassword: string }>(
@@ -551,7 +561,7 @@ export const apiKeyApi = {
 // ========================================
 
 export const emailApi = {
-    getList: <T = Record<string, unknown>>(params?: { page?: number; pageSize?: number; status?: string; keyword?: string; groupId?: number; provider?: EmailProvider }) =>
+    getList: <T = Record<string, unknown>>(params?: { page?: number; pageSize?: number; status?: string; keyword?: string; groupId?: number; provider?: EmailProvider; representativeProtocol?: RepresentativeProtocol }) =>
         requestGet<ApiPagedList<T>>('/admin/emails', { params, cacheMs: 800 }),
 
     getStats: <T = Record<string, unknown>>() =>
@@ -560,8 +570,26 @@ export const emailApi = {
     getById: <T = Record<string, unknown>>(id: number, includeSecrets?: boolean) =>
         requestGet<T>(`/admin/emails/${id}`, { params: { secrets: includeSecrets } }),
 
-    create: (data: { email: string; provider: EmailProvider; authType?: EmailAuthType; clientId?: string; refreshToken?: string; clientSecret?: string; password?: string; groupId?: number }) =>
-        requestPost<Record<string, unknown>, { email: string; provider: EmailProvider; authType?: EmailAuthType; clientId?: string; refreshToken?: string; clientSecret?: string; password?: string; groupId?: number }>(
+    revealUnlock: (data: { otp: string }) =>
+        requestPost<{
+            grantToken: string;
+            expiresAt: string;
+        }, { otp: string }>(
+            '/admin/emails/reveal-unlock',
+            data
+        ),
+
+    revealSecrets: (id: number, data: { otp?: string; grantToken?: string; fields: Array<'password' | 'refreshToken'> }) =>
+        requestPost<{
+            secrets: Partial<Record<'password' | 'refreshToken', string | null>>;
+            availableFields: Array<'password' | 'refreshToken'>;
+        }, { otp?: string; grantToken?: string; fields: Array<'password' | 'refreshToken'> }>(
+            `/admin/emails/${id}/reveal-secrets`,
+            data
+        ),
+
+    create: (data: { email: string; provider: EmailProvider; authType?: EmailAuthType; clientId?: string; refreshToken?: string; clientSecret?: string; password?: string; groupId?: number; providerConfig?: Record<string, unknown> }) =>
+        requestPost<Record<string, unknown>, { email: string; provider: EmailProvider; authType?: EmailAuthType; clientId?: string; refreshToken?: string; clientSecret?: string; password?: string; groupId?: number; providerConfig?: Record<string, unknown> }>(
             '/admin/emails',
             data,
             {
@@ -583,8 +611,8 @@ export const emailApi = {
             params: { ids: ids?.join(','), separator, groupId },
         }),
 
-    update: (id: number, data: { email?: string; provider?: EmailProvider; authType?: EmailAuthType; clientId?: string | null; refreshToken?: string | null; clientSecret?: string | null; password?: string | null; status?: string; groupId?: number | null }) =>
-        requestPut<Record<string, unknown>, { email?: string; provider?: EmailProvider; authType?: EmailAuthType; clientId?: string | null; refreshToken?: string | null; clientSecret?: string | null; password?: string | null; status?: string; groupId?: number | null }>(
+    update: (id: number, data: { email?: string; provider?: EmailProvider; authType?: EmailAuthType; clientId?: string | null; refreshToken?: string | null; clientSecret?: string | null; password?: string | null; status?: string; groupId?: number | null; providerConfig?: Record<string, unknown> | null }) =>
+        requestPut<Record<string, unknown>, { email?: string; provider?: EmailProvider; authType?: EmailAuthType; clientId?: string | null; refreshToken?: string | null; clientSecret?: string | null; password?: string | null; status?: string; groupId?: number | null; providerConfig?: Record<string, unknown> | null }>(
             `/admin/emails/${id}`,
             data,
             {
@@ -613,7 +641,7 @@ export const emailApi = {
             { invalidatePrefixes: ['/admin/emails'] }
         ),
 
-    batchFetchMailboxes: (data: { ids?: number[]; keyword?: string; groupId?: number; provider?: EmailProvider; status?: string; mailboxes?: Array<'INBOX' | 'SENT' | 'Junk'> }) =>
+    batchFetchMailboxes: (data: { ids?: number[]; keyword?: string; groupId?: number; provider?: EmailProvider; representativeProtocol?: RepresentativeProtocol; status?: string; mailboxes?: Array<'INBOX' | 'SENT' | 'Junk'> }) =>
         requestPost<{
             targeted: number;
             successCount: number;
@@ -627,7 +655,7 @@ export const emailApi = {
                 mailboxResults: Array<{ mailbox: string; status: 'success' | 'error'; count?: number; message?: string }>;
                 message?: string;
             }>;
-        }, { ids?: number[]; keyword?: string; groupId?: number; provider?: EmailProvider; status?: string; mailboxes?: Array<'INBOX' | 'SENT' | 'Junk'> }>(
+        }, { ids?: number[]; keyword?: string; groupId?: number; provider?: EmailProvider; representativeProtocol?: RepresentativeProtocol; status?: string; mailboxes?: Array<'INBOX' | 'SENT' | 'Junk'> }>(
             '/admin/emails/batch-fetch-mails',
             data,
             {
@@ -636,7 +664,7 @@ export const emailApi = {
             }
         ),
 
-    batchClearMailbox: (data: { ids?: number[]; keyword?: string; groupId?: number; provider?: EmailProvider; status?: string; mailbox: 'INBOX' | 'Junk' }) =>
+    batchClearMailbox: (data: { ids?: number[]; keyword?: string; groupId?: number; provider?: EmailProvider; representativeProtocol?: RepresentativeProtocol; status?: string; mailbox: 'INBOX' | 'Junk' }) =>
         requestPost<{
             targeted: number;
             deletedCount: number;
@@ -650,7 +678,7 @@ export const emailApi = {
                 deletedCount: number;
                 message: string;
             }>;
-        }, { ids?: number[]; keyword?: string; groupId?: number; provider?: EmailProvider; status?: string; mailbox: 'INBOX' | 'Junk' }>(
+        }, { ids?: number[]; keyword?: string; groupId?: number; provider?: EmailProvider; representativeProtocol?: RepresentativeProtocol; status?: string; mailbox: 'INBOX' | 'Junk' }>(
             '/admin/emails/batch-clear-mailbox',
             data,
             { invalidatePrefixes: ['/admin/emails'] }
@@ -893,6 +921,26 @@ export const domainMessageApi = {
         }),
 };
 
+export const forwardingJobsApi = {
+    getList: <T = Record<string, unknown>>(params?: {
+        page?: number;
+        pageSize?: number;
+        status?: 'PENDING' | 'RUNNING' | 'SENT' | 'FAILED' | 'SKIPPED';
+        mode?: 'COPY' | 'MOVE';
+        mailboxId?: number;
+        domainId?: number;
+        keyword?: string;
+    }) => requestGet<ApiPagedList<T>>('/admin/forwarding-jobs', { params }),
+
+    getById: <T = Record<string, unknown>>(id: string | number) =>
+        requestGet<T>(`/admin/forwarding-jobs/${id}`),
+
+    requeue: <T = Record<string, unknown>>(id: string | number) =>
+        requestPost<T>(`/admin/forwarding-jobs/${id}/requeue`, undefined, {
+            invalidatePrefixes: ['/admin/forwarding-jobs'],
+        }),
+};
+
 export const sendingApi = {
     getConfigs: <T = Record<string, unknown>>(params?: { domainId?: number }) =>
         requestGet<{ list: T[]; filters: Record<string, unknown> }>('/admin/send/configs', { params }),
@@ -925,7 +973,7 @@ export const sendingApi = {
 
 export const mailboxPortalApi = {
     login: (username: string, password: string) =>
-        requestPost<{ token: string; mailboxUser: Record<string, unknown> }, { username: string; password: string }>(`${MAILBOX_PORTAL_PREFIX}/login`, {
+        requestPost<{ mailboxUser: MailboxUser }, { username: string; password: string }>(`${MAILBOX_PORTAL_PREFIX}/login`, {
             username,
             password,
         }),
@@ -950,6 +998,9 @@ export const mailboxPortalApi = {
 
     getSentMessage: <T = Record<string, unknown>>(id: string | number) =>
         requestGet<T>(`${MAILBOX_PORTAL_PREFIX}/sent-messages/${id}`),
+
+    getForwardingJobs: <T = Record<string, unknown>>(params?: { mailboxId?: number; page?: number; pageSize?: number }) =>
+        requestGet<ApiPagedList<T>>(`${MAILBOX_PORTAL_PREFIX}/forwarding-jobs`, { params }),
 
     sendMessage: (data: { mailboxId: number; to: string[]; subject: string; html?: string; text?: string }) =>
         requestPost<Record<string, unknown>, { mailboxId: number; to: string[]; subject: string; html?: string; text?: string }>(

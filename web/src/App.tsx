@@ -1,9 +1,13 @@
-import { Suspense, lazy, type FC, type ReactElement, type ReactNode } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { ConfigProvider, App as AntApp, Spin } from 'antd';
+import { App as AntApp, ConfigProvider, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
+import { type FC, lazy, type ReactElement, type ReactNode, Suspense, useEffect, useState } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { authContract } from './contracts/shared/auth';
+import { portalAccountContract } from './contracts/portal/account';
 import { useAuthStore } from './stores/authStore';
+import type { MailboxUser } from './stores/mailboxAuthStore';
 import { useMailboxAuthStore } from './stores/mailboxAuthStore';
+import { appTheme } from './theme';
 import { isSuperAdmin } from './utils/auth';
 
 // Pages (lazy loaded)
@@ -20,6 +24,7 @@ const DomainsPage = lazy(() => import('./pages/domains'));
 const DomainMailboxesPage = lazy(() => import('./pages/domain-mailboxes'));
 const MailboxUsersPage = lazy(() => import('./pages/mailbox-users'));
 const DomainMessagesPage = lazy(() => import('./pages/domain-messages'));
+const ForwardingJobsPage = lazy(() => import('./pages/forwarding-jobs'));
 const SendingConfigsPage = lazy(() => import('./pages/sending-configs'));
 const MailboxLayout = lazy(() => import('./layouts/MailboxLayout'));
 const MailPortalLoginPage = lazy(() => import('./pages/mail-portal/login'));
@@ -28,17 +33,116 @@ const MailPortalInboxPage = lazy(() => import('./pages/mail-portal/inbox'));
 const MailPortalSettingsPage = lazy(() => import('./pages/mail-portal/settings'));
 
 const PageFallback: FC = () => (
-  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 240 }}>
+  <div className="page-fallback">
     <Spin />
   </div>
 );
 
+const AdminSessionBootstrap: FC = () => {
+  const { isAuthenticated, admin, setAuth, clearAuth } = useAuthStore();
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void authContract.getMe()
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (response.code === 200) {
+          setAuth(response.data);
+        } else {
+          clearAuth();
+        }
+
+        setIsCheckingSession(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          clearAuth();
+          setIsCheckingSession(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clearAuth, setAuth]);
+
+  if (isCheckingSession) {
+    return <PageFallback />;
+  }
+
+  if (!isAuthenticated || !admin?.username) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return null;
+};
+
+const MailboxSessionBootstrap: FC = () => {
+  const { isAuthenticated, mailboxUser, setAuth, clearAuth } = useMailboxAuthStore();
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void portalAccountContract.getSession<{ authenticated: boolean; mailboxUser?: MailboxUser }>()
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (response.code !== 200) {
+          clearAuth();
+          return;
+        }
+
+        const payload = response.data;
+        if (payload.mailboxUser) {
+          setAuth(payload.mailboxUser);
+        } else {
+          clearAuth();
+        }
+
+        setIsCheckingSession(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          clearAuth();
+          setIsCheckingSession(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clearAuth, setAuth]);
+
+  if (isCheckingSession) {
+    return <PageFallback />;
+  }
+
+  if (!isAuthenticated || !mailboxUser?.username) {
+    return <Navigate to="/mail/login" replace />;
+  }
+
+  return null;
+};
+
 // 路由守卫组件
 const ProtectedRoute: FC<{ children: ReactNode }> = ({ children }) => {
   const location = useLocation();
-  const { isAuthenticated, token, admin } = useAuthStore();
+  const { isAuthenticated, admin } = useAuthStore();
+  const needsSessionBootstrap = !isAuthenticated || !admin?.username;
 
-  if (!isAuthenticated || !token || !admin?.username) {
+  if (needsSessionBootstrap) {
+    return <AdminSessionBootstrap />;
+  }
+
+  if (!isAuthenticated || !admin?.username) {
     return <Navigate to="/login" replace />;
   }
 
@@ -51,9 +155,9 @@ const ProtectedRoute: FC<{ children: ReactNode }> = ({ children }) => {
 
 // 超级管理员路由守卫
 const SuperAdminRoute: FC<{ children: ReactNode }> = ({ children }) => {
-  const { isAuthenticated, token, admin } = useAuthStore();
+  const { isAuthenticated, admin } = useAuthStore();
 
-  if (!isAuthenticated || !token || !admin?.username) {
+  if (!isAuthenticated || !admin?.username) {
     return <Navigate to="/login" replace />;
   }
 
@@ -65,10 +169,20 @@ const SuperAdminRoute: FC<{ children: ReactNode }> = ({ children }) => {
 };
 
 const MailboxProtectedRoute: FC<{ children: ReactNode }> = ({ children }) => {
-  const { isAuthenticated, token, mailboxUser } = useMailboxAuthStore();
+  const location = useLocation();
+  const { isAuthenticated, mailboxUser } = useMailboxAuthStore();
+  const needsSessionBootstrap = !isAuthenticated || !mailboxUser?.username;
 
-  if (!isAuthenticated || !token || !mailboxUser?.username) {
+  if (needsSessionBootstrap) {
+    return <MailboxSessionBootstrap />;
+  }
+
+  if (!isAuthenticated || !mailboxUser?.username) {
     return <Navigate to="/mail/login" replace />;
+  }
+
+  if (mailboxUser.mustChangePassword && location.pathname !== '/mail/settings') {
+    return <Navigate to="/mail/settings" replace />;
   }
 
   return <>{children}</>;
@@ -84,21 +198,10 @@ const App: FC = () => {
   return (
     <ConfigProvider
       locale={zhCN}
-      theme={{
-        cssVar: {},
-        token: {
-          colorPrimary: '#5865f2',
-          colorInfo: '#5865f2',
-          colorSuccess: '#2f9e77',
-          colorWarning: '#d97706',
-          colorError: '#dc2626',
-          colorBgLayout: '#f4f7fb',
-          borderRadius: 14,
-        },
-      }}
+      theme={appTheme}
     >
       <AntApp>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
           <Routes>
             {/* 登录页 */}
             <Route path="/login" element={withSuspense(<LoginPage />)} />
@@ -123,6 +226,7 @@ const App: FC = () => {
               <Route path="domain-mailboxes" element={withSuspense(<DomainMailboxesPage />)} />
               <Route path="mailbox-users" element={withSuspense(<MailboxUsersPage />)} />
               <Route path="domain-messages" element={withSuspense(<DomainMessagesPage />)} />
+              <Route path="forwarding-jobs" element={withSuspense(<ForwardingJobsPage />)} />
               <Route path="sending-configs" element={withSuspense(<SendingConfigsPage />)} />
               <Route
                 path="admins"

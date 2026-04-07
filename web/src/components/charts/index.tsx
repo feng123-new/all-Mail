@@ -1,5 +1,6 @@
 import type { FC } from 'react';
 import dayjs from 'dayjs';
+import { shellPalette } from '../../theme';
 
 type LineDatum = {
   date: string;
@@ -49,7 +50,7 @@ const describeArc = (cx: number, cy: number, radius: number, startAngle: number,
 
 export const SimpleLineChart: FC<SimpleLineChartProps> = ({
   data,
-  color = '#1890ff',
+  color = shellPalette.primary,
   height = 280,
 }) => {
   const width = 640;
@@ -71,8 +72,8 @@ export const SimpleLineChart: FC<SimpleLineChartProps> = ({
     : '';
 
   return (
-    <div style={{ height, width: '100%' }}>
-      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: '100%' }} role="img" aria-label="API 调用趋势图">
+    <div className="chart-frame" style={{ height }}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="API 调用趋势图">
         <defs>
           <linearGradient id="lineChartFill" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.24" />
@@ -84,7 +85,7 @@ export const SimpleLineChart: FC<SimpleLineChartProps> = ({
           y1={lineChartPadding.top + innerHeight}
           x2={width - lineChartPadding.right}
           y2={lineChartPadding.top + innerHeight}
-          stroke="#e5e7eb"
+          stroke={shellPalette.borderStrong}
           strokeWidth="1"
         />
         <line
@@ -92,15 +93,15 @@ export const SimpleLineChart: FC<SimpleLineChartProps> = ({
           y1={lineChartPadding.top}
           x2={lineChartPadding.left}
           y2={lineChartPadding.top + innerHeight}
-          stroke="#f0f0f0"
+          stroke={shellPalette.border}
           strokeWidth="1"
         />
         {areaPath ? <path d={areaPath} fill="url(#lineChartFill)" /> : null}
         {path ? <path d={path} fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" /> : null}
         {points.map((point) => (
           <g key={`${point.date}-${point.count}`}>
-            <circle cx={point.x} cy={point.y} r="4" fill="#fff" stroke={color} strokeWidth="2" />
-            <text x={point.x} y={height - 14} textAnchor="middle" fontSize="11" fill="#8c8c8c">
+            <circle cx={point.x} cy={point.y} r="4" fill={shellPalette.surface} stroke={color} strokeWidth="2" />
+            <text x={point.x} y={height - 14} textAnchor="middle" fontSize="11" fill={shellPalette.muted}>
               {dayjs(point.date).format('MM-DD')}
             </text>
           </g>
@@ -133,8 +134,8 @@ export const SimpleDonutChart: FC<SimpleDonutChartProps> = ({
   }, []);
 
   return (
-    <div style={{ height, width: '100%' }}>
-      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: '100%' }} role="img" aria-label="邮箱状态分布图">
+    <div className="chart-frame" style={{ height }}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="邮箱状态分布图">
         {arcSegments.map((item) => (
             <path
               key={`${item.type}-${item.value}`}
@@ -145,11 +146,11 @@ export const SimpleDonutChart: FC<SimpleDonutChartProps> = ({
               strokeLinecap="round"
             />
         ))}
-        <circle cx={centerX} cy={centerY} r="50" fill="#fff" />
-        <text x={centerX} y={centerY - 6} textAnchor="middle" fontSize="14" fill="#8c8c8c">
+        <circle cx={centerX} cy={centerY} r="50" fill={shellPalette.surface} />
+        <text x={centerX} y={centerY - 6} textAnchor="middle" fontSize="14" fill={shellPalette.muted}>
           {title}
         </text>
-        <text x={centerX} y={centerY + 20} textAnchor="middle" fontSize="30" fontWeight="700" fill="#1f1f1f">
+        <text x={centerX} y={centerY + 20} textAnchor="middle" fontSize="30" fontWeight="700" fill={shellPalette.ink}>
           {total}
         </text>
       </svg>

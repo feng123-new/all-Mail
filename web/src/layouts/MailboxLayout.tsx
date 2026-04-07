@@ -1,23 +1,45 @@
+import type { ReactNode } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
-import { Layout, Menu, Typography, Space, Dropdown, Avatar, Button, Tag, Card } from 'antd';
+import { Layout, Menu, Typography, Space, Dropdown, Avatar, Button } from 'antd';
 import type { MenuProps } from 'antd';
-import { AppstoreOutlined, InboxOutlined, SettingOutlined, LogoutOutlined, MailOutlined, ThunderboltOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, InboxOutlined, SettingOutlined, LogoutOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { mailboxPortalApi } from '../api';
+import { PageSurface } from '../components';
+import { APP_NAME, APP_SHORT_NAME } from '../constants/product';
+import { shellMetrics, shellPalette } from '../theme';
+import {
+    contentFrameStyle,
+    createBrandMarkStyle,
+    floatingSidebarStyle,
+    shellHeaderContextStyle,
+    shellHeaderLabelStyle,
+    shellHeaderMetaStyle,
+    shellHeaderStyle,
+    shellLayoutStyle,
+    sidebarPanelStyle,
+    translucentSidebarPanelStyle,
+} from '../styles/common';
 import { useMailboxAuthStore } from '../stores/mailboxAuthStore';
 
 const { Header, Sider, Content } = Layout;
 const { Text, Title } = Typography;
 
-const menuItems: MenuProps['items'] = [
+type PortalMenuItem = {
+    key: string;
+    icon: ReactNode;
+    label: ReactNode;
+};
+
+const menuItems: PortalMenuItem[] = [
     { key: '/mail/overview', icon: <AppstoreOutlined />, label: <Link to="/mail/overview">门户工作台</Link> },
     { key: '/mail/inbox', icon: <InboxOutlined />, label: <Link to="/mail/inbox">收/发件工作区</Link> },
     { key: '/mail/settings', icon: <SettingOutlined />, label: <Link to="/mail/settings">设置中心</Link> },
 ];
 
-const pageTitles: Record<string, { title: string; subtitle: string }> = {
-    '/mail/overview': { title: '门户工作台', subtitle: '查看邮箱资源、最近未读、转发状态和下一步动作。' },
-    '/mail/inbox': { title: '收/发件工作区', subtitle: '按邮箱查看收件、发件和验证码，必要时直接发信。' },
-    '/mail/settings': { title: '设置中心', subtitle: '管理密码、安全提醒和邮箱转发策略。' },
+const routeMeta: Record<string, string> = {
+    '/mail/overview': '门户工作台',
+    '/mail/inbox': '收 / 发件工作区',
+    '/mail/settings': '设置中心',
 };
 
 const MailboxLayout: React.FC = () => {
@@ -26,7 +48,12 @@ const MailboxLayout: React.FC = () => {
     const { mailboxUser, clearAuth } = useMailboxAuthStore();
 
     const assignedMailboxCount = mailboxUser?.mailboxIds?.length || 0;
-    const currentPage = pageTitles[location.pathname] || pageTitles['/mail/overview'];
+    const mustChangePassword = Boolean(mailboxUser?.mustChangePassword);
+    const activeMeta = routeMeta[location.pathname] || '邮箱门户';
+    const menuItemsWithState: MenuProps['items'] = menuItems.map((item) => ({
+        ...item,
+        disabled: mustChangePassword && item?.key !== '/mail/settings',
+    }));
 
     const handleLogout = async () => {
         try {
@@ -49,117 +76,75 @@ const MailboxLayout: React.FC = () => {
     ];
 
     return (
-        <Layout style={{ minHeight: '100vh', background: '#eef4fb' }}>
+        <Layout style={shellLayoutStyle}>
             <Sider
-                theme="dark"
-                width={260}
-                style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    background: 'linear-gradient(180deg, #0f172a 0%, #111827 52%, #1e293b 100%)',
-                    borderRight: '1px solid rgba(148, 163, 184, 0.18)',
-                    boxShadow: '0 18px 48px rgba(15, 23, 42, 0.18)',
-                }}
+                theme="light"
+                width={shellMetrics.portalSidebarWidth}
+                style={floatingSidebarStyle}
             >
-                <div style={{ padding: 24, borderBottom: '1px solid rgba(148, 163, 184, 0.16)' }}>
-                    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <div style={{ padding: 20, borderBottom: `1px solid ${shellPalette.border}` }}>
+                    <Space orientation="vertical" size={16} style={{ width: '100%' }}>
                         <Space align="center">
-                            <div
-                                style={{
-                                    width: 42,
-                                    height: 42,
-                                    borderRadius: 14,
-                                    background: 'linear-gradient(135deg, #5865f2 0%, #2dd4bf 100%)',
-                                    color: '#fff',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontSize: 20,
-                                    boxShadow: '0 12px 28px rgba(88, 101, 242, 0.25)',
-                                }}
-                            >
-                                <MailOutlined />
+                            <div style={createBrandMarkStyle({ size: 38, radius: 12, fontSize: 18 })}>
+                                {APP_SHORT_NAME}
                             </div>
                             <div>
-                                <Title level={4} style={{ margin: 0, color: '#f8fafc' }}>Mailbox Portal</Title>
-                                <Text style={{ color: 'rgba(255,255,255,0.72)' }}>你的域名邮箱工作台</Text>
+                                <Title level={4} style={{ margin: 0, color: shellPalette.sidebarText }}>{APP_NAME}</Title>
+                                <Text style={{ color: shellPalette.sidebarMuted }}>mailbox workspace</Text>
                             </div>
                         </Space>
 
-                        <Card
-                            bordered={false}
-                            style={{ background: 'rgba(15, 23, 42, 0.55)' }}
-                            styles={{ body: { padding: 16 } }}
-                        >
-                            <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                                <Space wrap>
-                                    <Tag color="blue">{assignedMailboxCount} 个邮箱</Tag>
-                                    {mailboxUser?.mustChangePassword ? <Tag color="warning">需改密码</Tag> : <Tag color="success">安全状态正常</Tag>}
-                                </Space>
-                                <div>
-                                    <Text style={{ color: 'rgba(255,255,255,0.64)' }}>当前门户用户</Text>
-                                    <div style={{ color: '#fff', fontWeight: 700, marginTop: 4 }}>{mailboxUser?.username || 'Mailbox User'}</div>
-                                    {mailboxUser?.email ? <Text style={{ color: 'rgba(255,255,255,0.72)' }}>{mailboxUser.email}</Text> : null}
-                                </div>
+                        <div style={sidebarPanelStyle}>
+                            <Space orientation="vertical" size={6} style={{ width: '100%' }}>
+                                <Text style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.3, textTransform: 'uppercase', color: shellPalette.muted }}>Mailbox access</Text>
+                                <Text strong style={{ color: shellPalette.ink }}>{assignedMailboxCount} 个可访问邮箱</Text>
+                                <Text style={{ color: shellPalette.inkSoft }}>{mailboxUser?.mustChangePassword ? '当前账号需要先更新密码' : '当前账号安全状态正常'}</Text>
                             </Space>
-                        </Card>
+                        </div>
                     </Space>
                 </div>
 
-                <Menu
-                    mode="inline"
-                    selectedKeys={[location.pathname]}
-                    items={menuItems}
-                    theme="dark"
-                    style={{ marginTop: 12, borderRight: 0, background: 'transparent' }}
-                />
-
-                <div style={{ padding: 20, marginTop: 'auto' }}>
-                    <Card
-                        bordered={false}
-                        style={{ background: 'rgba(255,255,255,0.06)' }}
-                        styles={{ body: { padding: 16 } }}
-                    >
-                        <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                            <Space>
-                                <ThunderboltOutlined style={{ color: '#2dd4bf' }} />
-                                <Text strong style={{ color: '#f8fafc' }}>门户提示</Text>
-                            </Space>
-                            <Text style={{ color: 'rgba(255,255,255,0.72)' }}>优先从“门户工作台”判断未读和可发件邮箱，再进入收/发件工作区处理邮件。</Text>
-                            {mailboxUser?.mustChangePassword ? (
-                                <Space>
-                                    <SafetyCertificateOutlined style={{ color: '#fbbf24' }} />
-                                    <Text style={{ color: '#fde68a' }}>检测到首次密码状态，建议先去设置中心更新密码。</Text>
-                                </Space>
-                            ) : null}
-                        </Space>
-                    </Card>
+                <div style={{ padding: '14px 10px 20px' }}>
+                    <Text style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase', color: shellPalette.muted, paddingInline: 10, marginBottom: 8 }}>
+                        Workspace
+                    </Text>
+                    <Menu
+                        mode="inline"
+                        selectedKeys={[location.pathname]}
+                        items={menuItemsWithState}
+                        theme="light"
+                        style={{ borderRight: 0, background: 'transparent' }}
+                    />
                 </div>
+
+                {mailboxUser?.mustChangePassword ? (
+                    <div style={{ padding: 20, marginTop: 'auto' }}>
+                        <div style={translucentSidebarPanelStyle}>
+                            <Space orientation="vertical" size={8} style={{ width: '100%' }}>
+                                <Space>
+                                    <SafetyCertificateOutlined style={{ color: shellPalette.warning }} />
+                                    <Text strong style={{ color: shellPalette.ink }}>需要先更新密码</Text>
+                                </Space>
+                                <Text style={{ color: shellPalette.inkSoft }}>当前账号仍处于首次密码状态，建议先去设置中心更新密码。</Text>
+                            </Space>
+                        </div>
+                    </div>
+                ) : null}
             </Sider>
 
             <Layout>
                 <Header
-                    style={{
-                        background: 'rgba(255,255,255,0.86)',
-                        borderBottom: '1px solid rgba(148, 163, 184, 0.18)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '0 28px',
-                        height: 72,
-                        lineHeight: '72px',
-                        backdropFilter: 'blur(12px)',
-                    }}
+                    style={shellHeaderStyle}
                 >
-                    <div>
-                        <Title level={4} style={{ margin: 0 }}>{currentPage.title}</Title>
-                        <Text type="secondary">{currentPage.subtitle}</Text>
+                    <div style={shellHeaderContextStyle}>
+                        <Text style={shellHeaderLabelStyle}>邮箱门户</Text>
+                        <Text type="secondary" style={shellHeaderMetaStyle}>{activeMeta}</Text>
                     </div>
 
                     <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-                        <Button type="text" style={{ height: 'auto', paddingInline: 12 }}>
+                        <Button type="text" style={{ height: 'auto', padding: 0, borderRadius: 14 }}>
                             <Space>
-                                <Avatar size="small" style={{ background: 'linear-gradient(135deg, #5865f2 0%, #0ea5e9 100%)' }}>
+                                <Avatar size="small" style={{ background: shellPalette.primary }}>
                                     {(mailboxUser?.username || 'M').slice(0, 1).toUpperCase()}
                                 </Avatar>
                                 <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
@@ -171,19 +156,10 @@ const MailboxLayout: React.FC = () => {
                     </Dropdown>
                 </Header>
 
-                <Content style={{ padding: 24 }}>
-                    <div
-                        style={{
-                            minHeight: 'calc(100vh - 120px)',
-                            borderRadius: 28,
-                            background: 'rgba(255,255,255,0.9)',
-                            border: '1px solid rgba(148, 163, 184, 0.12)',
-                            boxShadow: '0 28px 56px rgba(15, 23, 42, 0.08)',
-                            padding: 28,
-                        }}
-                    >
+                <Content style={{ ...contentFrameStyle, minHeight: `calc(100vh - ${shellMetrics.headerHeight}px)`, background: 'transparent' }}>
+                    <PageSurface maxWidth={shellMetrics.portalContentMaxWidth}>
                         <Outlet />
-                    </div>
+                    </PageSurface>
                 </Content>
             </Layout>
         </Layout>
