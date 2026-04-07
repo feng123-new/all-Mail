@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type FC } from 'react';
-import { Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
+import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
+import { Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { CopyOutlined, LoginOutlined, PlusOutlined } from '@ant-design/icons';
-import { mailboxUserApi, domainMailboxApi } from '../../api';
-import { PageHeader } from '../../components';
+import { PageHeader, SurfaceCard } from '../../components';
+import { mailboxUsersContract } from '../../contracts/admin/mailboxUsers';
 import { requestData } from '../../utils/request';
 
 interface UserRecord {
@@ -21,11 +21,22 @@ interface MailboxOption {
 }
 
 interface MailboxUserFormValues {
-    portalUsername?: string;
-    contactEmail?: string;
-    portalPassword?: string;
-    status?: 'ACTIVE' | 'DISABLED';
-    mailboxIds?: number[];
+	portalUsername?: string;
+	contactEmail?: string;
+	portalPassword?: string;
+	status?: 'ACTIVE' | 'DISABLED';
+	mailboxIds?: number[];
+}
+
+interface MailboxUserDetail {
+	id: number;
+	email?: string | null;
+	status: 'ACTIVE' | 'DISABLED';
+	memberships: Array<{
+		mailbox: {
+			id: number;
+		};
+	}>;
 }
 
 const PORTAL_LOGIN_PREFILL_PREFIX = 'all-mail:portal-login:';
@@ -33,14 +44,25 @@ const PORTAL_LOGIN_PREFILL_TTL_MS = 10 * 60 * 1000;
 
 const MailboxUsersPage: FC = () => {
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [users, setUsers] = useState<UserRecord[]>([]);
+	const [saving, setSaving] = useState(false);
+	const [detailLoading, setDetailLoading] = useState(false);
+	const [users, setUsers] = useState<UserRecord[]>([]);
     const [mailboxes, setMailboxes] = useState<MailboxOption[]>([]);
     const [modalVisible, setModalVisible] = useState(false);
     const [editing, setEditing] = useState<UserRecord | null>(null);
     const [form] = Form.useForm<MailboxUserFormValues>();
+	const isMountedRef = useRef(true);
 
-    const portalBaseUrl = useMemo(() => `${window.location.origin}/mail/login`, []);
+	useEffect(() => () => {
+		isMountedRef.current = false;
+	}, []);
+
+	const portalBaseUrl = useMemo(() => {
+		if (!globalThis.location?.origin) {
+			return '/mail/login';
+		}
+		return `${globalThis.location.origin}/mail/login`;
+	}, []);
 
     const savePortalCredentialPrefill = useCallback((username: string, password?: string) => {
         const normalizedPassword = password?.trim();
@@ -48,10 +70,10 @@ const MailboxUsersPage: FC = () => {
             return;
         }
 
-        window.localStorage.setItem(
-            `${PORTAL_LOGIN_PREFILL_PREFIX}${username}`,
-            JSON.stringify({
-                password: normalizedPassword,
+		globalThis.localStorage?.setItem(
+			`${PORTAL_LOGIN_PREFILL_PREFIX}${username}`,
+			JSON.stringify({
+				password: normalizedPassword,
                 expiresAt: Date.now() + PORTAL_LOGIN_PREFILL_TTL_MS,
             })
         );
@@ -60,34 +82,57 @@ const MailboxUsersPage: FC = () => {
     const loadData = useCallback(async () => {
         setLoading(true);
         const [userResult, mailboxResult] = await Promise.all([
-            requestData<{ list: UserRecord[] }>(() => mailboxUserApi.getList({ page: 1, pageSize: 100 }), '获取邮箱用户失败'),
-            requestData<{ list: MailboxOption[] }>(() => domainMailboxApi.getList({ page: 1, pageSize: 100 }), '获取域名邮箱失败', { silent: true }),
+            requestData<{ list: UserRecord[] }>(() => mailboxUsersContract.getUsers({ page: 1, pageSize: 100 }), '获取邮箱用户失败'),
+            requestData<{ list: MailboxOption[] }>(() => mailboxUsersContract.getMailboxes({ page: 1, pageSize: 100 }), '获取域名邮箱失败', { silent: true }),
         ]);
+		if (!isMountedRef.current) {
+			return;
+		}
         if (userResult) setUsers(userResult.list);
         if (mailboxResult) setMailboxes(mailboxResult.list);
         setLoading(false);
     }, []);
 
-    useEffect(() => {
-        const timer = window.setTimeout(() => {
-            void loadData();
-        }, 0);
-        return () => window.clearTimeout(timer);
-    }, [loadData]);
+	useEffect(() => {
+		const timer = setTimeout(() => {
+			void loadData();
+		}, 0);
+		return () => clearTimeout(timer);
+	}, [loadData]);
 
-    const openModal = (record?: UserRecord) => {
-        setEditing(record || null);
-        form.resetFields();
-        if (record) {
-            form.setFieldsValue({
-                contactEmail: record.email ?? undefined,
-                status: record.status,
-                mailboxIds: [],
-                portalPassword: undefined,
-            });
-        } else {
-            form.setFieldsValue({
-                portalUsername: undefined,
+	const openModal = (record?: UserRecord) => {
+		setEditing(record || null);
+		setDetailLoading(false);
+		form.resetFields();
+		if (record) {
+			form.setFieldsValue({
+				contactEmail: record.email ?? undefined,
+				status: record.status,
+				mailboxIds: [],
+				portalPassword: undefined,
+			});
+			setDetailLoading(true);
+			void (async () => {
+				const detail = await requestData<MailboxUserDetail>(
+					() => mailboxUsersContract.getById(record.id),
+					`获取门户用户 ${record.username} 详情失败`,
+				);
+				if (!isMountedRef.current) {
+					return;
+				}
+				if (detail) {
+					form.setFieldsValue({
+						contactEmail: detail.email ?? undefined,
+						status: detail.status,
+						mailboxIds: detail.memberships.map((item) => item.mailbox.id),
+						portalPassword: undefined,
+					});
+				}
+				setDetailLoading(false);
+			})();
+		} else {
+			form.setFieldsValue({
+				portalUsername: undefined,
                 contactEmail: undefined,
                 portalPassword: undefined,
                 status: 'ACTIVE',
@@ -102,17 +147,17 @@ const MailboxUsersPage: FC = () => {
         return `${portalBaseUrl}?${params.toString()}`;
     }, [portalBaseUrl]);
 
-    const handleOpenPortal = useCallback((record: UserRecord) => {
-        window.open(buildPortalLoginUrl(record), '_blank', 'noopener,noreferrer');
-    }, [buildPortalLoginUrl]);
+	const handleOpenPortal = useCallback((record: UserRecord) => {
+		globalThis.open?.(buildPortalLoginUrl(record), '_blank', 'noopener,noreferrer');
+	}, [buildPortalLoginUrl]);
 
-    const handleCopyPortalLink = useCallback(async (record: UserRecord) => {
-        const loginUrl = buildPortalLoginUrl(record);
-        try {
-            await navigator.clipboard.writeText(loginUrl);
-            message.success(`已复制 ${record.username} 的门户登录链接`);
-        } catch {
-            message.error('复制门户链接失败，请手动打开');
+	const handleCopyPortalLink = useCallback(async (record: UserRecord) => {
+		const loginUrl = buildPortalLoginUrl(record);
+		try {
+			await globalThis.navigator?.clipboard?.writeText(loginUrl);
+			message.success(`已复制 ${record.username} 的门户登录链接`);
+		} catch {
+			message.error('复制门户链接失败，请手动打开');
         }
     }, [buildPortalLoginUrl]);
 
@@ -124,13 +169,14 @@ const MailboxUsersPage: FC = () => {
             ...(editing ? {} : { username }),
             email: values.contactEmail?.trim() || undefined,
             password: values.portalPassword?.trim() || undefined,
+            ...(editing && values.portalPassword?.trim() ? { mustChangePassword: true } : {}),
             status: values.status,
             mailboxIds: values.mailboxIds || [],
         };
 
         const action = editing
-            ? mailboxUserApi.update(editing.id, payload)
-            : mailboxUserApi.create(payload);
+            ? mailboxUsersContract.update(editing.id, payload)
+            : mailboxUsersContract.create(payload);
 
         const result = await requestData(() => action, editing ? '更新邮箱用户失败' : '创建邮箱用户失败');
         if (result) {
@@ -143,14 +189,14 @@ const MailboxUsersPage: FC = () => {
 
     const handleDelete = async (record: UserRecord) => {
         const result = await requestData(
-            () => mailboxUserApi.delete(record.id),
+            () => mailboxUsersContract.delete(record.id),
             `删除门户用户 ${record.username} 失败`
         );
-        if (result) {
-            window.localStorage.removeItem(`${PORTAL_LOGIN_PREFILL_PREFIX}${record.username}`);
-            message.success(`已删除门户用户 ${record.username}`);
-            await loadData();
-        }
+		if (result) {
+			globalThis.localStorage?.removeItem(`${PORTAL_LOGIN_PREFILL_PREFIX}${record.username}`);
+			message.success(`已删除门户用户 ${record.username}`);
+			await loadData();
+		}
     };
 
     const columns: ColumnsType<UserRecord> = [
@@ -208,11 +254,11 @@ const MailboxUsersPage: FC = () => {
                 subtitle="这里统一管理门户登录用户、初始密码和邮箱访问范围；你可以直接打开门户登录页，默认填入门户用户名，刚刚修改过的门户密码也会短时自动带入。"
                 extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>新增门户用户</Button>}
             />
-            <Card>
+            <SurfaceCard>
                 <Table rowKey="id" loading={loading} columns={columns} dataSource={users} pagination={false} />
-            </Card>
-            <Modal title={editing ? '编辑门户用户' : '新增门户用户'} open={modalVisible} onCancel={() => setModalVisible(false)} onOk={() => form.submit()} confirmLoading={saving} destroyOnClose>
-                <Form form={form} layout="vertical" onFinish={handleSubmit} autoComplete="off">
+            </SurfaceCard>
+		<Modal title={editing ? '编辑门户用户' : '新增门户用户'} open={modalVisible} onCancel={() => setModalVisible(false)} onOk={() => form.submit()} confirmLoading={saving || detailLoading} destroyOnHidden>
+				<Form form={form} layout="vertical" onFinish={handleSubmit} autoComplete="off">
                     {!editing ? (
                         <Form.Item name="portalUsername" label="门户用户名" rules={[{ required: true, message: '请输入门户用户名' }]}>
                             <Input placeholder="例如：wangheng" autoComplete="off" />
@@ -231,11 +277,11 @@ const MailboxUsersPage: FC = () => {
                     <Form.Item name="status" label="状态">
                         <Select options={[{ value: 'ACTIVE', label: 'ACTIVE' }, { value: 'DISABLED', label: 'DISABLED' }]} />
                     </Form.Item>
-                    <Form.Item name="mailboxIds" label="可访问邮箱">
-                        <Select mode="multiple" options={mailboxes.map((item) => ({ value: item.id, label: item.address }))} />
-                    </Form.Item>
-                </Form>
-            </Modal>
+					<Form.Item name="mailboxIds" label="可访问邮箱">
+						<Select mode="multiple" loading={detailLoading} options={mailboxes.map((item) => ({ value: item.id, label: item.address }))} />
+					</Form.Item>
+				</Form>
+			</Modal>
         </div>
     );
 };

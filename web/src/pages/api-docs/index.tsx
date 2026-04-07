@@ -25,8 +25,26 @@ import {
     ThunderboltOutlined,
     WarningOutlined,
 } from '@ant-design/icons';
-import { PageHeader } from '../../components';
+import { PageHeader, SurfaceCard } from '../../components';
 import { LOG_ACTION_OPTIONS } from '../../constants/logActions';
+import {
+    cardBgErrorStyle,
+    cardBgMutedStyle,
+    cardBgSuccessStyle,
+    codeBlockCompactStyle,
+    codeBlockStyle,
+    fullWidthStyle,
+    listItemMarginBottom8Style,
+    marginBottom8Style,
+    marginBottom16Style,
+    marginBottom24Style,
+    noMarginStyle,
+    noMarginBottomStyle,
+    orderedListStyle,
+    stickyTop24Style,
+    successTextStyle,
+    errorTextStyle,
+} from '../../styles/common';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -53,6 +71,45 @@ interface ApiSection {
     errorResponse: string;
 }
 
+interface SurfaceDocCard {
+    key: string;
+    title: string;
+    auth: string;
+    prefixes: string[];
+    audience: string;
+    description: string;
+    status: string;
+}
+
+interface RouteOperation {
+    method: string;
+    path: string;
+    purpose: string;
+}
+
+interface RouteFamilyDoc {
+    key: string;
+    sectionId: string;
+    surface: 'admin' | 'portal' | 'ingress';
+    title: string;
+    auth: string;
+    audience: string;
+    description: string;
+    operations: RouteOperation[];
+    requestExample?: string;
+    successResponse?: string;
+}
+
+interface CallPlaybook {
+    key: string;
+    title: string;
+    audience: string;
+    summary: string;
+    steps: string[];
+    curl: string;
+    response: string;
+}
+
 const paramColumns: ColumnsType<ParamRow> = [
     { title: '参数名', dataIndex: 'name', key: 'name', render: (text) => <Text code>{text}</Text> },
     { title: '类型', dataIndex: 'type', key: 'type' },
@@ -60,7 +117,26 @@ const paramColumns: ColumnsType<ParamRow> = [
     { title: '说明', dataIndex: 'desc', key: 'desc' },
 ];
 
+const operationColumns: ColumnsType<RouteOperation> = [
+    { title: '方法', dataIndex: 'method', key: 'method', width: 120, render: (text) => <Tag color="blue">{text}</Tag> },
+    { title: '路径', dataIndex: 'path', key: 'path', render: (text) => <Text code>{text}</Text> },
+    { title: '功能说明', dataIndex: 'purpose', key: 'purpose' },
+];
+
 const ApiDocsPage = () => {
+    const docsStyles = {
+        fullWidth: fullWidthStyle,
+        marginBottom24: marginBottom24Style,
+        titleNoMargin: noMarginStyle,
+        orderedList: orderedListStyle,
+        listItemGap: listItemMarginBottom8Style,
+        codeCardMuted: cardBgMutedStyle,
+        codeCardSuccess: cardBgSuccessStyle,
+        codeCardError: cardBgErrorStyle,
+        stickyTop24: stickyTop24Style,
+        successText: successTextStyle,
+        errorText: errorTextStyle,
+    } as const;
     const baseUrl = window.location.origin;
 
     const authMethods = [
@@ -73,11 +149,6 @@ const ApiDocsPage = () => {
             method: 'Bearer Token',
             example: 'Authorization: Bearer sk_your_api_key',
             description: '当你的请求库天然偏好 Bearer Token 时使用。',
-        },
-        {
-            method: 'Query 参数',
-            example: '?api_key=sk_your_api_key',
-            description: '仍可兼容，但 URL 容易进入代理和日志，不建议作为长期方案。',
         },
     ];
 
@@ -147,6 +218,45 @@ const ApiDocsPage = () => {
         },
     ];
 
+    const surfaceCards: SurfaceDocCard[] = [
+        {
+            key: 'public-automation',
+            title: '公开自动化 API',
+            auth: 'X-API-Key / Bearer',
+            prefixes: ['/api/*', '/api/domain-mail/*'],
+            audience: '脚本、机器人、验证码轮询、自动化服务',
+            description: '这是对外的资源分配 / 读信 / 文本提取接口，也是第三方系统最该优先接的调用面。',
+            status: '推荐起点',
+        },
+        {
+            key: 'admin-control-plane',
+            title: '管理员控制面 API',
+            auth: '管理员 session cookie',
+            prefixes: ['/admin/*'],
+            audience: '后台页面、内部运维脚本、管理员工具',
+            description: '覆盖 API Key、外部邮箱、域名、域名邮箱、门户用户、发信配置、转发任务、统计与日志。',
+            status: '完整控制面',
+        },
+        {
+            key: 'mailbox-portal',
+            title: '门户用户 API',
+            auth: 'mailbox_token Cookie',
+            prefixes: ['/mail/api/*'],
+            audience: '门户前端、站内邮箱用户、自助收件与发信',
+            description: '面向 mailbox user 的登录、会话、收件列表、已发送、站内发信与转发设置。',
+            status: '门户专用',
+        },
+        {
+            key: 'ingress',
+            title: 'Ingress 接入面',
+            auth: '签名校验',
+            prefixes: ['/ingress/domain-mail/*'],
+            audience: '邮件网关、Worker、转发入口、站内入站链路',
+            description: '只暴露内部投递入口，用来把入站邮件写入 all-Mail 的域名消息存储。',
+            status: '内部集成',
+        },
+    ];
+
     const integrationScenarios = [
         {
             title: '场景 1：外部连接器验证码流程',
@@ -165,6 +275,298 @@ const ApiDocsPage = () => {
                 '邮件进入 all-Mail 后，用 /api/domain-mail/messages/latest 或 /api/domain-mail/messages/text 读取最新邮件。',
                 '如果你想看某个批次是否快分配完了，优先调用 /api/domain-mail/mailboxes/allocation-stats。',
             ],
+        },
+    ];
+
+    const routeFamilies: RouteFamilyDoc[] = [
+        {
+            key: 'admin-auth',
+            sectionId: 'admin-api',
+            surface: 'admin',
+            title: '管理员认证与 2FA',
+            auth: '登录前公开；其他接口需要管理员 session cookie',
+            audience: '后台登录页、管理员个人设置、安全运维',
+            description: '对应 `server/src/modules/auth/auth.routes.ts`，覆盖登录、登出、当前用户、改密、2FA 状态、启用与禁用。',
+            operations: [
+                { method: 'POST', path: '/admin/auth/login', purpose: '管理员登录并写入 httpOnly cookie，同时返回当前管理员资料。' },
+                { method: 'POST', path: '/admin/auth/logout', purpose: '清理 token cookie。' },
+                { method: 'GET', path: '/admin/auth/me', purpose: '读取当前管理员资料与 mustChangePassword 等状态。' },
+                { method: 'POST', path: '/admin/auth/change-password', purpose: '管理员主动改密。' },
+                { method: 'GET', path: '/admin/auth/2fa/status', purpose: '查看当前 2FA 开启状态。' },
+                { method: 'POST', path: '/admin/auth/2fa/setup', purpose: '生成 2FA 绑定二维码与 secret。' },
+                { method: 'POST', path: '/admin/auth/2fa/enable', purpose: '校验验证码并启用 2FA。' },
+                { method: 'POST', path: '/admin/auth/2fa/disable', purpose: '校验密码/验证码后禁用 2FA。' },
+            ],
+            requestExample: `curl -X POST "${baseUrl}/admin/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"Admin9f7497e52ce24065"}'`,
+            successResponse: `{
+  "success": true,
+  "data": {
+    "admin": { "id": 1, "username": "admin", "role": "SUPER_ADMIN" }
+  }
+}`,
+        },
+        {
+            key: 'admin-api-keys',
+            sectionId: 'admin-api',
+            surface: 'admin',
+            title: '访问密钥与分配范围',
+            auth: '管理员 JWT',
+            audience: 'API Key 管理页、内部运维脚本、分配范围治理',
+            description: '对应 `server/src/modules/api-key/apiKey.routes.ts`，覆盖 API Key CRUD、邮箱池 usage/reset、已分配邮箱列表与手工分配。',
+            operations: [
+                { method: 'GET', path: '/admin/api-keys', purpose: '分页查询访问密钥。' },
+                { method: 'POST', path: '/admin/api-keys', purpose: '创建访问密钥并返回仅展示一次的明文 key。' },
+                { method: 'GET', path: '/admin/api-keys/:id', purpose: '查看单个访问密钥详情。' },
+                { method: 'PUT', path: '/admin/api-keys/:id', purpose: '更新状态、权限、作用域、过期时间等。' },
+                { method: 'DELETE', path: '/admin/api-keys/:id', purpose: '删除访问密钥。' },
+                { method: 'GET', path: '/admin/api-keys/:id/allocation-stats', purpose: '查看某个 key 的外部邮箱分配统计。' },
+                { method: 'POST', path: '/admin/api-keys/:id/allocation-reset', purpose: '重置某个 key 的外部邮箱分配记录。' },
+                { method: 'GET', path: '/admin/api-keys/:id/assigned-mailboxes', purpose: '查看这个 key 能访问/已占用的邮箱。' },
+                { method: 'PUT', path: '/admin/api-keys/:id/assigned-mailboxes', purpose: '手工调整该 key 绑定的邮箱集合。' },
+            ],
+            requestExample: `curl -X POST "${baseUrl}/admin/api-keys" \
+  -b "token=<admin-session-cookie>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"ops-bot","status":"ACTIVE","permissions":{"mail_text":true},"allowedGroupIds":[1]}'`,
+            successResponse: `{
+  "success": true,
+  "data": {
+    "id": 8,
+    "name": "ops-bot",
+    "plainKey": "sk_xxxxx",
+    "status": "ACTIVE"
+  }
+}`,
+        },
+        {
+            key: 'admin-emails-oauth',
+            sectionId: 'admin-api',
+            surface: 'admin',
+            title: '外部邮箱、OAuth 与邮箱分组',
+            auth: '管理员 JWT',
+            audience: '外部邮箱连接页、OAuth 配置页、分组管理页',
+            description: '对应 `email.routes.ts`、`email.oauth.routes.ts`、`group.routes.ts`，覆盖外部邮箱 CRUD、批量检查、批量清空、导入导出、OAuth 配置与邮箱分组。',
+            operations: [
+                { method: 'GET', path: '/admin/emails', purpose: '分页查询外部邮箱，支持 provider / representativeProtocol / status / groupId。' },
+                { method: 'POST', path: '/admin/emails', purpose: '创建外部邮箱记录。' },
+                { method: 'PUT', path: '/admin/emails/:id', purpose: '更新邮箱鉴权信息、分组、状态等。' },
+                { method: 'POST', path: '/admin/emails/import', purpose: '按 registry token 批量导入邮箱。' },
+                { method: 'GET', path: '/admin/emails/export', purpose: '导出邮箱凭据。' },
+                { method: 'POST', path: '/admin/emails/reveal-unlock', purpose: '验证管理员 OTP 并签发短时密码查看授权。' },
+                { method: 'POST', path: '/admin/emails/:id/reveal-secrets', purpose: '在 OTP 或短时授权通过后，受控查看指定邮箱密钥。' },
+                { method: 'POST', path: '/admin/emails/batch-fetch-mails', purpose: '批量拉取收件箱 / 已发送 / 垃圾箱。' },
+                { method: 'POST', path: '/admin/emails/batch-clear-mailbox', purpose: '按 capability 判断后批量清空邮箱。' },
+                { method: 'GET', path: '/admin/oauth/providers', purpose: '查看 Google / Microsoft OAuth 当前配置状态。' },
+                { method: 'PUT', path: '/admin/oauth/configs/:provider', purpose: '保存 provider 级 OAuth client 配置。' },
+                { method: 'POST', path: '/admin/oauth/:provider/start', purpose: '生成授权链接并启动 OAuth 流。' },
+                { method: 'GET', path: '/admin/oauth/:provider/status', purpose: '轮询授权状态。' },
+                { method: 'GET', path: '/admin/email-groups', purpose: '读取外部邮箱分组。' },
+                { method: 'POST', path: '/admin/email-groups/:id/assign', purpose: '把邮箱分配到某个分组。' },
+            ],
+            requestExample: `curl -X POST "${baseUrl}/admin/emails/batch-fetch-mails" \
+  -b "token=<admin-session-cookie>" \
+  -H "Content-Type: application/json" \
+  -d '{"representativeProtocol":"imap_smtp","status":"ACTIVE","mailboxes":["INBOX","SENT","Junk"]}'`,
+            successResponse: `{
+  "success": true,
+  "data": {
+    "targeted": 6,
+    "successCount": 5,
+    "partialCount": 1,
+    "errorCount": 0,
+    "results": [{ "id": 2, "email": "example@gmail.com", "status": "success" }]
+  }
+}`,
+        },
+        {
+            key: 'admin-domain-surface',
+            sectionId: 'admin-api',
+            surface: 'admin',
+            title: '域名、域名邮箱、门户用户、消息与发信',
+            auth: '管理员 JWT（管理员管理额外要求 SUPER_ADMIN）',
+            audience: '域名控制台、域名邮箱管理、门户用户管理、域名消息与发信页面',
+            description: '对应 `domain.routes.ts`、`domainMailbox.routes.ts`、`mailboxUser.routes.ts`、`message.routes.ts`、`send.routes.ts`、`dashboard.routes.ts`、`admin.routes.ts`。',
+            operations: [
+                { method: 'GET/POST/PATCH/DELETE', path: '/admin/domains*', purpose: '域名 CRUD、DNS verify、catch-all、sending config、aliases 管理。' },
+                { method: 'GET/POST/PATCH/DELETE', path: '/admin/domain-mailboxes*', purpose: '域名邮箱 CRUD、批量创建与批量删除。' },
+                { method: 'GET/POST/PATCH/DELETE', path: '/admin/mailbox-users*', purpose: '门户用户 CRUD 与批量绑定邮箱成员关系。' },
+                { method: 'GET/DELETE', path: '/admin/domain-messages*', purpose: '查看和删除落库的域名入站消息。' },
+                { method: 'GET/POST/DELETE', path: '/admin/send/*', purpose: '查看发送配置、发送消息、删除发送记录。' },
+                { method: 'GET', path: '/admin/forwarding-jobs*', purpose: '查看 forwarding job 列表、状态和详情诊断。' },
+                { method: 'GET/DELETE', path: '/admin/dashboard/*', purpose: '统计、趋势、后台日志。' },
+                { method: 'GET/POST/PUT/DELETE', path: '/admin/admins*', purpose: '超级管理员管理管理员账号。' },
+            ],
+            requestExample: `curl -X POST "${baseUrl}/admin/domains" \
+  -b "token=<admin-session-cookie>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"example.com","displayName":"Ops Domain","canReceive":true,"canSend":true}'`,
+            successResponse: `{
+  "success": true,
+  "data": {
+    "id": 6,
+    "name": "example.com",
+    "status": "PENDING",
+    "verificationToken": "..."
+  }
+}`,
+        },
+        {
+            key: 'mailbox-portal-api',
+            sectionId: 'portal-api',
+            surface: 'portal',
+            title: '门户用户会话、收件、已发送与转发',
+            auth: 'mailbox_token Cookie',
+            audience: 'mail portal 前端、站内邮箱使用者、自助收发信',
+            description: '对应 `mailboxPortal.routes.ts`，是 `/mail/*` 页面真正消费的后端接口。',
+            operations: [
+                { method: 'POST', path: '/mail/api/login', purpose: '门户用户登录并写入 mailbox_token cookie。' },
+                { method: 'POST', path: '/mail/api/logout', purpose: '门户登出。' },
+                { method: 'GET', path: '/mail/api/session', purpose: '读取当前门户用户与可见邮箱。' },
+                { method: 'GET', path: '/mail/api/mailboxes', purpose: '列出门户用户可访问的域名邮箱。' },
+                { method: 'GET', path: '/mail/api/messages', purpose: '查看入站消息列表，支持 mailboxId / unreadOnly / 分页。' },
+                { method: 'GET', path: '/mail/api/messages/:id', purpose: '查看单封入站消息详情。' },
+                { method: 'GET', path: '/mail/api/sent-messages', purpose: '查看已发送消息列表。' },
+                { method: 'GET', path: '/mail/api/sent-messages/:id', purpose: '查看单封已发送消息详情。' },
+                { method: 'POST', path: '/mail/api/send', purpose: '以门户用户可访问邮箱发信。' },
+                { method: 'POST', path: '/mail/api/change-password', purpose: '门户用户修改密码。' },
+                { method: 'POST', path: '/mail/api/forwarding', purpose: '更新门户用户的转发设置。' },
+            ],
+            requestExample: `curl -X POST "${baseUrl}/mail/api/send" \
+  -H "Cookie: mailbox_token=<mailbox-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"mailboxId":12,"to":["target@example.com"],"subject":"Portal send","text":"hello from mailbox portal"}'`,
+            successResponse: `{
+  "success": true,
+  "data": {
+    "status": "SENT",
+    "id": "188",
+    "providerMessageId": "re_xxx"
+  }
+}`,
+        },
+        {
+            key: 'ingress-api',
+            sectionId: 'ingress-api',
+            surface: 'ingress',
+            title: 'Ingress 入站投递',
+            auth: 'ingress signature',
+            audience: 'Cloudflare Worker、邮件网关、内部投递器',
+            description: '对应 `ingress.routes.ts`，只有一个签名保护的 POST 接口，用来把入站邮件写入域名消息系统。',
+            operations: [
+                { method: 'POST', path: '/ingress/domain-mail/receive', purpose: '接收入站 payload，校验签名后写入 inbound messages。' },
+            ],
+            requestExample: `curl -X POST "${baseUrl}/ingress/domain-mail/receive" \
+  -H "Content-Type: application/json" \
+  -H "x-ingress-key-id: ingress-demo" \
+  -H "x-ingress-timestamp: 1774540000" \
+  -H "x-ingress-signature: sha256=..." \
+  -d '{"domain":"example.com","matchedAddress":"code@example.com","finalAddress":"code@example.com","fromAddress":"noreply@example.com","toAddress":"code@example.com","subject":"Your code","textPreview":"123456"}'`,
+            successResponse: `{
+  "success": true,
+  "data": {
+    "accepted": true,
+    "messageId": "1024",
+    "stored": true
+  }
+}`,
+        },
+    ];
+
+    const callPlaybooks: CallPlaybook[] = [
+        {
+            key: 'playbook-admin-oauth-email',
+            title: '管理员配置 OAuth 并创建外部邮箱',
+            audience: '后台管理员 / 运维',
+            summary: '这是外部 Outlook/Gmail OAuth 接入的完整控制面调用链：先存 provider config，再启动授权，再查状态，最后在邮箱列表里看到回写结果。',
+            steps: [
+                '调用 /admin/oauth/configs/:provider 保存 clientId / redirectUri / scopes / tenant。',
+                '调用 /admin/oauth/:provider/start 获取授权链接。',
+                '浏览器完成 OAuth 回调后，用 /admin/oauth/:provider/status 轮询结果。',
+                '最后调用 /admin/emails 或 /admin/emails/:id 查看落库的邮箱记录与 capability。',
+            ],
+            curl: `curl -X POST "${baseUrl}/admin/oauth/google/start" \
+  -b "token=<admin-session-cookie>" \
+  -H "Content-Type: application/json" \
+  -d '{"groupId":1}'`,
+            response: `{
+  "success": true,
+  "data": {
+    "state": "oauth-state-xxx",
+    "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth?..."
+  }
+}`,
+        },
+        {
+            key: 'playbook-admin-domain-bootstrap',
+            title: '管理员创建域名、验证 DNS、批量创建域名邮箱',
+            audience: '后台管理员 / 域名运维',
+            summary: '这是 hosted_internal 体系的控制面标准流程：域名 → verify → catch-all / sending config → mailbox batch create → mailbox user。',
+            steps: [
+                'POST /admin/domains 创建域名。',
+                'POST /admin/domains/:id/verify 生成和刷新 DNS 验证信息。',
+                'POST /admin/domains/:id/sending-config 保存发信配置。',
+                'POST /admin/domain-mailboxes/batch-create 批量创建 mailbox。',
+                'POST /admin/mailbox-users/:id/mailboxes/batch-add 绑定门户用户可见邮箱。',
+            ],
+            curl: `curl -X POST "${baseUrl}/admin/domain-mailboxes/batch-create" \
+  -b "token=<admin-session-cookie>" \
+  -H "Content-Type: application/json" \
+  -d '{"domainId":6,"count":20,"batchTag":"ops-batch-20260327","provisioningMode":"API_POOL"}'`,
+            response: `{
+  "success": true,
+  "data": {
+    "created": 20,
+    "batchTag": "ops-batch-20260327"
+  }
+}`,
+        },
+        {
+            key: 'playbook-portal-user',
+            title: '门户用户登录后收件与发信',
+            audience: 'mail portal 前端 / 门户用户',
+            summary: '门户用户的典型流是：登录 → session → mailboxes → messages / sent-messages → send / forwarding。',
+            steps: [
+                'POST /mail/api/login 写入 mailbox_token cookie。',
+                'GET /mail/api/session 确认当前门户用户身份。',
+                'GET /mail/api/mailboxes 获取可用 mailbox。',
+                'GET /mail/api/messages?mailboxId=... 查看收件。',
+                'POST /mail/api/send 发信，或 POST /mail/api/forwarding 更新转发策略。',
+            ],
+            curl: `curl -X POST "${baseUrl}/mail/api/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"wangheng","password":"Portal9f7497e52ce24065"}'`,
+            response: `{
+  "success": true,
+  "data": {
+    "mailboxUser": { "id": 3, "username": "wangheng" }
+  }
+}`,
+        },
+        {
+            key: 'playbook-ingress',
+            title: 'Ingress Worker 推送入站邮件',
+            audience: 'Worker / 邮件网关 / 内部接收器',
+            summary: '这是站内入站链路的调用方式：签名投递到 ingress，再由 ingress service 写入 inbound message。',
+            steps: [
+                '构造 request body，并按共享 signing secret 生成 canonical signature。',
+                'POST /ingress/domain-mail/receive，带上 key id / timestamp / signature 头。',
+                '服务端校验成功后把消息路由到 domain mailbox 与 message store。',
+            ],
+            curl: `curl -X POST "${baseUrl}/ingress/domain-mail/receive" \
+  -H "x-ingress-key-id: ingress-demo" \
+  -H "x-ingress-timestamp: 1774540000" \
+  -H "x-ingress-signature: sha256=..." \
+  -H "Content-Type: application/json" \
+  -d '{"domain":"example.com","matchedAddress":"ops@example.com","finalAddress":"ops@example.com","fromAddress":"noreply@example.com","toAddress":"ops@example.com","subject":"Code","textPreview":"123456"}'`,
+            response: `{
+  "success": true,
+  "data": {
+    "accepted": true,
+    "stored": true
+  }
+}`,
         },
     ];
 
@@ -698,8 +1100,8 @@ const ApiDocsPage = () => {
     const groupedApis = [
         {
             key: 'external',
-            title: '外部连接器接口（Outlook / Gmail / QQ）',
-            description: '面向外部邮箱连接器与自动化调用，适合验证码脚本、邮箱轮询和自动化注册等场景。',
+            title: '外部连接器接口（OAuth API / IMAP / SMTP）',
+            description: '面向外部邮箱连接器与自动化调用，覆盖 Outlook、Gmail 以及当前 registry 中的 QQ / 163 / 126 / iCloud / Yahoo / Zoho / 阿里邮箱等 IMAP / SMTP profile。',
             items: apiEndpoints.filter((item) => item.group === '外部连接器接口'),
         },
         {
@@ -715,11 +1117,35 @@ const ApiDocsPage = () => {
         label: item.label,
     }));
 
+    const routeFamilyGroups = [
+        {
+            key: 'admin',
+            sectionId: 'admin-api',
+            title: '管理员控制面 API',
+            description: '后台页面自己调用的 JWT 保护接口，覆盖认证、邮箱、域名、门户用户、发信、日志与统计。',
+            items: routeFamilies.filter((item) => item.surface === 'admin'),
+        },
+        {
+            key: 'portal',
+            sectionId: 'portal-api',
+            title: '门户用户 API',
+            description: 'mail portal 使用的 mailbox session 接口，适合收件、已发送和站内发信场景。',
+            items: routeFamilies.filter((item) => item.surface === 'portal'),
+        },
+        {
+            key: 'ingress',
+            sectionId: 'ingress-api',
+            title: 'Ingress / 内部投递 API',
+            description: '站内邮件入站接收面，供 Worker / 网关把原始投递写入 all-Mail。',
+            items: routeFamilies.filter((item) => item.surface === 'ingress'),
+        },
+    ];
+
     return (
         <div>
             <PageHeader
                 title="API 文档"
-                subtitle="把 all-Mail 当成统一的邮件自动化控制面来使用：新的公开路径已经改为资源化命名，旧脚本路径保留为兼容别名。"
+                subtitle="把 all-Mail 当成统一的邮件自动化控制面来使用：这页现在同时覆盖公开自动化 API、管理员控制面、门户用户 API 和 ingress 投递面，并按真实路由分组展示。"
                 extra={
                     <Button type="primary" icon={<ApiOutlined />} href="#quick-start">
                         从这里开始
@@ -730,65 +1156,132 @@ const ApiDocsPage = () => {
             <Row gutter={24} align="top">
                 <Col xs={24} xl={18}>
                     <div id="quick-start">
-                        <Card style={{ marginBottom: 24 }}>
-                            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                        <SurfaceCard style={docsStyles.marginBottom24}>
+                            <Space orientation="vertical" size={16} style={docsStyles.fullWidth}>
                                 <Space>
                                     <Tag color="blue">新命名</Tag>
                                     <Tag color="purple">兼容别名</Tag>
                                     <Tag color="green">真实接口</Tag>
+                                    <Tag color="gold">完整功能面</Tag>
                                 </Space>
-                                <Title level={4} style={{ margin: 0 }}>先用一句话理解 all-Mail API</Title>
-                                <Paragraph style={{ marginBottom: 0 }}>
+                                <Title level={4} style={docsStyles.titleNoMargin}>先用一句话理解 all-Mail API</Title>
+                                <Paragraph style={noMarginBottomStyle}>
                                     如果你把 <Text strong>all-Mail</Text> 当成一个“分配邮箱资源、读取消息、提取验证码、管理分配状态”的服务，
-                                    这一页就是它的操作说明书。新的公开主路径采用资源化命名；旧脚本路径仍可迁移，但不再作为主文档入口。
+                                    这一页就是它的操作说明书。新的公开主路径采用资源化命名；旧脚本路径仍可迁移，但不再作为主文档入口。除了公开接口，这里也把后台控制面、门户会话和 ingress 投递面一起梳理成可调用手册。
                                 </Paragraph>
                                 <Alert
                                     type="info"
                                     showIcon
-                                    message="最重要的区别"
+                                    title="最重要的区别：先认清你在调哪一个功能面"
                                     description={
                                         <div>
-                                            <p style={{ marginBottom: 8 }}>
+                                            <p style={marginBottom8Style}>
                                                 <Text strong>外部连接器接口：</Text>对应 Outlook / Gmail / QQ 等外部连接器，推荐路径族是 <Text code>/api/mailboxes/*</Text> 与 <Text code>/api/messages/*</Text>。
                                             </p>
-                                            <p style={{ marginBottom: 0 }}>
+                                            <p style={marginBottom8Style}>
                                                 <Text strong>域名邮箱接口：</Text>对应 all-Mail 自己管理的域名邮箱与入站消息，推荐路径族是 <Text code>/api/domain-mail/mailboxes/*</Text> 与 <Text code>/api/domain-mail/messages/*</Text>。
+                                            </p>
+                                            <p style={marginBottom8Style}>
+                                                <Text strong>管理员控制面：</Text>后台真实使用的是 <Text code>/admin/*</Text>，包括 OAuth、邮箱、域名、域名邮箱、门户用户、发信与日志。
+                                            </p>
+                                            <p style={noMarginBottomStyle}>
+                                                <Text strong>门户与 ingress：</Text>门户用户调用 <Text code>/mail/api/*</Text>，内部投递接入面是 <Text code>/ingress/domain-mail/receive</Text>。
                                             </p>
                                         </div>
                                     }
                                 />
                             </Space>
-                        </Card>
+                        </SurfaceCard>
                     </div>
 
-                    <Card title="5 分钟上手" style={{ marginBottom: 24 }}>
-                        <Steps direction="vertical" current={-1} items={gettingStartedSteps} />
-                    </Card>
+                    <div id="surface-map">
+                        <SurfaceCard title="平台功能面一览" style={docsStyles.marginBottom24}>
+                            <Row gutter={[16, 16]}>
+                                {surfaceCards.map((surface) => (
+                                    <Col xs={24} md={12} key={surface.key}>
+                                        <Card size="small" title={surface.title} extra={<Tag color="processing">{surface.status}</Tag>}>
+                            <Space orientation="vertical" size={8} style={docsStyles.fullWidth}>
+                                                <Text type="secondary">{surface.description}</Text>
+                                                <div>
+                                                    <Text strong>认证：</Text> {surface.auth}
+                                                </div>
+                                                <div>
+                                                    <Text strong>适合谁：</Text> {surface.audience}
+                                                </div>
+                                                <Space wrap>
+                                                    {surface.prefixes.map((prefix) => (
+                                                        <Text key={prefix} code>{prefix}</Text>
+                                                    ))}
+                                                </Space>
+                                            </Space>
+                                        </Card>
+                                    </Col>
+                                ))}
+                            </Row>
+                        </SurfaceCard>
+                    </div>
 
-                    <Card title="先把最常见的两个场景跑通" style={{ marginBottom: 24 }}>
+                    <SurfaceCard title="5 分钟上手" style={docsStyles.marginBottom24}>
+                        <Steps direction="vertical" current={-1} items={gettingStartedSteps} />
+                    </SurfaceCard>
+
+                    <SurfaceCard title="先把最常见的两个场景跑通" style={docsStyles.marginBottom24}>
                         <Row gutter={[16, 16]}>
                             {integrationScenarios.map((scenario) => (
                                 <Col xs={24} lg={12} key={scenario.title}>
                                     <Card size="small" title={scenario.title}>
-                                        <ol style={{ margin: 0, paddingLeft: 20 }}>
+                                        <ol style={docsStyles.orderedList}>
                                             {scenario.steps.map((step) => (
-                                                <li key={step} style={{ marginBottom: 8 }}>{step}</li>
+                                                <li key={step} style={docsStyles.listItemGap}>{step}</li>
                                             ))}
                                         </ol>
                                     </Card>
                                 </Col>
                             ))}
                         </Row>
-                    </Card>
+                    </SurfaceCard>
 
-                    <Card title="认证方式" style={{ marginBottom: 24 }}>
+                    <SurfaceCard title="高频功能调用剧本" style={docsStyles.marginBottom24}>
+                        <Row gutter={[16, 16]}>
+                            {callPlaybooks.map((playbook) => (
+                                <Col xs={24} key={playbook.key}>
+                                    <Card size="small" title={playbook.title}>
+                                        <Space orientation="vertical" size={12} style={docsStyles.fullWidth}>
+                                            <Alert type="info" showIcon title={playbook.audience} description={playbook.summary} />
+                                            <ol style={docsStyles.orderedList}>
+                                                {playbook.steps.map((step) => (
+                                                    <li key={step} style={docsStyles.listItemGap}>{step}</li>
+                                                ))}
+                                            </ol>
+                                            <Row gutter={16}>
+                                                <Col xs={24} lg={12}>
+                                                    <Title level={5}>调用示例</Title>
+                                                    <SurfaceCard size="small" style={docsStyles.codeCardMuted}>
+                                                        <Text code style={codeBlockStyle}>{playbook.curl}</Text>
+                                                    </SurfaceCard>
+                                                </Col>
+                                                <Col xs={24} lg={12}>
+                                                    <Title level={5}>响应示例</Title>
+                                                    <SurfaceCard size="small" style={docsStyles.codeCardSuccess}>
+                                                        <Text code style={codeBlockStyle}>{playbook.response}</Text>
+                                                    </SurfaceCard>
+                                                </Col>
+                                            </Row>
+                                        </Space>
+                                    </Card>
+                                </Col>
+                            ))}
+                        </Row>
+                    </SurfaceCard>
+
+                    <SurfaceCard title="认证方式" style={docsStyles.marginBottom24}>
                         <Alert
                             type="warning"
                             showIcon
                             icon={<KeyOutlined />}
-                            message="所有外部 API 都需要访问密钥"
+                                                title="所有外部 API 都需要访问密钥"
                             description="请先到后台的「访问密钥」页面创建密钥。这个密钥只在创建时显示一次，请立即保存到密码管理器或你的部署环境变量里。"
-                            style={{ marginBottom: 16 }}
+                            style={marginBottom16Style}
                         />
                         <Table
                             rowKey="method"
@@ -801,10 +1294,10 @@ const ApiDocsPage = () => {
                                 { title: '什么时候用', dataIndex: 'description', key: 'description' },
                             ]}
                         />
-                    </Card>
+                    </SurfaceCard>
 
-                    <Card title="接口总览" style={{ marginBottom: 24 }}>
-                        <Space direction="vertical" size={24} style={{ width: '100%' }}>
+                    <SurfaceCard title="公开自动化 API 详解" style={docsStyles.marginBottom24}>
+                        <Space orientation="vertical" size={24} style={docsStyles.fullWidth}>
                             {groupedApis.map((group) => (
                                 <div key={group.key} id={group.key === 'external' ? 'external-api' : 'domain-api'}>
                                     <Title level={4}>{group.title}</Title>
@@ -820,13 +1313,13 @@ const ApiDocsPage = () => {
                                                 </Space>
                                             ),
                                             children: (
-                                                <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                                                    <Alert type="info" showIcon message={api.audience} description={api.description} />
+                                        <Space orientation="vertical" size={16} style={docsStyles.fullWidth}>
+                                            <Alert type="info" showIcon title={api.audience} description={api.description} />
                                                     <Alert
                                                         type="success"
                                                         showIcon
                                                         icon={<CheckCircleOutlined />}
-                                                        message="什么时候最适合调这个接口？"
+                                                title="什么时候最适合调这个接口？"
                                                         description={api.usageHint}
                                                     />
                                                     {api.legacyPaths && api.legacyPaths.length > 0 ? (
@@ -834,7 +1327,7 @@ const ApiDocsPage = () => {
                                                             type="warning"
                                                             showIcon
                                                             icon={<WarningOutlined />}
-                                                            message="兼容别名仍可使用"
+                                                title="兼容别名仍可使用"
                                                             description={
                                                                 <Space wrap>
                                                                     {api.legacyPaths.map((legacyPath) => (
@@ -859,23 +1352,23 @@ const ApiDocsPage = () => {
 
                                                     <div>
                                                         <Title level={5}>curl 调用示例</Title>
-                                                        <Card size="small" style={{ background: '#fafafa' }}>
-                                                            <Text code style={{ whiteSpace: 'pre-wrap' }}>{api.example}</Text>
-                                                        </Card>
+                                                        <SurfaceCard size="small" style={docsStyles.codeCardMuted}>
+                                                            <Text code style={codeBlockStyle}>{api.example}</Text>
+                                                        </SurfaceCard>
                                                     </div>
 
                                                     <Row gutter={16}>
                                                         <Col xs={24} lg={12}>
-                                                            <Title level={5} style={{ color: '#389e0d' }}>成功响应示例</Title>
-                                                            <Card size="small" style={{ background: '#f6ffed' }}>
-                                                                <Text code style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{api.successResponse}</Text>
-                                                            </Card>
+                                                            <Title level={5} style={docsStyles.successText}>成功响应示例</Title>
+                                                            <SurfaceCard size="small" style={docsStyles.codeCardSuccess}>
+                                                                <Text code style={codeBlockCompactStyle}>{api.successResponse}</Text>
+                                                            </SurfaceCard>
                                                         </Col>
                                                         <Col xs={24} lg={12}>
-                                                            <Title level={5} style={{ color: '#cf1322' }}>失败响应示例</Title>
-                                                            <Card size="small" style={{ background: '#fff2f0' }}>
-                                                                <Text code style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{api.errorResponse}</Text>
-                                                            </Card>
+                                                            <Title level={5} style={docsStyles.errorText}>失败响应示例</Title>
+                                                            <SurfaceCard size="small" style={docsStyles.codeCardError}>
+                                                                <Text code style={codeBlockCompactStyle}>{api.errorResponse}</Text>
+                                                            </SurfaceCard>
                                                         </Col>
                                                     </Row>
                                                 </Space>
@@ -885,15 +1378,64 @@ const ApiDocsPage = () => {
                                 </div>
                             ))}
                         </Space>
-                    </Card>
+                    </SurfaceCard>
 
-                    <Card title="排错说明" style={{ marginBottom: 24 }}>
+                    <SurfaceCard title="控制面与内部功能面详解" style={docsStyles.marginBottom24}>
+                        <Space orientation="vertical" size={24} style={docsStyles.fullWidth}>
+                            {routeFamilyGroups.map((group) => (
+                                <div key={group.key} id={group.sectionId}>
+                                    <Title level={4}>{group.title}</Title>
+                                    <Paragraph type="secondary">{group.description}</Paragraph>
+                                    <Collapse
+                                        items={group.items.map((item) => ({
+                                            key: item.key,
+                                            label: (
+                                                <Space wrap>
+                                                    <Tag color={item.surface === 'admin' ? 'blue' : item.surface === 'portal' ? 'purple' : 'gold'}>
+                                                        {item.auth}
+                                                    </Tag>
+                                                    <span>{item.title}</span>
+                                                </Space>
+                                            ),
+                                            children: (
+                                        <Space orientation="vertical" size={16} style={docsStyles.fullWidth}>
+                                            <Alert type="info" showIcon title={item.audience} description={item.description} />
+                                                    <div>
+                                                        <Title level={5}>功能调用矩阵</Title>
+                                                        <Table rowKey="path" pagination={false} size="small" columns={operationColumns} dataSource={item.operations} />
+                                                    </div>
+                                                    {item.requestExample ? (
+                                                        <div>
+                                                            <Title level={5}>请求示例</Title>
+                                                            <SurfaceCard size="small" style={docsStyles.codeCardMuted}>
+                                                                <Text code style={codeBlockStyle}>{item.requestExample}</Text>
+                                                            </SurfaceCard>
+                                                        </div>
+                                                    ) : null}
+                                                    {item.successResponse ? (
+                                                        <div>
+                                                            <Title level={5}>成功响应示例</Title>
+                                                            <SurfaceCard size="small" style={docsStyles.codeCardSuccess}>
+                                                                <Text code style={codeBlockStyle}>{item.successResponse}</Text>
+                                                            </SurfaceCard>
+                                                        </div>
+                                                    ) : null}
+                                                </Space>
+                                            ),
+                                        }))}
+                                    />
+                                </div>
+                            ))}
+                        </Space>
+                    </SurfaceCard>
+
+                    <SurfaceCard title="排错说明" style={docsStyles.marginBottom24}>
                         <List
                             itemLayout="vertical"
                             dataSource={commonErrors}
                             renderItem={(item) => (
                                 <List.Item key={item.code}>
-                                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                                    <Space orientation="vertical" size={4} style={docsStyles.fullWidth}>
                                         <Space wrap>
                                             <Tag color="red">{item.code}</Tag>
                                             <Text strong>{item.reason}</Text>
@@ -903,18 +1445,18 @@ const ApiDocsPage = () => {
                                 </List.Item>
                             )}
                         />
-                    </Card>
+                    </SurfaceCard>
 
-                    <Card title="高级说明（给运维或管理员）" style={{ marginBottom: 24 }}>
-                        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                    <SurfaceCard title="日志 action 与内部约定" style={docsStyles.marginBottom24}>
+                                    <Space orientation="vertical" size={16} style={docsStyles.fullWidth}>
                             <Alert
                                 type="warning"
                                 showIcon
                                 icon={<WarningOutlined />}
-                                message="这页优先服务自动化 API 调用者，不把后台管理接口当主角"
-                                description="像 /admin/* 和 /mail/api/* 这类接口更多是后台页面和门户自身在用，不建议普通集成方直接依赖。"
+                                            title="后台、门户和 ingress 都是真实接口，但它们的目标受众不同"
+                                description="公开自动化 API 优先给脚本和第三方系统；/admin/* 更适合后台控制面；/mail/api/* 只适合门户会话；/ingress/* 只适合内部签名投递。"
                             />
-                            <Paragraph style={{ marginBottom: 0 }}>
+                            <Paragraph style={noMarginBottomStyle}>
                                 如果你是管理员，可能还会接触到：
                                 <Text code> /admin/api-keys </Text>
                                 <Text code> /admin/emails </Text>
@@ -936,25 +1478,29 @@ const ApiDocsPage = () => {
                                 ]}
                             />
                         </Space>
-                    </Card>
+                    </SurfaceCard>
                 </Col>
 
                 <Col xs={24} xl={6}>
-                    <Card title="快速导航" style={{ position: 'sticky', top: 24 }}>
+                    <SurfaceCard title="快速导航" style={docsStyles.stickyTop24}>
                         <Anchor
                             items={[
                                 { key: 'quick-start', href: '#quick-start', title: '先读这一页' },
+                                { key: 'surface-map', href: '#surface-map', title: '平台功能面一览' },
                                 { key: 'external-api', href: '#external-api', title: '外部连接器接口' },
                                 { key: 'domain-api', href: '#domain-api', title: '域名邮箱接口' },
+                                { key: 'admin-api', href: '#admin-api', title: '管理员控制面 API' },
+                                { key: 'portal-api', href: '#portal-api', title: '门户用户 API' },
+                                { key: 'ingress-api', href: '#ingress-api', title: 'Ingress 内部投递' },
                             ]}
                         />
                         <Divider />
-                        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                        <Space orientation="vertical" size={12} style={docsStyles.fullWidth}>
                             <Alert
                                 type="success"
                                 showIcon
                                 icon={<ThunderboltOutlined />}
-                                message="最快的测试顺序"
+                                        title="最快的测试顺序"
                                 description={
                                     <div>
                                         <div>1. 先调 <Text code>/api/mailboxes/allocation-stats</Text></div>
@@ -967,39 +1513,39 @@ const ApiDocsPage = () => {
                                 type="info"
                                 showIcon
                                 icon={<MailOutlined />}
-                                message="如果你在用域名邮箱自动化"
+                                        title="如果你在用域名邮箱自动化"
                                 description="把上面三步换成 /api/domain-mail/mailboxes/allocation-stats → /api/domain-mail/mailboxes/allocate → /api/domain-mail/messages/text。"
                             />
                             <Alert
                                 type="warning"
                                 showIcon
                                 icon={<SafetyCertificateOutlined />}
-                                message="生产环境提醒"
+                                        title="生产环境提醒"
                                 description="JWT_SECRET、ENCRYPTION_KEY、ADMIN_PASSWORD 必须通过外部环境变量注入，不要写死进仓库。"
                             />
                             <Alert
                                 type="info"
                                 showIcon
                                 icon={<CodeOutlined />}
-                                message="健康检查"
+                                        title="健康检查"
                                 description={<Text code copyable>{`${baseUrl}/health`}</Text>}
                             />
                         </Space>
-                    </Card>
+                    </SurfaceCard>
                 </Col>
             </Row>
 
             <Divider />
 
-            <Card title="新手常见问题" style={{ marginBottom: 24 }}>
+            <SurfaceCard title="新手常见问题" style={docsStyles.marginBottom24}>
                 <Collapse
                     items={beginnerFaq.map((item) => ({
                         key: item.question,
                         label: item.question,
-                        children: <Paragraph style={{ marginBottom: 0 }}>{item.answer}</Paragraph>,
+                        children: <Paragraph style={noMarginBottomStyle}>{item.answer}</Paragraph>,
                     }))}
                 />
-            </Card>
+            </SurfaceCard>
         </div>
     );
 };

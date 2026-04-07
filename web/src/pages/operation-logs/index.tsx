@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Table, Tag, Space, Card, Select, Button, Typography, Popconfirm, message } from 'antd';
+import { useCallback, useEffect, useState, type FC } from 'react';
+import { Button, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
-import { PageHeader } from '../../components';
-import { logsApi } from '../../api';
+import { PageHeader, SurfaceCard } from '../../components';
 import { LOG_ACTION_OPTIONS, getLogActionColor, getLogActionLabel } from '../../constants/logActions';
 import type { LogAction } from '../../constants/logActions';
+import { logsContract } from '../../contracts/admin/logs';
+import { marginBottom16Style, width160Style } from '../../styles/common';
 import { requestData } from '../../utils/request';
 import dayjs from 'dayjs';
 
@@ -22,7 +23,7 @@ interface LogItem {
     createdAt: string;
 }
 
-const OperationLogsPage: React.FC = () => {
+const OperationLogsPage: FC = () => {
     const [loading, setLoading] = useState(false);
     const [logs, setLogs] = useState<LogItem[]>([]);
     const [total, setTotal] = useState(0);
@@ -36,7 +37,7 @@ const OperationLogsPage: React.FC = () => {
     const fetchLogs = useCallback(async () => {
         setLoading(true);
         const result = await requestData<{ list: LogItem[]; total: number }>(
-            () => logsApi.getList({ page, pageSize, action: actionFilter }),
+            () => logsContract.getList({ page, pageSize, action: actionFilter }),
             '获取日志失败'
         );
         if (result) {
@@ -56,7 +57,7 @@ const OperationLogsPage: React.FC = () => {
     const handleDelete = useCallback(async (id: number) => {
         setDeletingId(id);
         const result = await requestData<{ deleted: boolean }>(
-            () => logsApi.delete(id),
+            () => logsContract.delete(id),
             '删除日志失败'
         );
         if (result?.deleted) {
@@ -74,7 +75,7 @@ const OperationLogsPage: React.FC = () => {
         }
         setBatchDeleting(true);
         const result = await requestData<{ deleted: number }>(
-            () => logsApi.batchDelete(selectedRowKeys as number[]),
+            () => logsContract.batchDelete(selectedRowKeys as number[]),
             '批量删除日志失败'
         );
         if (result) {
@@ -168,7 +169,7 @@ const OperationLogsPage: React.FC = () => {
         <div>
             <PageHeader
                 title="API 调用日志"
-                subtitle="记录所有通过 API Key 的外部调用"
+                subtitle="记录所有通过 API Key 的外部调用，并把请求标识、状态码和耗时统一收口在一张审计表中。"
                 extra={
                     <Space>
                         {selectedRowKeys.length > 0 ? (
@@ -188,11 +189,11 @@ const OperationLogsPage: React.FC = () => {
                 }
             />
 
-            <Card bordered={false}>
-                <Space style={{ marginBottom: 16 }}>
+            <SurfaceCard>
+                <Space style={marginBottom16Style}>
                     <Select
                         placeholder="筛选操作类型"
-                        style={{ width: 160 }}
+                        style={width160Style}
                         allowClear
                         options={LOG_ACTION_OPTIONS}
                         onChange={(val) => setActionFilter(val as LogAction | undefined)}
@@ -225,7 +226,7 @@ const OperationLogsPage: React.FC = () => {
                     }}
                     locale={{ emptyText: '暂无 API 调用日志' }}
                 />
-            </Card>
+            </SurfaceCard>
         </div>
     );
 };

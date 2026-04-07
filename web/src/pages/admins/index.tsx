@@ -10,19 +10,17 @@ import {
     message,
     Popconfirm,
     Tag,
-    Typography,
     Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import { adminApi } from '../../api';
+import { PageHeader, SurfaceCard } from '../../components';
+import { adminsContract } from '../../contracts/admin/admins';
 import { useAuthStore } from '../../stores/authStore';
 import { getAdminRoleLabel, getAdminStatusLabel, isSuperAdmin, normalizeAdminStatus } from '../../utils/auth';
 import { getErrorMessage } from '../../utils/error';
 import { requestData } from '../../utils/request';
 import dayjs from 'dayjs';
-
-const { Title } = Typography;
 
 interface Admin {
     id: number;
@@ -56,7 +54,7 @@ const AdminsPage: FC = () => {
     const fetchData = useCallback(async () => {
         setLoading(true);
         const result = await requestData<AdminListResult>(
-            () => adminApi.getList({ page, pageSize }),
+            () => adminsContract.getList({ page, pageSize }),
             '获取数据失败'
         );
         if (result) {
@@ -96,7 +94,7 @@ const AdminsPage: FC = () => {
 
     const handleDelete = async (id: number) => {
         try {
-            const res = await adminApi.delete(id);
+            const res = await adminsContract.delete(id);
             if (res.code === 200) {
                 message.success('删除成功');
                 fetchData();
@@ -117,7 +115,7 @@ const AdminsPage: FC = () => {
                 if (!values.password) {
                     delete values.password;
                 }
-                const res = await adminApi.update(editingId, values);
+                const res = await adminsContract.update(editingId, values);
                 if (res.code === 200) {
                     message.success('更新成功');
                     setModalVisible(false);
@@ -126,7 +124,7 @@ const AdminsPage: FC = () => {
                     message.error(res.message);
                 }
             } else {
-                const res = await adminApi.create(values);
+                const res = await adminsContract.create(values);
                 if (res.code === 200) {
                     message.success('创建成功');
                     setModalVisible(false);
@@ -231,32 +229,31 @@ const AdminsPage: FC = () => {
 
     return (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-                <Title level={4} style={{ margin: 0 }}>
-                    管理员管理
-                </Title>
-                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-                    添加管理员
-                </Button>
-            </div>
-
-            <Table
-                columns={columns}
-                dataSource={data}
-                rowKey="id"
-                loading={loading}
-                pagination={{
-                    current: page,
-                    pageSize,
-                    total,
-                    showSizeChanger: true,
-                    showTotal: (total) => `共 ${total} 条`,
-                    onChange: (p, ps) => {
-                        setPage(p);
-                        setPageSize(ps);
-                    },
-                }}
+            <PageHeader
+                title="管理员管理"
+                subtitle="集中维护后台管理员账号、角色、状态与 2FA 状态，避免高权限操作散落到其他设置页。"
+                extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>添加管理员</Button>}
             />
+
+            <SurfaceCard>
+                <Table
+                    columns={columns}
+                    dataSource={data}
+                    rowKey="id"
+                    loading={loading}
+                    pagination={{
+                        current: page,
+                        pageSize,
+                        total,
+                        showSizeChanger: true,
+                        showTotal: (total) => `共 ${total} 条`,
+                        onChange: (p, ps) => {
+                            setPage(p);
+                            setPageSize(ps);
+                        },
+                    }}
+                />
+            </SurfaceCard>
 
             <Modal
                 title={editingId ? '编辑管理员' : '添加管理员'}

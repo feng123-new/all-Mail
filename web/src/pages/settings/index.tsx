@@ -1,18 +1,47 @@
 import { useCallback, useEffect, useState, type FC } from 'react';
-import { Card, Form, Input, Button, message, Typography, Space, Tag, Alert, QRCode } from 'antd';
+import { Alert, Button, Form, Input, QRCode, Space, Tag, Typography, message } from 'antd';
 import { LockOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { authApi } from '../../api';
+import { PageHeader, SurfaceCard } from '../../components';
+import { authContract } from '../../contracts/shared/auth';
 import { useAuthStore } from '../../stores/authStore';
+import {
+    centeredTextStyle,
+    displayBlockMarginBottom8Style,
+    fontSize16Style,
+    fullWidthStyle,
+    gridGap16Style,
+    marginBottom16Style,
+    marginTop8Style,
+    maxWidth400Style,
+    neutralCodePanelStyle,
+    noMarginBottomStyle,
+    wordBreakBreakAllStyle,
+} from '../../styles/common';
 import { getAdminRoleLabel } from '../../utils/auth';
 import { requestData } from '../../utils/request';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface TwoFactorStatus {
     enabled: boolean;
     pending: boolean;
     legacyEnv: boolean;
 }
+
+const settingsStyles = {
+    fullWidth: fullWidthStyle,
+    profileGrid: gridGap16Style,
+    valueText: fontSize16Style,
+    passwordForm: maxWidth400Style,
+    centeredText: centeredTextStyle,
+    marginTop8: marginTop8Style,
+    marginBottom16: marginBottom16Style,
+    codePanel: neutralCodePanelStyle,
+    codePanelWithMargin: { ...neutralCodePanelStyle, ...marginBottom16Style },
+    codeLabel: displayBlockMarginBottom8Style,
+    codeBreakAll: wordBreakBreakAllStyle,
+    noMarginBottom: noMarginBottomStyle,
+} as const;
 
 const SettingsPage: FC = () => {
     const [passwordLoading, setPasswordLoading] = useState(false);
@@ -27,7 +56,7 @@ const SettingsPage: FC = () => {
     const [enableOtp, setEnableOtp] = useState('');
     const [form] = Form.useForm();
     const [disable2FaForm] = Form.useForm();
-    const { admin, token, setAuth } = useAuthStore();
+    const { admin, setAuth } = useAuthStore();
     const mustChangePassword = Boolean(admin?.mustChangePassword);
     const effectiveTwoFactorStatus = mustChangePassword
         ? { enabled: false, pending: false, legacyEnv: false }
@@ -36,11 +65,11 @@ const SettingsPage: FC = () => {
     const visibleSetupData = mustChangePassword ? null : setupData;
 
     const syncStoreTwoFactor = useCallback((enabled: boolean) => {
-        if (!token || !admin) {
+        if (!admin) {
             return;
         }
-        setAuth(token, { ...admin, twoFactorEnabled: enabled });
-    }, [admin, setAuth, token]);
+        setAuth({ ...admin, twoFactorEnabled: enabled });
+    }, [admin, setAuth]);
 
     const loadTwoFactorStatus = async (silent: boolean = false) => {
         if (mustChangePassword) {
@@ -48,7 +77,7 @@ const SettingsPage: FC = () => {
         }
 
         const result = await requestData<TwoFactorStatus>(
-            () => authApi.getTwoFactorStatus(),
+            () => authContract.getTwoFactorStatus(),
             '获取二次验证状态失败',
             { silent }
         );
@@ -73,7 +102,7 @@ const SettingsPage: FC = () => {
 
         const init = async () => {
             const result = await requestData<TwoFactorStatus>(
-                () => authApi.getTwoFactorStatus(),
+                () => authContract.getTwoFactorStatus(),
                 '获取二次验证状态失败',
                 { silent: true }
             );
@@ -107,12 +136,12 @@ const SettingsPage: FC = () => {
 
         setPasswordLoading(true);
         const result = await requestData<{ message?: string }>(
-            () => authApi.changePassword(values.oldPassword, values.newPassword),
+            () => authContract.changePassword(values.oldPassword, values.newPassword),
             '密码修改失败'
         );
         if (result) {
-            if (token && admin) {
-                setAuth(token, {
+            if (admin) {
+                setAuth({
                     ...admin,
                     mustChangePassword: false,
                 });
@@ -126,7 +155,7 @@ const SettingsPage: FC = () => {
     const handleSetup2Fa = async () => {
         setTwoFactorLoading(true);
         const result = await requestData<{ secret: string; otpauthUrl: string }>(
-            () => authApi.setupTwoFactor(),
+            () => authContract.setupTwoFactor(),
             '生成二次验证密钥失败'
         );
         if (result) {
@@ -146,7 +175,7 @@ const SettingsPage: FC = () => {
 
         setTwoFactorLoading(true);
         const result = await requestData<{ enabled: boolean }>(
-            () => authApi.enableTwoFactor(otp),
+            () => authContract.enableTwoFactor(otp),
             '启用二次验证失败'
         );
         if (result) {
@@ -161,7 +190,7 @@ const SettingsPage: FC = () => {
     const handleDisable2Fa = async (values: { password: string; otp: string }) => {
         setTwoFactorLoading(true);
         const result = await requestData<{ enabled: boolean }>(
-            () => authApi.disableTwoFactor(values.password, values.otp),
+            () => authContract.disableTwoFactor(values.password, values.otp),
             '禁用二次验证失败'
         );
         if (result) {
@@ -172,41 +201,44 @@ const SettingsPage: FC = () => {
         setTwoFactorLoading(false);
     };
 
-    return (
+        return (
         <div>
-            <Title level={4}>设置</Title>
+            <PageHeader
+                title="设置"
+                subtitle="统一管理管理员密码、2FA 与平台接入提示，先把账号安全稳住，再继续其他控制面操作。"
+            />
 
-            <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <Card title="个人信息">
-                    <div style={{ display: 'grid', gap: 16 }}>
+            <Space orientation="vertical" size="large" style={settingsStyles.fullWidth}>
+                <SurfaceCard title="个人信息" tone="muted">
+                    <div style={settingsStyles.profileGrid}>
                         <div>
                             <Text type="secondary">用户名</Text>
-                            <div style={{ fontSize: 16 }}>{admin?.username}</div>
+                            <div style={settingsStyles.valueText}>{admin?.username}</div>
                         </div>
                         <div>
                             <Text type="secondary">角色</Text>
-                            <div style={{ fontSize: 16 }}>
+                            <div style={settingsStyles.valueText}>
                                 {getAdminRoleLabel(admin?.role)}
                             </div>
                         </div>
                     </div>
-                </Card>
+                </SurfaceCard>
 
                 {mustChangePassword ? (
                     <Alert
                         type="warning"
                         showIcon
-                        message="当前管理员仍在使用首次初始化的临时密码"
+                        title="当前管理员仍在使用首次初始化的临时密码"
                         description="在设置新密码之前，系统会阻止访问控制台其他页面以及受保护的管理接口。先完成这一步，再继续配置邮箱、域名和 API 密钥。"
                     />
                 ) : null}
 
-                <Card title={mustChangePassword ? '设置新的管理员密码' : '修改密码'}>
+                <SurfaceCard title={mustChangePassword ? '设置新的管理员密码' : '修改密码'}>
                     <Form
                         form={form}
                         layout="vertical"
                         onFinish={handleChangePassword}
-                        style={{ maxWidth: 400 }}
+                        style={settingsStyles.passwordForm}
                     >
                         <Form.Item
                             name="oldPassword"
@@ -251,14 +283,14 @@ const SettingsPage: FC = () => {
                             </Button>
                         </Form.Item>
                     </Form>
-                </Card>
+                </SurfaceCard>
 
                 {!mustChangePassword ? (
-                    <Card title="二次验证（2FA）">
+                    <SurfaceCard title="二次验证（2FA）" tone="muted">
                     {showTwoFactorStatusLoading ? (
                         <Text type="secondary">加载中...</Text>
                     ) : (
-                        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                        <Space orientation="vertical" size="middle" style={settingsStyles.fullWidth}>
                             <div>
                                 <Text type="secondary">当前状态：</Text>{' '}
                                 {effectiveTwoFactorStatus.enabled ? <Tag color="success">已启用</Tag> : <Tag>未启用</Tag>}
@@ -269,7 +301,7 @@ const SettingsPage: FC = () => {
                                 <Alert
                                     type="warning"
                                     showIcon
-                                    message="当前账号使用环境变量 2FA（ADMIN_2FA_SECRET），暂不支持在界面中直接管理。"
+                                    title="当前账号使用环境变量 2FA（ADMIN_2FA_SECRET），暂不支持在界面中直接管理。"
                                 />
                             ) : null}
 
@@ -285,11 +317,11 @@ const SettingsPage: FC = () => {
                             ) : null}
 
                             {visibleSetupData ? (
-                                <Card size="small" title="绑定信息">
-                                    <Space direction="vertical" style={{ width: '100%' }}>
-                                        <div style={{ textAlign: 'center' }}>
+                                <SurfaceCard size="small" title="绑定信息" tone="muted">
+                                    <Space orientation="vertical" style={settingsStyles.fullWidth}>
+                                        <div style={settingsStyles.centeredText}>
                                             <Text type="secondary">扫码绑定（推荐）</Text>
-                                            <div style={{ marginTop: 8 }}>
+                                            <div style={settingsStyles.marginTop8}>
                                                 <QRCode value={visibleSetupData.otpauthUrl} size={180} />
                                             </div>
                                         </div>
@@ -312,11 +344,11 @@ const SettingsPage: FC = () => {
                                             启用二次验证
                                         </Button>
                                     </Space>
-                                </Card>
+                                </SurfaceCard>
                             ) : null}
 
                             {effectiveTwoFactorStatus.enabled ? (
-                                <Card size="small" title="禁用二次验证">
+                                <SurfaceCard size="small" title="禁用二次验证" tone="muted">
                                     <Form form={disable2FaForm} layout="vertical" onFinish={handleDisable2Fa}>
                                         <Form.Item
                                             name="password"
@@ -339,54 +371,54 @@ const SettingsPage: FC = () => {
                                                 placeholder="6 位验证码"
                                             />
                                         </Form.Item>
-                                        <Form.Item style={{ marginBottom: 0 }}>
+                                        <Form.Item style={settingsStyles.noMarginBottom}>
                                             <Button danger htmlType="submit" loading={twoFactorLoading}>
                                                 禁用二次验证
                                             </Button>
                                         </Form.Item>
                                     </Form>
-                                </Card>
+                                </SurfaceCard>
                             ) : null}
                         </Space>
                     )}
-                    </Card>
+                    </SurfaceCard>
                 ) : null}
 
                 {!mustChangePassword ? (
-                    <Card title="Provider OAuth 配置">
+                    <SurfaceCard title="Provider OAuth 配置">
                         <Alert
                             type="info"
                             showIcon
-                            message="Provider OAuth 配置已迁移到外部邮箱连接的各 Provider 添加入口"
+                            title="Provider OAuth 配置已迁移到外部邮箱连接的各 Provider 添加入口"
                             description="Google OAuth 请到“外部邮箱连接 → 添加 Gmail 邮箱”；Microsoft OAuth 请到“外部邮箱连接 → 添加 Outlook 邮箱”。现在在对应 Provider 的添加弹窗里就可以手工填写回调地址、Client ID / Secret、Scopes，并直接生成授权链接完成认证。"
                         />
-                    </Card>
+                    </SurfaceCard>
                 ) : null}
 
                 {!mustChangePassword ? (
-                    <Card title="API 使用说明">
-                        <div style={{ marginBottom: 16 }}>
+                    <SurfaceCard title="API 使用说明" tone="muted">
+                        <div style={settingsStyles.marginBottom16}>
                             <Text strong>外部 API 调用方式</Text>
                         </div>
 
-                        <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 16 }}>
-                            <Text code style={{ display: 'block', marginBottom: 8 }}>
+                        <div style={settingsStyles.codePanelWithMargin}>
+                            <Text code style={settingsStyles.codeLabel}>
                                 # 通过 Header 传递访问密钥
                             </Text>
-                            <Text code style={{ display: 'block', wordBreak: 'break-all' }}>
+                            <Text code style={settingsStyles.codeBreakAll}>
                                 curl -H "X-API-Key: your_api_key" https://your-domain.com/api/messages
                             </Text>
                         </div>
 
-                        <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8 }}>
-                            <Text code style={{ display: 'block', marginBottom: 8 }}>
-                                # 通过 Query 参数传递访问密钥
+                        <div style={settingsStyles.codePanel}>
+                            <Text code style={settingsStyles.codeLabel}>
+                                # 不再支持 Query 参数传递访问密钥
                             </Text>
-                            <Text code style={{ display: 'block', wordBreak: 'break-all' }}>
-                                curl "https://your-domain.com/api/messages?api_key=your_api_key&email=xxx@outlook.com"
+                            <Text code style={settingsStyles.codeBreakAll}>
+                                请改用 Header：curl -H "X-API-Key: your_api_key" https://your-domain.com/api/messages?email=xxx@outlook.com
                             </Text>
                         </div>
-                    </Card>
+                    </SurfaceCard>
                 ) : null}
             </Space>
         </div>

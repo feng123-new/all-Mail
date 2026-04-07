@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type FC } from 'react';
-import { Link, createSearchParams } from 'react-router-dom';
-import { Row, Col, Card, Tag, Typography, Spin, Space, Button, Segmented, List, Progress, Empty, Tooltip } from 'antd';
+import { Link, createSearchParams, useSearchParams } from 'react-router-dom';
+import { Alert, Row, Col, Card, Typography, Spin, Space, Button, Segmented, List, Progress, Empty, Tag } from 'antd';
 import {
     MailOutlined,
     KeyOutlined,
@@ -12,13 +12,21 @@ import {
     WarningOutlined,
     ThunderboltOutlined,
     SafetyCertificateOutlined,
-    RocketOutlined,
     ClockCircleOutlined,
 } from '@ant-design/icons';
-import type { SimpleDonutChartProps, SimpleLineChartProps } from '../../components/charts';
-import { StatCard } from '../../components';
-import { dashboardApi, emailApi } from '../../api';
+import type { SimpleLineChartProps } from '../../components/charts';
+import { PageHeader, StatCard, SurfaceCard } from '../../components';
+import { dashboardContract } from '../../contracts/admin/dashboard';
 import { PROVIDER_ORDER, getProviderDefinition, type EmailProvider } from '../../constants/providers';
+import {
+    centeredPadding24Style,
+    centeredPadding56Style,
+    centeredPadding56MinHeight300Style,
+    flexBetweenFullWidthStyle,
+    fullWidthStyle,
+    noMarginStyle,
+} from '../../styles/common';
+import { contentCardStyle, insetCardStyle, shellPalette } from '../../theme';
 import { getLogActionColor, getLogActionLabel } from '../../constants/logActions';
 
 const { Title, Text, Paragraph } = Typography;
@@ -26,11 +34,6 @@ const { Title, Text, Paragraph } = Typography;
 const LineChart = lazy(async () => {
     const mod = await import('../../components/charts');
     return { default: mod.SimpleLineChart as ComponentType<SimpleLineChartProps> };
-});
-
-const PieChart = lazy(async () => {
-    const mod = await import('../../components/charts');
-    return { default: mod.SimpleDonutChart as ComponentType<SimpleDonutChartProps> };
 });
 
 interface Stats {
@@ -54,11 +57,7 @@ interface EmailStats {
     total: number;
     active: number;
     error: number;
-    providers: {
-        outlook: number;
-        gmail: number;
-        qq: number;
-    };
+    providers: Partial<Record<EmailProvider, number>>;
 }
 
 interface ApiTrendItem {
@@ -89,24 +88,223 @@ interface ErrorEmailItem {
 
 type TrendWindow = 7 | 14 | 30;
 
-const providerCountKeys: Record<EmailProvider, keyof EmailStats['providers']> = {
-    OUTLOOK: 'outlook',
-    GMAIL: 'gmail',
-    QQ: 'qq',
+const DASHBOARD_PROOF_MODE = 'degraded-data';
+
+const DASHBOARD_PROOF_FIXTURE = {
+    stats: {
+        apiKeys: { total: 12, active: 4, totalUsage: 12894, todayActive: 1 },
+        domainMail: { domains: 3, activeDomains: 2, mailboxes: 18, activeMailboxes: 9, inboundMessages: 1524, outboundMessages: 286 },
+    } satisfies Stats,
+    emailStats: {
+        total: 42,
+        active: 27,
+        error: 5,
+        providers: {
+            OUTLOOK: 21,
+            GMAIL: 12,
+            QQ: 9,
+        },
+    } satisfies EmailStats,
+    apiTrend: [
+        { date: '04-01', count: 182 },
+        { date: '04-02', count: 164 },
+        { date: '04-03', count: 96 },
+        { date: '04-04', count: 58 },
+        { date: '04-05', count: 41 },
+        { date: '04-06', count: 73 },
+        { date: '04-07', count: 52 },
+    ] satisfies ApiTrendItem[],
+    recentLogs: [
+        {
+            id: 901,
+            action: 'mail.fetch_latest',
+            apiKeyName: 'allocator-bot',
+            email: 'ops01@example.com',
+            responseCode: 502,
+            responseTimeMs: 2480,
+            createdAt: '2026-04-05T08:10:00.000Z',
+        },
+        {
+            id: 902,
+            action: 'mail.allocate',
+            apiKeyName: 'campaign-runner',
+            email: 'catchall@example.com',
+            responseCode: 429,
+            responseTimeMs: 1280,
+            createdAt: '2026-04-05T08:16:00.000Z',
+        },
+    ] satisfies LogItem[],
+    errorEmails: [
+        {
+            id: 401,
+            email: 'outlook-hot-01@example.com',
+            provider: 'OUTLOOK',
+            status: 'ERROR',
+            errorMessage: '最近 30 分钟握手失败，建议重新检查授权或代理链路。',
+            lastCheckAt: '2026-04-05T08:20:00.000Z',
+        },
+        {
+            id: 402,
+            email: 'gmail-batch-02@example.com',
+            provider: 'GMAIL',
+            status: 'ERROR',
+            errorMessage: '刷新令牌不可用，当前轮只保留只读状态。',
+            lastCheckAt: '2026-04-05T08:18:00.000Z',
+        },
+        {
+            id: 403,
+            email: 'qq-fallback-07@example.com',
+            provider: 'QQ',
+            status: 'ERROR',
+            errorMessage: '验证码抓取连续超时，建议降低并发并复核收件策略。',
+            lastCheckAt: '2026-04-05T08:12:00.000Z',
+        },
+    ] satisfies ErrorEmailItem[],
 };
 
+function isLocalProofHost() {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+
+    return window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
+}
+
 const cardStyle: CSSProperties = {
-    borderRadius: 24,
-    border: '1px solid rgba(148, 163, 184, 0.18)',
-    boxShadow: '0 24px 48px rgba(15, 23, 42, 0.08)',
+    ...contentCardStyle,
     overflow: 'hidden',
+    borderRadius: 18,
 };
 
 const cardBodyStyle: CSSProperties = {
-    padding: 24,
+    padding: 20,
 };
 
+const dashboardStyles = {
+    heroCard: {
+        ...insetCardStyle,
+        borderRadius: 20,
+        marginBottom: 12,
+    } satisfies CSSProperties,
+    fullWidth: fullWidthStyle,
+    titleNoMargin: noMarginStyle,
+    heroKicker: {
+        display: 'block',
+        color: shellPalette.muted,
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
+        marginBottom: 10,
+    } satisfies CSSProperties,
+    heroTitle: {
+        margin: 0,
+        color: shellPalette.ink,
+        fontSize: 28,
+        lineHeight: 1.08,
+        letterSpacing: -0.4,
+        fontWeight: 700,
+    } satisfies CSSProperties,
+    heroParagraph: {
+        margin: '8px 0 0',
+        color: shellPalette.inkSoft,
+        fontSize: 14,
+        maxWidth: 700,
+        lineHeight: 1.6,
+    } satisfies CSSProperties,
+    heroBadgeCard: {
+        minWidth: 146,
+        padding: '12px 14px',
+        borderRadius: 16,
+        border: `1px solid ${shellPalette.border}`,
+        background: shellPalette.sidebarSurface,
+    } satisfies CSSProperties,
+    heroBadgeLabel: { fontSize: 11, fontWeight: 700, letterSpacing: 1.1, textTransform: 'uppercase', color: shellPalette.muted } satisfies CSSProperties,
+    heroBadgeValue: { fontSize: 22, fontWeight: 760, marginTop: 6, color: shellPalette.ink } satisfies CSSProperties,
+    heroSummaryPanel: {
+        borderRadius: 18,
+        padding: 18,
+        border: `1px solid ${shellPalette.border}`,
+        background: shellPalette.surface,
+    } satisfies CSSProperties,
+    flexBetweenFullWidth: flexBetweenFullWidthStyle,
+    healthLabel: { color: shellPalette.muted } satisfies CSSProperties,
+    healthScoreRow: { display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 } satisfies CSSProperties,
+    healthScoreValue: { fontSize: 38, lineHeight: 1, fontWeight: 800, color: shellPalette.ink } satisfies CSSProperties,
+    healthScoreMax: { color: shellPalette.muted } satisfies CSSProperties,
+    darkText: { color: shellPalette.ink } satisfies CSSProperties,
+    healthMetricGrid: { display: 'grid', gap: 12 } satisfies CSSProperties,
+    healthMetricRow: { display: 'flex', justifyContent: 'space-between' } satisfies CSSProperties,
+    healthIconBox: {
+        width: 52,
+        height: 52,
+        borderRadius: 16,
+        background: shellPalette.primarySoft,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 22,
+        color: shellPalette.primary,
+    } satisfies CSSProperties,
+    rowMarginTop16: { marginTop: 12 } satisfies CSSProperties,
+    centeredPadding56MinHeight300: centeredPadding56MinHeight300Style,
+    centeredPadding56: centeredPadding56Style,
+    signalCard: {
+        padding: '0 0 12px',
+        borderBottom: `1px solid ${shellPalette.border}`,
+        background: 'transparent',
+    } satisfies CSSProperties,
+    signalIcon: (tone: string) => ({ color: tone, fontSize: 18 } satisfies CSSProperties),
+    errorCard: (hasErrors: boolean) => ({
+        borderRadius: 18,
+        padding: 16,
+        border: '1px solid rgba(239, 68, 68, 0.16)',
+        background: hasErrors
+            ? 'rgba(254, 242, 242, 0.92)'
+            : shellPalette.surfaceMuted,
+    } satisfies CSSProperties),
+    centeredPadding24: centeredPadding24Style,
+    listItemReset: { paddingInline: 0 } satisfies CSSProperties,
+    providerCard: {
+        width: '100%',
+        borderRadius: 14,
+        padding: 12,
+        display: 'grid',
+        gap: 8,
+        border: `1px solid ${shellPalette.border}`,
+        background: shellPalette.surfaceMuted,
+    } satisfies CSSProperties,
+    providerSummaryRow: {
+        display: 'grid',
+        gap: 6,
+        padding: '0 0 4px',
+    } satisfies CSSProperties,
+    providerSummaryMeta: {
+        fontSize: 12,
+        color: shellPalette.muted,
+    } satisfies CSSProperties,
+    providerScrollRow: {
+        display: 'grid',
+        gap: 10,
+        maxHeight: 360,
+        overflowY: 'auto',
+        paddingRight: 4,
+        scrollbarWidth: 'thin',
+    } satisfies CSSProperties,
+    providerCardHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        gap: 12,
+    } satisfies CSSProperties,
+    textAlignRight: { textAlign: 'right' } satisfies CSSProperties,
+    providerCount: { fontSize: 24, fontWeight: 760, color: shellPalette.ink } satisfies CSSProperties,
+    clockIcon: { color: '#94a3b8' } satisfies CSSProperties,
+    mutedSectionHint: { fontSize: 13, color: shellPalette.muted } satisfies CSSProperties,
+} as const;
+
 const DashboardPage: FC = () => {
+    const [searchParams] = useSearchParams();
     const [coreLoading, setCoreLoading] = useState(true);
     const [trendLoading, setTrendLoading] = useState(true);
     const [logsLoading, setLogsLoading] = useState(true);
@@ -119,8 +317,24 @@ const DashboardPage: FC = () => {
     const [recentLogs, setRecentLogs] = useState<LogItem[]>([]);
     const [errorEmails, setErrorEmails] = useState<ErrorEmailItem[]>([]);
     const chartsSectionRef = useRef<HTMLDivElement | null>(null);
+    const proofScenario = isLocalProofHost() ? searchParams.get('proof')?.trim() || '' : '';
+    const isDegradedProof = proofScenario === DASHBOARD_PROOF_MODE;
 
     useEffect(() => {
+        if (isDegradedProof) {
+            setStats(DASHBOARD_PROOF_FIXTURE.stats);
+            setEmailStats(DASHBOARD_PROOF_FIXTURE.emailStats);
+            setRecentLogs(DASHBOARD_PROOF_FIXTURE.recentLogs);
+            setErrorEmails(DASHBOARD_PROOF_FIXTURE.errorEmails);
+            setApiTrend(DASHBOARD_PROOF_FIXTURE.apiTrend);
+            setCoreLoading(false);
+            setLogsLoading(false);
+            setTrendLoading(false);
+            setChartsReady(true);
+            setChartsInView(true);
+            return;
+        }
+
         let disposed = false;
         let idleId: number | null = null;
         let timerId: number | null = null;
@@ -132,10 +346,10 @@ const DashboardPage: FC = () => {
         const loadCore = async () => {
             try {
                 const [statsRes, emailStatsRes, logsRes, errorEmailsRes] = await Promise.all([
-                    dashboardApi.getStats<Stats>(),
-                    emailApi.getStats<EmailStats>(),
-                    dashboardApi.getLogs<LogItem>({ page: 1, pageSize: 6 }),
-                    emailApi.getList<ErrorEmailItem>({ page: 1, pageSize: 5, status: 'ERROR' }),
+                    dashboardContract.getStats<Stats>(),
+                    dashboardContract.getEmailStats<EmailStats>(),
+                    dashboardContract.getLogs<LogItem>({ page: 1, pageSize: 6 }),
+                    dashboardContract.getErrorEmails<ErrorEmailItem>({ page: 1, pageSize: 5, status: 'ERROR' }),
                 ]);
 
                 if (disposed) return;
@@ -187,9 +401,14 @@ const DashboardPage: FC = () => {
                 window.clearTimeout(timerId);
             }
         };
-    }, []);
+    }, [isDegradedProof]);
 
     useEffect(() => {
+        if (isDegradedProof) {
+            setChartsInView(true);
+            return;
+        }
+
         const target = chartsSectionRef.current;
         if (!target || typeof IntersectionObserver === 'undefined') {
             setChartsInView(true);
@@ -208,9 +427,14 @@ const DashboardPage: FC = () => {
 
         observer.observe(target);
         return () => observer.disconnect();
-    }, []);
+    }, [isDegradedProof]);
 
     useEffect(() => {
+        if (isDegradedProof) {
+            setTrendLoading(false);
+            return;
+        }
+
         if (!chartsReady || !chartsInView) {
             return;
         }
@@ -220,7 +444,7 @@ const DashboardPage: FC = () => {
 
         const loadTrend = async () => {
             try {
-                const trendRes = await dashboardApi.getApiTrend<ApiTrendItem>(trendDays);
+                const trendRes = await dashboardContract.getApiTrend<ApiTrendItem>(trendDays);
                 if (!cancelled && trendRes.code === 200) {
                     setApiTrend(trendRes.data);
                 }
@@ -237,13 +461,13 @@ const DashboardPage: FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [chartsInView, chartsReady, trendDays]);
+    }, [chartsInView, chartsReady, isDegradedProof, trendDays]);
 
     const safeEmailStats = useMemo<EmailStats>(() => emailStats || {
         total: 0,
         active: 0,
         error: 0,
-        providers: { outlook: 0, gmail: 0, qq: 0 },
+        providers: {},
     }, [emailStats]);
 
     const statsData = useMemo<Stats>(() => stats || {
@@ -251,22 +475,25 @@ const DashboardPage: FC = () => {
         domainMail: { domains: 0, activeDomains: 0, mailboxes: 0, activeMailboxes: 0, inboundMessages: 0, outboundMessages: 0 },
     }, [stats]);
 
-    const pieData = useMemo(() => ([
-        { type: '正常', value: safeEmailStats.active, color: '#2f9e77' },
-        { type: '异常', value: safeEmailStats.error, color: '#dc2626' },
-        { type: '禁用', value: Math.max(0, safeEmailStats.total - safeEmailStats.active - safeEmailStats.error), color: '#94a3b8' },
-    ].filter((item) => item.value > 0)), [safeEmailStats]);
-
     const providerSummary = useMemo(() => PROVIDER_ORDER.map((provider) => {
         const definition = getProviderDefinition(provider);
         return {
             key: provider,
             label: definition.label,
-            count: safeEmailStats.providers[providerCountKeys[provider]],
-            color: definition.tagColor,
+            count: safeEmailStats.providers[provider] || 0,
             hint: definition.summaryHint,
         };
     }), [safeEmailStats]);
+
+    const rankedProviders = useMemo(() => [...providerSummary].sort((left, right) => {
+        if (right.count !== left.count) {
+            return right.count - left.count;
+        }
+        return left.label.localeCompare(right.label, 'zh-Hans-CN');
+    }), [providerSummary]);
+
+    const activeProviderCount = useMemo(() => rankedProviders.filter((item) => item.count > 0).length, [rankedProviders]);
+    const dominantProvider = rankedProviders.find((item) => item.count > 0) || rankedProviders[0];
 
     const automationHealthScore = useMemo(() => {
         const emailHealth = safeEmailStats.total > 0 ? safeEmailStats.active / safeEmailStats.total : 1;
@@ -280,13 +507,6 @@ const DashboardPage: FC = () => {
         { label: '域名邮箱', value: `${statsData.domainMail.activeMailboxes}/${statsData.domainMail.mailboxes}` },
         { label: '今日活跃密钥', value: String(statsData.apiKeys.todayActive) },
     ]), [safeEmailStats, statsData]);
-
-    const quickLinks = [
-        { to: '/emails', label: '外部邮箱连接', icon: <MailOutlined />, hint: '检查 Outlook / Gmail / QQ 连接质量' },
-        { to: '/domain-mailboxes', label: '域名邮箱', icon: <InboxOutlined />, hint: '查看门户邮箱、批次和转发状态' },
-        { to: '/api-keys', label: '访问密钥', icon: <KeyOutlined />, hint: '管控自动化访问范围和分配策略' },
-        { to: '/api-docs', label: 'API 文档', icon: <ApiOutlined />, hint: '面向外部系统和脚本调用方' },
-    ];
 
     const systemSignals = [
         {
@@ -310,7 +530,7 @@ const DashboardPage: FC = () => {
             description: statsData.apiKeys.todayActive > 0
                 ? `今天已有 ${statsData.apiKeys.todayActive} 个访问密钥发起自动化动作。`
                 : '今天还没有访问密钥调用记录，适合做发布前联调或回归测试。',
-            tone: statsData.apiKeys.todayActive > 0 ? '#5865f2' : '#64748b',
+            tone: statsData.apiKeys.todayActive > 0 ? shellPalette.primary : shellPalette.muted,
             icon: <ThunderboltOutlined />,
         },
     ];
@@ -321,183 +541,192 @@ const DashboardPage: FC = () => {
 
     return (
         <div>
-            <Card
-                bordered={false}
-                style={{
-                    ...cardStyle,
-                    background: 'radial-gradient(circle at top left, rgba(88, 101, 242, 0.16), transparent 42%), linear-gradient(135deg, #ffffff 0%, #eef4ff 55%, #f8fbff 100%)',
-                    marginBottom: 20,
-                }}
-                styles={{ body: { padding: 28 } }}
+            <PageHeader
+                title="控制台概览"
+                subtitle="把连接质量、域名邮箱、发信能力和自动化热度放在同一个运营视角下观察。"
+                breadcrumb={[{ title: '控制台' }, { title: '概览' }]}
+                extra={
+                    <Space wrap>
+                        <Link to="/emails">
+                            <Button type="primary" icon={<MailOutlined />}>管理连接</Button>
+                        </Link>
+                        <Link to="/domain-mailboxes">
+                            <Button>域名邮箱</Button>
+                        </Link>
+                    </Space>
+                }
+            />
+            {isDegradedProof ? (
+                <Alert
+                    type="warning"
+                    showIcon
+                    banner
+                    title="Proof scenario · degraded data"
+                    description="此模式仅用于本地证据采集：模拟连接异常、域名未全量 ACTIVE 与自动化热度回落，便于捕获 Dashboard 的降级态与排查态截图。"
+                    style={{ marginBottom: 16 }}
+                />
+            ) : null}
+            <SurfaceCard
+                tone="muted"
+                style={dashboardStyles.heroCard}
+                bodyStyle={{ padding: 24 }}
             >
                 <Row gutter={[24, 24]} align="middle">
-                    <Col xs={24} xl={15}>
-                        <Space direction="vertical" size={18} style={{ width: '100%' }}>
-                            <Space wrap>
-                                <Tag color="blue">Control Plane</Tag>
-                                <Tag color="cyan">Multi-provider Mail</Tag>
-                                <Tag color="purple">Automation Ready</Tag>
-                            </Space>
+                    <Col xs={24} xl={16}>
+                        <Space orientation="vertical" size={18} style={dashboardStyles.fullWidth}>
                             <div>
-                                <Title level={2} style={{ margin: 0 }}>控制台概览</Title>
-                                <Paragraph style={{ margin: '12px 0 0', color: '#475569', fontSize: 15, maxWidth: 720 }}>
-                                    把连接质量、域名收件、自动化活跃度和最近操作放到同一屏里看，先判断系统是否稳，再进入对象级页面处理细节。
+                                <Text style={dashboardStyles.heroKicker}>Daily posture</Text>
+                                <Title level={3} style={dashboardStyles.heroTitle}>先确认连接、域名邮箱与自动化节奏</Title>
+                                <Paragraph style={dashboardStyles.heroParagraph}>
+                                    把最重要的运行信号先收紧到一屏：连接是否稳定、域名邮箱是否可用、今天的自动化是否正常推进。确定整体姿态后，再进入对象页处理细节。
                                 </Paragraph>
                             </div>
                             <Space wrap size={12}>
                                 {heroBadges.map((badge) => (
                                     <div
                                         key={badge.label}
-                                        style={{
-                                            minWidth: 148,
-                                            padding: '12px 14px',
-                                            borderRadius: 16,
-                                            border: '1px solid rgba(148, 163, 184, 0.22)',
-                                            background: 'rgba(255, 255, 255, 0.78)',
-                                        }}
+                                        style={dashboardStyles.heroBadgeCard}
                                     >
-                                        <Text type="secondary" style={{ fontSize: 12 }}>{badge.label}</Text>
-                                        <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{badge.value}</div>
+                                        <Text type="secondary" style={dashboardStyles.heroBadgeLabel}>{badge.label}</Text>
+                                        <div style={dashboardStyles.heroBadgeValue}>{badge.value}</div>
                                     </div>
-                                ))}
-                            </Space>
-                            <Space wrap>
-                                {quickLinks.map((link) => (
-                                    <Link key={link.to} to={link.to}>
-                                        <Button type={link.to === '/emails' ? 'primary' : 'default'} icon={link.icon}>
-                                            {link.label}
-                                        </Button>
-                                    </Link>
                                 ))}
                             </Space>
                         </Space>
                     </Col>
-                    <Col xs={24} xl={9}>
-                        <Card
-                            bordered={false}
-                            style={{ borderRadius: 22, background: 'rgba(15, 23, 42, 0.96)', color: '#fff' }}
-                            styles={{ body: { padding: 24 } }}
-                        >
-                            <Space direction="vertical" size={18} style={{ width: '100%' }}>
-                                <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Col xs={24} xl={8}>
+                        <div style={dashboardStyles.heroSummaryPanel}>
+                            <Space orientation="vertical" size={18} style={dashboardStyles.fullWidth}>
+                                <Space align="start" style={dashboardStyles.flexBetweenFullWidth}>
                                     <div>
-                                        <Text style={{ color: 'rgba(255,255,255,0.72)' }}>自动化健康评分</Text>
-                                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
-                                            <span style={{ fontSize: 40, lineHeight: 1, fontWeight: 800 }}>{automationHealthScore}</span>
-                                            <span style={{ color: 'rgba(255,255,255,0.68)' }}>/ 100</span>
+                                        <Text style={dashboardStyles.healthLabel}>自动化健康评分</Text>
+                                        <div style={dashboardStyles.healthScoreRow}>
+                                            <span style={dashboardStyles.healthScoreValue}>{automationHealthScore}</span>
+                                            <span style={dashboardStyles.healthScoreMax}>/ 100</span>
                                         </div>
                                     </div>
-                                    <div
-                                        style={{
-                                            width: 52,
-                                            height: 52,
-                                            borderRadius: 16,
-                                            background: 'linear-gradient(135deg, rgba(88, 101, 242, 1), rgba(45, 212, 191, 1))',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontSize: 22,
-                                        }}
-                                    >
+                                    <div style={dashboardStyles.healthIconBox}>
                                         <SafetyCertificateOutlined />
                                     </div>
                                 </Space>
-                                <Progress percent={automationHealthScore} strokeColor="#2dd4bf" trailColor="rgba(255,255,255,0.12)" showInfo={false} />
-                                <div style={{ display: 'grid', gap: 12 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <Text style={{ color: 'rgba(255,255,255,0.72)' }}>近 {trendDays} 天调用</Text>
-                                        <Text style={{ color: '#fff' }}>{trendTotal}</Text>
+                                <Progress percent={automationHealthScore} strokeColor={shellPalette.accent} railColor="rgba(148, 163, 184, 0.18)" showInfo={false} />
+                                <div style={dashboardStyles.healthMetricGrid}>
+                                    <div style={dashboardStyles.healthMetricRow}>
+                                        <Text style={dashboardStyles.healthLabel}>近 {trendDays} 天调用</Text>
+                                        <Text style={dashboardStyles.darkText}>{trendTotal}</Text>
                                     </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <Text style={{ color: 'rgba(255,255,255,0.72)' }}>日均调用</Text>
-                                        <Text style={{ color: '#fff' }}>{averageTrend}</Text>
+                                    <div style={dashboardStyles.healthMetricRow}>
+                                        <Text style={dashboardStyles.healthLabel}>日均调用</Text>
+                                        <Text style={dashboardStyles.darkText}>{averageTrend}</Text>
                                     </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <Text style={{ color: 'rgba(255,255,255,0.72)' }}>峰值</Text>
-                                        <Text style={{ color: '#fff' }}>{trendPeak}</Text>
+                                    <div style={dashboardStyles.healthMetricRow}>
+                                        <Text style={dashboardStyles.healthLabel}>峰值</Text>
+                                        <Text style={dashboardStyles.darkText}>{trendPeak}</Text>
                                     </div>
                                 </div>
                             </Space>
-                        </Card>
+                        </div>
                     </Col>
                 </Row>
-            </Card>
+            </SurfaceCard>
 
             <Row gutter={[16, 16]}>
-                <Col xs={12} md={8} xl={4}>
-                    <StatCard title="邮箱总数" value={safeEmailStats.total} icon={<MailOutlined />} iconBgColor="#5865f2" loading={coreLoading} />
+                <Col xs={12} md={6} xl={6}>
+                    <StatCard title="正常连接" value={safeEmailStats.active} suffix={`/ ${safeEmailStats.total}`} icon={<CheckCircleOutlined />} iconBgColor={shellPalette.success} loading={coreLoading} />
                 </Col>
-                <Col xs={12} md={8} xl={4}>
-                    <StatCard title="正常连接" value={safeEmailStats.active} suffix={`/ ${safeEmailStats.total}`} icon={<CheckCircleOutlined />} iconBgColor="#2f9e77" loading={coreLoading} />
+                <Col xs={12} md={6} xl={6}>
+                    <StatCard title="总调用量" value={statsData.apiKeys.totalUsage} icon={<ApiOutlined />} iconBgColor={shellPalette.accent} loading={coreLoading} />
                 </Col>
-                <Col xs={12} md={8} xl={4}>
-                    <StatCard title="总调用量" value={statsData.apiKeys.totalUsage} icon={<ApiOutlined />} iconBgColor="#0f766e" loading={coreLoading} />
+                <Col xs={12} md={6} xl={6}>
+                    <StatCard title="活跃密钥" value={statsData.apiKeys.active} suffix={`/ ${statsData.apiKeys.total}`} icon={<KeyOutlined />} iconBgColor={shellPalette.warning} loading={coreLoading} />
                 </Col>
-                <Col xs={12} md={8} xl={4}>
-                    <StatCard title="活跃密钥" value={statsData.apiKeys.active} suffix={`/ ${statsData.apiKeys.total}`} icon={<KeyOutlined />} iconBgColor="#d97706" loading={coreLoading} />
-                </Col>
-                <Col xs={12} md={8} xl={4}>
-                    <StatCard title="域名总数" value={statsData.domainMail.domains} suffix={`/ ${statsData.domainMail.activeDomains} 活跃`} icon={<CloudServerOutlined />} iconBgColor="#0284c7" loading={coreLoading} />
-                </Col>
-                <Col xs={12} md={8} xl={4}>
-                    <StatCard title="活跃域名邮箱" value={statsData.domainMail.activeMailboxes} suffix={`/ ${statsData.domainMail.mailboxes}`} icon={<InboxOutlined />} iconBgColor="#7c3aed" loading={coreLoading} />
+                <Col xs={12} md={6} xl={6}>
+                    <StatCard title="活跃域名邮箱" value={statsData.domainMail.activeMailboxes} suffix={`/ ${statsData.domainMail.mailboxes}`} icon={<InboxOutlined />} iconBgColor={shellPalette.primary} loading={coreLoading} />
                 </Col>
             </Row>
 
-            <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <Row gutter={[16, 16]} style={dashboardStyles.rowMarginTop16}>
                 <Col xs={24} xl={16}>
-                    <Card bordered={false} style={cardStyle} styles={{ body: cardBodyStyle }} ref={chartsSectionRef}>
-                        <Space direction="vertical" size={18} style={{ width: '100%' }}>
-                            <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }} wrap>
-                                <div>
-                                    <Title level={4} style={{ margin: 0 }}>自动化趋势</Title>
-                                    <Text type="secondary">观察访问密钥调用热度，判断是否适合做批量验证、分配或回归测试。</Text>
-                                </div>
-                                <Space direction="vertical" size={4} align="end">
-                                    <Tooltip title="切换统计窗口后，趋势图会重新按 7 / 14 / 30 天聚合调用量。建议先看 14 天，再决定是否放大到 30 天。">
-                                        <Segmented<TrendWindow>
-                                            value={trendDays}
-                                            onChange={(value) => setTrendDays(value)}
-                                            options={[
-                                                { label: '7 天', value: 7 },
-                                                { label: '14 天', value: 14 },
-                                                { label: '30 天', value: 30 },
-                                            ]}
-                                        />
-                                    </Tooltip>
-                                    <Text type="secondary" style={{ fontSize: 12 }}>14 天适合看近期波动，30 天适合看节奏变化。</Text>
+                    <Space orientation="vertical" size={16} style={dashboardStyles.fullWidth}>
+                        <Card variant="borderless" style={cardStyle} styles={{ body: cardBodyStyle }} ref={chartsSectionRef}>
+                            <Space orientation="vertical" size={18} style={dashboardStyles.fullWidth}>
+                                <Space align="start" style={dashboardStyles.flexBetweenFullWidth} wrap>
+                                    <div>
+                                        <Title level={4} style={dashboardStyles.titleNoMargin}>自动化趋势</Title>
+                                    <Text type="secondary">看调用热度变化，判断当前更适合验证、分配还是回归测试。</Text>
+                                    </div>
+                                    <Segmented<TrendWindow>
+                                        value={trendDays}
+                                        onChange={(value) => setTrendDays(value)}
+                                        options={[
+                                            { label: '7 天', value: 7 },
+                                            { label: '14 天', value: 14 },
+                                            { label: '30 天', value: 30 },
+                                        ]}
+                                    />
                                 </Space>
+                                {!chartsReady || !chartsInView || trendLoading ? (
+                                    <div style={dashboardStyles.centeredPadding56MinHeight300}><Spin /></div>
+                                ) : (
+                                    <Suspense fallback={<div style={dashboardStyles.centeredPadding56}><Spin /></div>}>
+                                        <LineChart data={apiTrend} color={shellPalette.primary} height={300} />
+                                    </Suspense>
+                                )}
                             </Space>
-                            {!chartsReady || !chartsInView || trendLoading ? (
-                                <div style={{ textAlign: 'center', padding: 56, minHeight: 300 }}><Spin /></div>
-                            ) : (
-                                <Suspense fallback={<div style={{ textAlign: 'center', padding: 56 }}><Spin /></div>}>
-                                    <LineChart data={apiTrend} color="#5865f2" height={300} />
-                                </Suspense>
-                            )}
-                        </Space>
-                    </Card>
+                        </Card>
+
+                        <Card variant="borderless" style={cardStyle} styles={{ body: cardBodyStyle }} loading={coreLoading}>
+                            <Space orientation="vertical" size={16} style={dashboardStyles.fullWidth}>
+                                <div>
+                                    <Title level={4} style={dashboardStyles.titleNoMargin}>Provider 分布</Title>
+                                    <Text type="secondary">把全部 provider 收进独立面板，向下滚动检查收件来源是否过度集中。</Text>
+                                </div>
+                                <div style={dashboardStyles.providerSummaryRow}>
+                                    <Text strong style={{ color: shellPalette.ink }}>{activeProviderCount} 类 Provider 正在承载当前邮箱池</Text>
+                                    <Text style={dashboardStyles.providerSummaryMeta}>
+                                        {dominantProvider && dominantProvider.count > 0
+                                            ? `${dominantProvider.label} 当前占主导；向下滚动可以继续查看全部 provider 分布。`
+                                            : '当前没有活跃 provider，保留完整分布视图以便初始化配置时快速确认。'}
+                                    </Text>
+                                </div>
+                                <div style={dashboardStyles.providerScrollRow}>
+                                    {rankedProviders.map((item) => (
+                                        <div
+                                            key={item.key}
+                                            style={dashboardStyles.providerCard}
+                                        >
+                                            <div style={dashboardStyles.providerCardHeader}>
+                                                <Text strong style={{ color: shellPalette.ink }}>{item.label}</Text>
+                                                <div style={dashboardStyles.textAlignRight}>
+                                                    <div style={dashboardStyles.providerCount}>{item.count}</div>
+                                                    <Text type="secondary">{item.count > 0 ? '活跃池' : '未使用'}</Text>
+                                                </div>
+                                            </div>
+                                            <Paragraph style={{ margin: 0, color: shellPalette.muted, fontSize: 13 }}>
+                                                {item.hint}
+                                            </Paragraph>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Space>
+                        </Card>
+                    </Space>
                 </Col>
                 <Col xs={24} xl={8}>
-                    <Card bordered={false} style={cardStyle} styles={{ body: cardBodyStyle }}>
-                        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                    <Card variant="borderless" style={cardStyle} styles={{ body: cardBodyStyle }}>
+                        <Space orientation="vertical" size={16} style={dashboardStyles.fullWidth}>
                             <div>
-                                <Title level={4} style={{ margin: 0 }}>系统信号</Title>
+                                <Title level={4} style={dashboardStyles.titleNoMargin}>系统信号</Title>
                                 <Text type="secondary">先看风险，再决定进入哪个对象页处理。</Text>
                             </div>
                             {systemSignals.map((signal) => (
                                 <div
                                     key={signal.title}
-                                    style={{
-                                        borderRadius: 18,
-                                        padding: 16,
-                                        border: '1px solid rgba(148, 163, 184, 0.18)',
-                                        background: 'linear-gradient(180deg, rgba(248,250,252,0.88), rgba(241,245,249,0.94))',
-                                    }}
+                                    style={dashboardStyles.signalCard}
                                 >
-                                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                                    <Space orientation="vertical" size={8} style={dashboardStyles.fullWidth}>
                                         <Space>
-                                            <span style={{ color: signal.tone, fontSize: 18 }}>{signal.icon}</span>
+                                            <span style={dashboardStyles.signalIcon(signal.tone)}>{signal.icon}</span>
                                             <Text strong>{signal.title}</Text>
                                         </Space>
                                         <Text type="secondary">{signal.description}</Text>
@@ -505,57 +734,35 @@ const DashboardPage: FC = () => {
                                 </div>
                             ))}
                             <div
-                                style={{
-                                    borderRadius: 18,
-                                    padding: 18,
-                                    background: 'linear-gradient(135deg, rgba(88, 101, 242, 0.14), rgba(14, 165, 233, 0.08))',
-                                }}
+                                style={dashboardStyles.errorCard(safeEmailStats.error > 0)}
                             >
-                                <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                                    <Space>
-                                        <RocketOutlined style={{ color: '#5865f2' }} />
-                                        <Text strong>下一步建议</Text>
-                                    </Space>
-                                    <Text type="secondary">如果你正在排查验证码流程，优先进入“外部邮箱连接”；如果你在看门户收发体验，优先进入“域名邮箱”或“门户用户”。</Text>
-                                </Space>
-                            </div>
-                            <div
-                                style={{
-                                    borderRadius: 18,
-                                    padding: 18,
-                                    border: '1px solid rgba(239, 68, 68, 0.16)',
-                                    background: safeEmailStats.error > 0
-                                        ? 'linear-gradient(180deg, rgba(254, 242, 242, 0.96), rgba(255, 255, 255, 0.92))'
-                                        : 'linear-gradient(180deg, rgba(248,250,252,0.88), rgba(241,245,249,0.94))',
-                                }}
-                            >
-                                <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                                    <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
+                                <Space orientation="vertical" size={12} style={dashboardStyles.fullWidth}>
+                                    <Space align="start" style={dashboardStyles.flexBetweenFullWidth}>
                                         <div>
-                                            <Title level={5} style={{ margin: 0 }}>异常外部邮箱</Title>
+                                            <Title level={5} style={dashboardStyles.titleNoMargin}>异常外部邮箱</Title>
                                             <Text type="secondary">直接列出当前需要优先检查的外部邮箱连接。</Text>
                                         </div>
                                         <Link to="/emails">
-                                            <Button type="link" icon={<ArrowRightOutlined />}>进入邮箱页</Button>
+                                            <Button type="text" icon={<ArrowRightOutlined />}>进入邮箱页</Button>
                                         </Link>
                                     </Space>
 
                                     {coreLoading ? (
-                                        <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+                                        <div style={dashboardStyles.centeredPadding24}><Spin /></div>
                                     ) : errorEmails.length === 0 ? (
                                         <Empty description="当前没有异常外部邮箱，连接状态保持正常。" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                                     ) : (
                                         <List
                                             dataSource={errorEmails}
                                             renderItem={(item) => (
-                                                <List.Item key={item.id} style={{ paddingInline: 0 }}>
-                                                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                                                        <Space wrap style={{ justifyContent: 'space-between', width: '100%' }}>
+                                                <List.Item key={item.id} style={dashboardStyles.listItemReset}>
+                                                    <Space orientation="vertical" size={8} style={dashboardStyles.fullWidth}>
+                                                        <Space wrap style={dashboardStyles.flexBetweenFullWidth}>
                                                             <Space wrap>
                                                                 <Tag color="red">异常</Tag>
                                                                 <Tag color={getProviderDefinition(item.provider).tagColor}>{getProviderDefinition(item.provider).label}</Tag>
                                                                 <Text strong>{item.email}</Text>
-                                                            </Space>
+                                                        </Space>
                                                             <Link
                                                                 to={{
                                                                     pathname: '/emails',
@@ -566,7 +773,7 @@ const DashboardPage: FC = () => {
                                                                     }).toString(),
                                                                 }}
                                                             >
-                                                                <Button type="link">直接检查</Button>
+                                                                <Button type="text">直接检查</Button>
                                                             </Link>
                                                         </Space>
                                                         <Text type="secondary">{item.errorMessage || '当前连接检查失败，建议重新检查或重新走 OAuth 授权。'}</Text>
@@ -583,75 +790,17 @@ const DashboardPage: FC = () => {
                 </Col>
             </Row>
 
-            <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-                <Col xs={24} xl={9}>
-                    <Card bordered={false} style={cardStyle} styles={{ body: cardBodyStyle }} loading={coreLoading}>
-                        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                            <div>
-                                <Title level={4} style={{ margin: 0 }}>Provider 分布</Title>
-                                <Text type="secondary">确认主要收件来源是否过度集中，以及 Gmail / QQ / Outlook 的覆盖情况。</Text>
-                            </div>
-                            <Text type="secondary" style={{ fontSize: 12 }}>如果 Outlook 占比长期过高，建议在引流或自动化策略里逐步增加 Gmail / QQ 覆盖，降低单 provider 风险。</Text>
-                            {providerSummary.map((item) => (
-                                <div
-                                    key={item.key}
-                                    style={{
-                                        border: '1px solid rgba(148, 163, 184, 0.16)',
-                                        borderRadius: 18,
-                                        padding: 16,
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        gap: 12,
-                                        background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                                    }}
-                                >
-                                    <div>
-                                        <Tag color={item.color}>{item.label}</Tag>
-                                        <div style={{ marginTop: 8 }}>
-                                            <Text type="secondary">{item.hint}</Text>
-                                        </div>
-                                    </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        <div style={{ fontSize: 30, fontWeight: 800 }}>{item.count}</div>
-                                        <Text type="secondary">当前账号数</Text>
-                                    </div>
-                                </div>
-                            ))}
-                        </Space>
-                    </Card>
-                </Col>
-                <Col xs={24} xl={7}>
-                    <Card bordered={false} style={cardStyle} styles={{ body: cardBodyStyle }}>
-                        <Space direction="vertical" size={18} style={{ width: '100%' }}>
-                            <div>
-                                <Title level={4} style={{ margin: 0 }}>连接状态分布</Title>
-                                <Text type="secondary">快速判断外部连接是健康、异常，还是只是尚未启用。</Text>
-                            </div>
-                            {coreLoading || !chartsReady || !chartsInView ? (
-                                <div style={{ textAlign: 'center', padding: 56, minHeight: 260 }}><Spin /></div>
-                            ) : pieData.length > 0 ? (
-                                <Suspense fallback={<div style={{ textAlign: 'center', padding: 56 }}><Spin /></div>}>
-                                    <PieChart data={pieData} total={safeEmailStats.total} title="连接" height={260} />
-                                </Suspense>
-                            ) : (
-                                <div style={{ minHeight: 260, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Empty description="暂无连接数据" />
-                                </div>
-                            )}
-                        </Space>
-                    </Card>
-                </Col>
-                <Col xs={24} xl={8}>
-                    <Card bordered={false} style={cardStyle} styles={{ body: cardBodyStyle }} loading={logsLoading}>
-                        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                            <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <Row gutter={[16, 16]} style={dashboardStyles.rowMarginTop16}>
+                <Col xs={24}>
+                    <Card variant="borderless" style={cardStyle} styles={{ body: cardBodyStyle }} loading={logsLoading}>
+                        <Space orientation="vertical" size={16} style={dashboardStyles.fullWidth}>
+                            <Space align="start" style={dashboardStyles.flexBetweenFullWidth}>
                                 <div>
-                                    <Title level={4} style={{ margin: 0 }}>最近自动化活动</Title>
-                                    <Text type="secondary">从最近的 API 行为快速判断当前系统是在读信、取号还是清理资源。</Text>
+                                    <Title level={4} style={dashboardStyles.titleNoMargin}>最近自动化活动</Title>
+                                    <Text type="secondary">快速判断当前系统是在读信、取号还是清理资源。</Text>
                                 </div>
                                 <Link to="/operation-logs">
-                                    <Button type="link" icon={<ArrowRightOutlined />}>查看全部</Button>
+                                    <Button type="text" icon={<ArrowRightOutlined />}>查看全部</Button>
                                 </Link>
                             </Space>
                             {recentLogs.length === 0 ? (
@@ -660,15 +809,15 @@ const DashboardPage: FC = () => {
                                 <List
                                     dataSource={recentLogs}
                                     renderItem={(item) => (
-                                        <List.Item key={item.id} style={{ paddingInline: 0 }}>
-                                            <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                                                <Space wrap style={{ justifyContent: 'space-between', width: '100%' }}>
+                                        <List.Item key={item.id} style={dashboardStyles.listItemReset}>
+                                            <Space orientation="vertical" size={6} style={dashboardStyles.fullWidth}>
+                                                <Space wrap style={dashboardStyles.flexBetweenFullWidth}>
                                                     <Space wrap>
                                                         <Tag color={getLogActionColor(item.action)}>{getLogActionLabel(item.action)}</Tag>
                                                         {item.responseCode ? <Tag color={item.responseCode >= 400 ? 'error' : 'success'}>{item.responseCode}</Tag> : null}
                                                     </Space>
                                                     <Space size={6}>
-                                                        <ClockCircleOutlined style={{ color: '#94a3b8' }} />
+                                                        <ClockCircleOutlined style={dashboardStyles.clockIcon} />
                                                         <Text type="secondary">{new Date(item.createdAt).toLocaleString()}</Text>
                                                     </Space>
                                                 </Space>

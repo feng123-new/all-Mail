@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState, type FC } from 'react';
-import { Alert, Button, Card, Form, Input, Modal, Select, Space, Switch, Table, Tag } from 'antd';
+import { Alert, Button, Form, Input, Modal, Select, Space, Switch, Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined } from '@ant-design/icons';
-import { domainApi } from '../../api';
-import { PageHeader } from '../../components';
+import { PlusOutlined, SettingOutlined } from '@ant-design/icons';
+import { PageHeader, SurfaceCard } from '../../components';
+import { domainsContract } from '../../contracts/admin/domains';
+import { fontSize12Style, marginBottom16Style } from '../../styles/common';
 import { requestData } from '../../utils/request';
+import DomainConfigModal from './DomainConfigModal';
 
 interface DomainRecord {
     id: number;
@@ -23,17 +25,22 @@ const statusColor: Record<string, string> = {
     ERROR: 'error',
 };
 
+const domainStyles = {
+    sendHint: { marginTop: -8, marginBottom: 8, color: '#8c8c8c', fontSize: fontSize12Style.fontSize },
+} as const;
+
 const DomainsPage: FC = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [domains, setDomains] = useState<DomainRecord[]>([]);
     const [modalVisible, setModalVisible] = useState(false);
     const [editingDomain, setEditingDomain] = useState<DomainRecord | null>(null);
+    const [configDomain, setConfigDomain] = useState<DomainRecord | null>(null);
     const [form] = Form.useForm();
 
     const loadDomains = useCallback(async () => {
         setLoading(true);
-        const result = await requestData<{ list: DomainRecord[] }>(() => domainApi.getList({ page: 1, pageSize: 100 }), '获取域名列表失败');
+        const result = await requestData<{ list: DomainRecord[] }>(() => domainsContract.getList({ page: 1, pageSize: 100 }), '获取域名列表失败');
         if (result) {
             setDomains(result.list);
         }
@@ -41,10 +48,15 @@ const DomainsPage: FC = () => {
     }, []);
 
     useEffect(() => {
-        const timer = window.setTimeout(() => {
-            void loadDomains();
-        }, 0);
-        return () => window.clearTimeout(timer);
+        let active = true;
+        Promise.resolve().then(() => {
+            if (active) {
+                void loadDomains();
+            }
+        });
+        return () => {
+            active = false;
+        };
     }, [loadDomains]);
 
     const openCreateModal = () => {
@@ -60,11 +72,15 @@ const DomainsPage: FC = () => {
         setModalVisible(true);
     };
 
+    const openConfigModal = (record: DomainRecord) => {
+        setConfigDomain(record);
+    };
+
     const handleSubmit = async (values: Record<string, unknown>) => {
         setSaving(true);
         const action = editingDomain
-            ? domainApi.update(editingDomain.id, values as { displayName?: string | null; status?: string; canReceive?: boolean; canSend?: boolean })
-            : domainApi.create(values as { name: string; displayName?: string; canReceive?: boolean; canSend?: boolean });
+            ? domainsContract.update(editingDomain.id, values as { displayName?: string | null; status?: string; canReceive?: boolean; canSend?: boolean })
+            : domainsContract.create(values as { name: string; displayName?: string; canReceive?: boolean; canSend?: boolean });
 
         const result = await requestData(() => action, editingDomain ? '更新域名失败' : '创建域名失败');
         if (result) {
@@ -75,7 +91,7 @@ const DomainsPage: FC = () => {
     };
 
     const setDomainStatus = async (record: DomainRecord, status: DomainRecord['status']) => {
-        const result = await requestData(() => domainApi.update(record.id, { status }), `${status === 'ACTIVE' ? '激活' : '更新'}域名失败`);
+        const result = await requestData(() => domainsContract.update(record.id, { status }), `${status === 'ACTIVE' ? '激活' : '更新'}域名失败`);
         if (result) {
             await loadDomains();
         }
@@ -94,6 +110,7 @@ const DomainsPage: FC = () => {
             render: (_, record) => (
                 <Space wrap>
                     <Button onClick={() => openEditModal(record)}>编辑</Button>
+                    <Button icon={<SettingOutlined />} onClick={() => openConfigModal(record)}>配置</Button>
                     {record.status !== 'ACTIVE' ? (
                         <Button type="primary" onClick={() => void setDomainStatus(record, 'ACTIVE')}>激活</Button>
                     ) : (
@@ -108,25 +125,25 @@ const DomainsPage: FC = () => {
         <div>
             <PageHeader
                 title="域名"
-                subtitle="这里负责域名基础状态；域名邮箱、门户用户、域名消息、发信配置已经拆到独立页面，避免把所有操作挤在一个大页里。"
+                subtitle="这里负责域名基础状态与 hosted_internal 能力配置；域名邮箱、门户用户、域名消息和发信历史仍保持独立页面。"
                 extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>新增域名</Button>}
             />
             <Alert
                 showIcon
                 type="info"
-                style={{ marginBottom: 16 }}
-                message="是否允许某个域名开启发件能力，最终由服务端环境变量 SEND_ENABLED_DOMAINS 控制。未列入允许名单的域名会保持收件专用。"
+                style={marginBottom16Style}
+                title="是否允许某个域名开启发件能力，最终由服务端环境变量 SEND_ENABLED_DOMAINS 控制。未列入允许名单的域名会保持收件专用。"
             />
-            <Card>
+            <SurfaceCard>
                 <Table rowKey="id" loading={loading} columns={columns} dataSource={domains} pagination={false} />
-            </Card>
+            </SurfaceCard>
             <Modal
                 title={editingDomain ? '编辑域名' : '新增域名'}
                 open={modalVisible}
                 onCancel={() => setModalVisible(false)}
                 onOk={() => form.submit()}
                 confirmLoading={saving}
-                destroyOnClose
+                destroyOnHidden
             >
                 <Form form={form} layout="vertical" onFinish={handleSubmit}>
                     {!editingDomain ? (
@@ -153,11 +170,18 @@ const DomainsPage: FC = () => {
                     <Form.Item name="canSend" label="允许发件" valuePropName="checked">
                         <Switch />
                     </Form.Item>
-                    <div style={{ marginTop: -8, marginBottom: 8, color: '#8c8c8c', fontSize: 12 }}>
+                    <div style={domainStyles.sendHint}>
                         只有服务端 `SEND_ENABLED_DOMAINS` 中列出的域名才能保存为“允许发件”。
                     </div>
                 </Form>
             </Modal>
+            <DomainConfigModal
+                open={Boolean(configDomain)}
+                domainId={configDomain?.id ?? null}
+                domainName={configDomain?.name}
+                onCancel={() => setConfigDomain(null)}
+                onUpdated={loadDomains}
+            />
         </div>
     );
 };

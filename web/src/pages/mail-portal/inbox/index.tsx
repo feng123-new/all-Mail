@@ -1,10 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Alert, Button, Card, Col, Drawer, Form, Input, List, Row, Segmented, Select, Space, Spin, Switch, Tag, Typography, message as antdMessage, Empty } from 'antd';
+import { Alert, Button, Card, Col, Drawer, Empty, Form, Input, List, Row, Segmented, Select, Space, Spin, Switch, Tag, Typography, message as antdMessage } from 'antd';
 import { CopyOutlined, ReloadOutlined, SearchOutlined, SendOutlined } from '@ant-design/icons';
-import { mailboxPortalApi } from '../../../api';
+import { PageHeader, SurfaceCard } from '../../../components';
+import { portalInboxContract } from '../../../contracts/portal/inbox';
 import { requestData } from '../../../utils/request';
 import { renderPlainTextWithLinks, renderSanitizedEmailHtml } from '../../../utils/mailContent';
+import {
+    centeredPadding56Style,
+    clickableStyle,
+    flexBetweenFullWidthStyle,
+    fullWidthStyle,
+    marginBottom16Style,
+    noMarginBottomStyle,
+    preWrapBreakWordStyle,
+} from '../../../styles/common';
+import { shellPalette } from '../../../theme';
+import {
+    getHostedInternalProfileByProvisioningMode,
+    getHostedInternalProfileDefinition,
+    getRepresentativeProtocolLabel,
+    getRepresentativeProtocolTagColor,
+    type HostedInternalCapabilitySummary,
+    type HostedInternalProfileKey,
+    type RepresentativeProtocol,
+} from '../../../constants/providers';
 
 const { Text, Paragraph, Title } = Typography;
 type MailFolder = 'inbox' | 'sent';
@@ -13,8 +33,14 @@ interface MailboxItem {
     id: number;
     address: string;
     displayName?: string | null;
+    provisioningMode?: 'MANUAL' | 'API_POOL';
     forwardMode?: 'DISABLED' | 'COPY' | 'MOVE';
     forwardTo?: string | null;
+    providerProfile?: HostedInternalProfileKey;
+    representativeProtocol?: RepresentativeProtocol;
+    profileSummaryHint?: string;
+    capabilitySummary?: HostedInternalCapabilitySummary;
+    sendReady?: boolean;
     domain?: { id: number; name: string; canSend?: boolean; canReceive?: boolean };
 }
 
@@ -38,6 +64,7 @@ interface SentMessageItem {
     subject?: string | null;
     status: string;
     providerMessageId?: string | null;
+    lastError?: string | null;
     createdAt: string;
     mailbox?: { id: number; address: string } | null;
 }
@@ -47,6 +74,26 @@ interface SendFormValues {
     subject: string;
     text: string;
 }
+
+const inboxStyles = {
+    fullWidth: fullWidthStyle,
+    sectionCard: {
+        borderRadius: 18,
+        border: `1px solid ${shellPalette.border}`,
+    },
+    compactCard: {
+        borderRadius: 16,
+        border: `1px solid ${shellPalette.border}`,
+    },
+    titleNoMargin: { margin: 0 },
+    smallHint: { fontSize: 12 },
+    mailboxValue: { fontWeight: 700, marginTop: 4 },
+    statsValueLarge: { fontSize: 28, fontWeight: 800, marginTop: 6 },
+    statsValueCompact: { fontSize: 16, fontWeight: 700, marginTop: 8 },
+    listCursor: clickableStyle,
+    detailStack: fullWidthStyle,
+    detailMessageBody: preWrapBreakWordStyle,
+} as const;
 
 const MailPortalInboxPage: React.FC = () => {
     const [searchParams, setSearchParams] = useSearchParams();
@@ -67,10 +114,24 @@ const MailPortalInboxPage: React.FC = () => {
 
     const mailboxOptions = useMemo(() => mailboxes.map((item) => ({ value: item.id, label: item.address })), [mailboxes]);
     const selectedMailbox = useMemo(() => mailboxes.find((item) => item.id === selectedMailboxId), [mailboxes, selectedMailboxId]);
-    const canSend = Boolean(selectedMailbox?.domain?.canSend);
+    const domainCanSend = Boolean(selectedMailbox?.domain?.canSend);
+    const canSend = Boolean(selectedMailbox?.sendReady);
+    const sendStatusLabel = canSend
+		? '发件已就绪'
+		: domainCanSend
+			? '待配置发件'
+			: '仅收件';
+    const selectedMailboxProfile = useMemo(() => {
+        if (!selectedMailbox) {
+            return null;
+        }
+        return selectedMailbox.providerProfile
+            ? getHostedInternalProfileDefinition(selectedMailbox.providerProfile)
+            : getHostedInternalProfileByProvisioningMode(selectedMailbox.provisioningMode || 'MANUAL');
+    }, [selectedMailbox]);
 
     const loadMailboxes = useCallback(async () => {
-        const result = await requestData<MailboxItem[]>(() => mailboxPortalApi.getMailboxes(), '获取邮箱列表失败');
+        const result = await requestData<MailboxItem[]>(() => portalInboxContract.getMailboxes(), '获取邮箱列表失败');
         if (result) {
             setMailboxes(result);
             if (!selectedMailboxId && result[0]) {
@@ -81,7 +142,7 @@ const MailPortalInboxPage: React.FC = () => {
 
     const loadInboxMessages = useCallback(async (mailboxId?: number, unread: boolean = false) => {
         setLoading(true);
-        const result = await requestData<{ list: MessageItem[] }>(() => mailboxPortalApi.getMessages({ mailboxId, unreadOnly: unread, page: 1, pageSize: 50 }), '获取消息列表失败');
+        const result = await requestData<{ list: MessageItem[] }>(() => portalInboxContract.getMessages({ mailboxId, unreadOnly: unread, page: 1, pageSize: 50 }), '获取消息列表失败');
         if (result) {
             setMessages(result.list);
         }
@@ -94,7 +155,7 @@ const MailPortalInboxPage: React.FC = () => {
             return;
         }
         setLoading(true);
-        const result = await requestData<{ list: SentMessageItem[] }>(() => mailboxPortalApi.getSentMessages({ mailboxId, page: 1, pageSize: 50 }), '获取发件列表失败');
+        const result = await requestData<{ list: SentMessageItem[] }>(() => portalInboxContract.getSentMessages({ mailboxId, page: 1, pageSize: 50 }), '获取发件列表失败');
         if (result) {
             setSentMessages(result.list);
         }
@@ -133,9 +194,10 @@ const MailPortalInboxPage: React.FC = () => {
     const openInboxMessage = async (id: string) => {
         setDetailLoading(true);
         setDetailVisible(true);
-        const result = await requestData<Record<string, unknown>>(() => mailboxPortalApi.getMessage(id), '获取消息详情失败');
+        const result = await requestData<Record<string, unknown>>(() => portalInboxContract.getMessage(id), '获取消息详情失败');
         if (result) {
             setSelectedMessage(result);
+            setMessages((current) => current.map((item) => (item.id === id ? { ...item, isRead: true } : item)));
         }
         setDetailLoading(false);
     };
@@ -143,7 +205,7 @@ const MailPortalInboxPage: React.FC = () => {
     const openSentMessage = async (id: string) => {
         setDetailLoading(true);
         setDetailVisible(true);
-        const result = await requestData<Record<string, unknown>>(() => mailboxPortalApi.getSentMessage(id), '获取发件详情失败');
+        const result = await requestData<Record<string, unknown>>(() => portalInboxContract.getSentMessage(id), '获取发件详情失败');
         if (result) {
             setSelectedMessage(result);
         }
@@ -152,9 +214,18 @@ const MailPortalInboxPage: React.FC = () => {
 
     const handleSend = async (values: SendFormValues) => {
         if (!selectedMailboxId) {
-            antdMessage.error('请先选择一个可发件邮箱');
+			antdMessage.error('请先选择邮箱');
             return;
         }
+
+		if (!canSend) {
+			antdMessage.error(
+				domainCanSend
+					? '当前邮箱所在域名尚未配置有效发件通道，请联系管理员补齐发件配置'
+					: '当前邮箱所属域名为收件专用域名，不能发送邮件。',
+			);
+			return;
+		}
 
         const recipients = values.to
             .split(/[\n,;]+/)
@@ -167,7 +238,7 @@ const MailPortalInboxPage: React.FC = () => {
 
         setSending(true);
         const result = await requestData<Record<string, unknown>>(
-            () => mailboxPortalApi.sendMessage({
+            () => portalInboxContract.sendMessage({
                 mailboxId: selectedMailboxId,
                 to: recipients,
                 subject: values.subject,
@@ -194,7 +265,7 @@ const MailPortalInboxPage: React.FC = () => {
         const textPreview = String(selectedMessage?.textPreview || selectedMessage?.textBody || '').trim();
 
         return (
-            <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Space orientation="vertical" style={inboxStyles.fullWidth} size={12}>
                 {htmlPreview ? (
                     <Card size="small" title="HTML 内容">
                         <div>{renderSanitizedEmailHtml(htmlPreview)}</div>
@@ -202,7 +273,7 @@ const MailPortalInboxPage: React.FC = () => {
                 ) : null}
                 {textPreview ? (
                     <Card size="small" title={htmlPreview ? '文本内容' : '正文'}>
-                        <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{renderPlainTextWithLinks(textPreview)}</div>
+                        <div style={inboxStyles.detailMessageBody}>{renderPlainTextWithLinks(textPreview)}</div>
                     </Card>
                 ) : null}
                 {!htmlPreview && !textPreview ? (
@@ -258,119 +329,111 @@ const MailPortalInboxPage: React.FC = () => {
     const listData = folder === 'inbox' ? filteredInboxMessages : filteredSentMessages;
 
     return (
-        <Space direction="vertical" size={20} style={{ width: '100%' }}>
-            <Card
-                bordered={false}
-                style={{
-                    borderRadius: 24,
-                    background: 'radial-gradient(circle at top left, rgba(88, 101, 242, 0.16), transparent 34%), linear-gradient(135deg, #ffffff 0%, #eef4ff 58%, #f8fbff 100%)',
-                    border: '1px solid rgba(148, 163, 184, 0.18)',
-                }}
-                styles={{ body: { padding: 28 } }}
-            >
-                <Row gutter={[20, 20]} align="middle">
-                    <Col xs={24} xl={14}>
-                        <Space direction="vertical" size={14} style={{ width: '100%' }}>
-                            <Space wrap>
-                                <Tag color="blue">Mail Workspace</Tag>
-                                <Tag color="cyan">{folder === 'inbox' ? '收件视图' : '发件视图'}</Tag>
-                                {selectedMailbox ? <Tag color={canSend ? 'success' : 'default'}>{canSend ? '可发件邮箱' : '仅收件邮箱'}</Tag> : null}
-                            </Space>
-                            <div>
-                                <Title level={2} style={{ margin: 0 }}>{folder === 'inbox' ? '收件工作区' : '发件工作区'}</Title>
-                                <Paragraph style={{ margin: '10px 0 0', color: '#475569' }}>
-                                    按邮箱查看入站或发件记录，快速提取验证码、筛选未读、复制邮箱地址，并在允许发件时直接写邮件。
-                                </Paragraph>
-                            </div>
-                            {selectedMailbox ? (
-                                <Space wrap>
-                                    <Tag color="processing">{selectedMailbox.address}</Tag>
-                                    <Tag>{selectedMailbox.domain?.name || '-'}</Tag>
-                                    <Tag color={selectedMailbox.forwardMode && selectedMailbox.forwardMode !== 'DISABLED' ? 'purple' : 'default'}>
-                                        {selectedMailbox.forwardMode && selectedMailbox.forwardMode !== 'DISABLED' ? `转发 ${selectedMailbox.forwardMode}` : '未转发'}
-                                    </Tag>
-                                </Space>
-                            ) : null}
-                        </Space>
-                    </Col>
-                    <Col xs={24} xl={10}>
-                        <Space wrap style={{ justifyContent: 'flex-end', width: '100%' }}>
-                            <Segmented<MailFolder>
-                                value={folder}
-                                onChange={(value) => setFolder(value)}
-                                options={[
-                                    { label: '收件箱', value: 'inbox' },
-                                    { label: '发件箱', value: 'sent' },
-                                ]}
-                            />
-                            <Button icon={<ReloadOutlined />} onClick={() => void reloadCurrentFolder()}>刷新</Button>
-                            <Button type="primary" icon={<SendOutlined />} onClick={() => setComposeVisible(true)} disabled={!canSend || !selectedMailboxId}>写邮件</Button>
-                        </Space>
-                    </Col>
-                </Row>
-            </Card>
+        <Space orientation="vertical" size={20} style={inboxStyles.fullWidth}>
+            <PageHeader
+                title={folder === 'inbox' ? '收/发件工作区' : '发件工作区'}
+                subtitle="按邮箱查看消息与发件记录，必要时直接写邮件。"
+                extra={
+                    <Space wrap>
+                        <Segmented<MailFolder>
+                            value={folder}
+                            onChange={(value) => setFolder(value)}
+                            options={[
+                                { label: '收件箱', value: 'inbox' },
+                                { label: '发件箱', value: 'sent' },
+                            ]}
+                        />
+                        <Button type="text" icon={<ReloadOutlined />} onClick={() => void reloadCurrentFolder()}>刷新</Button>
+                        <Button type="primary" icon={<SendOutlined />} onClick={() => setComposeVisible(true)} disabled={!canSend || !selectedMailboxId}>写邮件</Button>
+                    </Space>
+                }
+            />
+            {folder === 'inbox' && selectedMailbox?.forwardMode === 'MOVE' ? (
+                <Alert
+                    type="info"
+                    showIcon
+                    title="当前邮箱启用了转发后隐藏收件"
+                />
+            ) : null}
 
-            {!canSend && folder === 'sent' ? <Alert type="info" showIcon message="当前邮箱所属域名为收件专用域名，只能查看收件，不能发送邮件。" /> : null}
+			{!canSend && folder === 'sent' ? (
+				<Alert
+					type="info"
+					showIcon
+					title={
+						domainCanSend
+							? '当前邮箱所在域名尚未配置有效发件通道，暂时无法查看有效发件结果。'
+							: '当前邮箱所属域名为收件专用域名，不能发送邮件。'
+					}
+				/>
+			) : null}
 
             <Row gutter={[16, 16]}>
                 <Col xs={24} xl={7}>
-                    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                        <Card bordered={false} style={{ borderRadius: 24, border: '1px solid rgba(148, 163, 184, 0.18)' }} styles={{ body: { padding: 22 } }}>
-                            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                    <Space orientation="vertical" size={16} style={inboxStyles.fullWidth}>
+                        <SurfaceCard style={inboxStyles.sectionCard} bodyStyle={{ padding: 22 }}>
+                            <Space orientation="vertical" size={16} style={inboxStyles.fullWidth}>
                                 <div>
-                                    <Title level={4} style={{ margin: 0 }}>邮箱选择</Title>
-                                    <Text type="secondary">先切换到目标邮箱，再处理收件、发件或验证码。</Text>
+                                    <Title level={4} style={inboxStyles.titleNoMargin}>当前邮箱</Title>
                                 </div>
-                                <Text type="secondary" style={{ fontSize: 12 }}>如果当前邮箱显示“仅收件”，右上角写邮件按钮会自动禁用；切换到可发件邮箱后即可发送。</Text>
-                                <Select style={{ width: '100%' }} value={selectedMailboxId} onChange={setSelectedMailboxId} options={mailboxOptions} placeholder="选择邮箱" />
+                                <Select style={inboxStyles.fullWidth} value={selectedMailboxId} onChange={setSelectedMailboxId} options={mailboxOptions} placeholder="选择邮箱" />
                                 {selectedMailbox ? (
-                                    <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                                    <Space orientation="vertical" size={10} style={inboxStyles.fullWidth}>
                                         <div>
                                             <Text type="secondary">当前邮箱</Text>
-                                            <div style={{ fontWeight: 700, marginTop: 4 }}>{selectedMailbox.address}</div>
+                                            <div style={inboxStyles.mailboxValue}>{selectedMailbox.address}</div>
                                         </div>
                                         <div>
                                             <Text type="secondary">域名</Text>
                                             <div>{selectedMailbox.domain?.name || '-'}</div>
                                         </div>
+                                        {selectedMailboxProfile ? (
+                                            <div>
+                                                <Text type="secondary">接入方式</Text>
+                                                <div style={inboxStyles.mailboxValue}>{selectedMailbox.profileSummaryHint || selectedMailboxProfile.summaryHint}</div>
+                                            </div>
+                                        ) : null}
                                         <Space wrap>
-                                            <Tag color={canSend ? 'success' : 'default'}>{canSend ? '可发件' : '仅收件'}</Tag>
+                                            {selectedMailboxProfile ? (
+                                                <Tag color={getRepresentativeProtocolTagColor(selectedMailbox.representativeProtocol || selectedMailboxProfile.representativeProtocol)}>
+                                                    {getRepresentativeProtocolLabel(selectedMailbox.representativeProtocol || selectedMailboxProfile.representativeProtocol)}
+                                                </Tag>
+                                            ) : null}
+												<Tag color={canSend ? 'success' : domainCanSend ? 'warning' : 'default'}>{sendStatusLabel}</Tag>
                                             <Tag color={selectedMailbox.forwardMode && selectedMailbox.forwardMode !== 'DISABLED' ? 'purple' : 'default'}>
-                                                {selectedMailbox.forwardMode && selectedMailbox.forwardMode !== 'DISABLED' ? `转发 ${selectedMailbox.forwardMode}` : '未转发'}
+                                                {selectedMailbox.forwardMode && selectedMailbox.forwardMode !== 'DISABLED' ? '已启用转发' : '未转发'}
                                             </Tag>
                                         </Space>
                                         <Button icon={<CopyOutlined />} onClick={() => void handleCopy(selectedMailbox.address, '邮箱地址已复制')}>复制邮箱地址</Button>
                                     </Space>
                                 ) : null}
                             </Space>
-                        </Card>
+                        </SurfaceCard>
 
                         <Row gutter={[12, 12]}>
                             <Col span={12}>
-                                <Card bordered={false} style={{ borderRadius: 20, border: '1px solid rgba(148, 163, 184, 0.18)' }} styles={{ body: { padding: 18 } }}>
+                                <SurfaceCard style={inboxStyles.compactCard} bodyStyle={{ padding: 18 }}>
                                     <Text type="secondary">{folder === 'inbox' ? '当前消息数' : '发件记录'}</Text>
-                                    <div style={{ fontSize: 28, fontWeight: 800, marginTop: 6 }}>{folder === 'inbox' ? inboxStats.total : sentStats.total}</div>
-                                </Card>
+                                    <div style={inboxStyles.statsValueLarge}>{folder === 'inbox' ? inboxStats.total : sentStats.total}</div>
+                                </SurfaceCard>
                             </Col>
                             <Col span={12}>
-                                <Card bordered={false} style={{ borderRadius: 20, border: '1px solid rgba(148, 163, 184, 0.18)' }} styles={{ body: { padding: 18 } }}>
+                                <SurfaceCard style={inboxStyles.compactCard} bodyStyle={{ padding: 18 }}>
                                     <Text type="secondary">{folder === 'inbox' ? '未读 / 验证码' : '成功 / 失败'}</Text>
-                                    <div style={{ fontSize: 16, fontWeight: 700, marginTop: 8 }}>
+                                    <div style={inboxStyles.statsValueCompact}>
                                         {folder === 'inbox' ? `${inboxStats.unread} / ${inboxStats.withCode}` : `${sentStats.sent} / ${sentStats.failed}`}
                                     </div>
-                                </Card>
+                                </SurfaceCard>
                             </Col>
                         </Row>
 
-                        <Card bordered={false} style={{ borderRadius: 24, border: '1px solid rgba(148, 163, 184, 0.18)' }} styles={{ body: { padding: 22 } }}>
-                            <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                        <SurfaceCard style={inboxStyles.sectionCard} bodyStyle={{ padding: 22 }}>
+                            <Space orientation="vertical" size={14} style={inboxStyles.fullWidth}>
                                 <div>
-                                    <Title level={5} style={{ margin: 0 }}>工作区过滤器</Title>
-                                    <Text type="secondary">可以先缩窄范围，再打开详情。</Text>
+                                    <Title level={5} style={inboxStyles.titleNoMargin}>过滤器</Title>
                                 </div>
-                                <Text type="secondary" style={{ fontSize: 12 }}>关键词会同时匹配主题、发件人、验证码和邮箱地址；“只看未读”更适合快速处理新验证码。</Text>
                                 {folder === 'inbox' ? (
-                                    <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                                    <Space style={flexBetweenFullWidthStyle}>
                                         <Text>只看未读</Text>
                                         <Switch checked={unreadOnly} onChange={setUnreadOnly} />
                                     </Space>
@@ -382,14 +445,14 @@ const MailPortalInboxPage: React.FC = () => {
                                     placeholder={folder === 'inbox' ? '按主题、发件人、验证码搜索' : '按主题、收件人、状态搜索'}
                                 />
                             </Space>
-                        </Card>
+                        </SurfaceCard>
                     </Space>
                 </Col>
 
                 <Col xs={24} xl={17}>
-                    <Card bordered={false} style={{ borderRadius: 24, border: '1px solid rgba(148, 163, 184, 0.18)' }} styles={{ body: { padding: 22 } }}>
+                    <SurfaceCard style={inboxStyles.sectionCard} bodyStyle={{ padding: 22 }}>
                         {loading ? (
-                            <div style={{ textAlign: 'center', padding: 56 }}><Spin /></div>
+                            <div style={centeredPadding56Style}><Spin /></div>
                         ) : listData.length === 0 ? (
                             <Empty description={folder === 'inbox' ? '暂无符合条件的收件邮件' : '暂无符合条件的发件记录'} />
                         ) : folder === 'inbox' ? (
@@ -397,10 +460,10 @@ const MailPortalInboxPage: React.FC = () => {
                                 itemLayout="vertical"
                                 dataSource={filteredInboxMessages}
                                 renderItem={(item) => (
-                                    <List.Item key={item.id} style={{ cursor: 'pointer' }} onClick={() => void openInboxMessage(item.id)}>
-                                        <Space direction="vertical" style={{ width: '100%' }} size={6}>
-                                            <Space wrap style={{ justifyContent: 'space-between', width: '100%' }}>
-                                                <Space wrap>
+                                    <List.Item key={item.id} style={inboxStyles.listCursor} onClick={() => void openInboxMessage(item.id)}>
+                                        <Space orientation="vertical" style={inboxStyles.fullWidth} size={6}>
+                                            <Space wrap style={flexBetweenFullWidthStyle}>
+                                                <Space wrap style={flexBetweenFullWidthStyle}>
                                                     <Text strong>{item.subject || '(无主题)'}</Text>
                                                     {item.verificationCode ? <Tag color="magenta">验证码 {item.verificationCode}</Tag> : null}
                                                     {item.routeKind ? <Tag>{item.routeKind}</Tag> : null}
@@ -420,7 +483,7 @@ const MailPortalInboxPage: React.FC = () => {
                                                 ) : null}
                                             </Space>
                                             <Text type="secondary">来自 {item.fromAddress} · 送达 {item.mailbox?.address || '-'}</Text>
-                                            <Paragraph ellipsis={{ rows: 2, expandable: false }} style={{ marginBottom: 0 }}>
+                                            <Paragraph ellipsis={{ rows: 2, expandable: false }} style={noMarginBottomStyle}>
                                                 {item.textPreview || item.htmlPreview || '无预览'}
                                             </Paragraph>
                                             <Text type="secondary">{new Date(item.receivedAt).toLocaleString()}</Text>
@@ -433,8 +496,8 @@ const MailPortalInboxPage: React.FC = () => {
                                 itemLayout="vertical"
                                 dataSource={filteredSentMessages}
                                 renderItem={(item) => (
-                                    <List.Item key={item.id} style={{ cursor: 'pointer' }} onClick={() => void openSentMessage(item.id)}>
-                                        <Space direction="vertical" style={{ width: '100%' }} size={6}>
+                                    <List.Item key={item.id} style={inboxStyles.listCursor} onClick={() => void openSentMessage(item.id)}>
+                                        <Space orientation="vertical" style={inboxStyles.fullWidth} size={6}>
                                             <Space wrap>
                                                 <Text strong>{item.subject || '(无主题)'}</Text>
                                                 <Tag color={item.status === 'SENT' ? 'green' : item.status === 'FAILED' ? 'red' : 'default'}>{item.status}</Tag>
@@ -446,14 +509,14 @@ const MailPortalInboxPage: React.FC = () => {
                                 )}
                             />
                         )}
-                    </Card>
+                    </SurfaceCard>
                 </Col>
             </Row>
 
             <Drawer title={String(selectedMessage?.subject || '邮件详情')} open={detailVisible} onClose={() => setDetailVisible(false)} width={760}>
                 {detailLoading ? <Spin /> : (
-                    <Space direction="vertical" style={{ width: '100%' }} size={14}>
-                        <Space wrap style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Space orientation="vertical" style={inboxStyles.detailStack} size={14}>
+                        <Space wrap style={flexBetweenFullWidthStyle}>
                             <Text><strong>发件人：</strong>{String(selectedMessage?.fromAddress || '-')}</Text>
                             {folder === 'inbox' && String(selectedMessage?.verificationCode || '').trim() ? (
                                 <Button icon={<CopyOutlined />} onClick={() => void handleCopy(String(selectedMessage?.verificationCode || ''), '验证码已复制')}>
@@ -466,6 +529,7 @@ const MailPortalInboxPage: React.FC = () => {
                         {folder === 'inbox' ? <Text><strong>验证码：</strong>{String(selectedMessage?.verificationCode || '-')}</Text> : null}
                         {folder === 'sent' ? <Text><strong>发送状态：</strong>{String(selectedMessage?.status || '-')}</Text> : null}
                         {folder === 'sent' ? <Text><strong>Provider Message ID：</strong>{String(selectedMessage?.providerMessageId || '-')}</Text> : null}
+                        {folder === 'sent' ? <Text><strong>失败原因：</strong>{String(selectedMessage?.lastError || '-')}</Text> : null}
                         {renderMessageBody()}
                     </Space>
                 )}
@@ -482,7 +546,18 @@ const MailPortalInboxPage: React.FC = () => {
                 destroyOnHidden
             >
                 <Form form={form} layout="vertical" onFinish={handleSend} initialValues={{ to: '', subject: '', text: '' }}>
-                    {!canSend ? <Alert style={{ marginBottom: 16 }} type="warning" showIcon message="当前邮箱所属域名未开启发件能力，请切换到已允许发件的域名邮箱。" /> : null}
+					{!canSend ? (
+						<Alert
+							style={marginBottom16Style}
+							type="warning"
+							showIcon
+						title={
+								domainCanSend
+									? '当前邮箱所在域名尚未配置有效发件通道，请联系管理员先补齐发件配置。'
+									: '当前邮箱所属域名未开启发件能力，请切换到已允许发件的域名邮箱。'
+							}
+						/>
+					) : null}
                     <Form.Item label="收件人" name="to" rules={[{ required: true, message: '请填写收件人' }]} extra="支持多个地址，使用逗号、分号或换行分隔。">
                         <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="例如：alice@example.com, bob@example.com" />
                     </Form.Item>

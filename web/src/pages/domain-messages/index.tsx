@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type FC } from 'react';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Button, Card, Drawer, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Button, Drawer, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { domainApi, domainMailboxApi, domainMessageApi } from '../../api';
-import { PageHeader } from '../../components';
+import { PageHeader, SurfaceCard } from '../../components';
+import { domainMessagesContract } from '../../contracts/admin/domainMessages';
+import { fullWidthStyle, noMarginStyle, preWrapBreakWordStyle, width180Style, width220Style } from '../../styles/common';
 import { requestData } from '../../utils/request';
 
 const { Text } = Typography;
@@ -26,11 +27,12 @@ interface MessageRecord {
     verificationCode?: string | null;
     routeKind?: string | null;
     receivedAt: string;
+    storageStatus?: string | null;
     mailbox?: { id: number; address: string } | null;
     domain?: { id: number; name: string } | null;
 }
 
-const DomainMessagesPage: React.FC = () => {
+const DomainMessagesPage: FC = () => {
     const [loading, setLoading] = useState(true);
     const [domains, setDomains] = useState<DomainOption[]>([]);
     const [mailboxes, setMailboxes] = useState<MailboxOption[]>([]);
@@ -52,8 +54,8 @@ const DomainMessagesPage: React.FC = () => {
 
     const loadOptions = useCallback(async () => {
         const [domainResult, mailboxResult] = await Promise.all([
-            requestData<{ list: DomainOption[] }>(() => domainApi.getList({ page: 1, pageSize: 100 }), '获取域名失败', { silent: true }),
-            requestData<{ list: MailboxOption[] }>(() => domainMailboxApi.getList({ page: 1, pageSize: 100 }), '获取邮箱失败', { silent: true }),
+            requestData<{ list: DomainOption[] }>(() => domainMessagesContract.getDomains({ page: 1, pageSize: 100 }), '获取域名失败', { silent: true }),
+            requestData<{ list: MailboxOption[] }>(() => domainMessagesContract.getMailboxes({ page: 1, pageSize: 100 }), '获取邮箱失败', { silent: true }),
         ]);
         setDomains(domainResult?.list || []);
         setMailboxes(mailboxResult?.list || []);
@@ -62,7 +64,7 @@ const DomainMessagesPage: React.FC = () => {
     const loadMessages = useCallback(async () => {
         setLoading(true);
         const result = await requestData<{ list: MessageRecord[] }>(
-            () => domainMessageApi.getList({ page: 1, pageSize: 100, domainId, mailboxId }),
+            () => domainMessagesContract.getList({ page: 1, pageSize: 100, domainId, mailboxId }),
             '获取域名消息失败'
         );
         if (result) {
@@ -86,7 +88,7 @@ const DomainMessagesPage: React.FC = () => {
     }, [loadMessages]);
 
     const openDetail = async (id: string) => {
-        const result = await requestData<Record<string, unknown>>(() => domainMessageApi.getById(id), '获取消息详情失败');
+        const result = await requestData<Record<string, unknown>>(() => domainMessagesContract.getById(id), '获取消息详情失败');
         if (result) {
             setDetail(result);
             setDrawerVisible(true);
@@ -96,7 +98,7 @@ const DomainMessagesPage: React.FC = () => {
     const handleDelete = useCallback(async (record: MessageRecord) => {
         setDeletingId(record.id);
         const result = await requestData<{ deleted: number; ids: string[] }>(
-            () => domainMessageApi.delete(record.id),
+            () => domainMessagesContract.delete(record.id),
             '删除域名消息失败'
         );
         if (result) {
@@ -116,7 +118,7 @@ const DomainMessagesPage: React.FC = () => {
 
         setBatchDeleting(true);
         const result = await requestData<{ deleted: number; ids: string[] }>(
-            () => domainMessageApi.batchDelete(selectedRowKeys.map((item) => String(item))),
+            () => domainMessagesContract.batchDelete(selectedRowKeys.map((item) => String(item))),
             '批量清理域名消息失败'
         );
         if (result) {
@@ -134,7 +136,7 @@ const DomainMessagesPage: React.FC = () => {
             dataIndex: 'subject',
             key: 'subject',
             render: (value, record) => (
-                <Button type="link" onClick={() => void openDetail(record.id)} style={{ padding: 0 }}>
+                <Button type="link" onClick={() => void openDetail(record.id)} style={noMarginStyle}>
                     {value || '(无主题)'}
                 </Button>
             ),
@@ -153,6 +155,12 @@ const DomainMessagesPage: React.FC = () => {
             dataIndex: 'receivedAt',
             key: 'receivedAt',
             render: (value) => new Date(value).toLocaleString(),
+        },
+        {
+            title: '存储状态',
+            dataIndex: 'storageStatus',
+            key: 'storageStatus',
+            render: (value) => <Tag color={value === 'STORED' ? 'success' : value === 'FAILED' ? 'error' : 'default'}>{value || 'PENDING'}</Tag>,
         },
         {
             title: '操作',
@@ -185,7 +193,7 @@ const DomainMessagesPage: React.FC = () => {
                         <Select
                             allowClear
                             placeholder="筛选域名"
-                            style={{ width: 180 }}
+                            style={width180Style}
                             value={domainId}
                             onChange={setDomainId}
                             options={domains.map((item) => ({ value: item.id, label: item.name }))}
@@ -193,7 +201,7 @@ const DomainMessagesPage: React.FC = () => {
                         <Select
                             allowClear
                             placeholder="筛选邮箱"
-                            style={{ width: 220 }}
+                            style={width220Style}
                             value={mailboxId}
                             onChange={setMailboxId}
                             options={mailboxes.map((item) => ({ value: item.id, label: item.address }))}
@@ -215,7 +223,7 @@ const DomainMessagesPage: React.FC = () => {
                     </Space>
                 }
             />
-            <Card>
+            <SurfaceCard>
                 <Table
                     rowKey="id"
                     loading={loading}
@@ -228,16 +236,20 @@ const DomainMessagesPage: React.FC = () => {
                     }}
                     locale={{ emptyText: '暂无域名消息' }}
                 />
-            </Card>
+            </SurfaceCard>
             <Drawer title={String(detail?.subject || '邮件详情')} open={drawerVisible} onClose={() => setDrawerVisible(false)} width={720}>
-                <Space direction="vertical" style={{ width: '100%' }}>
+                <Space orientation="vertical" style={fullWidthStyle}>
                     <Text><strong>发件人：</strong>{String(detail?.fromAddress || '-')}</Text>
                     <Text><strong>收件人：</strong>{String(detail?.toAddress || '-')}</Text>
                     <Text><strong>命中路由：</strong>{String(detail?.routeKind || '-')}</Text>
                     <Text><strong>验证码：</strong>{String(detail?.verificationCode || '-')}</Text>
-                    <Card size="small" title="内容预览">
-                        <div style={{ whiteSpace: 'pre-wrap' }}>{String(detail?.textPreview || detail?.htmlPreview || '-')}</div>
-                    </Card>
+                    <Text><strong>存储状态：</strong>{String(detail?.storageStatus || '-')}</Text>
+                    <Text><strong>Raw Object Key：</strong>{String(detail?.rawObjectKey || '-')}</Text>
+                    <Text><strong>门户可见性：</strong>{String(detail?.portalState || '-')}</Text>
+                    <Text><strong>附件摘要：</strong>{Array.isArray(detail?.attachmentsMeta) ? `${detail.attachmentsMeta.length} 个附件（当前多为 metadata-only）` : '无附件'}</Text>
+                    <SurfaceCard size="small" title="内容预览" tone="muted">
+                        <div style={preWrapBreakWordStyle}>{String(detail?.textPreview || detail?.htmlPreview || '-')}</div>
+                    </SurfaceCard>
                 </Space>
             </Drawer>
         </div>

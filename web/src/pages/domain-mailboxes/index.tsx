@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+    Alert,
     Button,
-    Card,
     Form,
     Input,
     InputNumber,
@@ -17,8 +17,25 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { DeleteOutlined, PlusOutlined, UserAddOutlined } from '@ant-design/icons';
-import { apiKeyApi, domainApi, domainMailboxApi, mailboxUserApi } from '../../api';
-import { PageHeader } from '../../components';
+import { PageHeader, SurfaceCard } from '../../components';
+import { domainMailboxesContract } from '../../contracts/admin/domainMailboxes';
+import {
+    fullWidthStyle,
+    marginBottom16Style,
+    width120Style,
+    width140Style,
+    width170Style,
+    width180Style,
+} from '../../styles/common';
+import {
+    getHostedInternalProfileByProvisioningMode,
+    getHostedInternalProfileDefinition,
+    getRepresentativeProtocolLabel,
+    getRepresentativeProtocolTagColor,
+    type HostedInternalCapabilitySummary,
+    type HostedInternalProfileKey,
+    type RepresentativeProtocol,
+} from '../../constants/providers';
 import { getErrorMessage } from '../../utils/error';
 import { requestData } from '../../utils/request';
 
@@ -57,7 +74,11 @@ interface MailboxRecord {
     ownerUserId?: number | null;
     apiUsageCount?: number;
     inboundMessageCount?: number;
-    domain?: { id: number; name: string };
+    providerProfile?: HostedInternalProfileKey;
+    representativeProtocol?: RepresentativeProtocol;
+    profileSummaryHint?: string;
+    capabilitySummary?: HostedInternalCapabilitySummary;
+    domain?: { id: number; name: string; canSend?: boolean; canReceive?: boolean };
     ownerUser?: { id: number; username: string } | null;
 }
 
@@ -114,6 +135,13 @@ async function fetchAllPagedItems<T>(fetchPage: (page: number, pageSize: number)
     };
 }
 
+const domainMailboxStyles = {
+    fullWidth: fullWidthStyle,
+    profileHint: { color: 'rgba(0, 0, 0, 0.45)', fontSize: 12 },
+    filterRow: marginBottom16Style,
+    batchPrefixRow: { display: 'flex' },
+} as const;
+
 const DomainMailboxesPage = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
@@ -142,15 +170,17 @@ const DomainMailboxesPage = () => {
     const [batchAssignForm] = Form.useForm();
 
     const batchCreateMode = (Form.useWatch('createMode', batchCreateForm) as BatchCreateMode | undefined) || 'PREFIX';
+    const mailboxProvisioningMode = (Form.useWatch('provisioningMode', mailboxForm) as 'MANUAL' | 'API_POOL' | undefined) || editingMailbox?.provisioningMode || 'MANUAL';
+    const mailboxDomainId = Form.useWatch('domainId', mailboxForm) as number | undefined;
 
     const loadData = useCallback(async () => {
         setLoading(true);
         const [domainResult, mailboxResult, userResult, apiKeyResult] = await Promise.all([
             requestData<DomainOption[]>(async () => fetchAllPagedItems<DomainOption>(
-                async (page, pageSize) => domainApi.getList<DomainOption>({ page, pageSize })
+                async (page, pageSize) => domainMailboxesContract.getDomains<DomainOption>({ page, pageSize })
             ), '获取域名失败', { silent: true }),
             requestData<MailboxRecord[]>(async () => fetchAllPagedItems<MailboxRecord>(
-                async (page, pageSize) => domainMailboxApi.getList<MailboxRecord>({
+                async (page, pageSize) => domainMailboxesContract.getMailboxes<MailboxRecord>({
                     page,
                     pageSize,
                     domainId: filterDomainId,
@@ -160,10 +190,10 @@ const DomainMailboxesPage = () => {
                 })
             ), '获取域名邮箱失败'),
             requestData<UserRecord[]>(async () => fetchAllPagedItems<UserRecord>(
-                async (page, pageSize) => mailboxUserApi.getList<UserRecord>({ page, pageSize })
+                async (page, pageSize) => domainMailboxesContract.getUsers<UserRecord>({ page, pageSize })
             ), '获取邮箱用户失败', { silent: true }),
             requestData<ApiKeyOption[]>(async () => fetchAllPagedItems<ApiKeyOption>(
-                async (page, pageSize) => apiKeyApi.getList<ApiKeyOption>({ page, pageSize, status: 'ACTIVE' })
+                async (page, pageSize) => domainMailboxesContract.getApiKeys<ApiKeyOption>({ page, pageSize, status: 'ACTIVE' })
             ), '获取 API Key 失败', { silent: true }),
         ]);
 
@@ -184,6 +214,14 @@ const DomainMailboxesPage = () => {
     const activeDomains = useMemo(
         () => domains.filter((item) => item.status !== 'DISABLED'),
         [domains]
+    );
+    const mailboxProfileDefinition = useMemo(
+        () => getHostedInternalProfileByProvisioningMode(mailboxProvisioningMode),
+        [mailboxProvisioningMode]
+    );
+    const selectedMailboxDomain = useMemo(
+        () => activeDomains.find((item) => item.id === mailboxDomainId),
+        [activeDomains, mailboxDomainId]
     );
 
     const openMailboxModal = (record?: MailboxRecord) => {
@@ -239,8 +277,8 @@ const DomainMailboxesPage = () => {
     const handleMailboxSubmit = async (values: Record<string, unknown>) => {
         setSavingMailbox(true);
         const action = editingMailbox
-            ? domainMailboxApi.update(editingMailbox.id, values)
-            : domainMailboxApi.create(values);
+            ? domainMailboxesContract.updateMailbox(editingMailbox.id, values)
+            : domainMailboxesContract.createMailbox(values);
         const result = await requestData(() => action, editingMailbox ? '更新邮箱失败' : '创建邮箱失败');
         if (result) {
             setMailboxModalVisible(false);
@@ -277,7 +315,7 @@ const DomainMailboxesPage = () => {
             }
 
             setSavingBatchCreate(true);
-            const result = await requestData<BatchCreateResult>(() => domainMailboxApi.batchCreate(payload), '批量创建域名邮箱失败');
+            const result = await requestData<BatchCreateResult>(() => domainMailboxesContract.batchCreateMailboxes(payload), '批量创建域名邮箱失败');
             if (result) {
                 message.success(`批量创建成功，共 ${result.createdCount || result.mailboxes?.length || 0} 个邮箱`);
                 setBatchCreateModalVisible(false);
@@ -297,7 +335,7 @@ const DomainMailboxesPage = () => {
         }
         setSavingBatchDelete(true);
         try {
-            const result = await requestData<BatchDeleteResult>(() => domainMailboxApi.batchDelete({ ids: selectedMailboxIds }), '批量删除域名邮箱失败');
+            const result = await requestData<BatchDeleteResult>(() => domainMailboxesContract.batchDeleteMailboxes({ ids: selectedMailboxIds }), '批量删除域名邮箱失败');
             if (result) {
                 message.success(`已删除 ${result.deletedCount || selectedMailboxIds.length} 个域名邮箱`);
                 setSelectedMailboxIds([]);
@@ -312,7 +350,7 @@ const DomainMailboxesPage = () => {
         try {
             const values = await batchDeleteForm.validateFields();
             setSavingBatchDelete(true);
-            const result = await requestData<BatchDeleteResult>(() => domainMailboxApi.batchDelete({
+            const result = await requestData<BatchDeleteResult>(() => domainMailboxesContract.batchDeleteMailboxes({
                 domainId: values.domainId,
                 batchTag: values.batchTag,
                 provisioningMode: values.provisioningMode,
@@ -338,7 +376,7 @@ const DomainMailboxesPage = () => {
             const values = await batchAssignForm.validateFields();
             setSavingBatchAssign(true);
             const result = await requestData<BatchAssignResult>(
-                () => mailboxUserApi.addMailboxes(Number(values.userId), selectedMailboxIds),
+                () => domainMailboxesContract.addMailboxesToUser(Number(values.userId), selectedMailboxIds),
                 '批量加入门户用户失败'
             );
             if (result) {
@@ -354,7 +392,7 @@ const DomainMailboxesPage = () => {
 
     const handleSingleDelete = useCallback(async (record: MailboxRecord) => {
         try {
-            const result = await requestData(() => domainMailboxApi.delete(record.id), '删除域名邮箱失败');
+            const result = await requestData(() => domainMailboxesContract.deleteMailbox(record.id), '删除域名邮箱失败');
             if (result) {
                 message.success('删除成功');
                 await loadData();
@@ -371,7 +409,42 @@ const DomainMailboxesPage = () => {
             title: '类型',
             dataIndex: 'provisioningMode',
             key: 'provisioningMode',
-            render: (value) => <Tag color={value === 'API_POOL' ? 'blue' : 'default'}>{value}</Tag>,
+            render: (value, record) => {
+                const profileDefinition = record.providerProfile
+                    ? getHostedInternalProfileDefinition(record.providerProfile)
+                    : getHostedInternalProfileByProvisioningMode(value);
+                const representativeProtocol = record.representativeProtocol || profileDefinition.representativeProtocol;
+                return (
+                    <Space orientation="vertical" size={4}>
+                        <Space wrap>
+                            <Tag color={getRepresentativeProtocolTagColor(representativeProtocol)}>
+                                {getRepresentativeProtocolLabel(representativeProtocol)}
+                            </Tag>
+                            <Tag color={value === 'API_POOL' ? 'blue' : 'default'}>{value}</Tag>
+                        </Space>
+                        <div style={domainMailboxStyles.profileHint}>
+                            {record.profileSummaryHint || profileDefinition.summaryHint}
+                        </div>
+                    </Space>
+                );
+            },
+        },
+        {
+            title: '能力',
+            key: 'capabilities',
+            render: (_, record) => (
+                <Space wrap>
+                    <Tag color={record.capabilitySummary?.receiveMail ? 'success' : 'default'}>
+                        {record.capabilitySummary?.receiveMail ? '可收件' : '收件关闭'}
+                    </Tag>
+                    <Tag color={record.capabilitySummary?.sendMail ? 'processing' : 'default'}>
+                        {record.capabilitySummary?.sendMail ? '可发件' : '仅收件'}
+                    </Tag>
+                    <Tag color={record.capabilitySummary?.apiAccess ? 'purple' : 'default'}>
+                        {record.capabilitySummary?.apiAccess ? 'API 池可分配' : '人工维护'}
+                    </Tag>
+                </Space>
+            ),
         },
         { title: '批次标签', dataIndex: 'batchTag', key: 'batchTag', render: (value) => value || '-' },
         { title: '负责人', key: 'ownerUser', render: (_, record) => record.ownerUser?.username || '-' },
@@ -396,25 +469,31 @@ const DomainMailboxesPage = () => {
         <div>
             <PageHeader
                 title="域名邮箱"
-                subtitle="这里专注域名邮箱的创建、批量维护、负责人绑定和 API 池供给；门户用户 CRUD 已拆到独立的“门户用户”页面统一管理。"
+                subtitle="这里专注 Hosted Internal 域名邮箱的创建、批量维护、负责人绑定和 API 池供给；门户用户 CRUD 已拆到独立的“门户用户”页面统一管理。"
                 extra={
                     <Space wrap>
-                        <Button onClick={() => navigate('/mailbox-users')}>前往门户用户</Button>
-                        <Button onClick={openBatchDeleteModal} icon={<DeleteOutlined />}>按域名/批次删除</Button>
                         <Button onClick={openBatchCreateModal}>批量创建邮箱</Button>
                         <Button type="primary" icon={<PlusOutlined />} onClick={() => openMailboxModal()}>新增邮箱</Button>
                     </Space>
                 }
             />
-            <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <Card
+            <Space orientation="vertical" size="large" style={domainMailboxStyles.fullWidth}>
+                <Alert
+                    type="info"
+                    showIcon
+                    title="域名邮箱现在统一按 Hosted Internal 协议合同展示"
+                    description="MANUAL 与 API_POOL 只是 Hosted Internal 下的两个 profile：MANUAL 更偏人工维护和门户协同，API_POOL 更偏批量分配与程序化收件。"
+                />
+                <SurfaceCard
                     title="域名邮箱供给"
                     extra={
                         <Space wrap>
+                            <Button onClick={() => navigate('/mailbox-users')}>门户用户</Button>
+                            <Button onClick={openBatchDeleteModal} icon={<DeleteOutlined />}>按域名/批次删除</Button>
                             <Select
                                 allowClear
                                 placeholder="筛选域名"
-                                style={{ width: 180 }}
+                                style={width180Style}
                                 value={filterDomainId}
                                 onChange={(value) => setFilterDomainId(value)}
                                 options={activeDomains.map((item) => ({ value: item.id, label: item.name }))}
@@ -422,7 +501,7 @@ const DomainMailboxesPage = () => {
                             <Select
                                 allowClear
                                 placeholder="筛选状态"
-                                style={{ width: 140 }}
+                                style={width140Style}
                                 value={filterStatus}
                                 onChange={(value) => setFilterStatus(value)}
                                 options={[
@@ -434,30 +513,38 @@ const DomainMailboxesPage = () => {
                             <Select
                                 allowClear
                                 placeholder="筛选类型"
-                                style={{ width: 170 }}
+                                style={width170Style}
                                 value={filterProvisioningMode}
                                 onChange={(value) => setFilterProvisioningMode(value)}
                                 options={provisioningOptions}
                             />
                             <Input
                                 placeholder="批次标签"
-                                style={{ width: 180 }}
+                                style={width180Style}
                                 value={filterBatchTag}
                                 onChange={(event) => setFilterBatchTag(event.target.value)}
                             />
-                            <Popconfirm
-                                title={`确定删除已勾选的 ${selectedMailboxIds.length} 个邮箱吗？`}
-                                onConfirm={() => void handleDeleteSelected()}
-                                disabled={selectedMailboxIds.length === 0}
-                            >
-                                <Button danger disabled={selectedMailboxIds.length === 0} loading={savingBatchDelete}>批量删除已选</Button>
-                            </Popconfirm>
-                            <Button icon={<UserAddOutlined />} disabled={selectedMailboxIds.length === 0 || users.length === 0} onClick={openBatchAssignModal}>
-                                批量加入门户用户
-                            </Button>
                         </Space>
                     }
                 >
+                    {selectedMailboxIds.length > 0 ? (
+                        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                            <div style={{ color: 'rgba(15, 23, 42, 0.62)', fontSize: 13 }}>
+                                已选择 {selectedMailboxIds.length} 个邮箱，可继续做负责人分配或批量删除。
+                            </div>
+                            <Space wrap>
+                                <Button icon={<UserAddOutlined />} disabled={users.length === 0} onClick={openBatchAssignModal}>
+                                    批量加入门户用户
+                                </Button>
+                                <Popconfirm
+                                    title={`确定删除已勾选的 ${selectedMailboxIds.length} 个邮箱吗？`}
+                                    onConfirm={() => void handleDeleteSelected()}
+                                >
+                                    <Button danger loading={savingBatchDelete}>批量删除已选</Button>
+                                </Popconfirm>
+                            </Space>
+                        </div>
+                    ) : null}
                     <Table
                         rowKey="id"
                         loading={loading}
@@ -469,7 +556,7 @@ const DomainMailboxesPage = () => {
                             onChange: (keys) => setSelectedMailboxIds(keys.map((item) => Number(item))),
                         }}
                     />
-                </Card>
+                </SurfaceCard>
             </Space>
 
             <Modal
@@ -478,9 +565,9 @@ const DomainMailboxesPage = () => {
                 onCancel={() => setMailboxModalVisible(false)}
                 onOk={() => mailboxForm.submit()}
                 confirmLoading={savingMailbox}
-                destroyOnClose
+                destroyOnHidden
             >
-                <Form form={mailboxForm} layout="vertical" onFinish={handleMailboxSubmit}>
+                    <Form form={mailboxForm} layout="vertical" onFinish={handleMailboxSubmit}>
                     <Form.Item name="domainId" label="域名" rules={[{ required: true, message: '请选择域名' }]}>
                         <Select options={activeDomains.map((item) => ({ value: item.id, label: item.name }))} disabled={Boolean(editingMailbox)} />
                     </Form.Item>
@@ -493,6 +580,13 @@ const DomainMailboxesPage = () => {
                     <Form.Item name="provisioningMode" label="邮箱类型">
                         <Select options={provisioningOptions} />
                     </Form.Item>
+                    <Alert
+                        type="info"
+                        showIcon
+                        style={marginBottom16Style}
+                        title={`当前 profile：${mailboxProfileDefinition.label}`}
+                        description={`${mailboxProfileDefinition.classificationNote} ${selectedMailboxDomain?.canSend ? '当前域名允许发件，因此该邮箱会同时显示站内发件能力。' : '当前域名未开启发件，因此该邮箱会按“仅收件”的 Hosted Internal 邮箱处理。'}`}
+                    />
                     <Form.Item name="batchTag" label="批次标签">
                         <Input placeholder="manual-support-20260318" />
                     </Form.Item>
@@ -521,7 +615,7 @@ const DomainMailboxesPage = () => {
                 onOk={() => void handleBatchCreateSubmit()}
                 confirmLoading={savingBatchCreate}
                 width={760}
-                destroyOnClose
+                destroyOnHidden
             >
                 <Form form={batchCreateForm} layout="vertical">
                     <Form.Item name="domainId" label="域名" rules={[{ required: true, message: '请选择域名' }]}> 
@@ -530,11 +624,11 @@ const DomainMailboxesPage = () => {
                     <Form.Item name="provisioningMode" label="创建类型" rules={[{ required: true, message: '请选择创建类型' }]}> 
                         <Select options={provisioningOptions} />
                     </Form.Item>
-                    <Form.Item name="bindApiKeyIds" label="绑定到 API Key（可多选）">
+                    <Form.Item name="bindApiKeyIds" label="同步授权域名到 API Key（可多选）">
                         <Select
                             mode="multiple"
                             allowClear
-                            placeholder="选择后会自动把域名加入这些 API Key 的 allowed domains"
+                            placeholder="选择后会把当前域名加入这些 API Key 的 allowed domains，不会创建单邮箱级别的独占绑定"
                             options={apiKeys.map((item) => ({ value: item.id, label: `${item.name} (${item.keyPrefix})` }))}
                         />
                     </Form.Item>
@@ -549,18 +643,18 @@ const DomainMailboxesPage = () => {
                             <Input.TextArea rows={6} placeholder={`user001\nuser002\nuser003`} />
                         </Form.Item>
                     ) : (
-                        <Space size="middle" align="start" style={{ display: 'flex' }}>
+                        <Space size="middle" align="start" style={domainMailboxStyles.batchPrefixRow}>
                             <Form.Item name="prefix" label="前缀" rules={[{ required: true, message: '请输入前缀' }]}> 
-                                <Input placeholder="demo" style={{ width: 180 }} />
+                                <Input placeholder="demo" style={width180Style} />
                             </Form.Item>
                             <Form.Item name="count" label="数量" rules={[{ required: true, message: '请输入数量' }]}> 
-                                <InputNumber min={1} max={1000} style={{ width: 120 }} />
+                                <InputNumber min={1} max={1000} style={width120Style} />
                             </Form.Item>
                             <Form.Item name="startFrom" label="起始编号"> 
-                                <InputNumber min={0} style={{ width: 120 }} />
+                                <InputNumber min={0} style={width120Style} />
                             </Form.Item>
                             <Form.Item name="padding" label="补零位数"> 
-                                <InputNumber min={0} max={10} style={{ width: 120 }} />
+                                <InputNumber min={0} max={10} style={width120Style} />
                             </Form.Item>
                         </Space>
                     )}
@@ -585,7 +679,7 @@ const DomainMailboxesPage = () => {
                 onCancel={() => setBatchAssignModalVisible(false)}
                 onOk={() => void handleBatchAssignSubmit()}
                 confirmLoading={savingBatchAssign}
-                destroyOnClose
+                destroyOnHidden
             >
                 <Form form={batchAssignForm} layout="vertical">
                     <Form.Item label="已选域名邮箱">
@@ -608,7 +702,7 @@ const DomainMailboxesPage = () => {
                 onCancel={() => setBatchDeleteModalVisible(false)}
                 onOk={() => void handleBatchDeleteSubmit()}
                 confirmLoading={savingBatchDelete}
-                destroyOnClose
+                destroyOnHidden
             >
                 <Form form={batchDeleteForm} layout="vertical">
                     <Form.Item name="domainId" label="域名" rules={[{ required: true, message: '请选择域名' }]}> 

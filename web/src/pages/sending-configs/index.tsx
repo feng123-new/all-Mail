@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type Key } from 'react';
 import { DeleteOutlined, ReloadOutlined, SendOutlined } from '@ant-design/icons';
-import { Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, message } from 'antd';
+import { Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { domainApi, domainMailboxApi, sendingApi } from '../../api';
-import { PageHeader } from '../../components';
+import { PageHeader, SurfaceCard } from '../../components';
+import { sendingContract } from '../../contracts/admin/sending';
+import { fullWidthStyle } from '../../styles/common';
 import { requestData } from '../../utils/request';
 
 interface DomainOption {
@@ -27,12 +28,15 @@ interface SendConfigRecord {
     domain?: { id: number; name: string; canSend?: boolean };
 }
 
+const { Text } = Typography;
+
 interface OutboundMessageRecord {
     id: string;
     providerMessageId?: string | null;
     fromAddress: string;
     subject?: string | null;
     status: string;
+    lastError?: string | null;
     createdAt: string;
     domain?: { id: number; name: string } | null;
 }
@@ -45,7 +49,7 @@ const SendingConfigsPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [sendVisible, setSendVisible] = useState(false);
     const [sendLoading, setSendLoading] = useState(false);
-    const [selectedMessageIds, setSelectedMessageIds] = useState<React.Key[]>([]);
+    const [selectedMessageIds, setSelectedMessageIds] = useState<Key[]>([]);
     const [deletingConfigId, setDeletingConfigId] = useState<number | null>(null);
     const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
     const [batchDeletingMessages, setBatchDeletingMessages] = useState(false);
@@ -54,10 +58,10 @@ const SendingConfigsPage: React.FC = () => {
     const loadData = useCallback(async () => {
         setLoading(true);
         const [configResult, messageResult, domainResult, mailboxResult] = await Promise.all([
-            requestData<{ list: SendConfigRecord[] }>(() => sendingApi.getConfigs(), '获取发信配置失败'),
-            requestData<{ list: OutboundMessageRecord[] }>(() => sendingApi.getMessages({ page: 1, pageSize: 50 }), '获取发件历史失败'),
-            requestData<{ list: DomainOption[] }>(() => domainApi.getList({ page: 1, pageSize: 100 }), '获取域名失败', { silent: true }),
-            requestData<{ list: MailboxOption[] }>(() => domainMailboxApi.getList({ page: 1, pageSize: 100 }), '获取邮箱失败', { silent: true }),
+            requestData<{ list: SendConfigRecord[] }>(() => sendingContract.getConfigs(), '获取发信配置失败'),
+            requestData<{ list: OutboundMessageRecord[] }>(() => sendingContract.getMessages({ page: 1, pageSize: 50 }), '获取发件历史失败'),
+            requestData<{ list: DomainOption[] }>(() => sendingContract.getDomains({ page: 1, pageSize: 100 }), '获取域名失败', { silent: true }),
+            requestData<{ list: MailboxOption[] }>(() => sendingContract.getMailboxes({ page: 1, pageSize: 100 }), '获取邮箱失败', { silent: true }),
         ]);
         setConfigs(configResult?.list || []);
         setMessages(messageResult?.list || []);
@@ -75,7 +79,7 @@ const SendingConfigsPage: React.FC = () => {
 
     const handleSend = async (values: { domainId: number; mailboxId?: number; from: string; to: string; subject: string; text?: string; html?: string }) => {
         setSendLoading(true);
-        const result = await requestData(() => sendingApi.send({
+        const result = await requestData(() => sendingContract.send({
             domainId: values.domainId,
             mailboxId: values.mailboxId,
             from: values.from,
@@ -95,7 +99,7 @@ const SendingConfigsPage: React.FC = () => {
     const handleDeleteConfig = useCallback(async (record: SendConfigRecord) => {
         setDeletingConfigId(record.id);
         const result = await requestData<{ deleted: boolean }>(
-            () => sendingApi.deleteConfig(record.id),
+            () => sendingContract.deleteConfig(record.id),
             '删除发信配置失败'
         );
         if (result?.deleted) {
@@ -108,7 +112,7 @@ const SendingConfigsPage: React.FC = () => {
     const handleDeleteMessage = useCallback(async (record: OutboundMessageRecord) => {
         setDeletingMessageId(record.id);
         const result = await requestData<{ deleted: number }>(
-            () => sendingApi.deleteMessage(record.id),
+            () => sendingContract.deleteMessage(record.id),
             '删除发件历史失败'
         );
         if (result) {
@@ -127,7 +131,7 @@ const SendingConfigsPage: React.FC = () => {
 
         setBatchDeletingMessages(true);
         const result = await requestData<{ deleted: number }>(
-            () => sendingApi.batchDeleteMessages(selectedMessageIds.map((item) => String(item))),
+            () => sendingContract.batchDeleteMessages(selectedMessageIds.map((item) => String(item))),
             '批量清理发件历史失败'
         );
         if (result) {
@@ -171,6 +175,7 @@ const SendingConfigsPage: React.FC = () => {
         { title: '主题', dataIndex: 'subject', key: 'subject', render: (value) => value || '(无主题)' },
         { title: '状态', dataIndex: 'status', key: 'status' },
         { title: 'Provider ID', dataIndex: 'providerMessageId', key: 'providerMessageId', render: (value) => value || '-' },
+        { title: '失败原因', dataIndex: 'lastError', key: 'lastError', render: (value) => value || '-' },
         { title: '时间', dataIndex: 'createdAt', key: 'createdAt', render: (value) => new Date(value).toLocaleString() },
         {
             title: '操作',
@@ -200,17 +205,6 @@ const SendingConfigsPage: React.FC = () => {
                 subtitle="查看域名发信配置并对可发信域名执行测试发送；现在支持直接清理无效配置和历史记录。"
                 extra={
                     <Space wrap>
-                        {selectedMessageIds.length > 0 ? (
-                            <Popconfirm
-                                title={`确定要清理选中的 ${selectedMessageIds.length} 条发件历史吗？`}
-                                description="仅清理历史记录，不会影响真实发件结果。"
-                                onConfirm={() => void handleBatchDeleteMessages()}
-                            >
-                                <Button danger loading={batchDeletingMessages} icon={<DeleteOutlined />}>
-                                    清理选中 ({selectedMessageIds.length})
-                                </Button>
-                            </Popconfirm>
-                        ) : null}
                         <Button icon={<ReloadOutlined />} onClick={() => void loadData()}>
                             刷新
                         </Button>
@@ -220,11 +214,27 @@ const SendingConfigsPage: React.FC = () => {
                     </Space>
                 }
             />
-            <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <Card title="发信配置">
+            <Space orientation="vertical" size="large" style={fullWidthStyle}>
+                {selectedMessageIds.length > 0 ? (
+                    <SurfaceCard tone="muted">
+                        <Space wrap style={{ width: '100%', justifyContent: 'space-between', gap: 12 }}>
+                            <Text type="secondary">已选择 {selectedMessageIds.length} 条发件历史，可批量清理。</Text>
+                            <Popconfirm
+                                title={`确定要清理选中的 ${selectedMessageIds.length} 条发件历史吗？`}
+                                description="仅清理历史记录，不会影响真实发件结果。"
+                                onConfirm={() => void handleBatchDeleteMessages()}
+                            >
+                                <Button danger loading={batchDeletingMessages} icon={<DeleteOutlined />}>
+                                    清理选中 ({selectedMessageIds.length})
+                                </Button>
+                            </Popconfirm>
+                        </Space>
+                    </SurfaceCard>
+                ) : null}
+                <SurfaceCard title="发信配置">
                     <Table rowKey="id" loading={loading} columns={configColumns} dataSource={configs} pagination={false} locale={{ emptyText: '暂无发信配置' }} />
-                </Card>
-                <Card title="发件历史">
+                </SurfaceCard>
+                <SurfaceCard title="发件历史">
                     <Table
                         rowKey="id"
                         loading={loading}
@@ -237,9 +247,9 @@ const SendingConfigsPage: React.FC = () => {
                         }}
                         locale={{ emptyText: '暂无发件历史' }}
                     />
-                </Card>
+                </SurfaceCard>
             </Space>
-            <Modal title="发送测试邮件" open={sendVisible} onCancel={() => setSendVisible(false)} onOk={() => form.submit()} confirmLoading={sendLoading} destroyOnClose width={720}>
+            <Modal title="发送测试邮件" open={sendVisible} onCancel={() => setSendVisible(false)} onOk={() => form.submit()} confirmLoading={sendLoading} destroyOnHidden width={720}>
                 <Form form={form} layout="vertical" onFinish={handleSend}>
                     <Form.Item name="domainId" label="域名" rules={[{ required: true, message: '请选择域名' }]}>
                         <Select options={domains.map((item) => ({ value: item.id, label: item.name }))} />

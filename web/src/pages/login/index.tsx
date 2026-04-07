@@ -1,14 +1,19 @@
 import { useState, type FC } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Form, Input, Modal, Space, Tag, Typography, message } from 'antd';
+import { Alert, Button, Form, Input, Modal, Space, Typography, message } from 'antd';
 import { ApiOutlined, CloudServerOutlined, LockOutlined, SafetyCertificateOutlined, SendOutlined, UserOutlined } from '@ant-design/icons';
-import { authApi, mailboxPortalApi } from '../../api';
+import { AuthSplitLayout } from '../../components';
+import { portalAccountContract } from '../../contracts/portal/account';
+import { authContract } from '../../contracts/shared/auth';
 import { APP_CONSOLE_SUBTITLE, APP_NAME } from '../../constants/product';
 import { useAuthStore } from '../../stores/authStore';
 import { useMailboxAuthStore } from '../../stores/mailboxAuthStore';
+import { fullWidthStyle, marginBottom16Style, noMarginBottomStyle } from '../../styles/common';
 import { getErrorMessage } from '../../utils/error';
+import type { Admin } from '../../stores/authStore';
+import type { MailboxUser } from '../../stores/mailboxAuthStore';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 interface LoginForm {
     username: string;
@@ -20,14 +25,16 @@ const LoginPage: FC = () => {
     const { setAuth: setAdminAuth, clearAuth: clearAdminAuth } = useAuthStore();
     const { setAuth: setMailboxAuth, clearAuth: clearMailboxAuth } = useMailboxAuthStore();
     const [loading, setLoading] = useState(false);
+    const [formError, setFormError] = useState<string | null>(null);
     const [otpModalVisible, setOtpModalVisible] = useState(false);
     const [otpLoading, setOtpLoading] = useState(false);
     const [otpCode, setOtpCode] = useState('');
     const [pendingCredentials, setPendingCredentials] = useState<{ username: string; password: string } | null>(null);
 
-    const finishLogin = (result: { token: string; admin: { id: number; username: string; email?: string; role: 'SUPER_ADMIN' | 'ADMIN'; mustChangePassword?: boolean; twoFactorEnabled?: boolean } }) => {
+    const finishLogin = (result: { admin: Admin }) => {
         clearMailboxAuth();
-        setAdminAuth(result.token, result.admin);
+        setFormError(null);
+        setAdminAuth(result.admin);
         if (result.admin.mustChangePassword) {
             message.warning('这是首次初始化生成的临时密码，请先完成改密再继续使用系统');
             navigate('/settings');
@@ -37,20 +44,22 @@ const LoginPage: FC = () => {
         navigate('/');
     };
 
-    const finishMailboxLogin = (result: { token: string; mailboxUser: { id: number; username: string; email?: string | null; mustChangePassword?: boolean; mailboxIds?: number[] } }) => {
+    const finishMailboxLogin = (result: { mailboxUser: MailboxUser }) => {
         clearAdminAuth();
-        setMailboxAuth(result.token, result.mailboxUser);
+        setFormError(null);
+        setMailboxAuth(result.mailboxUser);
         message.success('邮箱门户登录成功');
-        navigate('/mail/overview');
+        navigate(result.mailboxUser.mustChangePassword ? '/mail/settings' : '/mail/overview');
     };
 
     const handleSubmit = async (values: LoginForm) => {
         setLoading(true);
+        setFormError(null);
         try {
-                const response = await authApi.login(values.username, values.password);
-                if (response.code === 200) {
-                    finishLogin(response.data as { token: string; admin: { id: number; username: string; email?: string; role: 'SUPER_ADMIN' | 'ADMIN'; mustChangePassword?: boolean; twoFactorEnabled?: boolean } });
-                }
+            const response = await authContract.login(values.username, values.password);
+            if (response.code === 200) {
+                finishLogin(response.data);
+            }
         } catch (err: unknown) {
             const errCode = String((err as { code?: unknown })?.code || '').toUpperCase();
             if (errCode === 'INVALID_OTP') {
@@ -60,15 +69,20 @@ const LoginPage: FC = () => {
                 message.info('该账号已启用二次验证，请输入 6 位验证码');
             } else if (errCode === 'INVALID_CREDENTIALS') {
                 try {
-                    const portalResponse = await mailboxPortalApi.login(values.username, values.password);
+                    const portalResponse = await portalAccountContract.login(values.username, values.password);
                     if (portalResponse.code === 200) {
-                        finishMailboxLogin(portalResponse.data as { token: string; mailboxUser: { id: number; username: string; email?: string | null; mustChangePassword?: boolean; mailboxIds?: number[] } });
+                        finishMailboxLogin(portalResponse.data);
                     }
                 } catch (portalErr) {
-                    message.error(getErrorMessage(portalErr, '登录失败'));
+                    const portalErrCode = String((portalErr as { code?: unknown })?.code || '').toUpperCase();
+                    if (portalErrCode === 'INVALID_CREDENTIALS') {
+                        setFormError('管理员与门户认证都未通过，请检查用户名和密码后重试。');
+                    } else {
+                        setFormError(getErrorMessage(portalErr, '管理员认证失败，且未能匹配到可用的门户账号。'));
+                    }
                 }
             } else {
-                message.error(getErrorMessage(err, '登录失败'));
+                setFormError(getErrorMessage(err, '登录失败'));
             }
         } finally {
             setLoading(false);
@@ -87,12 +101,12 @@ const LoginPage: FC = () => {
 
         setOtpLoading(true);
         try {
-            const response = await authApi.login(pendingCredentials.username, pendingCredentials.password, otp);
+            const response = await authContract.login(pendingCredentials.username, pendingCredentials.password, otp);
             if (response.code === 200) {
                 setOtpModalVisible(false);
                 setPendingCredentials(null);
                 setOtpCode('');
-                finishLogin(response.data as { token: string; admin: { id: number; username: string; email?: string; role: 'SUPER_ADMIN' | 'ADMIN'; mustChangePassword?: boolean; twoFactorEnabled?: boolean } });
+                finishLogin(response.data);
             }
         } catch (err: unknown) {
             const errCode = String((err as { code?: unknown })?.code || '').toUpperCase();
@@ -107,128 +121,58 @@ const LoginPage: FC = () => {
     };
 
     return (
-        <div
-            style={{
-                minHeight: '100vh',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 24,
-                background: 'radial-gradient(circle at top left, rgba(88, 101, 242, 0.24), transparent 32%), linear-gradient(135deg, #e9eefb 0%, #f5f8fd 48%, #eef6fb 100%)',
-            }}
-        >
-            <div style={{ width: 'min(1140px, 100%)', display: 'grid', gridTemplateColumns: 'minmax(0, 1.18fr) minmax(360px, 430px)', gap: 24 }}>
-                <Card
-                    bordered={false}
-                    style={{ borderRadius: 28, boxShadow: '0 28px 56px rgba(15, 23, 42, 0.10)' }}
-                    styles={{ body: { padding: 36 } }}
-                >
-                    <Space direction="vertical" size={20} style={{ width: '100%' }}>
-                        <Space wrap>
-                            <Tag color="blue">Admin Console</Tag>
-                            <Tag color="cyan">Control Plane</Tag>
-                            <Tag color="purple">Mail Operations</Tag>
-                        </Space>
+        <>
+            <AuthSplitLayout
+                tags={[
+                    { color: 'blue', label: 'Admin Console' },
+                    { color: 'cyan', label: 'Secure Access' },
+                ]}
+                title={APP_NAME}
+                subtitle={`${APP_CONSOLE_SUBTITLE}。把外部邮箱连接、域名邮箱、门户用户与自动化入口收进同一个控制面，先看运行态，再进入对象页处理。`}
+                features={[
+                    { icon: <CloudServerOutlined />, title: '统一管理邮件资源', description: '把连接、域名邮箱、门户用户和运行态放进同一个管理界面。' },
+                    { icon: <ApiOutlined />, title: '自动化入口可控', description: '访问密钥、调用记录和资源边界在控制台里统一收口。' },
+                    { icon: <SendOutlined />, title: '收发链路闭环', description: '从接入到收件、发件和转发都保持在同一工作流里。' },
+                ]}
+                notice="同一入口会自动兼容邮箱门户用户；如果管理员认证失败，系统会自动尝试门户登录。"
+                formTitle="登录管理控制台"
+                formDescription="优先走管理员认证；如果当前账号属于门户用户，系统会自动切换到门户工作台。"
+                footer={<Text type="secondary">适用于管理员与运营人员，也兼容需要临时进入门户工作台的邮箱用户。</Text>}
+            >
+                <Form name="login" onFinish={handleSubmit} size="large" autoComplete="off" onValuesChange={() => { if (formError) setFormError(null); }}>
+                    <Form.Item name="username" label="用户名或邮箱" rules={[{ required: true, message: '请输入用户名或邮箱' }]}>
+                        <Input prefix={<UserOutlined />} placeholder="用户名或邮箱" autoComplete="username" />
+                    </Form.Item>
 
-                        <div>
-                            <Title level={1} style={{ margin: 0, fontSize: 34 }}>{APP_NAME}</Title>
-                            <Paragraph style={{ margin: '12px 0 0', color: '#475569', fontSize: 16, maxWidth: 680 }}>
-                                {APP_CONSOLE_SUBTITLE}。从这里进入管理员控制台，统一处理外部邮箱连接、域名邮箱、门户用户、自动化访问密钥和邮件运行状态。
-                            </Paragraph>
-                        </div>
+                    <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
+                        <Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="current-password" />
+                    </Form.Item>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
-                            {[
-                                { icon: <CloudServerOutlined />, title: '统一邮件控制面', desc: '把外部邮箱、域名邮箱、门户用户和消息流放进同一个运营视角。' },
-                                { icon: <ApiOutlined />, title: '自动化接口可观测', desc: '查看访问密钥、最近自动化活动、Provider 分布和系统信号。' },
-                                { icon: <SendOutlined />, title: '收发与入口闭环', desc: '入口、收件、发件、转发和门户体验都可以在这一套系统里完成。' },
-                            ].map((item) => (
-                                <div
-                                    key={item.title}
-                                    style={{
-                                        borderRadius: 22,
-                                        padding: 18,
-                                        background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                                        border: '1px solid rgba(148, 163, 184, 0.18)',
-                                    }}
-                                >
-                                    <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                                        <div
-                                            style={{
-                                                width: 42,
-                                                height: 42,
-                                                borderRadius: 14,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                fontSize: 18,
-                                                color: '#5865f2',
-                                                background: 'rgba(88, 101, 242, 0.12)',
-                                            }}
-                                        >
-                                            {item.icon}
-                                        </div>
-                                        <div>
-                                            <Text strong>{item.title}</Text>
-                                            <div style={{ marginTop: 6 }}>
-                                                <Text type="secondary">{item.desc}</Text>
-                                            </div>
-                                        </div>
-                                    </Space>
-                                </div>
-                            ))}
-                        </div>
+                    <Alert
+                        type="warning"
+                        showIcon
+                        icon={<SafetyCertificateOutlined />}
+                        title="如果账号启用了 2FA，下一步会要求输入 6 位验证码"
+                        style={marginBottom16Style}
+                    />
 
+                    {formError ? (
                         <Alert
-                            type="info"
+                            type="error"
                             showIcon
-                            message="同一入口会自动兼容邮箱门户用户"
-                            description="如果管理员认证失败，系统会自动尝试邮箱门户登录。因此你可以统一使用这个登录入口，而不需要先判断自己属于哪一类账号。"
+                            title="当前无法完成登录"
+                            description={formError}
+                            style={marginBottom16Style}
                         />
-                    </Space>
-                </Card>
+                    ) : null}
 
-                <Card
-                    bordered={false}
-                    style={{ borderRadius: 28, boxShadow: '0 28px 56px rgba(15, 23, 42, 0.10)' }}
-                    styles={{ body: { padding: 32 } }}
-                >
-                    <Space direction="vertical" size={20} style={{ width: '100%' }}>
-                        <div style={{ textAlign: 'center' }}>
-                            <Title level={3} style={{ marginBottom: 8 }}>登录管理控制台</Title>
-                            <Text type="secondary">优先尝试管理员认证；若当前账号属于邮箱门户用户，会自动切到门户工作台。</Text>
-                        </div>
-
-                        <Form name="login" onFinish={handleSubmit} size="large" autoComplete="off">
-                            <Form.Item name="username" label="用户名或邮箱" rules={[{ required: true, message: '请输入用户名或邮箱' }]}>
-                                <Input prefix={<UserOutlined />} placeholder="用户名或邮箱" autoComplete="username" />
-                            </Form.Item>
-
-                            <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
-                                <Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="current-password" />
-                            </Form.Item>
-
-                            <Alert
-                                type="warning"
-                                showIcon
-                                icon={<SafetyCertificateOutlined />}
-                                message="如果账号启用了 2FA，下一步会要求输入 6 位验证码"
-                                style={{ marginBottom: 16 }}
-                            />
-
-                            <Form.Item style={{ marginBottom: 0 }}>
-                                <Button type="primary" htmlType="submit" loading={loading} block size="large">
-                                    进入管理控制台
-                                </Button>
-                            </Form.Item>
-                        </Form>
-
-                        <div style={{ paddingTop: 4 }}>
-                            <Text type="secondary">适用于管理员、运营人员和需要临时进入门户工作台的邮箱用户入口。</Text>
-                        </div>
-                    </Space>
-                </Card>
-            </div>
+                    <Form.Item style={noMarginBottomStyle}>
+                        <Button type="primary" htmlType="submit" loading={loading} block size="large">
+                            进入管理控制台
+                        </Button>
+                    </Form.Item>
+                </Form>
+            </AuthSplitLayout>
 
             <Modal
                 title="二次验证"
@@ -242,9 +186,9 @@ const LoginPage: FC = () => {
                 okText="验证并登录"
                 cancelText="取消"
                 confirmLoading={otpLoading}
-                destroyOnClose
+                destroyOnHidden
             >
-                <Space direction="vertical" style={{ width: '100%' }}>
+                <Space orientation="vertical" style={fullWidthStyle}>
                     <Text type="secondary">请输入验证器中的 6 位动态码</Text>
                     <Input
                         value={otpCode}
@@ -255,7 +199,7 @@ const LoginPage: FC = () => {
                     />
                 </Space>
             </Modal>
-        </div>
+        </>
     );
 };
 

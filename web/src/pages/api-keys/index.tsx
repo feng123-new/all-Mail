@@ -34,13 +34,46 @@ import {
     ThunderboltOutlined,
     SearchOutlined,
 } from '@ant-design/icons';
-import { apiKeyApi, domainApi, groupApi, emailApi } from '../../api';
+import { PageHeader, SurfaceCard } from '../../components';
+import { apiKeysContract } from '../../contracts/admin/apiKeys';
+import {
+    centeredPadding40Style,
+    centeredTextStyle,
+    displayBlockMarginBottom8Style,
+    fontSize11Style,
+    fullWidthStyle,
+    marginBottom8Style,
+    marginBottom16Style,
+    marginBottom24Style,
+    marginLeft4Style,
+    marginRight8Style,
+    neutralCodePanelStyle,
+    width180Style,
+    width200Style,
+} from '../../styles/common';
 import { getErrorMessage } from '../../utils/error';
 import { requestData } from '../../utils/request';
 import { LOG_ACTION_OPTIONS } from '../../constants/logActions';
 import dayjs from 'dayjs';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text, Paragraph } = Typography;
+
+const apiKeyStyles = {
+    fullWidth: fullWidthStyle,
+    permissionGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', rowGap: 8 },
+    warningBlock: { display: 'block', marginBottom: 16 },
+    keyPreview: { ...neutralCodePanelStyle, wordBreak: 'break-all' },
+    centeredLoading: centeredPadding40Style,
+    filterRow: marginBottom16Style,
+    marginBottom24: marginBottom24Style,
+    progressLabel: displayBlockMarginBottom8Style,
+    centeredText: centeredTextStyle,
+    emptyMuted: { ...centeredPadding40Style, color: '#999' },
+    emailScrollBox: { maxHeight: 400, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 12 },
+    checkboxGroup: fullWidthStyle,
+    emailCol: marginBottom8Style,
+    groupTag: { ...marginLeft4Style, ...fontSize11Style },
+} as const;
 
 interface EmailGroup {
     id: number;
@@ -181,7 +214,7 @@ const ApiKeysPage = () => {
 
     const fetchGroups = useCallback(async () => {
         const result = await requestData<EmailGroup[]>(
-            () => groupApi.getList(),
+            () => apiKeysContract.getGroups(),
             '获取分组失败',
             { silent: true }
         );
@@ -193,7 +226,7 @@ const ApiKeysPage = () => {
     const fetchDomains = useCallback(async () => {
         const result = await requestData<DomainOption[]>(
             async () => fetchAllPagedItems<DomainOption>(
-                async (page, pageSize) => domainApi.getList<DomainOption>({ page, pageSize })
+                async (page, pageSize) => apiKeysContract.getDomains<DomainOption>({ page, pageSize })
             ),
             '获取域名失败',
             { silent: true }
@@ -206,7 +239,7 @@ const ApiKeysPage = () => {
     const fetchAllEmailOptions = useCallback(async () => {
         const result = await requestData<EmailOptionItem[]>(
             async () => fetchAllPagedItems<EmailOptionItem>(
-                async (page, pageSize) => emailApi.getList<EmailOptionItem>({ page, pageSize, status: 'ACTIVE' })
+                async (page, pageSize) => apiKeysContract.getEmails<EmailOptionItem>({ page, pageSize, status: 'ACTIVE' })
             ),
             '获取邮箱选项失败',
             { silent: true }
@@ -220,7 +253,7 @@ const ApiKeysPage = () => {
         const currentRequestId = ++latestListRequestIdRef.current;
         setLoading(true);
         const result = await requestData<ApiKeyListResult>(
-            () => apiKeyApi.getList({ page, pageSize: Math.min(pageSize, MAX_LIST_PAGE_SIZE) }),
+            () => apiKeysContract.getList({ page, pageSize: Math.min(pageSize, MAX_LIST_PAGE_SIZE) }),
             '获取数据失败'
         );
         if (currentRequestId !== latestListRequestIdRef.current) {
@@ -275,7 +308,7 @@ const ApiKeysPage = () => {
         setModalVisible(true);
         try {
             const detail = await requestData<ApiKeyDetail>(
-                () => apiKeyApi.getById(record.id),
+                () => apiKeysContract.getById(record.id),
                 '获取访问密钥详情失败'
             );
             if (detail) {
@@ -302,7 +335,7 @@ const ApiKeysPage = () => {
 
     const handleDelete = useCallback(async (id: number) => {
         try {
-            const res = await apiKeyApi.delete(id);
+            const res = await apiKeysContract.delete(id);
             if (res.code === 200) {
                 message.success('删除成功');
                 fetchData();
@@ -343,7 +376,7 @@ const ApiKeysPage = () => {
                     allowedEmailIds,
                     allowedDomainIds,
                 };
-                const res = await apiKeyApi.update(editingId, submitData);
+                const res = await apiKeysContract.update(editingId, submitData);
                 if (res.code === 200) {
                     message.success('更新成功');
                     setModalVisible(false);
@@ -360,7 +393,7 @@ const ApiKeysPage = () => {
                     allowedEmailIds,
                     allowedDomainIds,
                 };
-                const res = await apiKeyApi.create(submitData);
+                const res = await apiKeysContract.create(submitData);
                 if (res.code === 200) {
                     setModalVisible(false);
                     setNewKey(res.data.key);
@@ -381,7 +414,7 @@ const ApiKeysPage = () => {
         setPoolModalVisible(true);
         setPoolLoading(true);
         try {
-            const res = await apiKeyApi.getAllocationStats(record.id);
+            const res = await apiKeysContract.getAllocationStats(record.id);
             if (res.code === 200) {
                 setPoolStats(res.data);
             }
@@ -397,7 +430,7 @@ const ApiKeysPage = () => {
         if (!currentApiKey) return;
         setPoolLoading(true);
         try {
-            const res = await apiKeyApi.getAllocationStats(currentApiKey.id, groupName);
+            const res = await apiKeysContract.getAllocationStats(currentApiKey.id, groupName);
             if (res.code === 200) {
                 setPoolStats(res.data);
             }
@@ -411,10 +444,10 @@ const ApiKeysPage = () => {
     const handleResetPool = async () => {
         if (!currentApiKey) return;
         try {
-            const res = await apiKeyApi.resetAllocation(currentApiKey.id, poolGroupName);
+            const res = await apiKeysContract.resetAllocation(currentApiKey.id, poolGroupName);
             if (res.code === 200) {
                 message.success('分配记录已重置');
-                const statsRes = await apiKeyApi.getAllocationStats(currentApiKey.id, poolGroupName);
+                const statsRes = await apiKeysContract.getAllocationStats(currentApiKey.id, poolGroupName);
                 if (statsRes.code === 200) {
                     setPoolStats(statsRes.data);
                 }
@@ -432,7 +465,7 @@ const ApiKeysPage = () => {
         setEmailModalVisible(true);
         setEmailLoading(true);
         try {
-            const res = await apiKeyApi.getAssignedMailboxes<PoolEmailItem>(record.id);
+            const res = await apiKeysContract.getAssignedMailboxes<PoolEmailItem>(record.id);
             if (res.code === 200) {
                 const emails = res.data;
                 setEmailList(emails);
@@ -451,7 +484,7 @@ const ApiKeysPage = () => {
         if (!currentApiKey) return;
         setEmailLoading(true);
         try {
-            const res = await apiKeyApi.getAssignedMailboxes<PoolEmailItem>(currentApiKey.id, groupId);
+            const res = await apiKeysContract.getAssignedMailboxes<PoolEmailItem>(currentApiKey.id, groupId);
             if (res.code === 200) {
                 const emails = res.data;
                 setEmailList(emails);
@@ -469,11 +502,11 @@ const ApiKeysPage = () => {
         if (!currentApiKey) return;
         setSavingEmails(true);
         try {
-            const res = await apiKeyApi.updateAssignedMailboxes(currentApiKey.id, selectedEmails, emailGroupId);
+            const res = await apiKeysContract.updateAssignedMailboxes(currentApiKey.id, selectedEmails, emailGroupId);
             if (res.code === 200) {
                 message.success(`已保存，共 ${res.data.count} 个资源邮箱`);
                 setEmailModalVisible(false);
-                const statsRes = await apiKeyApi.getAllocationStats(currentApiKey.id);
+                const statsRes = await apiKeysContract.getAllocationStats(currentApiKey.id);
                 if (statsRes.code === 200) {
                     setPoolStats(statsRes.data);
                 }
@@ -683,29 +716,32 @@ const ApiKeysPage = () => {
 
     return (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-                <Title level={4} style={{ margin: 0 }}>
-                    访问密钥与资源范围
-                </Title>
-                <Space>
-                    <Button icon={<ReloadOutlined />} onClick={fetchData}>
-                        刷新
-                    </Button>
-                    <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-                        创建访问密钥
-                    </Button>
-                </Space>
-            </div>
-
-            <Table
-                columns={columns}
-                dataSource={data}
-                rowKey="id"
-                loading={loading}
-                pagination={tablePagination}
-                virtual
-                scroll={{ y: 560, x: 1200 }}
+            <PageHeader
+                title="访问密钥与资源范围"
+                subtitle="统一管理自动化访问密钥、权限边界、速率限制与邮箱资源分配，让外部 API 使用保持可控。"
+                extra={
+                    <Space>
+                        <Button icon={<ReloadOutlined />} onClick={fetchData}>
+                            刷新
+                        </Button>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+                            创建访问密钥
+                        </Button>
+                    </Space>
+                }
             />
+
+            <SurfaceCard>
+                <Table
+                    columns={columns}
+                    dataSource={data}
+                    rowKey="id"
+                    loading={loading}
+                    pagination={tablePagination}
+                    virtual
+                    scroll={{ y: 560, x: 1200 }}
+                />
+            </SurfaceCard>
 
             {/* 创建/编辑弹窗 */}
             <Modal
@@ -713,7 +749,7 @@ const ApiKeysPage = () => {
                 open={modalVisible}
                 onOk={handleSubmit}
                 onCancel={() => setModalVisible(false)}
-                destroyOnClose
+                destroyOnHidden
                 width={500}
             >
                 <Spin spinning={apiKeyDetailLoading}>
@@ -730,14 +766,14 @@ const ApiKeysPage = () => {
                         label="速率限制（每分钟请求数）"
                         initialValue={60}
                     >
-                        <InputNumber min={1} max={10000} style={{ width: '100%' }} />
+                        <InputNumber min={1} max={10000} style={apiKeyStyles.fullWidth} />
                     </Form.Item>
                     <Form.Item
                         name="expiresAt"
                         label="过期时间（可选）"
                     >
                         <DatePicker
-                            style={{ width: '100%' }}
+                            style={apiKeyStyles.fullWidth}
                             placeholder="不设置则永不过期"
                             disabledDate={(current) => current && current < dayjs().startOf('day')}
                         />
@@ -760,7 +796,7 @@ const ApiKeysPage = () => {
                     >
                         <Checkbox.Group
                             options={permissionActionOptions}
-                            style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', rowGap: 8 }}
+                            style={apiKeyStyles.permissionGrid}
                         />
                     </Form.Item>
                     <Form.Item
@@ -819,7 +855,7 @@ const ApiKeysPage = () => {
                 open={newKeyModalVisible}
                 onOk={() => setNewKeyModalVisible(false)}
                 onCancel={() => setNewKeyModalVisible(false)}
-                destroyOnClose
+                destroyOnHidden
                 footer={[
                     <Button key="close" onClick={() => setNewKeyModalVisible(false)}>
                         关闭
@@ -827,7 +863,7 @@ const ApiKeysPage = () => {
                 ]}
             >
                 <Card>
-                    <Text type="warning" style={{ display: 'block', marginBottom: 16 }}>
+                    <Text type="warning" style={apiKeyStyles.warningBlock}>
                         ⚠️ 请立即复制并妥善保存此访问密钥，它不会再次显示！
                     </Text>
                     <Paragraph
@@ -836,12 +872,7 @@ const ApiKeysPage = () => {
                             onCopy: () => message.success('已复制'),
                         }}
                         code
-                        style={{
-                            wordBreak: 'break-all',
-                            background: '#f5f5f5',
-                            padding: 12,
-                            borderRadius: 4,
-                        }}
+                        style={apiKeyStyles.keyPreview}
                     >
                         {newKey}
                     </Paragraph>
@@ -859,25 +890,25 @@ const ApiKeysPage = () => {
                     open={poolModalVisible}
                     onCancel={() => setPoolModalVisible(false)}
                     footer={null}
-                    destroyOnClose
+                    destroyOnHidden
                     width={500}
                 >
                     {poolLoading ? (
-                        <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div>
+                        <div style={apiKeyStyles.centeredLoading}>加载中...</div>
                     ) : poolStats ? (
                         <div>
-                            <div style={{ marginBottom: 16 }}>
-                                <Text type="secondary" style={{ marginRight: 8 }}>按分组筛选：</Text>
+                            <div style={apiKeyStyles.filterRow}>
+                                <Text type="secondary" style={marginRight8Style}>按分组筛选：</Text>
                                 <Select
                                     allowClear
                                     placeholder="全部分组"
-                                    style={{ width: 200 }}
+                                    style={width200Style}
                                     value={poolGroupName}
                                     options={poolGroupOptions}
                                     onChange={(val: string | undefined) => handlePoolGroupChange(val)}
                                 />
                             </div>
-                            <Row gutter={16} style={{ marginBottom: 24 }}>
+                            <Row gutter={16} style={apiKeyStyles.marginBottom24}>
                                 <Col span={8}>
                                     <div className="stat-blue">
                                         <Statistic
@@ -910,8 +941,8 @@ const ApiKeysPage = () => {
                                 .stat-red .ant-statistic-content-value { color: #ff4d4f; }
                             `}</style>
 
-                            <div style={{ marginBottom: 24 }}>
-                                <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                            <div style={apiKeyStyles.marginBottom24}>
+                                <Text type="secondary" style={apiKeyStyles.progressLabel}>
                                     分配进度
                                 </Text>
                                 <Progress
@@ -926,8 +957,8 @@ const ApiKeysPage = () => {
 
                             <Divider />
 
-                            <div style={{ textAlign: 'center' }}>
-                                <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+                            <div style={apiKeyStyles.centeredText}>
+                                <Text type="secondary" style={apiKeyStyles.warningBlock}>
                                     重置后，此访问密钥会清空当前分配记录，可重新分配邮箱资源
                                 </Text>
                                 <Popconfirm
@@ -946,7 +977,7 @@ const ApiKeysPage = () => {
                             </div>
                         </div>
                     ) : (
-                        <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                        <div style={apiKeyStyles.emptyMuted}>
                             暂无数据
                         </div>
                     )}
@@ -967,29 +998,29 @@ const ApiKeysPage = () => {
                     okText="保存"
                     cancelText="取消"
                     confirmLoading={savingEmails}
-                    destroyOnClose
+                    destroyOnHidden
                     width={600}
                 >
                     {emailLoading ? (
-                        <div style={{ textAlign: 'center', padding: 40 }}>
+                        <div style={apiKeyStyles.centeredLoading}>
                             <Spin />
                         </div>
                     ) : (
                         <div>
-                            <div style={{ marginBottom: 16 }}>
+                            <div style={apiKeyStyles.filterRow}>
                                 <Space>
                                     <Text type="secondary">按分组筛选：</Text>
                                     <Select
                                         allowClear
                                         placeholder="全部分组"
-                                        style={{ width: 180 }}
+                                        style={width180Style}
                                         value={emailGroupId}
                                         options={emailGroupOptions}
                                         onChange={(val: number | undefined) => handleEmailGroupChange(val)}
                                     />
                                 </Space>
                             </div>
-                            <div style={{ marginBottom: 16 }}>
+                            <div style={apiKeyStyles.filterRow}>
                                 <Input
                                     allowClear
                                     value={emailKeyword}
@@ -998,12 +1029,12 @@ const ApiKeysPage = () => {
                                     placeholder="搜索邮箱或分组"
                                 />
                             </div>
-                            <div style={{ marginBottom: 16 }}>
+                            <div style={apiKeyStyles.filterRow}>
                                 <Text type="secondary">
                                     勾选的邮箱表示该访问密钥已占用这些邮箱资源，自动分配时会跳过它们
                                 </Text>
                             </div>
-                            <div style={{ marginBottom: 16 }}>
+                            <div style={apiKeyStyles.filterRow}>
                                 <Space>
                                     <Button
                                         size="small"
@@ -1030,19 +1061,19 @@ const ApiKeysPage = () => {
                                     </Text>
                                 </Space>
                             </div>
-                            <div style={{ maxHeight: 400, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 12 }}>
+                            <div style={apiKeyStyles.emailScrollBox}>
                                 <Checkbox.Group
                                     value={selectedEmails}
                                     onChange={(vals) => setSelectedEmails(vals as number[])}
-                                    style={{ width: '100%' }}
+                                    style={apiKeyStyles.checkboxGroup}
                                 >
                                     <Row>
                                         {filteredEmailList.map((email: { id: number; email: string; used: boolean; groupId: number | null; groupName: string | null }) => (
-                                            <Col span={12} key={email.id} style={{ marginBottom: 8 }}>
+                                            <Col span={12} key={email.id} style={apiKeyStyles.emailCol}>
                                                 <Checkbox value={email.id}>
                                                     {email.email}
                                                     {email.groupName && (
-                                                        <Tag color="blue" style={{ marginLeft: 4, fontSize: 11 }}>{email.groupName}</Tag>
+                                                        <Tag color="blue" style={apiKeyStyles.groupTag}>{email.groupName}</Tag>
                                                     )}
                                                 </Checkbox>
                                             </Col>
