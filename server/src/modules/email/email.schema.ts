@@ -112,6 +112,7 @@ export const createEmailSchema = z.object({
     refreshToken: z.string().min(1).optional(),
     clientSecret: z.union([clientSecretSchema, z.literal('')]).optional(),
     password: z.string().min(1).optional(),
+    accountLoginPassword: z.string().min(1).optional(),
     groupId: z.coerce.number().int().positive().optional(),
     providerConfig: jsonObjectSchema.optional(),
     capabilities: jsonObjectSchema.optional(),
@@ -128,6 +129,8 @@ export const updateEmailSchema = z.object({
     refreshToken: z.union([z.string().min(1), z.literal(''), z.null()]).optional(),
     clientSecret: z.union([clientSecretSchema, z.literal(''), z.null()]).optional(),
     password: z.union([z.string().min(1), z.literal(''), z.null()]).optional(),
+    accountLoginPassword: z.union([z.string().min(1), z.literal(''), z.null()]).optional(),
+    accountPasswordGrantToken: z.string().trim().min(1).optional(),
     status: emailStatusEnum.optional(),
     groupId: z.union([z.coerce.number().int().positive(), z.null()]).optional(),
     providerConfig: z.union([jsonObjectSchema, z.null()]).optional(),
@@ -198,7 +201,7 @@ export const importEmailSchema = z.object({
     groupId: z.coerce.number().int().positive().optional(),
 });
 
-const revealableEmailSecretFieldEnum = z.enum(['password', 'refreshToken']);
+const revealableEmailSecretFieldEnum = z.enum(['password', 'refreshToken', 'accountLoginPassword']);
 const otpSchema = z.string().trim().regex(/^\d{6}$/, '请输入 6 位验证码');
 const revealGrantTokenSchema = z.string().trim().min(1, '缺少临时授权令牌');
 

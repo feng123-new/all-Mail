@@ -579,17 +579,17 @@ export const emailApi = {
             data
         ),
 
-    revealSecrets: (id: number, data: { otp?: string; grantToken?: string; fields: Array<'password' | 'refreshToken'> }) =>
+    revealSecrets: (id: number, data: { otp?: string; grantToken?: string; fields: Array<'password' | 'refreshToken' | 'accountLoginPassword'> }) =>
         requestPost<{
-            secrets: Partial<Record<'password' | 'refreshToken', string | null>>;
-            availableFields: Array<'password' | 'refreshToken'>;
-        }, { otp?: string; grantToken?: string; fields: Array<'password' | 'refreshToken'> }>(
+            secrets: Partial<Record<'password' | 'refreshToken' | 'accountLoginPassword', string | null>>;
+            availableFields: Array<'password' | 'refreshToken' | 'accountLoginPassword'>;
+        }, { otp?: string; grantToken?: string; fields: Array<'password' | 'refreshToken' | 'accountLoginPassword'> }>(
             `/admin/emails/${id}/reveal-secrets`,
             data
         ),
 
-    create: (data: { email: string; provider: EmailProvider; authType?: EmailAuthType; clientId?: string; refreshToken?: string; clientSecret?: string; password?: string; groupId?: number; providerConfig?: Record<string, unknown> }) =>
-        requestPost<Record<string, unknown>, { email: string; provider: EmailProvider; authType?: EmailAuthType; clientId?: string; refreshToken?: string; clientSecret?: string; password?: string; groupId?: number; providerConfig?: Record<string, unknown> }>(
+    create: (data: { email: string; provider: EmailProvider; authType?: EmailAuthType; clientId?: string; refreshToken?: string; clientSecret?: string; password?: string; accountLoginPassword?: string; groupId?: number; providerConfig?: Record<string, unknown> }) =>
+        requestPost<Record<string, unknown>, { email: string; provider: EmailProvider; authType?: EmailAuthType; clientId?: string; refreshToken?: string; clientSecret?: string; password?: string; accountLoginPassword?: string; groupId?: number; providerConfig?: Record<string, unknown> }>(
             '/admin/emails',
             data,
             {
@@ -611,8 +611,8 @@ export const emailApi = {
             params: { ids: ids?.join(','), separator, groupId },
         }),
 
-    update: (id: number, data: { email?: string; provider?: EmailProvider; authType?: EmailAuthType; clientId?: string | null; refreshToken?: string | null; clientSecret?: string | null; password?: string | null; status?: string; groupId?: number | null; providerConfig?: Record<string, unknown> | null }) =>
-        requestPut<Record<string, unknown>, { email?: string; provider?: EmailProvider; authType?: EmailAuthType; clientId?: string | null; refreshToken?: string | null; clientSecret?: string | null; password?: string | null; status?: string; groupId?: number | null; providerConfig?: Record<string, unknown> | null }>(
+    update: (id: number, data: { email?: string; provider?: EmailProvider; authType?: EmailAuthType; clientId?: string | null; refreshToken?: string | null; clientSecret?: string | null; password?: string | null; accountLoginPassword?: string | null; accountPasswordGrantToken?: string; status?: string; groupId?: number | null; providerConfig?: Record<string, unknown> | null }) =>
+        requestPut<Record<string, unknown>, { email?: string; provider?: EmailProvider; authType?: EmailAuthType; clientId?: string | null; refreshToken?: string | null; clientSecret?: string | null; password?: string | null; accountLoginPassword?: string | null; accountPasswordGrantToken?: string; status?: string; groupId?: number | null; providerConfig?: Record<string, unknown> | null }>(
             `/admin/emails/${id}`,
             data,
             {

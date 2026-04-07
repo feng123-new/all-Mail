@@ -73,6 +73,7 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 		provider: 'QQ',
 		authType: 'APP_PASSWORD',
 		hasStoredPassword: true,
+		hasStoredAccountLoginPassword: true,
 		capabilitySummary: buildCapabilitySummary(),
 		clientId: null,
 		status: 'ACTIVE',
@@ -86,7 +87,7 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 	};
 }
 
-describe('EmailsPage password button', () => {
+	describe('EmailsPage login password button', () => {
 	beforeEach(() => {
 		useAuthStore.setState({
 			admin: {
@@ -123,7 +124,7 @@ describe('EmailsPage password button', () => {
 		);
 	});
 
-	it('renders a blue password button when a stored password exists', async () => {
+	it('renders a blue login password button when a stored account login password exists', async () => {
 		vi.mocked(emailsContract.getList).mockReturnValue(
 			ok({ list: [buildRow()], total: 1 }) as never,
 		);
@@ -140,14 +141,14 @@ describe('EmailsPage password button', () => {
 		);
 
 		await screen.findByText('ops@example.com');
-		const passwordButton = screen.getByRole('button', { name: /密\s*码/ });
+		const passwordButton = screen.getByRole('button', { name: /登录密码/ });
 		expect(passwordButton).toHaveClass('ant-btn-primary');
 	}, 10000);
 
-	it('clicking a white password button shows the no-password message and skips unlock', async () => {
+	it('clicking the login password button shows the missing-account-password message and skips unlock', async () => {
 		vi.mocked(emailsContract.getList).mockReturnValue(
 			ok({
-				list: [buildRow({ hasStoredPassword: false, email: 'nopass@example.com' })],
+				list: [buildRow({ hasStoredAccountLoginPassword: false, email: 'nopass@example.com' })],
 				total: 1,
 			}) as never,
 		);
@@ -164,14 +165,14 @@ describe('EmailsPage password button', () => {
 		);
 
 		await screen.findByText('nopass@example.com');
-		await userEvent.click(screen.getByRole('button', { name: /密\s*码/ }));
+		await userEvent.click(screen.getByRole('button', { name: /登录密码/ }));
 
-		const noPasswordHints = await screen.findAllByText('该账号暂无已存储的登录密码');
+		const noPasswordHints = await screen.findAllByText('该账号暂无已存储的账号登录密码，可在启用 2FA 后进入编辑页补录');
 		expect(noPasswordHints.length).toBeGreaterThan(0);
 		expect(emailsContract.revealUnlock).not.toHaveBeenCalled();
 	});
 
-	it('clicking a blue password button without 2FA warns before unlock', async () => {
+	it('clicking a blue login password button without 2FA warns before unlock', async () => {
 		useAuthStore.setState({
 			admin: {
 				id: 1,
@@ -197,7 +198,7 @@ describe('EmailsPage password button', () => {
 		);
 
 		await screen.findByText('twofa@example.com');
-		await userEvent.click(screen.getByRole('button', { name: /密\s*码/ }));
+		await userEvent.click(screen.getByRole('button', { name: /登录密码/ }));
 
 		await waitFor(() => {
 			expect(screen.getByText('请先在设置页启用 2FA，再查看已存储的密钥')).toBeInTheDocument();
@@ -205,7 +206,7 @@ describe('EmailsPage password button', () => {
 		expect(emailsContract.revealUnlock).not.toHaveBeenCalled();
 	});
 
-	it('treats oauth rows with legacy passwords as unrevealable passwords', async () => {
+	it('allows oauth rows to expose stored account login passwords', async () => {
 		vi.mocked(emailsContract.getList).mockReturnValue(
 			ok({
 				list: [
@@ -213,6 +214,8 @@ describe('EmailsPage password button', () => {
 						email: 'oauth@example.com',
 						provider: 'OUTLOOK',
 						authType: 'MICROSOFT_OAUTH',
+						hasStoredPassword: false,
+						hasStoredAccountLoginPassword: true,
 						capabilitySummary: buildCapabilitySummary({ usesOAuth: true, refreshToken: true }),
 					}),
 				],
@@ -232,12 +235,7 @@ describe('EmailsPage password button', () => {
 		);
 
 		await screen.findByText('oauth@example.com');
-		const passwordButton = screen.getByRole('button', { name: /密\s*码/ });
-		expect(passwordButton).not.toHaveClass('ant-btn-primary');
-
-		await userEvent.click(passwordButton);
-
-		expect(await screen.findByText('当前邮箱鉴权方式不支持直接查看登录密码')).toBeInTheDocument();
-		expect(emailsContract.revealUnlock).not.toHaveBeenCalled();
+		const passwordButton = screen.getByRole('button', { name: /登录密码/ });
+		expect(passwordButton).toHaveClass('ant-btn-primary');
 	});
 });

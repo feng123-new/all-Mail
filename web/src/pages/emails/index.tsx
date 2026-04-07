@@ -272,6 +272,7 @@ interface EmailAccount {
 	provider: EmailProvider;
 	authType: EmailAuthType;
 	hasStoredPassword: boolean;
+	hasStoredAccountLoginPassword: boolean;
 	providerConfig?: MailProviderConfig | null;
 	providerProfile?: string;
 	representativeProtocol?: RepresentativeProtocol;
@@ -288,9 +289,9 @@ interface EmailAccount {
 	createdAt: string;
 }
 
-const canRevealStoredPassword = (
-	record: Pick<EmailAccount, "hasStoredPassword" | "capabilitySummary">,
-) => Boolean(record.hasStoredPassword && !record.capabilitySummary?.usesOAuth);
+const canRevealStoredAccountLoginPassword = (
+	record: Pick<EmailAccount, "hasStoredAccountLoginPassword">,
+) => Boolean(record.hasStoredAccountLoginPassword);
 
 interface EmailListResult {
 	list: EmailAccount[];
@@ -513,9 +514,10 @@ interface EmailDetailsResult extends EmailAccount {
 	refreshToken?: string | null;
 	clientSecret?: string | null;
 	password?: string | null;
+	accountLoginPassword?: string | null;
 }
 
-type RevealableEmailSecretField = "password" | "refreshToken";
+type RevealableEmailSecretField = "password" | "refreshToken" | "accountLoginPassword";
 
 interface RevealSecretsResult {
 	secrets: Partial<Record<RevealableEmailSecretField, string | null>>;
@@ -686,7 +688,7 @@ const EmailsPage: FC = () => {
 	>({});
 	const [revealExpiresAt, setRevealExpiresAt] = useState<number | null>(null);
 	const [rowRevealVisible, setRowRevealVisible] = useState(false);
-	const [rowRevealedPassword, setRowRevealedPassword] = useState<string | null>(
+	const [rowRevealedAccountLoginPassword, setRowRevealedAccountLoginPassword] = useState<string | null>(
 		null,
 	);
 	const [rowRevealExpiresAt, setRowRevealExpiresAt] = useState<number | null>(null);
@@ -775,8 +777,8 @@ const EmailsPage: FC = () => {
 		[selectedRepresentativeProtocol],
 	);
 	const isTwoFactorEnabled = Boolean(admin?.twoFactorEnabled);
-	const canRevealStoredSecret = Boolean(
-		editingId && revealTargetField && revealTargetSource !== "row",
+	const hasActiveRevealGrant = Boolean(
+		revealGrantToken && revealGrantExpiresAt && revealGrantExpiresAt > Date.now(),
 	);
 	const revealedSecretValue = revealTargetField
 		? revealedSecrets[revealTargetField]
@@ -784,6 +786,8 @@ const EmailsPage: FC = () => {
 	const revealTargetLabel =
 		revealTargetSource === "row"
 			? "登录密码"
+			: revealTargetField === "accountLoginPassword"
+			? "账号登录密码"
 			: revealTargetField === "refreshToken"
 			? "Refresh Token"
 			: selectedProfileDefinition.secretLabel ||
@@ -814,6 +818,14 @@ const EmailsPage: FC = () => {
 		() => getProviderImportTemplates(separator),
 		[separator],
 	);
+	const recommendedImportTemplates = useMemo(
+		() => importTemplates.slice(0, 3),
+		[importTemplates],
+	);
+	const legacyImportTemplates = useMemo(
+		() => importTemplates.slice(3),
+		[importTemplates],
+	);
 
 	const resetSecretRevealState = useCallback(() => {
 		setRevealModalVisible(false);
@@ -829,7 +841,7 @@ const EmailsPage: FC = () => {
 
 	const resetRowRevealState = useCallback(() => {
 		setRowRevealVisible(false);
-		setRowRevealedPassword(null);
+		setRowRevealedAccountLoginPassword(null);
 		setRowRevealExpiresAt(null);
 	}, []);
 
@@ -1321,6 +1333,7 @@ const EmailsPage: FC = () => {
 				{ name: "refreshToken", errors: [] },
 				{ name: "clientSecret", errors: [] },
 				{ name: "password", errors: [] },
+				{ name: "accountLoginPassword", errors: [] },
 				{ name: "provider", errors: [] },
 				{ name: "authType", errors: [] },
 				{ name: "outlookOAuthCallbackUri", errors: [] },
@@ -1341,6 +1354,7 @@ const EmailsPage: FC = () => {
 				refreshToken: undefined,
 				clientSecret: undefined,
 				password: undefined,
+				accountLoginPassword: undefined,
 				...buildProviderConfigFormValues(
 					profileDefinition.providerConfigDefaults,
 				),
@@ -1431,6 +1445,7 @@ const EmailsPage: FC = () => {
 						refreshToken: undefined,
 						clientSecret: undefined,
 						password: undefined,
+						accountLoginPassword: undefined,
 						status: details.status,
 						groupId: details.groupId,
 						...buildProviderConfigFormValues(
@@ -1515,12 +1530,14 @@ const EmailsPage: FC = () => {
 				}
 
 				const result = response.data as RevealSecretsResult;
-				if (source === "row" && targetField === "password") {
+				if (source === "row" && targetField === "accountLoginPassword") {
 					setRevealTargetEmailLabel(targetEmailLabel || null);
-					setRowRevealedPassword(result.secrets.password ?? null);
+					setRowRevealedAccountLoginPassword(
+						result.secrets.accountLoginPassword ?? null,
+					);
 					setRowRevealVisible(true);
 					setRowRevealExpiresAt(Date.now() + 60_000);
-					message.success("已受控显示密码，60 秒后自动隐藏");
+					message.success("已受控显示账号登录密码，60 秒后自动隐藏");
 					return;
 				}
 
@@ -1537,12 +1554,19 @@ const EmailsPage: FC = () => {
 					);
 					return;
 				}
-				if (errCode === "PASSWORD_NOT_PRESENT") {
-					if (source === "edit" && targetField === "password") {
-						setRevealedSecrets({ password: null });
+				if (
+					errCode === "PASSWORD_NOT_PRESENT" ||
+					errCode === "ACCOUNT_LOGIN_PASSWORD_NOT_PRESENT"
+				) {
+					if (source === "edit") {
+						setRevealedSecrets({ [targetField]: null });
 						setRevealExpiresAt(Date.now() + 60_000);
 					}
-					message.info("当前账号未存储登录密码");
+					message.info(
+						targetField === "accountLoginPassword"
+							? "当前账号未存储账号登录密码"
+							: "当前账号未存储连接密码/授权码",
+					);
 					return;
 				}
 				if (errCode === "REVEAL_UNLOCK_EXPIRED") {
@@ -1601,13 +1625,8 @@ const EmailsPage: FC = () => {
 
 	const handleRowPasswordReveal = useCallback(
 		async (record: EmailAccount) => {
-			if (!record.hasStoredPassword) {
-				message.info("该账号暂无已存储的登录密码");
-				return;
-			}
-
-			if (!canRevealStoredPassword(record)) {
-				message.info("当前邮箱鉴权方式不支持直接查看登录密码");
+			if (!record.hasStoredAccountLoginPassword) {
+				message.info("该账号暂无已存储的账号登录密码，可在启用 2FA 后进入编辑页补录");
 				return;
 			}
 
@@ -1615,7 +1634,7 @@ const EmailsPage: FC = () => {
 			if (activeGrantToken) {
 				await executeRevealWithGrant(
 					record.id,
-					"password",
+					"accountLoginPassword",
 					activeGrantToken,
 					"row",
 					record.email,
@@ -1623,7 +1642,12 @@ const EmailsPage: FC = () => {
 				return;
 			}
 
-			openRevealModalForTarget(record.id, "password", "row", record.email);
+			openRevealModalForTarget(
+				record.id,
+				"accountLoginPassword",
+				"row",
+				record.email,
+			);
 		},
 		[
 			executeRevealWithGrant,
@@ -1633,16 +1657,16 @@ const EmailsPage: FC = () => {
 	);
 
 	const handleCopyRowRevealedPassword = useCallback(async () => {
-		if (!rowRevealedPassword) {
+		if (!rowRevealedAccountLoginPassword) {
 			return;
 		}
 		try {
-			await navigator.clipboard.writeText(rowRevealedPassword);
+			await navigator.clipboard.writeText(rowRevealedAccountLoginPassword);
 			message.success("已复制密码");
 		} catch {
 			message.error("复制失败，请手动复制");
 		}
-	}, [rowRevealedPassword]);
+	}, [rowRevealedAccountLoginPassword]);
 
 	const handleConfirmReveal = useCallback(async () => {
 		if (!revealTargetEmailId || !revealTargetField || !revealTargetSource) {
@@ -1757,12 +1781,14 @@ const EmailsPage: FC = () => {
 			{ name: "refreshToken", errors: [] },
 			{ name: "clientSecret", errors: [] },
 			{ name: "password", errors: [] },
+			{ name: "accountLoginPassword", errors: [] },
 		]);
 		if (authType === "APP_PASSWORD") {
 			form.setFieldsValue({
 				clientId: undefined,
 				refreshToken: undefined,
 				clientSecret: undefined,
+				accountLoginPassword: undefined,
 			});
 			return;
 		}
@@ -1770,6 +1796,7 @@ const EmailsPage: FC = () => {
 		if (selectedProvider !== "QQ") {
 			form.setFieldsValue({
 				password: undefined,
+				accountLoginPassword: undefined,
 			});
 		}
 	};
@@ -2074,12 +2101,24 @@ const EmailsPage: FC = () => {
 					values.password,
 					requiresPasswordAuth,
 				),
+				accountLoginPassword: trimOptionalString(values.accountLoginPassword),
+				accountPasswordGrantToken:
+					editingId && trimOptionalString(values.accountLoginPassword)
+						? getActiveRevealGrantToken() || undefined
+						: undefined,
 				status: values.status,
 				groupId: normalizedGroupId ?? null,
 				providerConfig: normalizedProviderConfig,
 			};
 
 			if (editingId) {
+				if (
+					normalizedPayload.accountLoginPassword &&
+					!normalizedPayload.accountPasswordGrantToken
+				) {
+					message.warning("请先完成 2FA 验证，再补录或更新账号登录密码");
+					return;
+				}
 				const res = await emailsContract.update(editingId, normalizedPayload);
 				if (res.code === 200) {
 					message.success("更新成功");
@@ -2098,6 +2137,8 @@ const EmailsPage: FC = () => {
 					refreshToken: normalizedPayload.refreshToken || undefined,
 					clientSecret: normalizedPayload.clientSecret || undefined,
 					password: normalizedPayload.password || undefined,
+					accountLoginPassword:
+						normalizedPayload.accountLoginPassword || undefined,
 					groupId: toOptionalNumber(values.groupId),
 					providerConfig: normalizedPayload.providerConfig,
 				});
@@ -2116,7 +2157,7 @@ const EmailsPage: FC = () => {
 	};
 
 	const renderStoredSecretRevealPanel = () => {
-		if (!canRevealStoredSecret || !revealTargetField) {
+		if (!editingId || !revealTargetField || revealTargetSource === "row") {
 			return null;
 		}
 
@@ -2140,8 +2181,8 @@ const EmailsPage: FC = () => {
 					description={
 						<Space orientation="vertical" size="small" style={fullWidthStyle}>
 							<Text type="secondary">
-								编辑表单默认不会回填已存储密钥；需要查看时，必须经过 2FA 验证，验证通过后可在短时间内连续查看。
-							</Text>
+							编辑表单默认不会回填已存储内容；需要查看或补录账号登录密码时，必须先经过 2FA 验证。
+						</Text>
 							{!isTwoFactorEnabled ? (
 								<Text type="warning">
 									当前管理员未启用 2FA，请先到“设置”页开启后再查看。
@@ -2168,11 +2209,113 @@ const EmailsPage: FC = () => {
 								当前查看授权有效至 {dayjs(revealGrantExpiresAt).format("HH:mm:ss")}。
 							</Text>
 						) : null}
+						{revealTargetField === "accountLoginPassword" && hasActiveRevealGrant ? (
+							<Text type="success">
+								已通过 2FA 验证，可直接在下方填写并保存账号登录密码。
+							</Text>
+						) : null}
+					</Space>
+				}
+			/>
+		);
+	};
+
+	const handleOpenAccountLoginPasswordAccess = useCallback(async () => {
+		if (!editingId) {
+			return;
+		}
+		setRevealTargetField("accountLoginPassword");
+		setRevealTargetSource("edit");
+		const activeGrantToken = getActiveRevealGrantToken();
+		if (activeGrantToken) {
+			await executeRevealWithGrant(
+				editingId,
+				"accountLoginPassword",
+				activeGrantToken,
+				"edit",
+				revealTargetEmailLabel,
+			);
+			return;
+		}
+		openRevealModalForTarget(
+			editingId,
+			"accountLoginPassword",
+			"edit",
+			revealTargetEmailLabel,
+		);
+	}, [
+		editingId,
+		executeRevealWithGrant,
+		getActiveRevealGrantToken,
+		openRevealModalForTarget,
+		revealTargetEmailLabel,
+	]);
+
+	const renderAccountLoginPasswordField = (
+		description: string,
+		placeholder: string,
+	) => (
+		<>
+			{editingId ? (
+				<Alert
+					showIcon
+					type={isTwoFactorEnabled ? "info" : "warning"}
+					style={marginBottom12Style}
+					title="账号登录密码（2FA 后查看 / 补录）"
+					action={
+						<Button
+							type="primary"
+							size="small"
+							icon={<SafetyCertificateOutlined />}
+							disabled={!isTwoFactorEnabled}
+							onClick={() => void handleOpenAccountLoginPasswordAccess()}
+						>
+							{hasActiveRevealGrant ? "重新验证 / 继续补录" : "验证后查看 / 补录"}
+						</Button>
+					}
+					description={
+						<Space orientation="vertical" size="small" style={fullWidthStyle}>
+							<Text type="secondary">{description}</Text>
+							{revealedSecrets.accountLoginPassword !== undefined ? (
+								revealedSecrets.accountLoginPassword ? (
+									<TextArea
+										rows={2}
+										value={revealedSecrets.accountLoginPassword}
+										readOnly
+									/>
+								) : (
+									<Text type="secondary">
+										当前未存储账号登录密码，但你现在可以在下方补录并保存。
+									</Text>
+								)
+							) : null}
+							{hasActiveRevealGrant ? (
+								<Text type="success">
+									当前 step-up grant 有效，可直接填写并保存账号登录密码。
+								</Text>
+							) : null}
 						</Space>
 					}
 				/>
-			);
-		};
+			) : null}
+			<Form.Item
+				name="accountLoginPassword"
+				label="账号登录密码（可选）"
+				extra={
+					editingId
+						? hasActiveRevealGrant
+							? "当前已完成 2FA 验证，本次保存会更新账号登录密码。"
+							: "编辑已有账号时需先完成 2FA 验证后才能补录或更新。"
+						: description
+				}
+			>
+				<Input.Password
+					placeholder={placeholder}
+					disabled={Boolean(editingId && !hasActiveRevealGrant)}
+				/>
+			</Form.Item>
+		</>
+	);
 
 	const handleImport = async () => {
 		if (!importContent.trim()) {
@@ -2729,20 +2872,24 @@ const EmailsPage: FC = () => {
 							</Button>
 							<Tooltip
 								title={
-									canRevealStoredPassword(record)
+									canRevealStoredAccountLoginPassword(record)
 										? "查看已存储的登录密码"
-										: record.hasStoredPassword
-											? "当前邮箱鉴权方式不支持直接查看登录密码"
+										: record.hasStoredAccountLoginPassword
+											? "当前账号已存储登录密码，请通过 2FA 查看"
 											: "该账号暂无已存储的登录密码"
 								}
 							>
 								<Button
 									size="small"
-									type={canRevealStoredPassword(record) ? "primary" : "default"}
-									aria-label="密码"
+									type={
+										canRevealStoredAccountLoginPassword(record)
+											? "primary"
+											: "default"
+									}
+									aria-label="登录密码"
 									onClick={() => void handleRowPasswordReveal(record)}
 								>
-									密码
+									登录密码
 								</Button>
 							</Tooltip>
 							<Button
@@ -3528,6 +3675,10 @@ const EmailsPage: FC = () => {
 								>
 									<Input.Password placeholder="可选：手工保存邮箱记录时的 Microsoft client secret" />
 								</Form.Item>
+								{renderAccountLoginPasswordField(
+									"这是邮箱账号本身的登录密码，不是 OAuth Refresh Token。编辑已有账号时需先完成 2FA 验证后才能补录或更新。",
+									"例如邮箱网页登录密码（可选）",
+								)}
 							</>
 						)}
 
@@ -3772,20 +3923,21 @@ const EmailsPage: FC = () => {
 												placeholder="仅在手动保存 Gmail OAuth 邮箱记录时填写"
 											/>
 										</Form.Item>
-										<Form.Item
-											name="clientSecret"
-											label="邮箱记录 Client Secret（高级手动保存）"
-											extra="只有你跳过上方自动授权流程、改为手工保存 Gmail OAuth 邮箱记录时才需要填写。"
-										>
-											<Input.Password placeholder="可选：手工保存邮箱记录时的 Google client secret" />
-										</Form.Item>
-									</>
-								)}
+									<Form.Item
+										name="clientSecret"
+										label="邮箱记录 Client Secret（高级手动保存）"
+										extra="只有你跳过上方自动授权流程、改为手工保存 Gmail OAuth 邮箱记录时才需要填写。"
+									>
+										<Input.Password placeholder="可选：手工保存邮箱记录时的 Google client secret" />
+									</Form.Item>
+									{renderAccountLoginPasswordField(
+										"这是 Gmail 账号本身的登录密码，不是 Refresh Token。编辑已有账号时需先完成 2FA 验证后才能补录或更新。",
+										"例如 Gmail 账号登录密码（可选）",
+									)}
+								</>
+							)}
 							{isGmailAppPassword && (
 								<>
-									{editingId && revealTargetField === "password"
-										? renderStoredSecretRevealPanel()
-										: null}
 									<Form.Item
 										name="password"
 										label="Gmail 应用专用密码"
@@ -3799,6 +3951,13 @@ const EmailsPage: FC = () => {
 									>
 										<Input.Password placeholder="Gmail App Password" />
 									</Form.Item>
+									{editingId && revealTargetField === "password"
+										? renderStoredSecretRevealPanel()
+										: null}
+									{renderAccountLoginPasswordField(
+										"如果你还想保存账号本身的网页登录密码，请先完成 2FA 验证后再补录。",
+										"例如 Gmail 账号网页登录密码（可选）",
+									)}
 								</>
 							)}
 							</>
@@ -3817,9 +3976,6 @@ const EmailsPage: FC = () => {
 									IMAP / SMTP 协议家族，适合走标准收信/发信协议而不是 OAuth
 									API。
 								</Text>
-								{editingId && revealTargetField === "password"
-									? renderStoredSecretRevealPanel()
-									: null}
 								<Form.Item
 									name="password"
 									label={
@@ -3833,14 +3989,21 @@ const EmailsPage: FC = () => {
 										},
 									]}
 									extra={`${selectedProfileDefinition.secretHelpText || ""}${editingId ? " 留空不会覆盖当前已存储值。" : ""}`.trim()}
-								>
-									<Input.Password
+									>
+										<Input.Password
 										placeholder={
 											selectedProfileDefinition.secretPlaceholder ||
 											`${selectedProviderDefinition.label} 授权码 / 应用专用密码`
 										}
-									/>
-								</Form.Item>
+										/>
+									</Form.Item>
+								{editingId && revealTargetField === "password"
+									? renderStoredSecretRevealPanel()
+									: null}
+								{renderAccountLoginPasswordField(
+									"如果你还想保存邮箱账号本身的登录密码，请先完成 2FA 验证后再补录。",
+									"例如邮箱网页登录密码（可选）",
+								)}
 
 								<div style={emailStyles.capabilityBox}>
 						<Space orientation="vertical" size={12} style={fullWidthStyle}>
@@ -4044,7 +4207,7 @@ const EmailsPage: FC = () => {
 					<Text type="secondary">
 						该密码仅临时显示，请避免在公共环境中查看。
 					</Text>
-					<TextArea rows={2} value={rowRevealedPassword || ""} readOnly />
+					<TextArea rows={2} value={rowRevealedAccountLoginPassword || ""} readOnly />
 					{rowRevealExpiresAt ? (
 						<Text type="secondary">
 							将于 {dayjs(rowRevealExpiresAt).format("HH:mm:ss")} 自动隐藏。
@@ -4065,18 +4228,26 @@ const EmailsPage: FC = () => {
 				<Space orientation="vertical" style={fullWidthStyle} size="middle">
 					<div>
 						<Text type="secondary">
-							上传文件或粘贴内容。外部邮箱建议先按协议家族理解：OAuth API
-							下通常导入 `OUTLOOK_OAUTH`、`GMAIL_OAUTH`，IMAP / SMTP 下可导入各
-							provider 的授权码 / 应用专用密码模板。旧的 `GMAIL / OUTLOOK / QQ`
-							头部仍兼容。Amazon WorkMail 与 Custom IMAP / SMTP
-							因为主机信息通常需要手工确认，当前更适合通过表单创建而不是批量导入。
+							上传文件或粘贴内容。推荐优先使用无 provider 前缀的基础格式：
 							<br />
-							{importTemplates.map((template, index) => (
+							{recommendedImportTemplates.map((template, index) => (
 								<span key={template}>
 									{template}
-									{index < importTemplates.length - 1 ? <br /> : null}
+									{index < recommendedImportTemplates.length - 1 ? <br /> : null}
 								</span>
 							))}
+							<br />
+							基础格式说明：IMAP / SMTP 两列格式默认表示“邮箱----连接凭据”；三列格式表示“邮箱----连接凭据----账号登录密码”；OAuth 四列 / 五列格式表示“邮箱----账号登录密码----clientId----refreshToken[----clientSecret]”。
+							<br />
+							旧的 provider-token 格式仍兼容，例如：
+							<br />
+							{legacyImportTemplates.map((template, index) => (
+								<span key={template}>
+									{template}
+									{index < legacyImportTemplates.length - 1 ? <br /> : null}
+								</span>
+							))}
+							Amazon WorkMail 与 Custom IMAP / SMTP 因为主机信息通常需要手工确认，当前更适合通过表单创建而不是批量导入。
 						</Text>
 					</div>
 					<Input

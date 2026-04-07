@@ -40,6 +40,7 @@ interface EmailAccountView {
 	clientSecret: string | null;
 	refreshToken: string | null;
 	password: string | null;
+	accountLoginPassword: string | null;
 	providerConfig: Prisma.JsonValue | null;
 	capabilities: Prisma.JsonValue | null;
 	status: "ACTIVE" | "ERROR" | "DISABLED";
@@ -322,8 +323,8 @@ function getAllowedRevealFields(account: Pick<EmailAccountView, "provider" | "au
 		resolveProviderProfile(account.provider, account.authType),
 	);
 	return profileSummary.capabilitySummary.usesOAuth
-		? ["refreshToken"]
-		: ["password"];
+		? ["refreshToken", "accountLoginPassword"]
+		: ["password", "accountLoginPassword"];
 }
 
 function normalizeEmailAccount(
@@ -334,10 +335,12 @@ function normalizeEmailAccount(
 		resolveProviderProfile(account.provider, account.authType),
 	);
 	const hasStoredPassword = Boolean(account.password?.trim());
+	const hasStoredAccountLoginPassword = Boolean(account.accountLoginPassword?.trim());
 	const normalized = {
 		...account,
 		...profileSummary,
 		hasStoredPassword,
+		hasStoredAccountLoginPassword,
 		providerConfig: parseJsonObject(account.providerConfig),
 		capabilities: parseJsonObject(account.capabilities),
 		mailboxStatus: parseMailboxStatus(account.mailboxStatus),
@@ -351,6 +354,7 @@ function normalizeEmailAccount(
 			clientSecret: undefined,
 			refreshToken: undefined,
 			password: undefined,
+			accountLoginPassword: undefined,
 		};
 	}
 	return {
@@ -358,6 +362,7 @@ function normalizeEmailAccount(
 		clientSecret: decryptOptional(account.clientSecret),
 		refreshToken: decryptOptional(account.refreshToken),
 		password: decryptOptional(account.password),
+		accountLoginPassword: decryptOptional(account.accountLoginPassword),
 	};
 }
 
@@ -388,6 +393,7 @@ function parseImportLine(
 	clientSecret?: string;
 	refreshToken?: string;
 	password?: string;
+	accountLoginPassword?: string;
 	providerConfig?: Record<string, unknown>;
 } {
 	const parts = line
@@ -401,12 +407,45 @@ function parseImportLine(
 	const looksLikeClientId = (value: string | undefined) =>
 		Boolean(
 			value &&
-				/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+				(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
 					value,
-				),
+				) || /\.apps\.googleusercontent\.com$/i.test(value)),
 		);
 	const looksLikeRefreshToken = (value: string | undefined) =>
-		Boolean(value?.startsWith("M."));
+		Boolean(
+			value &&
+				(value.startsWith("M.") ||
+					value.startsWith("1//") ||
+					value.startsWith("ya29.")),
+		);
+	const resolveProfileByDomain = (
+		emailValue: string,
+		hasOAuthFields: boolean,
+	) => {
+		const domain = emailValue.split("@")[1]?.toLowerCase();
+		if (!domain) {
+			return null;
+		}
+		if (["outlook.com", "hotmail.com", "live.com", "msn.com"].includes(domain)) {
+			return hasOAuthFields ? "outlook-oauth" : null;
+		}
+		if (domain === "gmail.com") {
+			return hasOAuthFields ? "gmail-oauth" : "gmail-app-password";
+		}
+		if (domain === "qq.com") return "qq-imap-smtp";
+		if (domain === "163.com") return "netease-163-imap-smtp";
+		if (domain === "126.com") return "netease-126-imap-smtp";
+		if (["icloud.com", "me.com", "mac.com"].includes(domain)) return "icloud-imap-smtp";
+		if (domain === "yahoo.com") return "yahoo-imap-smtp";
+		if (domain === "zoho.com") return "zoho-imap-smtp";
+		if (domain === "aliyun.com") return "aliyun-imap-smtp";
+		if (domain === "fastmail.com") return "fastmail-imap-smtp";
+		if (domain === "aol.com") return "aol-imap-smtp";
+		if (domain === "gmx.com") return "gmx-imap-smtp";
+		if (domain === "mail.com") return "mailcom-imap-smtp";
+		if (["yandex.com", "yandex.ru", "ya.ru"].includes(domain)) return "yandex-imap-smtp";
+		return null;
+	};
 
 	const head = parts[0].toUpperCase();
 	const importedProfile = resolveProviderProfileByImportToken(head);
@@ -419,6 +458,7 @@ function parseImportLine(
 					authType: metadata.authType,
 					email: parts[1],
 					password: parts[2],
+					accountLoginPassword: parts[12] || undefined,
 					providerConfig: buildExtendedImapImportProviderConfig(parts),
 				};
 			}
@@ -431,6 +471,7 @@ function parseImportLine(
 				authType: metadata.authType,
 				email: parts[1],
 				password: parts[2],
+				accountLoginPassword: parts[3] || undefined,
 				providerConfig: getImportProviderConfigForProfile(importedProfile),
 			};
 		}
@@ -446,9 +487,70 @@ function parseImportLine(
 			clientId: parts[2],
 			clientSecret: parts[3] || undefined,
 			refreshToken: parts[4],
-			password: parts[5] || undefined,
+			accountLoginPassword: parts[5] || undefined,
 			providerConfig: getImportProviderConfigForProfile(importedProfile),
 		};
+	}
+
+	if (looksLikeEmail(parts[0])) {
+		const email = parts[0];
+		const inferredOauthProfile = resolveProfileByDomain(email, true);
+		const inferredPasswordProfile = resolveProfileByDomain(email, false);
+		if (
+			inferredOauthProfile &&
+			parts.length === 3 &&
+			looksLikeClientId(parts[1]) &&
+			looksLikeRefreshToken(parts[2])
+		) {
+			const metadata = getProviderProfileMetadata(inferredOauthProfile);
+			return {
+				provider: metadata.provider,
+				authType: metadata.authType,
+				email,
+				clientId: parts[1] || undefined,
+				refreshToken: parts[2] || undefined,
+				providerConfig: getImportProviderConfigForProfile(inferredOauthProfile),
+			};
+		}
+		if (inferredOauthProfile && parts.length >= 4) {
+			const metadata = getProviderProfileMetadata(inferredOauthProfile);
+			return {
+				provider: metadata.provider,
+				authType: metadata.authType,
+				email,
+				accountLoginPassword: parts[1] || undefined,
+				clientId: parts[2] || undefined,
+				refreshToken: parts[3] || undefined,
+				clientSecret: parts[4] || undefined,
+				providerConfig: getImportProviderConfigForProfile(inferredOauthProfile),
+			};
+		}
+		if (inferredPasswordProfile && parts.length === 2) {
+			const metadata = getProviderProfileMetadata(inferredPasswordProfile);
+			return {
+				provider: metadata.provider,
+				authType: metadata.authType,
+				email,
+				password: parts[1],
+				providerConfig: getImportProviderConfigForProfile(inferredPasswordProfile),
+			};
+		}
+		if (inferredPasswordProfile && parts.length === 3) {
+			const metadata = getProviderProfileMetadata(inferredPasswordProfile);
+			return {
+				provider: metadata.provider,
+				authType: metadata.authType,
+				email,
+				password: parts[1],
+				accountLoginPassword: parts[2] || undefined,
+				providerConfig: getImportProviderConfigForProfile(inferredPasswordProfile),
+			};
+		}
+		if (inferredOauthProfile) {
+			throw new Error(
+				`OAuth format should be email${separator}password${separator}clientId${separator}refreshToken`,
+			);
+		}
 	}
 
 	if (parts.length < 3)
@@ -504,7 +606,7 @@ function parseImportLine(
 		clientId,
 		clientSecret,
 		refreshToken,
-		password,
+		accountLoginPassword: password,
 		providerConfig: getImportProviderConfigForProfile("outlook-oauth"),
 	};
 }
@@ -541,6 +643,7 @@ export const emailService = {
 					authType: true,
 					clientId: true,
 					password: true,
+					accountLoginPassword: true,
 					providerConfig: true,
 					status: true,
 					groupId: true,
@@ -578,6 +681,7 @@ export const emailService = {
 				clientId: true,
 				clientSecret: true,
 				password: true,
+				accountLoginPassword: true,
 				refreshToken: true,
 				providerConfig: true,
 				capabilities: true,
@@ -607,6 +711,7 @@ export const emailService = {
 				clientSecret: true,
 				refreshToken: true,
 				password: true,
+				accountLoginPassword: true,
 				providerConfig: true,
 				capabilities: true,
 				status: true,
@@ -632,6 +737,7 @@ export const emailService = {
 				authType: true,
 				refreshToken: true,
 				password: true,
+				accountLoginPassword: true,
 			},
 		});
 
@@ -660,8 +766,17 @@ export const emailService = {
 					400,
 				);
 			}
+			if (field === "accountLoginPassword" && !email.accountLoginPassword) {
+				throw new AppError(
+					"ACCOUNT_LOGIN_PASSWORD_NOT_PRESENT",
+					"No stored account login password for this mailbox",
+					400,
+				);
+			}
 			secrets[field] = field === "refreshToken"
 				? decryptOptional(email.refreshToken) ?? null
+				: field === "accountLoginPassword"
+					? decryptOptional(email.accountLoginPassword) ?? null
 				: decryptOptional(email.password) ?? null;
 		}
 
@@ -928,6 +1043,7 @@ export const emailService = {
 			refreshToken,
 			clientSecret,
 			password,
+			accountLoginPassword,
 			groupId,
 			providerConfig,
 			capabilities,
@@ -945,6 +1061,7 @@ export const emailService = {
 				refreshToken: encryptOptional(refreshToken),
 				clientSecret: encryptOptional(clientSecret),
 				password: encryptOptional(password),
+				accountLoginPassword: encryptOptional(accountLoginPassword),
 				groupId: groupId || null,
 				providerConfig,
 				capabilities,
@@ -987,6 +1104,12 @@ export const emailService = {
 		if (input.password !== undefined)
 			updateData.password = encryptOptional(
 				typeof input.password === "string" ? input.password : undefined,
+			);
+		if (input.accountLoginPassword !== undefined)
+			updateData.accountLoginPassword = encryptOptional(
+				typeof input.accountLoginPassword === "string"
+					? input.accountLoginPassword
+					: undefined,
 			);
 		if (input.providerConfig !== undefined)
 			updateData.providerConfig = sanitizeProviderConfig(
@@ -1066,6 +1189,7 @@ export const emailService = {
 					refreshToken: encryptOptional(parsed.refreshToken),
 					clientSecret: encryptOptional(parsed.clientSecret),
 					password: encryptOptional(parsed.password),
+					accountLoginPassword: encryptOptional(parsed.accountLoginPassword),
 					providerConfig: sanitizeProviderConfig(
 						resolveProviderProfile(parsed.provider, parsed.authType),
 						parsed.providerConfig || null,
@@ -1088,10 +1212,11 @@ export const emailService = {
 							provider: parsed.provider,
 							authType: parsed.authType,
 							clientId: parsed.clientId || null,
-							refreshToken: encryptOptional(parsed.refreshToken),
-							clientSecret: encryptOptional(parsed.clientSecret),
-							password: encryptOptional(parsed.password),
-							providerConfig: sanitizeProviderConfig(
+						refreshToken: encryptOptional(parsed.refreshToken),
+						clientSecret: encryptOptional(parsed.clientSecret),
+						password: encryptOptional(parsed.password),
+						accountLoginPassword: encryptOptional(parsed.accountLoginPassword),
+						providerConfig: sanitizeProviderConfig(
 								resolveProviderProfile(parsed.provider, parsed.authType),
 								parsed.providerConfig || null,
 							),
@@ -1139,6 +1264,7 @@ export const emailService = {
 				clientSecret: true,
 				refreshToken: true,
 				password: true,
+				accountLoginPassword: true,
 				providerConfig: true,
 			},
 		});
@@ -1170,9 +1296,19 @@ export const emailService = {
 						config.folders?.inbox || "INBOX",
 						config.folders?.junk || "Junk",
 						config.folders?.sent || "Sent",
+						...(rawSecrets && decryptOptional(account.accountLoginPassword)
+							? [decryptOptional(account.accountLoginPassword) || ""]
+							: []),
 					].join(separator);
 				}
-				return `${head}${separator}${account.email}${separator}${decryptOptional(account.password) || ""}`;
+				return [
+					head,
+					account.email,
+					decryptOptional(account.password) || "",
+					...(rawSecrets && decryptOptional(account.accountLoginPassword)
+						? [decryptOptional(account.accountLoginPassword) || ""]
+						: []),
+				].join(separator);
 			}
 			const parts = [
 				head,
@@ -1182,7 +1318,7 @@ export const emailService = {
 				decryptOptional(account.refreshToken) || "",
 			];
 			if (rawSecrets) {
-				parts.push(decryptOptional(account.password) || "");
+				parts.push(decryptOptional(account.accountLoginPassword) || "");
 			}
 			return parts.join(separator);
 		});

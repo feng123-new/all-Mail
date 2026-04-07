@@ -913,9 +913,14 @@ export const getSecondaryProtocolLabel = (protocol: SecondaryProtocol): string =
   SECONDARY_PROTOCOL_LABELS[protocol];
 
 export const getProviderImportTemplates = (separator = '----'): string[] =>
-  EXTERNAL_PROVIDER_PROFILE_REGISTRY
-    .filter((profile) => profile.supportsBulkImport !== false)
-    .map((profile) => profile.importTemplate.replaceAll('----', separator));
+  [
+    `email${separator}password`,
+    `email${separator}password${separator}clientId${separator}refreshToken`,
+    `email${separator}password${separator}clientId${separator}refreshToken${separator}clientSecret`,
+    ...EXTERNAL_PROVIDER_PROFILE_REGISTRY
+      .filter((profile) => profile.supportsBulkImport !== false)
+      .map((profile) => profile.importTemplate.replaceAll('----', separator)),
+  ];
 
 export const getProviderProfileCapabilities = (provider: EmailProvider, authType: EmailAuthType = getDefaultAuthType(provider)): ProviderProfileCapabilities =>
   getProviderProfileDefinition(provider, authType).capabilitySummary;

@@ -202,7 +202,25 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 	fastify.put("/:id(^\\d+$)", async (request) => {
 		const { id } = request.params as { id: string };
 		const input = updateEmailSchema.parse(request.body);
-		const email = await emailService.update(parseInt(id, 10), input);
+		const admin = request.user;
+		if (!admin) {
+			throw new AppError("UNAUTHORIZED", "Authentication required", 401);
+		}
+		if (input.accountLoginPassword !== undefined) {
+			if (!input.accountPasswordGrantToken) {
+				throw new AppError(
+					"ACCOUNT_LOGIN_PASSWORD_GRANT_REQUIRED",
+					"Two-factor verification is required before updating the stored account login password",
+					403,
+				);
+			}
+			await authService.verifyExternalSecretRevealGrant(
+				admin.id,
+				input.accountPasswordGrantToken,
+			);
+		}
+		const { accountPasswordGrantToken: _accountPasswordGrantToken, ...updateData } = input;
+		const email = await emailService.update(parseInt(id, 10), updateData);
 		return { success: true, data: email };
 	});
 

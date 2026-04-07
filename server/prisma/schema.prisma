@@ -103,6 +103,7 @@ model EmailAccount {
   capabilities   Json?
   clientId       String?      @map("client_id") @db.VarChar(255)
   password       String?      @db.VarChar(255)
+  accountLoginPassword String? @map("account_login_password") @db.VarChar(255)
   refreshToken   String?      @map("refresh_token") @db.Text
   clientSecret   String?      @map("client_secret") @db.Text
   status         EmailStatus  @default(ACTIVE)

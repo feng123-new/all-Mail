@@ -453,3 +453,141 @@ void test("email reveal route returns REVEAL_UNLOCK_EXPIRED when grant verificat
 		await app.close();
 	}
 });
+
+void test("email reveal route accepts accountLoginPassword as a revealable field", async () => {
+	const [{ buildApp }, { authService }, { emailService }, { mailService }] =
+		await Promise.all([
+			import("../../app.js"),
+			import("../auth/auth.service.js"),
+			import("./email.service.js"),
+			import("../mail/mail.service.js"),
+		]);
+
+	const restoreAdminFindUnique = await mockAdminAuthContext();
+
+	let authArgs: unknown[] | null = null;
+	let revealArgs: unknown[] | null = null;
+	mock.method(authService, "verifyStepUpTwoFactor", async (...args: unknown[]) => {
+		authArgs = args;
+		return { verified: true };
+	});
+	mock.method(emailService, "revealSecrets", async (...args: unknown[]) => {
+		revealArgs = args;
+		return {
+			secrets: { accountLoginPassword: "portal-login-password" },
+			availableFields: ["refreshToken", "accountLoginPassword"],
+		};
+	});
+	mock.method(mailService, "logAdminAction", async () => undefined);
+
+	const app = await buildApp();
+	try {
+		const token = await createAdminToken(1);
+		const response = await app.inject({
+			method: "POST",
+			url: "/admin/emails/12/reveal-secrets",
+			headers: {
+				authorization: `Bearer ${token}`,
+				"content-type": "application/json",
+			},
+			payload: {
+				otp: "123456",
+				fields: ["accountLoginPassword"],
+			},
+		});
+
+		assert.equal(response.statusCode, 200);
+		assert.deepEqual(authArgs, [1, { otp: "123456" }]);
+		assert.deepEqual(revealArgs, [12, ["accountLoginPassword"]]);
+	} finally {
+		restoreAdminFindUnique();
+		mock.restoreAll();
+		await app.close();
+	}
+});
+
+void test("email update route requires a grant token before updating account login password", async () => {
+	const [{ buildApp }] = await Promise.all([import("../../app.js")]);
+
+	const restoreAdminFindUnique = await mockAdminAuthContext();
+	const app = await buildApp();
+	try {
+		const token = await createAdminToken(1);
+		const response = await app.inject({
+			method: "PUT",
+			url: "/admin/emails/12",
+			headers: {
+				authorization: `Bearer ${token}`,
+				"content-type": "application/json",
+			},
+			payload: {
+				accountLoginPassword: "portal-login-password",
+			},
+		});
+
+		assert.equal(response.statusCode, 403);
+		assert.deepEqual(JSON.parse(response.payload), {
+			success: false,
+			requestId: "req-1",
+			error: {
+				code: "ACCOUNT_LOGIN_PASSWORD_GRANT_REQUIRED",
+				message:
+					"Two-factor verification is required before updating the stored account login password",
+			},
+		});
+	} finally {
+		restoreAdminFindUnique();
+		mock.restoreAll();
+		await app.close();
+	}
+});
+
+void test("email update route verifies grant token before updating account login password", async () => {
+	const [{ buildApp }, { authService }, { emailService }] = await Promise.all([
+		import("../../app.js"),
+		import("../auth/auth.service.js"),
+		import("./email.service.js"),
+	]);
+
+	const restoreAdminFindUnique = await mockAdminAuthContext();
+
+	let verifyGrantArgs: unknown[] | null = null;
+	let updateArgs: unknown[] | null = null;
+	mock.method(
+		authService,
+		"verifyExternalSecretRevealGrant",
+		async (...args: unknown[]) => {
+			verifyGrantArgs = args;
+			return { verified: true };
+		},
+	);
+	mock.method(emailService, "update", async (...args: unknown[]) => {
+		updateArgs = args;
+		return { id: 12, updatedAt: new Date().toISOString() };
+	});
+
+	const app = await buildApp();
+	try {
+		const token = await createAdminToken(1);
+		const response = await app.inject({
+			method: "PUT",
+			url: "/admin/emails/12",
+			headers: {
+				authorization: `Bearer ${token}`,
+				"content-type": "application/json",
+			},
+			payload: {
+				accountLoginPassword: "portal-login-password",
+				accountPasswordGrantToken: "grant-token-123",
+			},
+		});
+
+		assert.equal(response.statusCode, 200);
+		assert.deepEqual(verifyGrantArgs, [1, "grant-token-123"]);
+		assert.deepEqual(updateArgs, [12, { accountLoginPassword: "portal-login-password" }]);
+	} finally {
+		restoreAdminFindUnique();
+		mock.restoreAll();
+		await app.close();
+	}
+});

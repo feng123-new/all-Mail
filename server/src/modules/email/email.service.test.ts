@@ -154,6 +154,7 @@ void test("emailService.getById hides stored secrets by default", async () => {
 			clientSecret: encrypt("client-secret"),
 			refreshToken: encrypt("refresh-token"),
 			password: encrypt("mail-password"),
+			accountLoginPassword: encrypt("portal-login-password"),
 			providerConfig: null,
 			capabilities: null,
 			status: "ACTIVE",
@@ -170,7 +171,9 @@ void test("emailService.getById hides stored secrets by default", async () => {
 	try {
 		const result = await emailService.getById(9);
 		assert.equal(result.hasStoredPassword, true);
+		assert.equal(result.hasStoredAccountLoginPassword, true);
 		assert.equal(result.password, undefined);
+		assert.equal(result.accountLoginPassword, undefined);
 		assert.equal(result.refreshToken, undefined);
 		assert.equal(result.clientSecret, undefined);
 	} finally {
@@ -204,6 +207,7 @@ void test("emailService.list exposes hasStoredPassword without treating refreshT
 				errorMessage: null,
 				createdAt: new Date("2026-04-02T00:00:00.000Z"),
 				password: encrypt("qq-auth-code"),
+				accountLoginPassword: null,
 			},
 			{
 				id: 12,
@@ -220,6 +224,7 @@ void test("emailService.list exposes hasStoredPassword without treating refreshT
 				errorMessage: null,
 				createdAt: new Date("2026-04-02T00:00:00.000Z"),
 				password: null,
+				accountLoginPassword: encrypt("portal-login-password"),
 			},
 		]) as never),
 		overrideMethod(prisma.emailAccount, "count", (async () => 2) as never),
@@ -229,8 +234,10 @@ void test("emailService.list exposes hasStoredPassword without treating refreshT
 		const result = await emailService.list({ page: 1, pageSize: 10 });
 		assert.equal(result.total, 2);
 		assert.equal(result.list[0]?.hasStoredPassword, true);
+		assert.equal(result.list[0]?.hasStoredAccountLoginPassword, false);
 		assert.equal(result.list[0]?.password, undefined);
 		assert.equal(result.list[1]?.hasStoredPassword, false);
+		assert.equal(result.list[1]?.hasStoredAccountLoginPassword, true);
 		assert.equal(result.list[1]?.password, undefined);
 	} finally {
 		while (restores.length > 0) {
@@ -260,7 +267,7 @@ void test("emailService.revealSecrets returns password for app-password mailboxe
 		const result = await emailService.revealSecrets(7, ["password"]);
 		assert.deepEqual(result, {
 			secrets: { password: "qq-auth-code" },
-			availableFields: ["password"],
+			availableFields: ["password", "accountLoginPassword"],
 		});
 	} finally {
 		while (restores.length > 0) {
@@ -293,6 +300,72 @@ void test("emailService.revealSecrets throws PASSWORD_NOT_PRESENT when password 
 					error &&
 						typeof error === "object" &&
 						(error as { code?: unknown }).code === "PASSWORD_NOT_PRESENT",
+				),
+		);
+	} finally {
+		while (restores.length > 0) {
+			restores.pop()?.();
+		}
+	}
+});
+
+void test("emailService.revealSecrets returns account login password for OAuth mailboxes", async () => {
+	const [{ default: prisma }, { encrypt }, { emailService }] = await Promise.all([
+		import("../../lib/prisma.js"),
+		import("../../lib/crypto.js"),
+		import("./email.service.js"),
+	]);
+
+	const restores = [
+		overrideMethod(prisma.emailAccount, "findUnique", (async () => ({
+			id: 27,
+			provider: "OUTLOOK",
+			authType: "MICROSOFT_OAUTH",
+			refreshToken: encrypt("refresh-token"),
+			password: null,
+			accountLoginPassword: encrypt("portal-login-password"),
+		})) as never),
+	];
+
+	try {
+		const result = await emailService.revealSecrets(27, ["accountLoginPassword"]);
+		assert.deepEqual(result, {
+			secrets: { accountLoginPassword: "portal-login-password" },
+			availableFields: ["refreshToken", "accountLoginPassword"],
+		});
+	} finally {
+		while (restores.length > 0) {
+			restores.pop()?.();
+		}
+	}
+});
+
+void test("emailService.revealSecrets throws ACCOUNT_LOGIN_PASSWORD_NOT_PRESENT when account login password is missing", async () => {
+	const [{ default: prisma }, { emailService }] = await Promise.all([
+		import("../../lib/prisma.js"),
+		import("./email.service.js"),
+	]);
+
+	const restores = [
+		overrideMethod(prisma.emailAccount, "findUnique", (async () => ({
+			id: 28,
+			provider: "OUTLOOK",
+			authType: "MICROSOFT_OAUTH",
+			refreshToken: null,
+			password: null,
+			accountLoginPassword: null,
+		})) as never),
+	];
+
+	try {
+		await assert.rejects(
+			() => emailService.revealSecrets(28, ["accountLoginPassword"]),
+			(error: unknown) =>
+				Boolean(
+					error &&
+						typeof error === "object" &&
+						(error as { code?: unknown }).code ===
+							"ACCOUNT_LOGIN_PASSWORD_NOT_PRESENT",
 				),
 		);
 	} finally {
@@ -336,7 +409,7 @@ void test("emailService.revealSecrets rejects disallowed fields for current auth
 	}
 });
 
-void test("emailService.export keeps default OAuth format but appends password when rawSecrets is enabled", async () => {
+void test("emailService.export keeps default OAuth format but appends account login password when rawSecrets is enabled", async () => {
 	const [{ default: prisma }, { encrypt }, { emailService }] =
 		await Promise.all([
 			import("../../lib/prisma.js"),
@@ -353,7 +426,8 @@ void test("emailService.export keeps default OAuth format but appends password w
 				clientId: "client-id",
 				clientSecret: encrypt("client-secret"),
 				refreshToken: encrypt("refresh-token"),
-				password: encrypt("legacy-password"),
+				password: null,
+				accountLoginPassword: encrypt("legacy-password"),
 				providerConfig: null,
 			},
 		]) as never),
@@ -401,6 +475,7 @@ void test("emailService.export leaves app-password exports unchanged when rawSec
 				clientSecret: null,
 				refreshToken: null,
 				password: encrypt("qq-auth-code"),
+				accountLoginPassword: null,
 				providerConfig: null,
 			},
 		]) as never),
@@ -427,7 +502,7 @@ void test("emailService.export leaves app-password exports unchanged when rawSec
 	}
 });
 
-void test("emailService.import preserves appended OAuth password from rawSecrets exports", async () => {
+void test("emailService.import preserves appended OAuth account login password from rawSecrets exports", async () => {
 	const [{ default: prisma }, { decrypt }, { emailService }] =
 		await Promise.all([
 			import("../../lib/prisma.js"),
@@ -441,6 +516,7 @@ void test("emailService.import preserves appended OAuth password from rawSecrets
 		clientSecret: string | null;
 		refreshToken: string | null;
 		password: string | null;
+		accountLoginPassword: string | null;
 	} | null = null;
 	const restores = [
 		overrideMethod(prisma.emailAccount, "findUnique", (async () => null) as never),
@@ -474,7 +550,105 @@ void test("emailService.import preserves appended OAuth password from rawSecrets
 		);
 		assert.equal(
 			createdData?.password ? decrypt(createdData.password) : null,
+			null,
+		);
+		assert.equal(
+			createdData?.accountLoginPassword
+				? decrypt(createdData.accountLoginPassword)
+				: null,
 			"legacy-password",
+		);
+	} finally {
+		while (restores.length > 0) {
+			restores.pop()?.();
+		}
+	}
+});
+
+void test("emailService.import accepts mainstream OAuth format with account login password first", async () => {
+	const [{ default: prisma }, { decrypt }, { emailService }] = await Promise.all([
+		import("../../lib/prisma.js"),
+		import("../../lib/crypto.js"),
+		import("./email.service.js"),
+	]);
+
+	let createdData: Record<string, unknown> | null = null;
+	const restores = [
+		overrideMethod(prisma.emailAccount, "findUnique", (async () => null) as never),
+		overrideMethod(
+			prisma.emailAccount,
+			"create",
+			(async ({ data }: { data: Record<string, unknown> }) => {
+				createdData = data;
+				return {};
+			}) as never,
+		),
+	];
+
+	try {
+		const result = await emailService.import({
+			content:
+				"JindraLannon1699@outlook.com----3PhYi9Mcv----9e5f94bc-e8a4-4e73-b8be-63364c29d753----M.refresh-token",
+			separator: "----",
+		});
+
+		assert.deepEqual(result, { success: 1, failed: 0, errors: [] });
+		assert.equal(createdData?.provider, "OUTLOOK");
+		assert.equal(createdData?.authType, "MICROSOFT_OAUTH");
+		assert.equal(createdData?.clientId, "9e5f94bc-e8a4-4e73-b8be-63364c29d753");
+		assert.equal(createdData?.password, null);
+		assert.equal(
+			typeof createdData?.accountLoginPassword === "string"
+				? decrypt(createdData.accountLoginPassword)
+				: null,
+			"3PhYi9Mcv",
+		);
+	} finally {
+		while (restores.length > 0) {
+			restores.pop()?.();
+		}
+	}
+});
+
+void test("emailService.import accepts mainstream IMAP format with optional account login password extension", async () => {
+	const [{ default: prisma }, { decrypt }, { emailService }] = await Promise.all([
+		import("../../lib/prisma.js"),
+		import("../../lib/crypto.js"),
+		import("./email.service.js"),
+	]);
+
+	let createdData: Record<string, unknown> | null = null;
+	const restores = [
+		overrideMethod(prisma.emailAccount, "findUnique", (async () => null) as never),
+		overrideMethod(
+			prisma.emailAccount,
+			"create",
+			(async ({ data }: { data: Record<string, unknown> }) => {
+				createdData = data;
+				return {};
+			}) as never,
+		),
+	];
+
+	try {
+		const result = await emailService.import({
+			content: "ops@qq.com----qq-auth-code----portal-login-password",
+			separator: "----",
+		});
+
+		assert.deepEqual(result, { success: 1, failed: 0, errors: [] });
+		assert.equal(createdData?.provider, "QQ");
+		assert.equal(
+			typeof createdData?.password === "string"
+				? decrypt(createdData.password)
+				: null,
+			"qq-auth-code",
+		);
+		assert.equal(
+			typeof createdData?.accountLoginPassword === "string"
+				? decrypt(createdData.accountLoginPassword)
+				: null,
+			"portal-login-password",
 		);
 	} finally {
 		while (restores.length > 0) {
