@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../plugins/error.js';
 import type { IngressReceiveInput } from './ingress.schema.js';
@@ -11,6 +11,15 @@ function normalizeDomainName(value: string): string {
     return value.trim().toLowerCase();
 }
 
+const targetMailboxSelect = {
+    id: true,
+    domainId: true,
+    address: true,
+    status: true,
+    forwardMode: true,
+    forwardTo: true,
+} as const;
+
 export function extractVerificationCode(text?: string | null, html?: string | null): string | null {
     const source = `${text || ''}\n${html || ''}`;
     const match = source.match(/\b\d{4,8}\b/);
@@ -20,7 +29,7 @@ export function extractVerificationCode(text?: string | null, html?: string | nu
 async function resolveTargetMailbox(domainId: number, matchedAddress: string) {
     const exactMailbox = await prisma.domainMailbox.findUnique({
         where: { address: matchedAddress },
-        select: { id: true, domainId: true, address: true, status: true },
+        select: targetMailboxSelect,
     });
     if (exactMailbox && exactMailbox.domainId === domainId) {
         return { routeKind: 'EXACT_MAILBOX', mailbox: exactMailbox } as const;
@@ -31,7 +40,7 @@ async function resolveTargetMailbox(domainId: number, matchedAddress: string) {
         select: {
             id: true,
             mailbox: {
-                select: { id: true, domainId: true, address: true, status: true },
+                select: targetMailboxSelect,
             },
         },
     });
@@ -50,7 +59,7 @@ async function resolveTargetMailbox(domainId: number, matchedAddress: string) {
     if (domain?.isCatchAllEnabled && domain.catchAllTargetMailboxId) {
         const catchAllMailbox = await prisma.domainMailbox.findUnique({
             where: { id: domain.catchAllTargetMailboxId },
-            select: { id: true, domainId: true, address: true, status: true },
+            select: targetMailboxSelect,
         });
         if (catchAllMailbox && catchAllMailbox.domainId === domainId) {
             return { routeKind: 'CATCH_ALL', mailbox: catchAllMailbox } as const;
@@ -66,6 +75,7 @@ export const ingressService = {
         const matchedAddress = normalizeEmailAddress(input.routing.matchedAddress);
         const envelopeTo = normalizeEmailAddress(input.envelope.to);
         const envelopeFrom = normalizeEmailAddress(input.envelope.from);
+        const deliveryKey = input.deliveryKey.trim();
 
         const domain = await prisma.domain.findUnique({
             where: { name: domainName },
@@ -99,61 +109,87 @@ export const ingressService = {
 
         const verificationCode = extractVerificationCode(input.message.textPreview, input.message.htmlPreview);
         const messageIdHeader = input.message.messageId?.trim() || null;
-        if (messageIdHeader) {
-            const existing = await prisma.inboundMessage.findFirst({
-                where: {
-                    domainId: domain.id,
-                    finalAddress: target.mailbox.address,
-                    messageIdHeader,
-                },
-                select: {
-                    id: true,
-                },
-            });
-            if (existing) {
-                return {
-                    accepted: true,
-                    duplicate: true,
-                    route: target.routeKind,
-                    domainId: domain.id,
-                    mailboxId: target.mailbox.id,
-                    messageId: existing.id.toString(),
-                };
-            }
-        }
+        try {
+            const message = await prisma.$transaction(async (tx) => {
+                const createdMessage = await tx.inboundMessage.create({
+                    data: {
+                        domainId: domain.id,
+                        mailboxId: target.mailbox.id,
+                        matchedAddress,
+                        finalAddress: target.mailbox.address,
+                        deliveryKey,
+                        messageIdHeader,
+                        fromAddress: envelopeFrom,
+                        toAddress: envelopeTo,
+                        subject: input.message.subject?.trim() || null,
+                        textPreview: input.message.textPreview?.trim() || null,
+                        htmlPreview: input.message.htmlPreview?.trim() || null,
+                        verificationCode,
+                        routeKind: target.routeKind,
+                        receivedAt: new Date(input.receivedAt),
+                        storageStatus: input.message.storageStatus ?? (input.message.rawObjectKey ? 'STORED' : 'PENDING'),
+                        rawObjectKey: input.message.rawObjectKey?.trim() || null,
+                        attachmentsMeta: (input.message.attachments || []) as unknown as Prisma.InputJsonValue,
+                        headersJson: (input.message.headers || {}) as Prisma.InputJsonValue,
+                    },
+                    select: {
+                        id: true,
+                    },
+                });
 
-        const message = await prisma.inboundMessage.create({
-            data: {
+                if (target.mailbox.forwardMode !== 'DISABLED' && target.mailbox.forwardTo) {
+                    await tx.mailboxForwardJob.create({
+                        data: {
+                            inboundMessageId: createdMessage.id,
+                            mailboxId: target.mailbox.id,
+                            mode: target.mailbox.forwardMode,
+                            forwardTo: target.mailbox.forwardTo,
+                            status: 'PENDING',
+                            nextAttemptAt: new Date(),
+                        },
+                    });
+                }
+
+                return createdMessage;
+            });
+
+            return {
+                accepted: true,
+                duplicate: false,
+                route: target.routeKind,
                 domainId: domain.id,
                 mailboxId: target.mailbox.id,
-                matchedAddress,
-                finalAddress: target.mailbox.address,
-                messageIdHeader,
-                fromAddress: envelopeFrom,
-                toAddress: envelopeTo,
-                subject: input.message.subject?.trim() || null,
-                textPreview: input.message.textPreview?.trim() || null,
-                htmlPreview: input.message.htmlPreview?.trim() || null,
-                verificationCode,
-                routeKind: target.routeKind,
-                receivedAt: new Date(input.receivedAt),
-                storageStatus: input.message.rawObjectKey ? 'STORED' : 'PENDING',
-                rawObjectKey: input.message.rawObjectKey?.trim() || null,
-                attachmentsMeta: (input.message.attachments || []) as unknown as Prisma.InputJsonValue,
-                headersJson: (input.message.headers || {}) as Prisma.InputJsonValue,
-            },
-            select: {
-                id: true,
-            },
-        });
+                messageId: message.id.toString(),
+            };
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                const existing = await prisma.inboundMessage.findUnique({
+                    where: {
+                        domainId_deliveryKey: {
+                            domainId: domain.id,
+                            deliveryKey,
+                        },
+                    },
+                    select: {
+                        id: true,
+                        mailboxId: true,
+                        routeKind: true,
+                    },
+                });
 
-        return {
-            accepted: true,
-            duplicate: false,
-            route: target.routeKind,
-            domainId: domain.id,
-            mailboxId: target.mailbox.id,
-            messageId: message.id.toString(),
-        };
+                if (existing) {
+                    return {
+                        accepted: true,
+                        duplicate: true,
+                        route: existing.routeKind || target.routeKind,
+                        domainId: domain.id,
+                        mailboxId: existing.mailboxId ?? target.mailbox.id,
+                        messageId: existing.id.toString(),
+                    };
+                }
+            }
+
+            throw error;
+        }
     },
 };

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const ingressReceiveSchema = z.object({
     provider: z.string().trim().min(1),
+    deliveryKey: z.string().trim().min(1).max(128),
     receivedAt: z.string().datetime(),
     envelope: z.object({
         from: z.string().trim().email(),
@@ -25,6 +26,7 @@ export const ingressReceiveSchema = z.object({
             objectKey: z.string().trim().optional().nullable(),
         })).default([]),
         rawObjectKey: z.string().trim().optional().nullable(),
+        storageStatus: z.enum(['PENDING', 'STORED', 'FAILED']).optional(),
     }),
 });
 

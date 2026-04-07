@@ -5,7 +5,9 @@ import { verifyToken } from '../lib/jwt.js';
 import { hashApiKey } from '../lib/crypto.js';
 import { env } from '../config/env.js';
 import prisma from '../lib/prisma.js';
+import { logger } from '../lib/logger.js';
 import { getRedis } from '../lib/redis.js';
+import { ADMIN_PASSWORD_CHANGE_ALLOWED_PATHS, MAILBOX_PASSWORD_CHANGE_ALLOWED_PATHS } from '../routes/prefixes.js';
 import { AppError } from './error.js';
 import { isApiPermissionAllowed, parseApiPermissions, type ApiPermissions } from './api-permissions.js';
 
@@ -28,6 +30,7 @@ declare module 'fastify' {
             username: string;
             role: string;
             mailboxIds: number[];
+            mustChangePassword: boolean;
         };
         ingressEndpoint?: {
             id: number;
@@ -35,44 +38,51 @@ declare module 'fastify' {
             keyId: string;
             name: string;
         };
+        ingressRawBody?: string;
     }
 }
 
 const MAILBOX_JWT_AUDIENCE = 'mailbox-portal';
+const ADMIN_JWT_AUDIENCE = 'admin-console';
 
 function isAdminPasswordChangeAllowedPath(request: FastifyRequest): boolean {
     const path = request.url.split('?')[0];
-    return path === '/admin/auth/me' || path === '/admin/auth/change-password';
+    return ADMIN_PASSWORD_CHANGE_ALLOWED_PATHS.includes(path);
+}
+
+function isMailboxPasswordChangeAllowedPath(request: FastifyRequest): boolean {
+    const path = request.url.split('?')[0];
+    return MAILBOX_PASSWORD_CHANGE_ALLOWED_PATHS.includes(path);
 }
 
 /**
  * 提取 Token（从 Header 或 Cookie）
  */
 function extractToken(request: FastifyRequest): string | null {
-    // Authorization header
-    const authHeader = request.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-        return authHeader.substring(7);
-    }
-
     // Cookie
     const cookieToken = request.cookies?.token;
     if (cookieToken) {
         return cookieToken;
     }
 
-    return null;
-}
-
-function extractMailboxToken(request: FastifyRequest): string | null {
+    // Authorization header
     const authHeader = request.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
         return authHeader.substring(7);
     }
 
+    return null;
+}
+
+function extractMailboxToken(request: FastifyRequest): string | null {
     const cookieToken = request.cookies?.mailbox_token;
     if (cookieToken) {
         return cookieToken;
+    }
+
+    const authHeader = request.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+        return authHeader.substring(7);
     }
 
     return null;
@@ -94,12 +104,6 @@ function extractApiKey(request: FastifyRequest): string | null {
         return authHeader.substring(7);
     }
 
-    // Query parameter
-    const queryKey = (request.query as Record<string, string>)?.api_key;
-    if (queryKey) {
-        return queryKey;
-    }
-
     return null;
 }
 
@@ -119,7 +123,7 @@ function hasExpectedAudience(audience: unknown, expected: string): boolean {
 }
 
 function buildIngressCanonicalString(request: FastifyRequest, timestamp: string): string {
-    const bodySource = request.body === undefined ? '' : JSON.stringify(request.body);
+    const bodySource = typeof request.ingressRawBody === 'string' ? request.ingressRawBody : '';
     const bodyHash = createHash('sha256').update(bodySource).digest('hex');
     const path = request.url.split('?')[0];
     return `${timestamp}\n${request.method.toUpperCase()}\n${path}\n${bodyHash}`;
@@ -146,53 +150,120 @@ function extractIngressBodyDomain(body: unknown): string | null {
     return typeof domain === 'string' && domain.trim() ? domain.trim() : null;
 }
 
-const localRateLimitStore = new Map<number, { count: number; resetAt: number }>();
-
-/**
- * API Key 限流（每分钟）
- * - 优先使用 Redis（多实例安全）
- * - Redis 不可用时回退本地内存
- */
-async function enforceApiKeyRateLimit(apiKeyId: number, maxPerMinute: number): Promise<void> {
-    if (maxPerMinute <= 0) {
-        return;
+function extractIngressDeliveryKey(body: unknown): string | null {
+    if (!body || typeof body !== 'object') {
+        return null;
     }
 
-    const now = Date.now();
-    const redis = getRedis();
+    const deliveryKey = (body as Record<string, unknown>).deliveryKey;
+    return typeof deliveryKey === 'string' && deliveryKey.trim() ? deliveryKey.trim() : null;
+}
 
+const localRateLimitStore = new Map<number, { count: number; resetAt: number }>();
+const localIngressReplayStore = new Map<string, number>();
+
+export function shouldAllowLocalRateLimitFallback(): boolean {
+    return env.NODE_ENV !== 'production' || env.ALLOW_LOCAL_RATE_LIMIT_FALLBACK;
+}
+
+interface RateLimitRedisClient {
+    incr(key: string): Promise<number>;
+    expire(key: string, seconds: number): Promise<number>;
+}
+
+interface IngressReplayRedisClient {
+    set(key: string, value: string, mode: 'EX', seconds: number, condition: 'NX'): Promise<'OK' | null>;
+}
+
+interface ApiKeyRateLimitEnforcerOptions {
+    allowLocalFallback?: boolean;
+    getRedisClient?: () => RateLimitRedisClient | null;
+    localStore?: Map<number, { count: number; resetAt: number }>;
+    now?: () => number;
+}
+
+export function createApiKeyRateLimitEnforcer(options: ApiKeyRateLimitEnforcerOptions = {}) {
+    const allowLocalFallback = options.allowLocalFallback ?? shouldAllowLocalRateLimitFallback();
+    const getRedisClient = options.getRedisClient ?? (() => getRedis());
+    const localStore = options.localStore ?? localRateLimitStore;
+    const nowSource = options.now ?? Date.now;
+
+    return async function enforceApiKeyRateLimit(apiKeyId: number, maxPerMinute: number): Promise<void> {
+        if (maxPerMinute <= 0) {
+            return;
+        }
+
+        const now = nowSource();
+        const redis = getRedisClient();
+
+        if (redis) {
+            try {
+                const minuteBucket = Math.floor(now / 60000);
+                const key = `rate_limit:api_key:${apiKeyId}:${minuteBucket}`;
+                const count = await redis.incr(key);
+
+                if (count === 1) {
+                    await redis.expire(key, 60);
+                }
+
+                if (count > maxPerMinute) {
+                    throw new AppError('RATE_LIMIT_EXCEEDED', `Rate limit exceeded: ${maxPerMinute} requests/minute`, 429);
+                }
+                return;
+            } catch (error) {
+                if (!allowLocalFallback) {
+                    throw new AppError('RATE_LIMIT_BACKEND_UNAVAILABLE', 'Rate limit backend is unavailable', 503);
+                }
+
+                logger.warn({ err: error }, 'Redis rate limit backend unavailable; falling back to local in-memory limits');
+            }
+        } else if (!allowLocalFallback) {
+            throw new AppError('RATE_LIMIT_BACKEND_UNAVAILABLE', 'Rate limit backend is unavailable', 503);
+        }
+
+        const existing = localStore.get(apiKeyId);
+        if (!existing || now >= existing.resetAt) {
+            localStore.set(apiKeyId, {
+                count: 1,
+                resetAt: now + 60000,
+            });
+            return;
+        }
+
+        existing.count += 1;
+        if (existing.count > maxPerMinute) {
+            throw new AppError('RATE_LIMIT_EXCEEDED', `Rate limit exceeded: ${maxPerMinute} requests/minute`, 429);
+        }
+    };
+}
+
+const enforceApiKeyRateLimit = createApiKeyRateLimitEnforcer();
+
+async function reserveIngressReplayKey(replayKey: string, ttlSeconds: number): Promise<boolean> {
+    const redis = getRedis() as IngressReplayRedisClient | null;
     if (redis) {
         try {
-            const minuteBucket = Math.floor(now / 60000);
-            const key = `rate_limit:api_key:${apiKeyId}:${minuteBucket}`;
-            const count = await redis.incr(key);
-
-            if (count === 1) {
-                await redis.expire(key, 60);
-            }
-
-            if (count > maxPerMinute) {
-                throw new AppError('RATE_LIMIT_EXCEEDED', `Rate limit exceeded: ${maxPerMinute} requests/minute`, 429);
-            }
-            return;
-        } catch {
-            // Redis 异常时回退本地限流
+            const result = await redis.set(replayKey, '1', 'EX', ttlSeconds, 'NX');
+            return result === 'OK';
+        } catch (error) {
+            logger.warn({ err: error }, 'Ingress replay backend unavailable; falling back to local in-memory replay protection');
         }
     }
 
-    const existing = localRateLimitStore.get(apiKeyId);
-    if (!existing || now >= existing.resetAt) {
-        localRateLimitStore.set(apiKeyId, {
-            count: 1,
-            resetAt: now + 60000,
-        });
-        return;
+    const now = Date.now();
+    for (const [key, expiresAt] of localIngressReplayStore.entries()) {
+        if (expiresAt <= now) {
+            localIngressReplayStore.delete(key);
+        }
     }
 
-    existing.count += 1;
-    if (existing.count > maxPerMinute) {
-        throw new AppError('RATE_LIMIT_EXCEEDED', `Rate limit exceeded: ${maxPerMinute} requests/minute`, 429);
+    const existing = localIngressReplayStore.get(replayKey);
+    if (existing && existing > now) {
+        return false;
     }
+
+    localIngressReplayStore.set(replayKey, now + (ttlSeconds * 1000));
+    return true;
 }
 
 const authPlugin: FastifyPluginAsync = async (fastify) => {
@@ -207,7 +278,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
         }
 
         const payload = await verifyToken(token);
-        if (!payload) {
+        if (!payload || !hasExpectedAudience(payload.aud, ADMIN_JWT_AUDIENCE)) {
             throw new AppError('INVALID_TOKEN', 'Invalid or expired token', 401);
         }
 
@@ -336,6 +407,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
                     id: true,
                     username: true,
                     status: true,
+                    mustChangePassword: true,
                 },
             }),
             prisma.domainMailbox.findMany({
@@ -374,7 +446,12 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
             username: mailboxUser.username || payload.username,
             role: payload.role,
             mailboxIds,
+            mustChangePassword: mailboxUser.mustChangePassword,
         };
+
+        if (mailboxUser.mustChangePassword && !isMailboxPasswordChangeAllowedPath(request)) {
+            throw new AppError('PASSWORD_CHANGE_REQUIRED', 'You must change the initial mailbox password before continuing.', 403);
+        }
     });
 
     fastify.decorate('authenticateIngressSignature', async (request: FastifyRequest, _reply: FastifyReply) => {
@@ -431,6 +508,16 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
         const bodyDomain = extractIngressBodyDomain(request.body);
         if (endpoint.domain?.name && bodyDomain && endpoint.domain.name !== bodyDomain) {
             throw new AppError('INGRESS_ENDPOINT_DOMAIN_MISMATCH', 'Ingress endpoint is not allowed to submit for this domain', 403);
+        }
+
+        const replayTtlSeconds = Math.max(env.INGRESS_ALLOWED_SKEW_SECONDS * 2, 60);
+        const deliveryKey = extractIngressDeliveryKey(request.body);
+        const replayKey = deliveryKey
+            ? `ingress:replay:${keyId}:${deliveryKey}`
+            : `ingress:replay:${keyId}:${signature}`;
+        const reserved = await reserveIngressReplayKey(replayKey, replayTtlSeconds);
+        if (!reserved) {
+            throw new AppError('INGRESS_REPLAY_DETECTED', 'Ingress request has already been processed', 409);
         }
 
         request.ingressEndpoint = {

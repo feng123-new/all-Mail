@@ -1,8 +1,8 @@
 import { logger } from './lib/logger.js';
-import { createApiRuntime } from './runtime/processes.js';
+import { createJobsRuntime } from './runtime/processes.js';
 
 async function main() {
-    const runtime = createApiRuntime();
+    const runtime = createJobsRuntime();
 
     const shutdown = async () => {
         await runtime.stop();
@@ -15,7 +15,7 @@ async function main() {
     try {
         await runtime.start();
     } catch (err) {
-        logger.error({ err }, 'Failed to start server');
+        logger.error({ err }, 'Failed to start background jobs runtime');
         process.exit(1);
     }
 }

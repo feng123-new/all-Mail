@@ -35,6 +35,41 @@ function toNullableJsonIds(
     return value.length > 0 ? value : Prisma.DbNull;
 }
 
+type ApiKeyMutationModel = {
+    findMany: typeof prisma.apiKey.findMany;
+    update: typeof prisma.apiKey.update;
+};
+
+export async function appendAllowedDomainIdsWithModel(apiKeyModel: ApiKeyMutationModel, apiKeyIds: number[], domainId: number) {
+    const normalizedApiKeyIds = Array.from(new Set(apiKeyIds.filter((id) => Number.isInteger(id) && id > 0)));
+    if (normalizedApiKeyIds.length === 0) {
+        return { updated: 0 };
+    }
+
+    const apiKeys = await apiKeyModel.findMany({
+        where: { id: { in: normalizedApiKeyIds } },
+        select: { id: true, allowedDomainIds: true },
+    });
+
+    if (apiKeys.length !== normalizedApiKeyIds.length) {
+        throw new AppError('API_KEY_NOT_FOUND', 'One or more selected API Keys do not exist', 404);
+    }
+
+    await Promise.all(
+        apiKeys.map((apiKey) => {
+            const nextAllowedDomainIds = Array.from(new Set([...parseJsonIdList(apiKey.allowedDomainIds), domainId]));
+            return apiKeyModel.update({
+                where: { id: apiKey.id },
+                data: {
+                    allowedDomainIds: toNullableJsonIds(nextAllowedDomainIds),
+                },
+            });
+        })
+    );
+
+    return { updated: apiKeys.length };
+}
+
 export const apiKeyService = {
     /**
      * 获取 API Key 列表
@@ -319,32 +354,6 @@ export const apiKeyService = {
     },
 
     async appendAllowedDomainIds(apiKeyIds: number[], domainId: number) {
-        const normalizedApiKeyIds = Array.from(new Set(apiKeyIds.filter((id) => Number.isInteger(id) && id > 0)));
-        if (normalizedApiKeyIds.length === 0) {
-            return { updated: 0 };
-        }
-
-        const apiKeys = await prisma.apiKey.findMany({
-            where: { id: { in: normalizedApiKeyIds } },
-            select: { id: true, allowedDomainIds: true },
-        });
-
-        if (apiKeys.length !== normalizedApiKeyIds.length) {
-            throw new AppError('API_KEY_NOT_FOUND', 'One or more selected API Keys do not exist', 404);
-        }
-
-        await prisma.$transaction(
-            apiKeys.map((apiKey) => {
-                const nextAllowedDomainIds = Array.from(new Set([...parseJsonIdList(apiKey.allowedDomainIds), domainId]));
-                return prisma.apiKey.update({
-                    where: { id: apiKey.id },
-                    data: {
-                        allowedDomainIds: toNullableJsonIds(nextAllowedDomainIds),
-                    },
-                });
-            })
-        );
-
-        return { updated: apiKeys.length };
+        return appendAllowedDomainIdsWithModel(prisma.apiKey, apiKeyIds, domainId);
     },
 };

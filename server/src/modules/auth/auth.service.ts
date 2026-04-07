@@ -1,5 +1,5 @@
 import prisma from '../../lib/prisma.js';
-import { signToken } from '../../lib/jwt.js';
+import { signToken, verifyToken } from '../../lib/jwt.js';
 import { decrypt, encrypt, hashPassword, verifyPassword } from '../../lib/crypto.js';
 import { env } from '../../config/env.js';
 import { getRedis } from '../../lib/redis.js';
@@ -31,6 +31,10 @@ function buildRedisLoginLockKey(cacheKey: string): string {
 
 const LOCK_SECONDS = env.ADMIN_LOGIN_LOCK_MINUTES * 60;
 const ATTEMPT_WINDOW_SECONDS = LOCK_SECONDS;
+const ADMIN_JWT_AUDIENCE = 'admin-console';
+const EXTERNAL_SECRET_REVEAL_GRANT_AUDIENCE = 'admin-email-secret-reveal';
+const EXTERNAL_SECRET_REVEAL_GRANT_PURPOSE = 'external_password_reveal';
+const EXTERNAL_SECRET_REVEAL_GRANT_TTL_MINUTES = 10;
 
 function formatLockMessage(lockSeconds: number): string {
     const minutes = Math.max(1, Math.ceil(lockSeconds / 60));
@@ -252,6 +256,8 @@ export const authService = {
                     sub: newAdmin.id.toString(),
                     username: newAdmin.username,
                     role: newAdmin.role,
+                }, {
+                    audience: ADMIN_JWT_AUDIENCE,
                 });
 
                 return {
@@ -316,6 +322,8 @@ export const authService = {
             sub: admin.id.toString(),
             username: admin.username,
             role: admin.role,
+        }, {
+            audience: ADMIN_JWT_AUDIENCE,
         });
 
         return {
@@ -525,7 +533,7 @@ export const authService = {
     /**
      * 禁用 2FA
      */
-    async disableTwoFactor(adminId: number, input: Disable2FaInput) {
+	async disableTwoFactor(adminId: number, input: Disable2FaInput) {
         if (adminId === 0) {
             throw new AppError('UNSUPPORTED', 'Default admin cannot disable legacy 2FA in UI', 400);
         }
@@ -567,6 +575,147 @@ export const authService = {
             },
         });
 
-        return { enabled: false };
-    },
+		return { enabled: false };
+	},
+
+	async verifyStepUpTwoFactor(adminId: number, input: Verify2FaInput) {
+		if (adminId === 0) {
+			throw new AppError(
+				"UNSUPPORTED",
+				"Default admin cannot use this verification flow",
+				400,
+			);
+		}
+
+		const admin = await prisma.admin.findUnique({
+			where: { id: adminId },
+			select: {
+				id: true,
+				twoFactorEnabled: true,
+				twoFactorSecret: true,
+			},
+		});
+
+		if (!admin) {
+			throw new AppError("NOT_FOUND", "Admin not found", 404);
+		}
+
+		if (!admin.twoFactorEnabled) {
+			throw new AppError(
+				"TWO_FACTOR_REQUIRED",
+				"Enable two-factor authentication before revealing secrets",
+				403,
+			);
+		}
+
+		const secret = decryptAdmin2FaSecret(admin.twoFactorSecret);
+		if (!secret || !verifyTotpCode(secret, input.otp, env.ADMIN_2FA_WINDOW)) {
+			throw new AppError("INVALID_OTP", "Invalid two-factor code", 401);
+		}
+
+		return { verified: true };
+	},
+
+	async createExternalSecretRevealGrant(adminId: number) {
+		if (adminId === 0) {
+			throw new AppError(
+				'UNSUPPORTED',
+				'Default admin cannot use this verification flow',
+				400,
+			);
+		}
+
+		const admin = await prisma.admin.findUnique({
+			where: { id: adminId },
+			select: {
+				id: true,
+				username: true,
+				role: true,
+				twoFactorEnabled: true,
+			},
+		});
+
+		if (!admin) {
+			throw new AppError('NOT_FOUND', 'Admin not found', 404);
+		}
+
+		if (!admin.twoFactorEnabled) {
+			throw new AppError(
+				'TWO_FACTOR_REQUIRED',
+				'Enable two-factor authentication before revealing secrets',
+				403,
+			);
+		}
+
+		const expiresAtMs = Date.now() + EXTERNAL_SECRET_REVEAL_GRANT_TTL_MINUTES * 60 * 1000;
+		const grantToken = await signToken(
+			{
+				sub: String(admin.id),
+				role: admin.role,
+				username: admin.username,
+				purpose: EXTERNAL_SECRET_REVEAL_GRANT_PURPOSE,
+			},
+			{
+				audience: EXTERNAL_SECRET_REVEAL_GRANT_AUDIENCE,
+				expiresIn: `${EXTERNAL_SECRET_REVEAL_GRANT_TTL_MINUTES}m`,
+			},
+		);
+
+		return {
+			grantToken,
+			expiresAt: new Date(expiresAtMs).toISOString(),
+		};
+	},
+
+	async verifyExternalSecretRevealGrant(adminId: number, grantToken: string) {
+		if (adminId === 0) {
+			throw new AppError(
+				'UNSUPPORTED',
+				'Default admin cannot use this verification flow',
+				400,
+			);
+		}
+
+		const admin = await prisma.admin.findUnique({
+			where: { id: adminId },
+			select: {
+				id: true,
+				twoFactorEnabled: true,
+			},
+		});
+
+		if (!admin) {
+			throw new AppError('NOT_FOUND', 'Admin not found', 404);
+		}
+
+		if (!admin.twoFactorEnabled) {
+			throw new AppError(
+				'TWO_FACTOR_REQUIRED',
+				'Enable two-factor authentication before revealing secrets',
+				403,
+			);
+		}
+
+		const payload = await verifyToken(grantToken);
+		const audience = Array.isArray(payload?.aud)
+			? payload.aud.map(String)
+			: payload?.aud
+				? [String(payload.aud)]
+				: [];
+
+		if (
+			!payload ||
+			payload.sub !== String(admin.id) ||
+			!audience.includes(EXTERNAL_SECRET_REVEAL_GRANT_AUDIENCE) ||
+			payload.purpose !== EXTERNAL_SECRET_REVEAL_GRANT_PURPOSE
+		) {
+			throw new AppError(
+				'REVEAL_UNLOCK_EXPIRED',
+				'Reveal unlock expired or invalid',
+				401,
+			);
+		}
+
+		return { verified: true };
+	},
 };

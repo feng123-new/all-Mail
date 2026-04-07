@@ -1,37 +1,25 @@
-import Fastify from 'fastify';
-import { z } from 'zod';
+import { access } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { access } from 'node:fs/promises';
+import Fastify from 'fastify';
+import { z } from 'zod';
 
 import { env } from './config/env.js';
-import errorPlugin from './plugins/error.js';
-import authPlugin from './plugins/auth.js';
 import { isApiOrAdminPath, shouldServeSpaIndex } from './lib/http.js';
 import { ensurePrecompressedAssets } from './lib/static-compression.js';
-
-// Routes
-import authRoutes from './modules/auth/auth.routes.js';
-import adminRoutes from './modules/admin/admin.routes.js';
-import apiKeyRoutes from './modules/api-key/apiKey.routes.js';
-import emailRoutes from './modules/email/email.routes.js';
 import { emailOAuthService } from './modules/email/email.oauth.service.js';
-import emailOAuthRoutes from './modules/email/email.oauth.routes.js';
-import groupRoutes from './modules/email/group.routes.js';
-import mailRoutes from './modules/mail/mail.routes.js';
-import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
-import domainRoutes from './modules/domain/domain.routes.js';
-import domainMailboxApiRoutes from './modules/domain-mailbox/domainMailbox.api.routes.js';
-import domainMailboxRoutes from './modules/domain-mailbox/domainMailbox.routes.js';
-import mailboxUserRoutes from './modules/mailbox-user/mailboxUser.routes.js';
-import mailboxPortalRoutes from './modules/mailbox-user/mailboxPortal.routes.js';
-import messageRoutes from './modules/message/message.routes.js';
-import ingressRoutes from './modules/ingress/ingress.routes.js';
-import sendRoutes from './modules/send/send.routes.js';
+import authPlugin from './plugins/auth.js';
+import errorPlugin from './plugins/error.js';
+import { registerAdminRoutes } from './routes/admin.assembly.js';
+import { registerExternalApiRoutes } from './routes/external-api.assembly.js';
+import { registerIngressRoutes } from './routes/ingress.assembly.js';
+import { registerPortalRoutes } from './routes/portal.assembly.js';
+import { ROUTE_PREFIXES } from './routes/prefixes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const legacyOAuthCallbackQuerySchema = z.object({
@@ -99,7 +87,7 @@ export async function buildApp() {
         };
     });
 
-    fastify.get('/oauth', async (request, reply) => {
+    fastify.get(ROUTE_PREFIXES.legacyOauth, async (request, reply) => {
         const query = legacyOAuthCallbackQuerySchema.parse(request.query);
         const result = await emailOAuthService.completeAuthorization({
             provider: 'OUTLOOK',
@@ -142,25 +130,10 @@ export async function buildApp() {
         });
     }
 
-    // API 路由
-    await fastify.register(authRoutes, { prefix: '/admin/auth' });
-    await fastify.register(adminRoutes, { prefix: '/admin/admins' });
-    await fastify.register(apiKeyRoutes, { prefix: '/admin/api-keys' });
-    await fastify.register(emailRoutes, { prefix: '/admin/emails' });
-    await fastify.register(emailOAuthRoutes, { prefix: '/admin/oauth' });
-    await fastify.register(groupRoutes, { prefix: '/admin/email-groups' });
-    await fastify.register(dashboardRoutes, { prefix: '/admin/dashboard' });
-    await fastify.register(domainRoutes, { prefix: '/admin/domains' });
-    await fastify.register(domainMailboxRoutes, { prefix: '/admin/domain-mailboxes' });
-    await fastify.register(messageRoutes, { prefix: '/admin/domain-messages' });
-    await fastify.register(mailboxUserRoutes, { prefix: '/admin/mailbox-users' });
-    await fastify.register(sendRoutes, { prefix: '/admin/send' });
-
-    // 外部 API
-    await fastify.register(mailRoutes, { prefix: '/api' });
-    await fastify.register(domainMailboxApiRoutes, { prefix: '/api/domain-mail' });
-    await fastify.register(mailboxPortalRoutes, { prefix: '/mail/api' });
-    await fastify.register(ingressRoutes, { prefix: '/ingress/domain-mail' });
+    await registerAdminRoutes(fastify);
+    await registerExternalApiRoutes(fastify);
+    await registerPortalRoutes(fastify);
+    await registerIngressRoutes(fastify);
 
     // SPA fallback - 现在可以安全使用 setNotFoundHandler
     fastify.setNotFoundHandler(async (request, reply) => {

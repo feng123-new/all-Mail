@@ -1,24 +1,16 @@
-import { SocksProxyAgent } from 'socks-proxy-agent';
 import { ProxyAgent, fetch as undiciFetch } from 'undici';
-import nodeFetch from 'node-fetch';
+import type { Dispatcher } from 'undici';
 import { logger } from './logger.js';
 
+type ProxyFetchOptions = NonNullable<Parameters<typeof undiciFetch>[1]>;
+type ProxyFetchResponse = Awaited<ReturnType<typeof undiciFetch>>;
+
 interface ProxyOptions {
-    fetch: typeof fetch;
-    agent?: SocksProxyAgent;
-    dispatcher?: ProxyAgent;
+    dispatcher?: Dispatcher;
     type?: 'socks5' | 'http' | 'none';
 }
 
-type ProxyFetchOptions = Omit<RequestInit, 'dispatcher'> & {
-    agent?: unknown;
-    dispatcher?: unknown;
-};
-
-/**
- * 创建 SOCKS5 代理 Agent
- */
-export function createSocksAgent(socks5: string): SocksProxyAgent | null {
+export function createSocksAgent(socks5: string): Dispatcher | null {
     if (!socks5 || typeof socks5 !== 'string') {
         return null;
     }
@@ -34,29 +26,24 @@ export function createSocksAgent(socks5: string): SocksProxyAgent | null {
     }
 
     try {
-        const agent = new SocksProxyAgent(normalizedUrl, {
-            timeout: 10000,
-        });
+        const dispatcher = new ProxyAgent(normalizedUrl);
         logger.debug({ url: normalizedUrl }, 'SOCKS5 proxy created');
-        return agent;
+        return dispatcher;
     } catch (err) {
         logger.error({ err, url: socks5 }, 'Failed to create SOCKS5 proxy');
         return null;
     }
 }
 
-/**
- * 创建 HTTP 代理 Agent
- */
-export function createHttpAgent(http: string): ProxyAgent | null {
+export function createHttpAgent(http: string): Dispatcher | null {
     if (!http) {
         return null;
     }
 
     try {
-        const agent = new ProxyAgent(http);
+        const dispatcher = new ProxyAgent(http);
         logger.debug({ url: http }, 'HTTP proxy created');
-        return agent;
+        return dispatcher;
     } catch (err) {
         logger.error({ err, url: http }, 'Failed to create HTTP proxy');
         return null;
@@ -69,11 +56,10 @@ export function createHttpAgent(http: string): ProxyAgent | null {
 export function autoProxy(socks5?: string, http?: string): ProxyOptions {
     // SOCKS5 代理优先
     if (socks5) {
-        const agent = createSocksAgent(socks5);
-        if (agent) {
+        const dispatcher = createSocksAgent(socks5);
+        if (dispatcher) {
             return {
-                fetch: nodeFetch as unknown as typeof fetch,
-                agent,
+                dispatcher,
                 type: 'socks5',
             };
         }
@@ -84,7 +70,6 @@ export function autoProxy(socks5?: string, http?: string): ProxyOptions {
         const dispatcher = createHttpAgent(http);
         if (dispatcher) {
             return {
-                fetch: undiciFetch as unknown as typeof fetch,
                 dispatcher,
                 type: 'http',
             };
@@ -93,7 +78,6 @@ export function autoProxy(socks5?: string, http?: string): ProxyOptions {
 
     // 无代理
     return {
-        fetch: undiciFetch as unknown as typeof fetch,
         type: 'none',
     };
 }
@@ -105,19 +89,15 @@ export async function proxyFetch(
     url: string,
     options: RequestInit = {},
     proxyConfig?: { socks5?: string; http?: string }
-): Promise<Response> {
+): Promise<ProxyFetchResponse> {
     const proxy = autoProxy(proxyConfig?.socks5, proxyConfig?.http);
 
-    const fetchOptions: ProxyFetchOptions = { ...options };
-
-    if (proxy.agent) {
-        fetchOptions.agent = proxy.agent;
-    }
+    const fetchOptions = { ...options } as ProxyFetchOptions;
     if (proxy.dispatcher) {
         fetchOptions.dispatcher = proxy.dispatcher;
     }
 
-    return proxy.fetch(url, fetchOptions as RequestInit) as Promise<Response>;
+    return undiciFetch(url, fetchOptions);
 }
 
 export default { createSocksAgent, createHttpAgent, autoProxy, proxyFetch };

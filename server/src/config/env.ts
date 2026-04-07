@@ -1,6 +1,22 @@
 import { z } from 'zod';
 import 'dotenv/config';
 
+const booleanFromEnv = z.preprocess((value) => {
+    if (typeof value !== 'string') {
+        return value;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+        return true;
+    }
+    if (['0', 'false', 'no', 'off', ''].includes(normalized)) {
+        return false;
+    }
+
+    return value;
+}, z.boolean());
+
 const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     PORT: z.coerce.number().default(3000),
@@ -10,6 +26,7 @@ const envSchema = z.object({
 
     // Redis (optional)
     REDIS_URL: z.string().optional(),
+    ALLOW_LOCAL_RATE_LIMIT_FALLBACK: booleanFromEnv.default(false),
     CORS_ORIGIN: z.string().optional(),
 
     // JWT
@@ -49,35 +66,13 @@ const envSchema = z.object({
     // API log retention
     API_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
     API_LOG_CLEANUP_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
+    FORWARDING_WORKER_INTERVAL_SECONDS: z.coerce.number().int().min(5).default(30),
+    FORWARDING_WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(10),
     INGRESS_SIGNING_SECRET: z.preprocess(
         (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
         z.string().trim().min(16).optional()
     ),
     INGRESS_ALLOWED_SKEW_SECONDS: z.coerce.number().int().min(30).default(300),
-    OBJECT_STORAGE_PROVIDER: z.preprocess(
-        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-        z.string().trim().min(1).optional()
-    ),
-    OBJECT_STORAGE_BUCKET: z.preprocess(
-        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-        z.string().trim().min(1).optional()
-    ),
-    OBJECT_STORAGE_ENDPOINT: z.preprocess(
-        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-        z.string().trim().url().optional()
-    ),
-    OBJECT_STORAGE_ACCESS_KEY: z.preprocess(
-        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-        z.string().trim().min(1).optional()
-    ),
-    OBJECT_STORAGE_SECRET_KEY: z.preprocess(
-        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-        z.string().trim().min(1).optional()
-    ),
-    RESEND_DEFAULT_FROM_NAME: z.preprocess(
-        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-        z.string().trim().min(1).optional()
-    ),
     GOOGLE_OAUTH_CLIENT_ID: z.preprocess(
         (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
         z.string().trim().min(1).optional()
@@ -119,6 +114,15 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+function isPlaceholderSecret(value: string | undefined): boolean {
+    if (!value) {
+        return false;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    return normalized.startsWith('replace-with-');
+}
+
 function loadEnv(): Env {
     const result = envSchema.safeParse(process.env);
 
@@ -134,6 +138,17 @@ function loadEnv(): Env {
             _errors: [],
             ADMIN_PASSWORD: {
                 _errors: ['Production ADMIN_PASSWORD cannot use default value'],
+            },
+        });
+        process.exit(1);
+    }
+
+    if (isPlaceholderSecret(result.data.INGRESS_SIGNING_SECRET)) {
+        console.error('❌ Invalid environment variables:');
+        console.error({
+            _errors: [],
+            INGRESS_SIGNING_SECRET: {
+                _errors: ['Replace the shipped INGRESS_SIGNING_SECRET placeholder before enabling ingress'],
             },
         });
         process.exit(1);

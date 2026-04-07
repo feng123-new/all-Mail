@@ -24,6 +24,7 @@ export interface IngressMessageInput {
     headers?: Record<string, string | undefined>;
     attachments?: IngressAttachmentInput[];
     rawObjectKey?: string | null;
+    storageStatus?: 'PENDING' | 'STORED' | 'FAILED';
 }
 
 export interface IngressReceiveInput {

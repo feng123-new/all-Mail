@@ -1,3 +1,5 @@
+import { BACKEND_NAMESPACE_PREFIXES } from '../routes/prefixes.js';
+
 export interface SpaFallbackRequest {
     method: string;
     path: string;
@@ -5,14 +7,7 @@ export interface SpaFallbackRequest {
 }
 
 export function isApiOrAdminPath(path: string): boolean {
-    return path === '/api'
-        || path.startsWith('/api/')
-        || path === '/admin'
-        || path.startsWith('/admin/')
-        || path === '/mail/api'
-        || path.startsWith('/mail/api/')
-        || path === '/ingress'
-        || path.startsWith('/ingress/');
+    return BACKEND_NAMESPACE_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
 export function isAssetPath(path: string): boolean {

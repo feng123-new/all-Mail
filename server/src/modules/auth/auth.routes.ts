@@ -2,6 +2,22 @@ import { type FastifyPluginAsync } from 'fastify';
 import { authService } from './auth.service.js';
 import { loginSchema, changePasswordSchema, verify2FaSchema, disable2FaSchema } from './auth.schema.js';
 
+const isSecureCookie = process.env.NODE_ENV === 'production';
+const adminSessionCookieOptions = {
+    httpOnly: true,
+    secure: isSecureCookie,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 7200,
+};
+
+const adminClearCookieOptions = {
+    httpOnly: true,
+    secure: isSecureCookie,
+    sameSite: 'lax' as const,
+    path: '/',
+};
+
 const authRoutes: FastifyPluginAsync = async (fastify) => {
     // 登录
     fastify.post('/login', async (request, reply) => {
@@ -9,19 +25,14 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         const result = await authService.login(input, request.ip);
 
         // 设置 Cookie
-        reply.cookie('token', result.token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 7200, // 2 hours (seconds)
-        });
+        reply.cookie('token', result.token, adminSessionCookieOptions);
 
-        return { success: true, data: result };
+        return { success: true, data: { admin: result.admin } };
     });
 
     // 登出
     fastify.post('/logout', async (request, reply) => {
-        reply.clearCookie('token');
+        reply.clearCookie('token', adminClearCookieOptions);
         return { success: true, data: { message: 'Logged out' } };
     });
 
