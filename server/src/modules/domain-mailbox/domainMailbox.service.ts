@@ -1,7 +1,8 @@
-import { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import { hashPassword } from '../../lib/crypto.js';
 import { AppError } from '../../plugins/error.js';
+import { appendAllowedDomainIdsWithModel } from '../api-key/apiKey.service.js';
+import { getHostedInternalProtocolSummary } from '../mail/hostedInternal.contract.js';
 import type {
     BatchCreateDomainMailboxInput,
     BatchDeleteDomainMailboxInput,
@@ -86,17 +87,6 @@ async function ensureApiKeysExist(ids: number[]): Promise<void> {
     }
 }
 
-function toNullableJsonIds(value: number[]): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
-    return value.length > 0 ? value : Prisma.DbNull;
-}
-
-function parseJsonIdList(value: unknown): number[] {
-    if (!Array.isArray(value)) {
-        return [];
-    }
-    return Array.from(new Set(value.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0)));
-}
-
 function buildListWhere(input: ListDomainMailboxInput) {
     return {
         ...(input.domainId ? { domainId: input.domainId } : {}),
@@ -148,8 +138,24 @@ function buildMailboxMetadata(metadata: Record<string, unknown> | null, input: {
         ...(metadata || {}),
         provisioningMode: input.provisioningMode,
         batchTag: input.batchTag,
-        ...(input.bindApiKeyIds && input.bindApiKeyIds.length > 0 ? { boundApiKeyIds: input.bindApiKeyIds } : {}),
         updatedAt: new Date().toISOString(),
+    };
+}
+
+function enrichDomainMailboxRecord<T extends {
+    provisioningMode: 'MANUAL' | 'API_POOL';
+    domain?: {
+        canSend?: boolean | null;
+        canReceive?: boolean | null;
+    } | null;
+}>(record: T) {
+    return {
+        ...record,
+        ...getHostedInternalProtocolSummary({
+            provisioningMode: record.provisioningMode,
+            canSend: Boolean(record.domain?.canSend),
+            canReceive: record.domain?.canReceive !== false,
+        }),
     };
 }
 
@@ -189,7 +195,7 @@ export const domainMailboxService = {
         ]);
 
         return {
-            list: list.map((item) => ({
+            list: list.map((item) => enrichDomainMailboxRecord({
                 ...item,
                 inboundMessageCount: item._count.inboundMessages,
                 outboundMessageCount: item._count.outboundMessages,
@@ -264,18 +270,18 @@ export const domainMailboxService = {
             throw new AppError('DOMAIN_MAILBOX_NOT_FOUND', 'Domain mailbox not found', 404);
         }
 
-        return {
+        return enrichDomainMailboxRecord({
             ...mailbox,
             inboundMessageCount: mailbox._count.inboundMessages,
             outboundMessageCount: mailbox._count.outboundMessages,
             apiUsageCount: mailbox._count.usages,
-        };
+        });
     },
 
     async create(input: CreateDomainMailboxInput) {
         const domain = await prisma.domain.findUnique({
             where: { id: input.domainId },
-            select: { id: true, name: true, status: true },
+            select: { id: true, name: true, status: true, canSend: true, canReceive: true },
         });
         if (!domain) {
             throw new AppError('DOMAIN_NOT_FOUND', 'Domain not found', 404);
@@ -297,7 +303,7 @@ export const domainMailboxService = {
         }
         await ensureMailboxUsersExist(memberUserIds);
 
-        return prisma.domainMailbox.create({
+        const created = await prisma.domainMailbox.create({
             data: {
                 domainId: input.domainId,
                 localPart,
@@ -336,14 +342,24 @@ export const domainMailboxService = {
                 forwardTo: true,
                 createdAt: true,
                 updatedAt: true,
+                domain: {
+                    select: {
+                        id: true,
+                        name: true,
+                        canSend: true,
+                        canReceive: true,
+                    },
+                },
             },
         });
+
+        return enrichDomainMailboxRecord(created);
     },
 
     async batchCreate(input: BatchCreateDomainMailboxInput) {
         const domain = await prisma.domain.findUnique({
             where: { id: input.domainId },
-            select: { id: true, name: true, status: true, canReceive: true },
+            select: { id: true, name: true, status: true, canReceive: true, canSend: true },
         });
         if (!domain) {
             throw new AppError('DOMAIN_NOT_FOUND', 'Domain not found', 404);
@@ -405,18 +421,7 @@ export const domainMailboxService = {
                 },
             })));
 
-            if (bindApiKeyIds.length > 0) {
-                const apiKeys = await tx.apiKey.findMany({
-                    where: { id: { in: bindApiKeyIds } },
-                    select: { id: true, allowedDomainIds: true },
-                });
-                await Promise.all(apiKeys.map((apiKey) => tx.apiKey.update({
-                    where: { id: apiKey.id },
-                    data: {
-                        allowedDomainIds: toNullableJsonIds(Array.from(new Set([...parseJsonIdList(apiKey.allowedDomainIds), domain.id]))),
-                    },
-                })));
-            }
+            await appendAllowedDomainIdsWithModel(tx.apiKey, bindApiKeyIds, domain.id);
 
             return createdMailboxes;
         });
@@ -428,7 +433,15 @@ export const domainMailboxService = {
             provisioningMode: input.provisioningMode,
             domainId: domain.id,
             boundApiKeyIds: bindApiKeyIds,
-            mailboxes: created,
+            mailboxes: created.map((mailbox) => enrichDomainMailboxRecord({
+                ...mailbox,
+                domain: {
+                    id: domain.id,
+                    name: domain.name,
+                    canSend: domain.canSend,
+                    canReceive: domain.canReceive,
+                },
+            })),
         };
     },
 
@@ -469,7 +482,7 @@ export const domainMailboxService = {
                 await tx.mailboxMembership.deleteMany({ where: { mailboxId: id } });
             }
 
-            return tx.domainMailbox.update({
+            const updated = await tx.domainMailbox.update({
                 where: { id },
                 data: {
                     displayName: input.displayName === undefined ? undefined : (input.displayName?.trim() || null),
@@ -507,8 +520,18 @@ export const domainMailboxService = {
                     forwardMode: true,
                     forwardTo: true,
                     updatedAt: true,
+                    domain: {
+                        select: {
+                            id: true,
+                            name: true,
+                            canSend: true,
+                            canReceive: true,
+                        },
+                    },
                 },
             });
+
+            return enrichDomainMailboxRecord(updated);
         });
     },
 

@@ -1,4 +1,4 @@
-import { type FastifyPluginAsync, type FastifyReply, type FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { mailService } from './mail.service.js';
 import { poolService } from './pool.service.js';
 import { emailService } from '../email/email.service.js';
@@ -55,6 +55,18 @@ function getGroupNameFromRequest(method: string, query: unknown, body: unknown):
 
 const MAX_LIST_PAGE_SIZE = 100;
 
+function normalizeMailboxStatusKey(mailbox: string): 'INBOX' | 'SENT' | 'Junk' {
+    if (mailbox.toUpperCase() === 'SENT') {
+        return 'SENT';
+    }
+
+    if (mailbox.toLowerCase() === 'junk' || mailbox.toLowerCase() === 'spam') {
+        return 'Junk';
+    }
+
+    return 'INBOX';
+}
+
 const EXTERNAL_ROUTE_PATHS = {
     allocate: ['/mailboxes/allocate', '/get-email'],
     latestMessage: ['/messages/latest', '/mail_new'],
@@ -69,7 +81,7 @@ const EXTERNAL_ROUTE_PATHS = {
 async function fetchAllActiveEmails(groupName?: string) {
     let page = 1;
     let total = 0;
-    const items: Array<{ id: number; email: string; provider: string; status: string; groupId: number | null; group?: { name: string } | null }> = [];
+    const items: Array<Awaited<ReturnType<typeof emailService.list>>['list'][number]> = [];
 
     do {
         const result = await emailService.list({
@@ -186,19 +198,19 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
         }, false);
 
         try {
+            const normalizedMailbox = normalizeMailboxStatusKey(input.mailbox);
             const result = await mailService.getEmails(credentials, {
                 mailbox: input.mailbox,
                 limit: 1,
+                mailboxCheckpoint: emailAccount.mailboxStatus[normalizedMailbox] ?? null,
                 socks5: input.socks5,
                 http: input.http,
             });
 
-            const normalizedMailbox = input.mailbox.toUpperCase() === 'SENT'
-                ? 'SENT'
-                : input.mailbox.toLowerCase() === 'junk' || input.mailbox.toLowerCase() === 'spam'
-                    ? 'Junk'
-                    : 'INBOX';
-            await emailService.updateMailboxStatus(credentials.id, normalizedMailbox, result.messages, { markAsSeen: false });
+            await emailService.updateMailboxStatus(credentials.id, normalizedMailbox, result.messages, {
+                markAsSeen: false,
+                mailboxCheckpoint: result.mailboxCheckpoint,
+            });
 
             await mailService.updateEmailStatus(credentials.id, true);
 
@@ -282,9 +294,13 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
             const result = await mailService.getEmails(credentials, {
                 mailbox: 'inbox',
                 limit: 1, // 只取最新一封
+                mailboxCheckpoint: emailAccount.mailboxStatus.INBOX,
             });
 
-            await emailService.updateMailboxStatus(credentials.id, 'INBOX', result.messages, { markAsSeen: false });
+            await emailService.updateMailboxStatus(credentials.id, 'INBOX', result.messages, {
+                markAsSeen: false,
+                mailboxCheckpoint: result.mailboxCheckpoint,
+            });
 
             await mailService.updateEmailStatus(credentials.id, true);
             await mailService.logApiCall(
@@ -370,18 +386,18 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
         }, false);
 
         try {
+            const normalizedMailbox = normalizeMailboxStatusKey(input.mailbox);
             const result = await mailService.getEmails(credentials, {
                 mailbox: input.mailbox,
+                mailboxCheckpoint: emailAccount.mailboxStatus[normalizedMailbox] ?? null,
                 socks5: input.socks5,
                 http: input.http,
             });
 
-            const normalizedMailbox = input.mailbox.toUpperCase() === 'SENT'
-                ? 'SENT'
-                : input.mailbox.toLowerCase() === 'junk' || input.mailbox.toLowerCase() === 'spam'
-                    ? 'Junk'
-                    : 'INBOX';
-            await emailService.updateMailboxStatus(credentials.id, normalizedMailbox, result.messages, { markAsSeen: false });
+            await emailService.updateMailboxStatus(credentials.id, normalizedMailbox, result.messages, {
+                markAsSeen: false,
+                mailboxCheckpoint: result.mailboxCheckpoint,
+            });
 
             await mailService.updateEmailStatus(credentials.id, true);
 
@@ -510,7 +526,7 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
                 return true;
             });
 
-            const emails = scopedEmails.map((emailItem: { email: string; provider: string; status: string; group?: { name: string } | null }) => ({
+            const emails = scopedEmails.map((emailItem) => ({
                 email: emailItem.email,
                 provider: emailItem.provider,
                 status: emailItem.status,

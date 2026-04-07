@@ -2,11 +2,13 @@ import prisma from '../../lib/prisma.js';
 import { hashPassword, verifyPassword } from '../../lib/crypto.js';
 import { signToken } from '../../lib/jwt.js';
 import { AppError } from '../../plugins/error.js';
+import { getHostedInternalProtocolSummary } from '../mail/hostedInternal.contract.js';
 import type {
     AddMailboxMembershipsInput,
     CreateMailboxUserInput,
     ListMailboxUserInput,
     MailboxPortalChangePasswordInput,
+    MailboxPortalListForwardingJobsInput,
     MailboxPortalLoginInput,
     MailboxPortalUpdateForwardingInput,
     UpdateMailboxUserInput,
@@ -51,6 +53,27 @@ async function ensureUserHasMailboxAccess(userId: number, mailboxId: number) {
     if (!mailboxIds.includes(mailboxId)) {
         throw new AppError('FORBIDDEN_MAILBOX', 'You do not have access to this mailbox', 403);
     }
+}
+
+function enrichAccessibleMailbox<T extends {
+    provisioningMode: 'MANUAL' | 'API_POOL';
+    domain: {
+        canSend?: boolean | null;
+        canReceive?: boolean | null;
+        sendingConfigs?: Array<{ id: number }>;
+    };
+}>(mailbox: T) {
+	const { sendingConfigs = [], ...domain } = mailbox.domain;
+    return {
+        ...mailbox,
+		domain,
+		sendReady: Boolean(domain.canSend && sendingConfigs.length > 0),
+        ...getHostedInternalProtocolSummary({
+            provisioningMode: mailbox.provisioningMode,
+            canSend: Boolean(domain.canSend),
+            canReceive: domain.canReceive !== false,
+        }),
+    };
 }
 
 async function syncMailboxMemberships(
@@ -353,7 +376,7 @@ export const mailboxUserService = {
     },
 
     async getAccessibleMailboxes(userId: number) {
-        return prisma.domainMailbox.findMany({
+        const mailboxes = await prisma.domainMailbox.findMany({
             where: {
                 OR: [
                     { ownerUserId: userId },
@@ -372,6 +395,7 @@ export const mailboxUserService = {
                 address: true,
                 displayName: true,
                 status: true,
+                provisioningMode: true,
                 canLogin: true,
                 isCatchAllTarget: true,
                 forwardMode: true,
@@ -382,11 +406,18 @@ export const mailboxUserService = {
                         name: true,
                         canSend: true,
                         canReceive: true,
+						sendingConfigs: {
+							where: { provider: 'RESEND', status: 'ACTIVE' },
+							select: { id: true },
+							take: 1,
+						},
                     },
                 },
             },
             orderBy: [{ id: 'asc' }],
         });
+
+        return mailboxes.map((mailbox) => enrichAccessibleMailbox(mailbox));
     },
 
     async changePassword(userId: number, input: MailboxPortalChangePasswordInput) {
@@ -421,7 +452,7 @@ export const mailboxUserService = {
             throw new AppError('FORWARD_TARGET_REQUIRED', 'Forward target is required when forwarding is enabled', 400);
         }
 
-        return prisma.domainMailbox.update({
+        const updated = await prisma.domainMailbox.update({
             where: { id: input.mailboxId },
             data: {
                 forwardMode: input.forwardMode,
@@ -430,11 +461,94 @@ export const mailboxUserService = {
             select: {
                 id: true,
                 address: true,
+                provisioningMode: true,
                 forwardMode: true,
                 forwardTo: true,
                 updatedAt: true,
+                domain: {
+                    select: {
+                        id: true,
+                        name: true,
+                        canSend: true,
+                        canReceive: true,
+                    },
+                },
             },
         });
+
+        return enrichAccessibleMailbox(updated);
+    },
+
+    async listForwardingJobs(userId: number, input: MailboxPortalListForwardingJobsInput) {
+        const mailboxIds = await getAccessibleMailboxIds(userId);
+        if (mailboxIds.length === 0) {
+            return {
+                list: [],
+                total: 0,
+                page: input.page,
+                pageSize: input.pageSize,
+            };
+        }
+
+        if (input.mailboxId && !mailboxIds.includes(input.mailboxId)) {
+            throw new AppError('FORBIDDEN_MAILBOX', 'You do not have access to this mailbox', 403);
+        }
+
+        const where = input.mailboxId
+            ? { mailboxId: input.mailboxId }
+            : { mailboxId: { in: mailboxIds } };
+        const skip = (input.page - 1) * input.pageSize;
+        const [list, total] = await Promise.all([
+            prisma.mailboxForwardJob.findMany({
+                where,
+                select: {
+                    id: true,
+                    status: true,
+                    mode: true,
+                    forwardTo: true,
+                    attemptCount: true,
+                    lastError: true,
+                    processedAt: true,
+                    createdAt: true,
+                    nextAttemptAt: true,
+                    inboundMessage: {
+                        select: {
+                            id: true,
+                            subject: true,
+                            fromAddress: true,
+                            finalAddress: true,
+                        },
+                    },
+                },
+                skip,
+                take: input.pageSize,
+                orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            }),
+            prisma.mailboxForwardJob.count({ where }),
+        ]);
+
+        return {
+            list: list.map((item) => ({
+                id: item.id.toString(),
+                status: item.status,
+                mode: item.mode,
+                forwardTo: item.forwardTo,
+                attemptCount: item.attemptCount,
+                lastError: item.lastError,
+                processedAt: item.processedAt,
+                createdAt: item.createdAt,
+                nextAttemptAt: item.nextAttemptAt,
+                inboundMessage: {
+                    id: item.inboundMessage.id.toString(),
+                    subject: item.inboundMessage.subject,
+                    fromAddress: item.inboundMessage.fromAddress,
+                    finalAddress: item.inboundMessage.finalAddress,
+                },
+            })),
+            total,
+            page: input.page,
+            pageSize: input.pageSize,
+        };
     },
 
     async delete(id: number) {

@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../plugins/error.js';
+import { getHostedInternalProtocolSummary } from '../mail/hostedInternal.contract.js';
 
 interface DomainMailboxScope {
     allowedDomainIds?: number[];
@@ -96,6 +97,7 @@ async function resolveAccessibleMailbox(apiKeyId: number, email: string) {
                     id: true,
                     name: true,
                     status: true,
+                    canSend: true,
                     canReceive: true,
                 },
             },
@@ -113,6 +115,20 @@ async function resolveAccessibleMailbox(apiKeyId: number, email: string) {
     }
 
     return mailbox;
+}
+
+function getMailboxProtocolSummary(mailbox: {
+    provisioningMode: 'MANUAL' | 'API_POOL';
+    domain: {
+        canSend?: boolean | null;
+        canReceive?: boolean | null;
+    };
+}) {
+    return getHostedInternalProtocolSummary({
+        provisioningMode: mailbox.provisioningMode,
+        canSend: Boolean(mailbox.domain.canSend),
+        canReceive: mailbox.domain.canReceive !== false,
+    });
 }
 
 function buildScopedMailboxWhere(domainIds: number[] | undefined, input: DomainSelectorInput): Prisma.DomainMailboxWhereInput {
@@ -140,16 +156,17 @@ export const domainMailboxPoolService = {
                     },
                 },
             },
-            select: {
-                id: true,
-                address: true,
-                localPart: true,
-                batchTag: true,
-                domainId: true,
-                domain: {
-                    select: { id: true, name: true },
+                select: {
+                    id: true,
+                    address: true,
+                    localPart: true,
+                    batchTag: true,
+                    domainId: true,
+                    provisioningMode: true,
+                    domain: {
+                        select: { id: true, name: true, canSend: true, canReceive: true },
+                    },
                 },
-            },
             orderBy: [{ domainId: 'asc' }, { id: 'asc' }],
         });
 
@@ -183,6 +200,7 @@ export const domainMailboxPoolService = {
             batchTag: mailbox.batchTag,
             domainId: mailbox.domainId,
             domainName: mailbox.domain.name,
+            ...getMailboxProtocolSummary(mailbox),
         };
     },
 
@@ -198,8 +216,9 @@ export const domainMailboxPoolService = {
                     localPart: true,
                     batchTag: true,
                     domainId: true,
+                    provisioningMode: true,
                     domain: {
-                        select: { id: true, name: true },
+                        select: { id: true, name: true, canSend: true, canReceive: true },
                     },
                 },
                 orderBy: [{ domainId: 'asc' }, { id: 'asc' }],
@@ -221,6 +240,7 @@ export const domainMailboxPoolService = {
                 used: usedSet.has(mailbox.id),
                 domainId: mailbox.domainId,
                 domainName: mailbox.domain.name,
+                ...getMailboxProtocolSummary(mailbox),
             })),
         };
     },
@@ -301,6 +321,7 @@ export const domainMailboxPoolService = {
             domainId: mailbox.domainId,
             domainName: mailbox.domain.name,
             count: messages.length,
+            ...getMailboxProtocolSummary(mailbox),
             messages: messages.map((message) => ({
                 id: message.id.toString(),
                 from: message.fromAddress,

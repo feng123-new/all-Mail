@@ -50,6 +50,12 @@ export const mailboxPortalListSentMessagesSchema = z.object({
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const mailboxPortalListForwardingJobsSchema = z.object({
+    mailboxId: z.coerce.number().int().positive().optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(20).default(5),
+});
+
 export const mailboxPortalSendMessageSchema = z.object({
     mailboxId: z.coerce.number().int().positive(),
     to: z.array(z.string().trim().email()).min(1),
@@ -66,4 +72,5 @@ export type MailboxPortalLoginInput = z.infer<typeof mailboxPortalLoginSchema>;
 export type MailboxPortalChangePasswordInput = z.infer<typeof mailboxPortalChangePasswordSchema>;
 export type MailboxPortalUpdateForwardingInput = z.infer<typeof mailboxPortalUpdateForwardingSchema>;
 export type MailboxPortalListSentMessagesInput = z.infer<typeof mailboxPortalListSentMessagesSchema>;
+export type MailboxPortalListForwardingJobsInput = z.infer<typeof mailboxPortalListForwardingJobsSchema>;
 export type MailboxPortalSendMessageInput = z.infer<typeof mailboxPortalSendMessageSchema>;

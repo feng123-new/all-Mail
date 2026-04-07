@@ -1,6 +1,7 @@
 import { AppError } from '../../../plugins/error.js';
 import { buildXoauth2String, deleteMessagesViaImap, fetchMessagesViaGmailApi, fetchMessagesViaImap, requestOAuthAccessToken, resolveImapMailboxCandidate, resolveImapMailboxName, sendMailViaGmailApi, sendMailViaSmtp, toImapAppError, trashGmailMessage, trashGmailMessageStrict } from './shared.js';
-import { type MailCredentials, type MailDeleteOptions, type MailFetchOptions, type MailProcessOptions, type MailProviderAdapter, type MailSendOptions, mergeProviderConfig, requireCredential } from './types.js';
+import { createFamilyAwareProviderAdapter } from './family.helpers.js';
+import { type MailCredentials, type MailDeleteOptions, type MailFetchOptions, type MailProcessOptions, type MailProfileDelegate, type MailProviderAdapter, type MailSendOptions, mergeProviderConfigForCredentials, requireCredential } from './types.js';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
@@ -34,7 +35,7 @@ async function viaApi(credentials: MailCredentials, options: MailFetchOptions) {
 }
 
 async function viaImap(credentials: MailCredentials, options: MailFetchOptions) {
-    const config = mergeProviderConfig(credentials.provider, credentials.providerConfig);
+    const config = mergeProviderConfigForCredentials(credentials);
     let xoauth2: string | undefined;
     let password: string | undefined;
     if (credentials.authType === 'APP_PASSWORD') {
@@ -62,24 +63,25 @@ async function viaImap(credentials: MailCredentials, options: MailFetchOptions) 
             xoauth2,
             password,
         });
-        const messages = await fetchMessagesViaImap({
+        const result = await fetchMessagesViaImap({
             email: credentials.email,
             host: config.imapHost || 'imap.gmail.com',
             port: config.imapPort || 993,
             tls: config.imapTls !== false,
             mailbox: resolvedMailbox,
             limit: options.limit || 100,
+            mailboxCheckpoint: options.mailboxCheckpoint,
             xoauth2,
             password,
         });
-        return { email: credentials.email, mailbox: options.mailbox, resolvedMailbox, count: messages.length, messages, method: credentials.authType === 'APP_PASSWORD' ? 'gmail_imap_password' : 'gmail_imap_xoauth2', provider: credentials.provider };
+        return { email: credentials.email, mailbox: options.mailbox, resolvedMailbox, count: result.messages.length, messages: result.messages, mailboxCheckpoint: result.mailboxCheckpoint, method: credentials.authType === 'APP_PASSWORD' ? 'gmail_imap_password' : 'gmail_imap_xoauth2', provider: credentials.provider };
     } catch (error) {
         throw toImapAppError(error, 'Gmail');
     }
 }
 
 async function deleteViaImap(credentials: MailCredentials, options: MailDeleteOptions) {
-    const config = mergeProviderConfig(credentials.provider, credentials.providerConfig);
+    const config = mergeProviderConfigForCredentials(credentials);
     let xoauth2: string | undefined;
     let password: string | undefined;
     if (credentials.authType === 'APP_PASSWORD') {
@@ -108,13 +110,14 @@ async function deleteViaImap(credentials: MailCredentials, options: MailDeleteOp
             xoauth2,
             password,
         });
-        const deletedCount = await deleteMessagesViaImap({
+        const result = await deleteMessagesViaImap({
             email: credentials.email,
             host: config.imapHost || 'imap.gmail.com',
             port: config.imapPort || 993,
             tls: config.imapTls !== false,
             mailbox: resolvedMailbox,
             messageIds: options.messageIds,
+            mailboxCheckpoint: options.mailboxCheckpoint,
             xoauth2,
             password,
         });
@@ -122,8 +125,9 @@ async function deleteViaImap(credentials: MailCredentials, options: MailDeleteOp
             email: credentials.email,
             mailbox: options.mailbox,
             resolvedMailbox,
-            deletedCount,
-            message: `Deleted ${deletedCount} selected messages`,
+            deletedCount: result.deletedCount,
+            message: `Deleted ${result.deletedCount} selected messages`,
+            mailboxCheckpoint: result.mailboxCheckpoint,
             method: credentials.authType === 'APP_PASSWORD' ? 'gmail_imap_password' : 'gmail_imap_xoauth2',
             provider: credentials.provider,
         };
@@ -148,8 +152,10 @@ async function deleteViaApi(credentials: MailCredentials, options: MailDeleteOpt
     };
 }
 
-export const gmailMailAdapter: MailProviderAdapter = {
+export const gmailOAuthProfileDelegate: MailProfileDelegate = {
     provider: 'GMAIL',
+    profile: 'gmail-oauth',
+    representativeProtocol: 'oauth_api',
     getCapabilities(credentials) {
         const canClear = credentials.authType !== 'APP_PASSWORD';
         return { readInbox: true, readJunk: true, readSent: true, clearMailbox: canClear, sendMail: true, modes: canClear ? ['GMAIL_API', 'IMAP'] : ['IMAP'] };
@@ -226,3 +232,49 @@ export const gmailMailAdapter: MailProviderAdapter = {
         };
     },
 };
+
+export const gmailAppPasswordProfileDelegate: MailProfileDelegate = {
+    provider: 'GMAIL',
+    profile: 'gmail-app-password',
+    representativeProtocol: 'imap_smtp',
+    getCapabilities() {
+        return { readInbox: true, readJunk: true, readSent: true, clearMailbox: false, sendMail: true, modes: ['IMAP', 'SMTP'] };
+    },
+    getEmails(credentials, options) {
+        return viaImap({
+            ...credentials,
+            authType: 'APP_PASSWORD',
+        }, options);
+    },
+    async processMailbox(credentials, options) {
+        throw new AppError('MAILBOX_CLEAR_UNSUPPORTED', `Mailbox clear is not available for ${credentials.provider} provider in ${options.mailbox}`, 400);
+    },
+    deleteMessages(credentials, options) {
+        return deleteViaImap({
+            ...credentials,
+            authType: 'APP_PASSWORD',
+        }, options);
+    },
+    async sendEmail(credentials, options) {
+        const password = requireCredential(credentials.password, 'password', credentials.provider);
+        const result = await sendMailViaSmtp({
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true,
+            user: credentials.email,
+            password,
+            message: options,
+        });
+        return {
+            provider: credentials.provider,
+            method: 'gmail_smtp_password',
+            providerMessageId: result.id,
+            accepted: options.to,
+        };
+    },
+};
+
+export const gmailMailAdapter: MailProviderAdapter = createFamilyAwareProviderAdapter('GMAIL', [
+    gmailOAuthProfileDelegate,
+    gmailAppPasswordProfileDelegate,
+]);

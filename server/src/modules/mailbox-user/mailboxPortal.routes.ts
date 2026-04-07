@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
     mailboxPortalChangePasswordSchema,
+    mailboxPortalListForwardingJobsSchema,
     mailboxPortalLoginSchema,
     mailboxPortalListSentMessagesSchema,
     mailboxPortalSendMessageSchema,
@@ -11,6 +12,22 @@ import { mailboxUserService } from './mailboxUser.service.js';
 import { messageService } from '../message/message.service.js';
 import { sendService } from '../send/send.service.js';
 import { AppError } from '../../plugins/error.js';
+
+const isSecureCookie = process.env.NODE_ENV === 'production';
+const mailboxSessionCookieOptions = {
+    httpOnly: true,
+    secure: isSecureCookie,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 7200,
+};
+
+const mailboxClearCookieOptions = {
+    httpOnly: true,
+    secure: isSecureCookie,
+    sameSite: 'lax' as const,
+    path: '/',
+};
 
 function getMailboxAuthContext(request: FastifyRequest) {
     const mailboxUser = request.mailboxUser;
@@ -24,17 +41,12 @@ const mailboxPortalRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.post('/login', async (request, reply) => {
         const input = mailboxPortalLoginSchema.parse(request.body);
         const result = await mailboxUserService.login(input, request.ip);
-        reply.cookie('mailbox_token', result.token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 7200,
-        });
-        return { success: true, data: result };
+        reply.cookie('mailbox_token', result.token, mailboxSessionCookieOptions);
+        return { success: true, data: { mailboxUser: result.mailboxUser } };
     });
 
     fastify.post('/logout', async (_request, reply) => {
-        reply.clearCookie('mailbox_token');
+        reply.clearCookie('mailbox_token', mailboxClearCookieOptions);
         return { success: true, data: { message: 'Logged out' } };
     });
 
@@ -78,6 +90,9 @@ const mailboxPortalRoutes: FastifyPluginAsync = async (fastify) => {
             pageSize: input.pageSize,
             mailboxId: input.mailboxId,
             unreadOnly: input.unreadOnly,
+            allowedMailboxIds: mailboxIds,
+        }, {
+            portalVisibleOnly: true,
         });
 
         return {
@@ -91,12 +106,13 @@ const mailboxPortalRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request) => {
         const mailboxUser = getMailboxAuthContext(request);
         const { id } = request.params as { id: string };
-        const result = await messageService.getById(id);
+        const result = await messageService.getById(id, { portalVisibleOnly: true });
         const mailboxIds = mailboxUser.mailboxIds || [];
         if (result.mailbox?.id && !mailboxIds.includes(result.mailbox.id)) {
             throw new AppError('FORBIDDEN_MAILBOX', 'You do not have access to this mailbox', 403);
         }
-        return { success: true, data: result };
+        await messageService.markRead(id, mailboxIds);
+        return { success: true, data: { ...result, isRead: true } };
     });
 
     fastify.get('/sent-messages', {
@@ -115,6 +131,23 @@ const mailboxPortalRoutes: FastifyPluginAsync = async (fastify) => {
             mailboxId: input.mailboxId,
         });
 
+        return {
+            success: true,
+            data: result,
+        };
+    });
+
+    fastify.get('/forwarding-jobs', {
+        preHandler: [fastify.authenticateMailboxJwt],
+    }, async (request) => {
+        const mailboxUser = getMailboxAuthContext(request);
+        const input = mailboxPortalListForwardingJobsSchema.parse(request.query);
+        const mailboxIds = mailboxUser.mailboxIds || [];
+        if (input.mailboxId && !mailboxIds.includes(input.mailboxId)) {
+            throw new AppError('FORBIDDEN_MAILBOX', 'You do not have access to this mailbox', 403);
+        }
+
+        const result = await mailboxUserService.listForwardingJobs(mailboxUser.id, input);
         return {
             success: true,
             data: result,

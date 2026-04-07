@@ -1,15 +1,83 @@
 import { z } from 'zod';
+import {
+    emailAuthTypes,
+    emailProviders,
+    getDefaultAuthType,
+    getProviderProfileSummary,
+    mergeProviderConfigForProfile,
+    representativeProtocols,
+    resolveProviderProfile,
+    type EmailAuthType,
+    type EmailProvider,
+    type MailProviderConfig,
+} from '../mail/providers/types.js';
 
-const providerEnum = z.enum(['OUTLOOK', 'GMAIL', 'QQ']);
-const authTypeEnum = z.enum(['MICROSOFT_OAUTH', 'GOOGLE_OAUTH', 'APP_PASSWORD']);
+const providerEnum = z.enum(emailProviders);
+const authTypeEnum = z.enum(emailAuthTypes);
+const representativeProtocolEnum = z.enum(representativeProtocols);
 const emailStatusEnum = z.enum(['ACTIVE', 'ERROR', 'DISABLED']);
 const clientSecretSchema = z.string().trim().min(1);
 const jsonObjectSchema = z.record(z.unknown());
 
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.trim().length > 0;
+}
+
+function validateImapSmtpProviderConfig(
+    value: {
+        provider: EmailProvider;
+        authType?: EmailAuthType;
+        providerConfig?: Record<string, unknown> | null;
+    },
+    ctx: z.RefinementCtx,
+) {
+    const authType = value.authType || getDefaultAuthType(value.provider);
+    const profile = resolveProviderProfile(value.provider, authType);
+    const profileSummary = getProviderProfileSummary(profile);
+
+    if (profileSummary.capabilitySummary.usesOAuth) {
+        return;
+    }
+
+    const mergedConfig = mergeProviderConfigForProfile(profile, value.providerConfig as MailProviderConfig | null | undefined);
+
+    if (!isNonEmptyString(mergedConfig.imapHost)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['providerConfig', 'imapHost'],
+            message: `${value.provider} requires imapHost`,
+        });
+    }
+
+    if (!isNonEmptyString(mergedConfig.smtpHost)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['providerConfig', 'smtpHost'],
+            message: `${value.provider} requires smtpHost`,
+        });
+    }
+
+    if (mergedConfig.imapPort !== undefined && (!Number.isInteger(mergedConfig.imapPort) || mergedConfig.imapPort <= 0)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['providerConfig', 'imapPort'],
+            message: 'imapPort must be a positive integer',
+        });
+    }
+
+    if (mergedConfig.smtpPort !== undefined && (!Number.isInteger(mergedConfig.smtpPort) || mergedConfig.smtpPort <= 0)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['providerConfig', 'smtpPort'],
+            message: 'smtpPort must be a positive integer',
+        });
+    }
+}
+
 function validateProviderCredentials(
     value: {
-        provider: 'OUTLOOK' | 'GMAIL' | 'QQ';
-        authType?: 'MICROSOFT_OAUTH' | 'GOOGLE_OAUTH' | 'APP_PASSWORD';
+        provider: EmailProvider;
+        authType?: EmailAuthType;
         clientId?: string | null;
         refreshToken?: string | null;
         password?: string | null;
@@ -17,9 +85,10 @@ function validateProviderCredentials(
     ctx: z.RefinementCtx,
     isCreate = false
 ) {
-    const authType = value.authType || (value.provider === 'QQ' ? 'APP_PASSWORD' : value.provider === 'GMAIL' ? 'GOOGLE_OAUTH' : 'MICROSOFT_OAUTH');
+    const authType = value.authType || getDefaultAuthType(value.provider);
+    const profileSummary = getProviderProfileSummary(resolveProviderProfile(value.provider, authType));
 
-    if ((value.provider === 'OUTLOOK' || value.provider === 'GMAIL') && authType !== 'APP_PASSWORD') {
+    if (profileSummary.capabilitySummary.usesOAuth) {
         if (isCreate && !value.clientId) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['clientId'], message: `${value.provider} requires clientId` });
         }
@@ -28,7 +97,7 @@ function validateProviderCredentials(
         }
     }
 
-    if (value.provider === 'QQ' || authType === 'APP_PASSWORD') {
+    if (!profileSummary.capabilitySummary.usesOAuth) {
         if (isCreate && !value.password) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: `${value.provider} requires password or authorization code` });
         }
@@ -46,7 +115,10 @@ export const createEmailSchema = z.object({
     groupId: z.coerce.number().int().positive().optional(),
     providerConfig: jsonObjectSchema.optional(),
     capabilities: jsonObjectSchema.optional(),
-}).superRefine((value, ctx) => validateProviderCredentials(value, ctx, true));
+}).superRefine((value, ctx) => {
+    validateProviderCredentials(value, ctx, true);
+    validateImapSmtpProviderConfig(value, ctx);
+});
 
 export const updateEmailSchema = z.object({
     email: z.string().email().optional(),
@@ -69,6 +141,14 @@ export const updateEmailSchema = z.object({
         refreshToken: typeof value.refreshToken === 'string' && value.refreshToken.trim() ? value.refreshToken : undefined,
         password: typeof value.password === 'string' ? value.password : undefined,
     }, ctx, false);
+
+    validateImapSmtpProviderConfig({
+        provider: value.provider,
+        authType: value.authType,
+        providerConfig: value.providerConfig && typeof value.providerConfig === 'object' && !Array.isArray(value.providerConfig)
+            ? value.providerConfig as Record<string, unknown>
+            : undefined,
+    }, ctx);
 });
 
 export const listEmailSchema = z.object({
@@ -79,6 +159,7 @@ export const listEmailSchema = z.object({
     groupId: z.coerce.number().int().positive().optional(),
     groupName: z.string().optional(),
     provider: providerEnum.optional(),
+    representativeProtocol: representativeProtocolEnum.optional(),
 });
 
 const emailMailboxEnum = z.enum(['INBOX', 'SENT', 'Junk']);
@@ -91,6 +172,7 @@ export const batchFetchMailboxesSchema = z.object({
     groupId: z.coerce.number().int().positive().optional(),
     groupName: z.string().optional(),
     provider: providerEnum.optional(),
+    representativeProtocol: representativeProtocolEnum.optional(),
     mailboxes: z.array(emailMailboxEnum).min(1).default(['INBOX', 'SENT', 'Junk']),
 });
 
@@ -101,6 +183,7 @@ export const batchClearMailboxSchema = z.object({
     groupId: z.coerce.number().int().positive().optional(),
     groupName: z.string().optional(),
     provider: providerEnum.optional(),
+    representativeProtocol: representativeProtocolEnum.optional(),
     mailbox: clearableEmailMailboxEnum.default('INBOX'),
 });
 
@@ -115,6 +198,28 @@ export const importEmailSchema = z.object({
     groupId: z.coerce.number().int().positive().optional(),
 });
 
+const revealableEmailSecretFieldEnum = z.enum(['password', 'refreshToken']);
+const otpSchema = z.string().trim().regex(/^\d{6}$/, '请输入 6 位验证码');
+const revealGrantTokenSchema = z.string().trim().min(1, '缺少临时授权令牌');
+
+export const revealEmailUnlockSchema = z.object({
+    otp: otpSchema,
+});
+
+export const revealEmailSecretsSchema = z.object({
+    otp: otpSchema.optional(),
+    grantToken: revealGrantTokenSchema.optional(),
+    fields: z.array(revealableEmailSecretFieldEnum).min(1),
+}).superRefine((value, ctx) => {
+    if (!value.otp && !value.grantToken) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['otp'],
+            message: '请输入验证码或提供临时授权令牌',
+        });
+    }
+});
+
 export type CreateEmailInput = z.infer<typeof createEmailSchema>;
 export type UpdateEmailInput = z.infer<typeof updateEmailSchema>;
 export type ListEmailInput = z.infer<typeof listEmailSchema>;
@@ -122,3 +227,5 @@ export type ImportEmailInput = z.infer<typeof importEmailSchema>;
 export type BatchFetchMailboxesInput = z.infer<typeof batchFetchMailboxesSchema>;
 export type BatchClearMailboxInput = z.infer<typeof batchClearMailboxSchema>;
 export type DeleteSelectedMailsInput = z.infer<typeof deleteSelectedMailsSchema>;
+export type RevealEmailUnlockInput = z.infer<typeof revealEmailUnlockSchema>;
+export type RevealEmailSecretsInput = z.infer<typeof revealEmailSecretsSchema>;

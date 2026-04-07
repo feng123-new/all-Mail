@@ -43,6 +43,8 @@ const mockRegistry: MailProviderRegistryLike = {
             case 'OUTLOOK': return createAdapter('OUTLOOK', 'outlook_graph_api', true);
             case 'GMAIL': return createAdapter('GMAIL', 'gmail_api', true);
             case 'QQ': return createAdapter('QQ', 'qq_imap', false);
+            default:
+                return createAdapter(credentials.provider, `${credentials.provider.toLowerCase()}_imap`, false);
         }
     },
 };

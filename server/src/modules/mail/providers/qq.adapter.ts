@@ -1,12 +1,15 @@
 import { AppError } from '../../../plugins/error.js';
+import { createFamilyAwareProviderAdapter } from './family.helpers.js';
 import { deleteMessagesViaImap, fetchMessagesViaImap, resolveImapMailboxCandidate, resolveImapMailboxName, sendMailViaSmtp, toImapAppError } from './shared.js';
-import { type MailProviderAdapter, mergeProviderConfig, requireCredential } from './types.js';
+import { type MailProfileDelegate, type MailProviderAdapter, mergeProviderConfigForCredentials, requireCredential } from './types.js';
 
-export const qqMailAdapter: MailProviderAdapter = {
+export const qqImapSmtpProfileDelegate: MailProfileDelegate = {
     provider: 'QQ',
-    getCapabilities() { return { readInbox: true, readJunk: true, readSent: true, clearMailbox: false, sendMail: true, modes: ['IMAP'] }; },
+    profile: 'qq-imap-smtp',
+    representativeProtocol: 'imap_smtp',
+    getCapabilities() { return { readInbox: true, readJunk: true, readSent: true, clearMailbox: false, sendMail: true, modes: ['IMAP', 'SMTP'] }; },
     async getEmails(credentials, options) {
-        const config = mergeProviderConfig(credentials.provider, credentials.providerConfig);
+        const config = mergeProviderConfigForCredentials(credentials);
         const password = requireCredential(credentials.password, 'password', credentials.provider);
         const mailboxName = resolveImapMailboxName(options.mailbox, config.folders || {}, {
             inbox: 'INBOX',
@@ -36,7 +39,16 @@ export const qqMailAdapter: MailProviderAdapter = {
                 limit: options.limit || 100,
                 password,
             });
-            return { email: credentials.email, mailbox: options.mailbox, resolvedMailbox, count: messages.length, messages, method: 'qq_imap', provider: credentials.provider };
+            return {
+                email: credentials.email,
+                mailbox: options.mailbox,
+                resolvedMailbox,
+                count: messages.messages.length,
+                messages: messages.messages,
+                mailboxCheckpoint: messages.mailboxCheckpoint,
+                method: 'qq_imap',
+                provider: credentials.provider,
+            };
         } catch (error) {
             throw toImapAppError(error, 'QQ');
         }
@@ -45,7 +57,7 @@ export const qqMailAdapter: MailProviderAdapter = {
         throw new AppError('MAILBOX_CLEAR_UNSUPPORTED', `Mailbox clear is not available for ${credentials.provider} provider in ${options.mailbox}`, 400);
     },
     async deleteMessages(credentials, options) {
-        const config = mergeProviderConfig(credentials.provider, credentials.providerConfig);
+        const config = mergeProviderConfigForCredentials(credentials);
         const password = requireCredential(credentials.password, 'password', credentials.provider);
         const mailboxName = resolveImapMailboxName(options.mailbox, config.folders || {}, {
             inbox: 'INBOX',
@@ -73,14 +85,16 @@ export const qqMailAdapter: MailProviderAdapter = {
                 tls: config.imapTls !== false,
                 mailbox: resolvedMailbox,
                 messageIds: options.messageIds,
+                mailboxCheckpoint: options.mailboxCheckpoint,
                 password,
             });
             return {
                 email: credentials.email,
                 mailbox: options.mailbox,
                 resolvedMailbox,
-                deletedCount,
-                message: `Deleted ${deletedCount} selected messages`,
+                deletedCount: deletedCount.deletedCount,
+                message: `Deleted ${deletedCount.deletedCount} selected messages`,
+                mailboxCheckpoint: deletedCount.mailboxCheckpoint,
                 method: 'qq_imap',
                 provider: credentials.provider,
             };
@@ -106,3 +120,7 @@ export const qqMailAdapter: MailProviderAdapter = {
         };
     },
 };
+
+export const qqMailAdapter: MailProviderAdapter = createFamilyAwareProviderAdapter('QQ', [
+    qqImapSmtpProfileDelegate,
+]);

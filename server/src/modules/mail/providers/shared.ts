@@ -6,7 +6,8 @@ import { getCache, setCache } from '../../../lib/redis.js';
 import { proxyFetch } from '../../../lib/proxy.js';
 import { logger } from '../../../lib/logger.js';
 import { AppError } from '../../../plugins/error.js';
-import type { EmailMessage, MailSendOptions, ProxyConfig } from './types.js';
+import { identifyImapClient, installPreReadyImapIdHook } from './imap-identification.js';
+import type { EmailMessage, MailboxCheckpoint, MailSendOptions, ProxyConfig } from './types.js';
 
 export interface OAuthTokenResponse {
     access_token?: string;
@@ -71,6 +72,22 @@ export function resolveImapMailboxName(mailbox: string, folders: { inbox?: strin
 interface ImapFolderNode {
     delimiter?: string;
     children?: Record<string, ImapFolderNode> | null;
+}
+
+function identifyImapSession(imap: Imap): Promise<void> {
+    return identifyImapClient(imap, {
+        onWarning(error, message) {
+            logger.warn({ error }, message);
+        },
+    });
+}
+
+function prepareImapSession(imap: Imap, host: string): boolean {
+    return installPreReadyImapIdHook(imap, host, {
+        onWarning(error, message) {
+            logger.warn({ error, host }, message);
+        },
+    });
 }
 
 function flattenImapBoxes(boxes: Record<string, ImapFolderNode> | undefined, prefix = ''): string[] {
@@ -178,8 +195,11 @@ export async function resolveImapMailboxCandidate(input: {
         }
 
         const imap = new Imap(imapConfig);
+        const preReadyIdInstalled = prepareImapSession(imap, input.host);
         imap.once('ready', () => {
-            resolveExistingImapMailbox(imap, input.mailbox, input.mailboxAliases)
+            const identificationStep = preReadyIdInstalled ? Promise.resolve() : identifyImapSession(imap);
+            identificationStep
+                .then(() => resolveExistingImapMailbox(imap, input.mailbox, input.mailboxAliases))
                 .then((resolvedMailbox) => {
                     imap.end();
                     resolve(resolvedMailbox);
@@ -198,6 +218,24 @@ function parseImapMessageUid(messageId: string): number | null {
     const normalized = messageId.startsWith('imap:') ? messageId.slice(5) : messageId;
     const uid = Number.parseInt(normalized, 10);
     return Number.isInteger(uid) && uid > 0 ? uid : null;
+}
+
+function normalizePositiveInteger(value: unknown): number | null {
+    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function buildMailboxCheckpoint(
+    box: { uidvalidity?: unknown; uidnext?: unknown } | null | undefined,
+    highestSeenUid: number | null
+): MailboxCheckpoint {
+    const uidValidity = normalizePositiveInteger(box?.uidvalidity);
+    const uidNext = normalizePositiveInteger(box?.uidnext);
+    const inferredLastUid = highestSeenUid ?? (uidNext && uidNext > 1 ? uidNext - 1 : null);
+
+    return {
+        uidValidity,
+        lastUid: inferredLastUid,
+    };
 }
 
 async function buildMimeMessage(input: MailSendOptions): Promise<string> {
@@ -393,14 +431,19 @@ export async function fetchMessagesViaImap(input: {
     tls?: boolean;
     mailbox: string;
     limit: number;
+    mailboxCheckpoint?: MailboxCheckpoint | null;
     xoauth2?: string;
     password?: string;
     mailboxAliases?: string[];
-}): Promise<EmailMessage[]> {
-    return new Promise<EmailMessage[]>((resolve, reject) => {
+}): Promise<{ messages: EmailMessage[]; mailboxCheckpoint: MailboxCheckpoint }> {
+    return new Promise<{ messages: EmailMessage[]; mailboxCheckpoint: MailboxCheckpoint }>((resolve, reject) => {
         const emailList: EmailMessage[] = [];
         let processedCount = 0;
         let messageCount = 0;
+        let mailboxCheckpoint: MailboxCheckpoint = {
+            uidValidity: null,
+            lastUid: null,
+        };
 
         const imapConfig: Imap.Config = {
             user: input.email,
@@ -424,9 +467,12 @@ export async function fetchMessagesViaImap(input: {
         }
 
         const imap = new Imap(imapConfig);
+        const preReadyIdInstalled = prepareImapSession(imap, input.host);
 
         imap.once('ready', () => {
-            resolveExistingImapMailbox(imap, input.mailbox, input.mailboxAliases)
+            const identificationStep = preReadyIdInstalled ? Promise.resolve() : identifyImapSession(imap);
+            identificationStep
+                .then(() => resolveExistingImapMailbox(imap, input.mailbox, input.mailboxAliases))
                 .then((resolvedMailbox) => {
                     imap.openBox(resolvedMailbox, true, (openErr, box) => {
                         if (openErr) {
@@ -436,9 +482,9 @@ export async function fetchMessagesViaImap(input: {
                         }
 
                         try {
+                            mailboxCheckpoint = buildMailboxCheckpoint(box, null);
                             if ((box?.messages?.total || 0) === 0) {
                                 imap.end();
-                                resolve([]);
                                 return;
                             }
 
@@ -450,10 +496,10 @@ export async function fetchMessagesViaImap(input: {
                                 }
                                 if (!results || results.length === 0) {
                                     imap.end();
-                                    resolve([]);
                                     return;
                                 }
                                 const limitedResults = results.slice(-input.limit);
+                                mailboxCheckpoint = buildMailboxCheckpoint(box, results.at(-1) ?? null);
                                 messageCount = limitedResults.length;
                                 const fetcher = imap.fetch(limitedResults, { bodies: '' });
                                 fetcher.on('message', (msg) => {
@@ -508,7 +554,10 @@ export async function fetchMessagesViaImap(input: {
         imap.once('error', reject);
         imap.once('end', () => {
             emailList.sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0));
-            resolve(emailList);
+            resolve({
+                messages: emailList,
+                mailboxCheckpoint,
+            });
         });
         imap.connect();
     });
@@ -639,16 +688,20 @@ export async function deleteMessagesViaImap(input: {
     tls?: boolean;
     mailbox: string;
     messageIds: string[];
+    mailboxCheckpoint?: MailboxCheckpoint | null;
     xoauth2?: string;
     password?: string;
     mailboxAliases?: string[];
-}): Promise<number> {
+}): Promise<{ deletedCount: number; mailboxCheckpoint: MailboxCheckpoint }> {
     const uids = Array.from(new Set(input.messageIds.map(parseImapMessageUid).filter((uid): uid is number => uid !== null)));
     if (uids.length === 0) {
-        return 0;
+        return {
+            deletedCount: 0,
+            mailboxCheckpoint: input.mailboxCheckpoint ?? { uidValidity: null, lastUid: null },
+        };
     }
 
-    return new Promise<number>((resolve, reject) => {
+    return new Promise<{ deletedCount: number; mailboxCheckpoint: MailboxCheckpoint }>((resolve, reject) => {
         const imapConfig: Imap.Config = {
             user: input.email,
             password: '',
@@ -671,14 +724,28 @@ export async function deleteMessagesViaImap(input: {
         }
 
         const imap = new Imap(imapConfig);
+        const preReadyIdInstalled = prepareImapSession(imap, input.host);
 
         imap.once('ready', () => {
-            resolveExistingImapMailbox(imap, input.mailbox, input.mailboxAliases)
+            const identificationStep = preReadyIdInstalled ? Promise.resolve() : identifyImapSession(imap);
+            identificationStep
+                .then(() => resolveExistingImapMailbox(imap, input.mailbox, input.mailboxAliases))
                 .then((resolvedMailbox) => {
-                    imap.openBox(resolvedMailbox, false, (openErr) => {
+                    imap.openBox(resolvedMailbox, false, (openErr, box) => {
                         if (openErr) {
                             imap.end();
                             reject(openErr);
+                            return;
+                        }
+
+                        const mailboxCheckpoint = buildMailboxCheckpoint(box, null);
+                        if (
+                            input.mailboxCheckpoint?.uidValidity
+                            && mailboxCheckpoint.uidValidity
+                            && input.mailboxCheckpoint.uidValidity !== mailboxCheckpoint.uidValidity
+                        ) {
+                            imap.end();
+                            reject(new AppError('IMAP_MAILBOX_RESYNC_REQUIRED', 'Mailbox state changed on the server. Refresh the mailbox before deleting messages.', 409));
                             return;
                         }
 
@@ -697,7 +764,10 @@ export async function deleteMessagesViaImap(input: {
                                 }
 
                                 imap.end();
-                                resolve(uids.length);
+                                resolve({
+                                    deletedCount: uids.length,
+                                    mailboxCheckpoint,
+                                });
                             };
 
                             if (imap.serverSupports('UIDPLUS')) {

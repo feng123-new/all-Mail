@@ -254,6 +254,7 @@ model DomainMailbox {
   aliases          MailboxAlias[]
   usages           DomainMailboxUsage[]
   inboundMessages  InboundMessage[]
+  forwardJobs      MailboxForwardJob[]
   outboundMessages OutboundMessage[]
 
   @@unique([domainId, localPart])
@@ -331,6 +332,7 @@ model InboundMessage {
   mailboxId         Int?                 @map("mailbox_id")
   matchedAddress    String               @map("matched_address") @db.VarChar(255)
   finalAddress      String               @map("final_address") @db.VarChar(255)
+  deliveryKey       String               @map("delivery_key") @db.VarChar(128)
   messageIdHeader   String?              @map("message_id_header") @db.VarChar(255)
   fromAddress       String               @map("from_address") @db.VarChar(255)
   toAddress         String               @map("to_address") @db.VarChar(255)
@@ -346,15 +348,41 @@ model InboundMessage {
   headersJson       Json?                @map("headers_json")
   isRead            Boolean              @default(false) @map("is_read")
   isDeleted         Boolean              @default(false) @map("is_deleted")
+  portalState       PortalState          @default(VISIBLE) @map("portal_state")
   createdAt         DateTime             @default(now()) @map("created_at")
   updatedAt         DateTime             @updatedAt @map("updated_at")
 
-  domain  Domain         @relation(fields: [domainId], references: [id], onDelete: Cascade)
-  mailbox DomainMailbox? @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+  domain     Domain             @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  mailbox    DomainMailbox?     @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+  forwardJob MailboxForwardJob?
 
+  @@unique([domainId, deliveryKey])
   @@index([domainId, receivedAt])
   @@index([mailboxId, receivedAt])
   @@map("inbound_messages")
+}
+
+model MailboxForwardJob {
+  id                BigInt            @id @default(autoincrement())
+  inboundMessageId  BigInt            @unique @map("inbound_message_id")
+  mailboxId         Int?              @map("mailbox_id")
+  mode              ForwardMode
+  forwardTo         String            @map("forward_to") @db.VarChar(255)
+  status            ForwardJobStatus  @default(PENDING)
+  attemptCount      Int               @default(0) @map("attempt_count")
+  lastError         String?           @map("last_error") @db.Text
+  providerMessageId String?           @map("provider_message_id") @db.VarChar(255)
+  nextAttemptAt     DateTime?         @default(now()) @map("next_attempt_at")
+  processedAt       DateTime?         @map("processed_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  inboundMessage InboundMessage @relation(fields: [inboundMessageId], references: [id], onDelete: Cascade)
+  mailbox        DomainMailbox? @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([mailboxId, status, nextAttemptAt])
+  @@map("mailbox_forward_jobs")
 }
 
 model OutboundMessage {
@@ -368,6 +396,7 @@ model OutboundMessage {
   htmlBody          String?     @map("html_body") @db.Text
   textBody          String?     @map("text_body") @db.Text
   status            SendStatus  @default(PENDING)
+  lastError         String?     @map("last_error") @db.Text
   scheduledAt       DateTime?   @map("scheduled_at")
   createdAt         DateTime    @default(now()) @map("created_at")
   updatedAt         DateTime    @updatedAt @map("updated_at")
@@ -427,6 +456,19 @@ enum ForwardMode {
   MOVE
 }
 
+enum PortalState {
+  VISIBLE
+  FORWARDED_HIDDEN
+}
+
+enum ForwardJobStatus {
+  PENDING
+  RUNNING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 enum MessageStorageStatus {
   PENDING
   STORED
@@ -458,6 +500,19 @@ enum MailProvider {
   OUTLOOK
   GMAIL
   QQ
+  NETEASE_163
+  NETEASE_126
+  ICLOUD
+  YAHOO
+  ZOHO
+  ALIYUN
+  AMAZON_WORKMAIL
+  FASTMAIL
+  AOL
+  GMX
+  MAILCOM
+  YANDEX
+  CUSTOM_IMAP_SMTP
 }
 
 enum MailAuthType {

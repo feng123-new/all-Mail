@@ -1,11 +1,12 @@
-import prisma from '../../lib/prisma.js';
+import type { Prisma } from '@prisma/client';
 import { logger } from '../../lib/logger.js';
+import prisma from '../../lib/prisma.js';
 import { AppError } from '../../plugins/error.js';
 import { emailService } from '../email/email.service.js';
-import { poolService } from './pool.service.js';
 import { mailFacade } from './mail.facade.js';
+import { poolService } from './pool.service.js';
 import type { MailRequestInput } from './mail.schema.js';
-import type { MailCredentials } from './providers/types.js';
+import type { MailboxCheckpoint, MailCredentials } from './providers/types.js';
 
 export const mailService = {
     async resolveCredentials(input: MailRequestInput, apiKeyId?: number): Promise<MailCredentials> {
@@ -57,7 +58,31 @@ export const mailService = {
         }
     },
 
-    async getEmails(credentials: MailCredentials, options: { mailbox: string; limit?: number; socks5?: string; http?: string }) {
+    async logAdminAction(
+        action: string,
+        emailAccountId: number | undefined,
+        requestIp: string,
+        responseCode: number,
+        responseTimeMs: number,
+        metadata?: Prisma.InputJsonValue,
+    ) {
+        try {
+            await prisma.apiLog.create({
+                data: {
+                    action,
+                    emailAccountId,
+                    requestIp,
+                    responseCode,
+                    responseTimeMs,
+                    metadata,
+                },
+            });
+        } catch (error) {
+            logger.error({ error }, 'Failed to log admin action');
+        }
+    },
+
+    async getEmails(credentials: MailCredentials, options: { mailbox: string; limit?: number; mailboxCheckpoint?: MailboxCheckpoint | null; socks5?: string; http?: string }) {
         return mailFacade.getEmails(credentials, options);
     },
 
@@ -65,7 +90,7 @@ export const mailService = {
         return mailFacade.processMailbox(credentials, options);
     },
 
-    async deleteMessages(credentials: MailCredentials, options: { mailbox: string; messageIds: string[]; socks5?: string; http?: string }) {
+    async deleteMessages(credentials: MailCredentials, options: { mailbox: string; messageIds: string[]; mailboxCheckpoint?: MailboxCheckpoint | null; socks5?: string; http?: string }) {
         return mailFacade.deleteMessages(credentials, options);
     },
 

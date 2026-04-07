@@ -1,6 +1,7 @@
 import { AppError } from '../../../plugins/error.js';
 import { buildXoauth2String, deleteMessageViaGraphApi, deleteMessageViaGraphApiStrict, deleteMessagesViaImap, fetchMessagesViaGraphApi, fetchMessagesViaImap, requestOAuthAccessToken, resolveImapMailboxCandidate, resolveImapMailboxName, sendMailViaGraphApi, toImapAppError } from './shared.js';
-import { type MailCredentials, type MailDeleteOptions, type MailFetchOptions, type MailProcessOptions, type MailProviderAdapter, type MailSendOptions, mergeProviderConfig, requireCredential } from './types.js';
+import { createFamilyAwareProviderAdapter } from './family.helpers.js';
+import { type MailCredentials, type MailDeleteOptions, type MailFetchOptions, type MailProcessOptions, type MailProfileDelegate, type MailProviderAdapter, type MailSendOptions, mergeProviderConfigForCredentials, requireCredential } from './types.js';
 
 const TOKEN_URL = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token';
 const GRAPH_WRITE_SCOPE = 'https://graph.microsoft.com/Mail.ReadWrite';
@@ -43,7 +44,7 @@ async function viaGraph(credentials: MailCredentials, options: MailFetchOptions)
 }
 
 async function viaImap(credentials: MailCredentials, options: MailFetchOptions) {
-    const config = mergeProviderConfig(credentials.provider, credentials.providerConfig);
+    const config = mergeProviderConfigForCredentials(credentials);
     const token = await getToken(credentials, IMAP_SCOPE, options);
     const xoauth2 = buildXoauth2String(credentials.email, token);
     try {
@@ -64,23 +65,24 @@ async function viaImap(credentials: MailCredentials, options: MailFetchOptions) 
             mailboxAliases,
             xoauth2,
         });
-        const messages = await fetchMessagesViaImap({
+        const result = await fetchMessagesViaImap({
             email: credentials.email,
             host: config.imapHost || 'outlook.office365.com',
             port: config.imapPort || 993,
             tls: config.imapTls !== false,
             mailbox: resolvedMailbox,
             limit: options.limit || 100,
+            mailboxCheckpoint: options.mailboxCheckpoint,
             xoauth2,
         });
-        return { email: credentials.email, mailbox: options.mailbox, resolvedMailbox, count: messages.length, messages, method: 'outlook_imap', provider: credentials.provider };
+        return { email: credentials.email, mailbox: options.mailbox, resolvedMailbox, count: result.messages.length, messages: result.messages, mailboxCheckpoint: result.mailboxCheckpoint, method: 'outlook_imap', provider: credentials.provider };
     } catch (error) {
         throw toImapAppError(error, 'Outlook');
     }
 }
 
 async function deleteViaImap(credentials: MailCredentials, options: MailDeleteOptions) {
-    const config = mergeProviderConfig(credentials.provider, credentials.providerConfig);
+    const config = mergeProviderConfigForCredentials(credentials);
     const token = await getToken(credentials, IMAP_SCOPE, options);
     const xoauth2 = buildXoauth2String(credentials.email, token);
     try {
@@ -101,21 +103,23 @@ async function deleteViaImap(credentials: MailCredentials, options: MailDeleteOp
             mailboxAliases,
             xoauth2,
         });
-        const deletedCount = await deleteMessagesViaImap({
+        const result = await deleteMessagesViaImap({
             email: credentials.email,
             host: config.imapHost || 'outlook.office365.com',
             port: config.imapPort || 993,
             tls: config.imapTls !== false,
             mailbox: resolvedMailbox,
             messageIds: options.messageIds,
+            mailboxCheckpoint: options.mailboxCheckpoint,
             xoauth2,
         });
         return {
             email: credentials.email,
             mailbox: options.mailbox,
             resolvedMailbox,
-            deletedCount,
-            message: `Deleted ${deletedCount} selected messages`,
+            deletedCount: result.deletedCount,
+            message: `Deleted ${result.deletedCount} selected messages`,
+            mailboxCheckpoint: result.mailboxCheckpoint,
             method: 'outlook_imap',
             provider: credentials.provider,
         };
@@ -140,8 +144,10 @@ async function deleteViaGraph(credentials: MailCredentials, options: MailDeleteO
     };
 }
 
-export const outlookMailAdapter: MailProviderAdapter = {
+export const outlookOAuthProfileDelegate: MailProfileDelegate = {
     provider: 'OUTLOOK',
+    profile: 'outlook-oauth',
+    representativeProtocol: 'oauth_api',
     getCapabilities() { return { readInbox: true, readJunk: true, readSent: true, clearMailbox: true, sendMail: true, modes: ['GRAPH_API', 'IMAP'] }; },
     async getEmails(credentials, options) {
         const mode = resolveMode(credentials);
@@ -201,3 +207,7 @@ export const outlookMailAdapter: MailProviderAdapter = {
         };
     },
 };
+
+export const outlookMailAdapter: MailProviderAdapter = createFamilyAwareProviderAdapter('OUTLOOK', [
+    outlookOAuthProfileDelegate,
+]);

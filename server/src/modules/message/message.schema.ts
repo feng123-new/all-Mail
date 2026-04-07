@@ -12,5 +12,7 @@ export const deleteDomainMessageSchema = z.object({
     ids: z.array(z.union([z.string().trim().min(1), z.number().int().positive()])).min(1),
 });
 
-export type ListDomainMessageInput = z.infer<typeof listDomainMessageSchema>;
+export interface ListDomainMessageInput extends z.infer<typeof listDomainMessageSchema> {
+    allowedMailboxIds?: number[];
+}
 export type DeleteDomainMessageInput = z.infer<typeof deleteDomainMessageSchema>;

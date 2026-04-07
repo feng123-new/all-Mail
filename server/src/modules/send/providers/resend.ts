@@ -8,6 +8,7 @@ export interface ResendSendInput {
     html?: string;
     text?: string;
     replyTo?: string | null;
+    idempotencyKey?: string | null;
 }
 
 export async function sendWithResend(input: ResendSendInput): Promise<{ id: string | null }> {
@@ -29,7 +30,12 @@ export async function sendWithResend(input: ResendSendInput): Promise<{ id: stri
             ...(input.replyTo ? { replyTo: input.replyTo } : {}),
         };
 
-    const { data, error } = await resend.emails.send(payload);
+    const { data, error } = await resend.emails.send(
+        payload,
+        input.idempotencyKey
+            ? { idempotencyKey: input.idempotencyKey }
+            : undefined
+    );
 
     if (error) {
         throw new Error(error.message || 'Resend send failed');
