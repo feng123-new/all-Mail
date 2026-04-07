@@ -17,26 +17,33 @@ This checklist is the publish-readiness closure loop for turning the repository 
 
 ## P2 — engineering verification gate
 
-- [ ] `cd web && npm run lint && npm run build`
-- [ ] `cd server && npm run lint && npm run build && npm run test`
-- [ ] `cd cloudflare/workers/allmail-edge && npm run check`
-- [ ] Smoke-check Docker deployment from root `docker-compose.yml`
-- [ ] Smoke-check Cloudflare Worker preflight from `CLOUDFLARE-DEPLOY.md`
+- [ ] `./bin/all-mail doctor`
+- [ ] `./bin/all-mail check`
+- [ ] Docker smoke path from `docs/DEPLOY.md` still works (`docker compose up -d --build`, `docker compose ps`, `/health`)
+- [ ] Cloudflare worker preflight from `CLOUDFLARE-DEPLOY.md` still works when that path is in scope
+- [ ] Any environment-specific `doctor` limitation is documented truthfully instead of being silently skipped
 
-## P3 — repository presentation gate
+## P3 — release-safety gate
 
-- [ ] Main `README.md` explains scope, deployment path, capabilities, and limitations clearly
+- [ ] Migration expectations are reviewed for the release (`P3005` fallback vs. manual `P3009` recovery)
+- [ ] Rollback path is still documented and realistic for this release
+- [ ] Setup/behavior docs (`README.md`, `docs/DEPLOY.md`, `docs/RUNBOOK.md`, `docs/ENVIRONMENT.md`) match the shipped runtime contract
+- [ ] PR/release notes mention deploy-impacting docs, rollback notes, and migration notes where relevant
+
+## P4 — repository presentation gate
+
+- [ ] Main `README.md` explains scope, primary deployment path, verification entrypoints, and limitations clearly
 - [ ] Public-safe screenshots exist and do not expose live keys, full mailbox addresses, or production domains
 - [ ] `CHANGELOG.md` reflects the state users will first encounter publicly
 - [ ] `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, and `CODE_OF_CONDUCT.md` stay consistent with current project scope
 - [ ] Remove template leftovers or dead default assets that make the repo look unfinished
 
-## P4 — release decision gate
+## P5 — release decision gate
 
-- [ ] GitHub repo visibility is still private until P0–P3 are complete
+- [ ] GitHub repo visibility is still private until P0–P4 are complete
 - [ ] Choose the public message: alpha / beta / stable
 - [ ] Decide whether screenshots, desktop plans, and future roadmap docs belong in the first public cut
-- [ ] Publish only after legal, security, engineering, and presentation gates are all green
+- [ ] Publish only after legal, security, engineering, release-safety, and presentation gates are all green
 
 ## Recommended public release note structure
 

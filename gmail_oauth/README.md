@@ -2,7 +2,7 @@
 
 这个目录用于把 Gmail / Google OAuth 授权流程固化成可重复执行的本地自动化脚本。
 
-> 管理台现已支持 Gmail OAuth 一键连接。这里的脚本主要用于本地调试、回退方案、或排查 provider console 配置问题。
+> 管理台现已支持 Gmail OAuth 一键连接。这里的脚本主要用于本地调试、回退方案、或排查 provider console 配置问题，不属于默认 Docker 部署链路。
 
 ## 文件说明
 

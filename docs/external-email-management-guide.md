@@ -1,10 +1,10 @@
 # 外部邮箱管理区使用说明
 
-> 适用范围：后台 `邮箱管理` 页面中接入的 Outlook / Gmail / QQ 账号。
+> 适用范围：后台 `邮箱管理` 页面中接入的 Outlook / Gmail / QQ / 163 / 126 / iCloud / Yahoo / Zoho / 阿里邮箱 / Amazon WorkMail / Fastmail / AOL / GMX / Mail.com / Yandex / Custom IMAP / SMTP 账号。
 
 ## 1. 这块和域名邮箱不是一回事
 
-这里管理的是第三方邮箱账号本身，例如 Outlook、Gmail、QQ。它们和 all-Mail 自己维护的域名邮箱池是两套入口。
+这里管理的是第三方邮箱账号本身，例如 Outlook、Gmail、QQ、Amazon WorkMail 或自定义 IMAP / SMTP 邮箱。它们和 all-Mail 自己维护的域名邮箱池是两套入口。
 
 ## 2. 当前支持的能力
 
@@ -31,6 +31,29 @@
 - 读取已发送：支持
 - 发送邮件：支持
 - 常见模式：`APP_PASSWORD`（SMTP / IMAP 授权码）
+
+### 163 / 126 / iCloud / Yahoo / Zoho / 阿里邮箱
+
+- 读取收件箱：支持
+- 读取已发送：支持
+- 发送邮件：支持
+- 常见模式：`APP_PASSWORD`
+
+### Amazon WorkMail / Fastmail / AOL / GMX / Mail.com / Yandex
+
+- 读取收件箱：支持
+- 读取已发送：支持
+- 发送邮件：支持
+- 常见模式：`APP_PASSWORD`
+- 说明：Amazon WorkMail 通常需要补充区域相关的 IMAP / SMTP 主机；GMX / Mail.com 更常见的 SMTP 端口是 `587` + STARTTLS。
+
+### Custom IMAP / SMTP
+
+- 读取收件箱：支持
+- 读取已发送：支持
+- 发送邮件：支持
+- 常见模式：`APP_PASSWORD`
+- 说明：适合企业自建邮箱、域名邮箱、cPanel、自定义 IMAP / SMTP 服务；需要手工填写 IMAP Host、SMTP Host、端口、TLS 和可选文件夹映射。
 
 ### Outlook
 
@@ -126,8 +149,9 @@ curl -X POST http://127.0.0.1:3002/admin/emails/12/send \
 
 ## 6. 发送能力判断
 
-- Gmail / QQ 这类账号通常可以直接完成收发闭环
+- Gmail / QQ / 163 / 126 / iCloud / Yahoo / Zoho / 阿里邮箱 / Fastmail / AOL / GMX / Mail.com / Yandex 这类账号通常可以直接完成收发闭环
 - Outlook 是否能发，取决于 OAuth 配置和授权范围
+- Amazon WorkMail 和 Custom IMAP / SMTP 是否可用，取决于你填写的服务器主机、端口和密码是否正确
 - 如果账号不支持发件，界面会保留收件相关能力，但隐藏或禁用发送入口
 
 ## 7. 建议

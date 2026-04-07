@@ -16,38 +16,61 @@ Please keep contributions aligned with the current product scope:
 
 ## Before opening a pull request
 
-1. Read `README.md` for project positioning.
-2. Read `PROVENANCE.md` for source acknowledgement rules.
-3. Prefer `all-Mail` terminology in product-facing text, docs, and helper scripts.
-4. Do not reintroduce historical upstream branding into the main README or current operator flows.
-5. Follow `CODE_OF_CONDUCT.md` in all project interactions.
+1. Read `README.md` for project positioning and the canonical doc map.
+2. Read `docs/DEPLOY.md`, `docs/ENVIRONMENT.md`, and `docs/RUNBOOK.md` if your change affects setup, runtime behavior, or operator workflows.
+3. Read `PROVENANCE.md` for source acknowledgement rules.
+4. Prefer `all-Mail` terminology in product-facing text, docs, and helper scripts.
+5. Do not reintroduce historical upstream branding into the main README or current operator flows.
+6. Follow `CODE_OF_CONDUCT.md` in all project interactions.
 
-## Local development
+## Canonical local contributor flow
 
-### Web
-
-```bash
-cd web
-npm ci
-npm run lint
-npm run build
-```
-
-### Server
+### 1. Install dependencies
 
 ```bash
-cd server
-npm ci
-npm run lint
-npm run build
-npm run test
+npm run install:all
+npm --prefix cloudflare/workers/allmail-edge ci
 ```
+
+### 2. Choose a runtime path
+
+- **Default**: follow `docs/DEPLOY.md` and use Docker Compose.
+- **Secondary**: use `docs/advanced-runtime.md` only when you intentionally need the compiled source-runtime path.
+
+### 3. Build what the repo ships
+
+```bash
+./bin/all-mail build
+```
+
+This runs the repo-root build contract:
+
+- `build:server` → Prisma client generation + backend build
+- `build:web` → frontend build + `public/` preparation
+
+### 4. Verify before review
+
+Use repo-root verification commands as the default contributor contract:
+
+```bash
+./bin/all-mail doctor
+./bin/all-mail check
+```
+
+Notes:
+
+- `./bin/all-mail doctor` is the readiness check (env resolution, PostgreSQL, Redis, build artifacts).
+- `./bin/all-mail check` is the full local release gate (`lint + test + build:server + build:web + worker check`).
+- If your shell exports `NODE_USE_ENV_PROXY` or `HTTP[S]_PROXY`, prefer the `./bin/all-mail ...` entrypoints because they sanitize those startup flags before Node/npm bootstraps.
+- If `./bin/all-mail doctor` cannot pass because your environment intentionally lacks running services, say that explicitly in your PR and still run the strongest truthful local gate available.
 
 ## Pull request expectations
 
 - Keep changes scoped.
 - Explain why the change is needed.
-- Mention any user-facing naming or doc changes explicitly.
+- Include verification evidence.
+- Acknowledge docs updates when setup, commands, or behavior changed.
+- Add rollback and migration notes when deploy/runtime behavior is affected.
 - Avoid mixing refactors, feature work, and operational cleanups in one PR when possible.
 
 ## Branding and provenance rules
@@ -68,11 +91,11 @@ Do not commit:
 
 ## Review checklist
 
-Before requesting review, run:
+Before requesting review, confirm:
 
-```bash
-cd web && npm run lint && npm run build
-cd ../server && npm run lint && npm run build && npm run test
-```
+- `./bin/all-mail check` passed, or you documented the strongest truthful substitute
+- setup/behavior docs were updated if needed
+- rollback impact is described for release-affecting changes
+- migration impact is described for schema/deploy-flow changes
 
 Also make sure the repo still reads like a standalone `all-Mail` project, not a personal mixed workspace snapshot.
