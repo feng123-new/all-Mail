@@ -1,5 +1,15 @@
 # all-Mail Cloudflare Deployment Guide
 
+## Boundary
+
+This document is the worker-specific deployment and runbook entry for `cloudflare/workers/allmail-edge`.
+
+- Use [`docs/DEPLOY.md`](docs/DEPLOY.md) for the main app deployment path.
+- Use [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for shared backend recovery flows.
+- Use [`docs/RUNBOOK.md`](docs/RUNBOOK.md#cloudflare-tunnel-down--public-hostnames-returning-530) for long-term tunnel service operation, token rotation, and connector transport troubleshooting.
+- Use [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) for backend and worker variable ownership.
+- Use this file when you specifically need Cloudflare Email Routing, the worker deploy flow, or worker-side ingress troubleshooting.
+
 This runbook covers the production-facing deployment path for the `cloudflare/workers/allmail-edge` worker that receives Cloudflare Email Routing traffic and forwards signed ingress payloads into the all-Mail backend.
 
 Use this guide when you want all of the following to work together:
@@ -45,9 +55,10 @@ Before you deploy the worker, make sure all of the following are true.
 - the backend is already reachable from the public internet
 - `INGRESS_SIGNING_SECRET` is configured on the backend
 - the backend can accept `POST /ingress/domain-mail/receive`
-- if you want raw email persistence, the backend object-storage settings are already configured
 
-Relevant backend env values live in root `.env`, `server/.env`, or `.env.cloudflare.example`.
+For the default Docker-first backend path, keep these values in root `.env` or start from `.env.cloudflare.example`.
+
+`server/.env` remains valid only for the advanced source-runtime path documented in `docs/advanced-runtime.md`.
 
 ### Cloudflare preconditions
 
@@ -73,7 +84,7 @@ At minimum, the backend must have:
 INGRESS_SIGNING_SECRET=replace-with-a-shared-secret
 ```
 
-If you want `.eml` persistence end-to-end, also configure the backend object-storage env values described in `.env.cloudflare.example`.
+If you want `.eml` persistence end-to-end, make sure the Worker-side R2 bucket values in `.dev.vars` are set correctly. The backend only stores the resulting `rawObjectKey` and does not need a second object-storage env block for this flow.
 
 ### Worker-side values
 
@@ -123,7 +134,7 @@ After your local `.dev.vars`, backend env, and Cloudflare auth are correct, the 
 
 ### Manual in Cloudflare
 
-These actions still require a real Cloudflare account/domain decision and are not completed by `npm run deploy:prod`:
+These actions still require a real Cloudflare account/domain decision and are not completed by the wrapped Worker deploy command:
 
 1. add and verify the domain in Cloudflare
 2. enable Email Routing for that domain
@@ -172,12 +183,11 @@ If your backend is not local-only, verify the public hostname that will back `IN
 From the repo root:
 
 ```bash
-cd server
-npm run ingress:ensure
-npm run ingress:check
+./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:ensure
+./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:check
 ```
 
-`npm run ingress:check` should report an active endpoint whose `keyId` matches your intended `INGRESS_KEY_ID`, and `signingKeyHashMatchesEnv` should be `true` when `INGRESS_SIGNING_SECRET` is configured.
+The ingress check should report an active endpoint whose `keyId` matches your intended `INGRESS_KEY_ID`, and `signingKeyHashMatchesEnv` should be `true` when `INGRESS_SIGNING_SECRET` is configured.
 
 ### Step 3: Prepare worker config
 
@@ -194,11 +204,11 @@ If you are still testing locally, `http://127.0.0.1:3002/...` is accepted, but p
 
 ```bash
 npx wrangler whoami
-npm install
-npm run doctor
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor
 ```
 
-`npm run doctor` checks:
+The worker doctor command checks:
 
 - `.dev.vars` exists
 - `wrangler.jsonc` exists
@@ -222,7 +232,7 @@ node scripts/post-signed-fixture.mjs
 ### Step 5: Run worker quality gates
 
 ```bash
-npm run check
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check
 ```
 
 This runs TypeScript, ESLint, and the worker tests before any deploy is attempted.
@@ -238,14 +248,14 @@ export CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
 ### Step 7: Deploy with repo automation
 
 ```bash
-npm run deploy:prod
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run deploy:prod
 ```
 
-What `npm run deploy:prod` does in this repo:
+What the wrapped `deploy:prod` command does in this repo:
 
 1. validates `.dev.vars`
 2. runs `wrangler whoami`
-3. runs `npm run check`
+3. runs the worker quality gate
 4. runs `server/scripts/ensure-ingress-endpoint.ts` for the configured key ID
 5. checks or creates the configured R2 bucket
 6. uploads `INGRESS_SIGNING_SECRET` with `wrangler secret put`
@@ -266,7 +276,9 @@ After the Worker deploys, finish the Cloudflare-side setup manually:
 5. if you use a catch-all route, confirm it points to the same Worker intentionally
 6. confirm the backend hostname referenced by `INGRESS_URL` resolves and reaches the live all-Mail backend
 
-If you have already done these Cloudflare-side actions once and your domain/tunnel topology is stable, later Worker updates usually only require local commands (`npm run doctor`, `npm run check`, `npm run deploy:prod`) plus a quick post-deploy validation.
+If your shell exports `NODE_USE_ENV_PROXY` or `HTTP[S]_PROXY`, keep using the wrapped commands above. They sanitize those startup flags before Node/npm bootstraps, which avoids noisy `UNDICI-EHPA` warnings during worker operations.
+
+If you have already done these Cloudflare-side actions once and your domain/tunnel topology is stable, later Worker updates usually only require the same wrapped local commands plus a quick post-deploy validation.
 
 ## Cloudflare Dashboard click-path checklist
 
@@ -291,7 +303,7 @@ If the domain is already in Cloudflare, open that domain directly from **Website
 4. click **Get started** / **Enable Email Routing** if it has not been enabled yet
 5. complete any required destination-address verification steps Cloudflare requests
 
-This is still a manual Cloudflare step. `npm run deploy:prod` does not enable Email Routing for you.
+This is still a manual Cloudflare step. The wrapped `deploy:prod` command does not enable Email Routing for you.
 
 ### C. Confirm Worker / workers.dev context
 
@@ -304,7 +316,7 @@ This needs to exist before the post-deploy `workers.dev` health URL becomes usef
 
 ### D. Optional manual R2 bucket creation
 
-You usually do **not** need to create the bucket manually because `npm run deploy:prod` can create it for you.
+You usually do **not** need to create the bucket manually because the wrapped `deploy:prod` command can create it for you.
 
 If you still want to verify or create it in the UI:
 
@@ -359,11 +371,10 @@ This binding step is the most common reason a deployment looks healthy while rea
 Once sections A-F are already in place and stable, later updates are mostly local-command driven:
 
 ```bash
-cd cloudflare/workers/allmail-edge
-npm run doctor
-npm run check
-npm run deploy:prod
-npm run doctor -- --postdeploy
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run deploy:prod
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor -- --postdeploy
 ```
 
 In that steady-state workflow, you usually only need to return to the Cloudflare Dashboard when:
@@ -413,7 +424,7 @@ If the Worker is not configured correctly, `/health` returns `503` with `WORKER_
 ### 2. Run the post-deploy doctor
 
 ```bash
-npm run doctor -- --postdeploy
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor -- --postdeploy
 ```
 
 This re-checks the local config and also verifies the deployed `workers.dev` health endpoint when Wrangler can infer your subdomain.
@@ -438,7 +449,7 @@ Cause: one or more required worker values are missing.
 Check:
 
 ```bash
-npm run doctor
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor
 ```
 
 Most common fixes:
@@ -471,17 +482,17 @@ Cause: `RAW_EMAIL_BUCKET_NAME` is wrong, the bucket does not exist, or the token
 Fix:
 
 - verify the bucket name in `.dev.vars`
-- rerun `npm run doctor`
-- if needed, let `npm run deploy:prod` create the bucket after exporting a valid token
+- rerun the wrapped worker doctor command
+- if needed, let the wrapped `deploy:prod` command create the bucket after exporting a valid token
 
-### `npm run ingress:check` fails
+### ingress endpoint check fails
 
 Cause: the backend cannot find an active ingress endpoint or the backend secret hash does not match the Worker secret.
 
 Fix:
 
 - verify backend `INGRESS_SIGNING_SECRET`
-- rerun `cd server && npm run ingress:ensure`
+- rerun `./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:ensure`
 - ensure `INGRESS_KEY_ID` matches on both sides
 
 ### Worker health passes but real email never arrives
@@ -504,7 +515,7 @@ If a fresh deploy breaks live mail handling:
 3. rerun:
 
 ```bash
-npm run doctor -- --postdeploy
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor -- --postdeploy
 curl https://allmail-edge.<your-subdomain>.workers.dev/health
 ```
 
@@ -523,9 +534,8 @@ curl https://allmail-edge.<your-subdomain>.workers.dev/health
 2. 在后端 `.env` 里配置好 `INGRESS_SIGNING_SECRET`，然后执行：
 
    ```bash
-   cd server
-   npm run ingress:ensure
-   npm run ingress:check
+   ./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:ensure
+   ./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:check
    ```
 
 3. 在 `cloudflare/workers/allmail-edge/.dev.vars` 里填写：
@@ -536,20 +546,19 @@ curl https://allmail-edge.<your-subdomain>.workers.dev/health
    - `RAW_EMAIL_BUCKET_NAME`
    - `INGRESS_SIGNING_SECRET`
 
-4. 在 Worker 目录执行：
+4. 在仓库根目录执行 Worker 预检：
 
    ```bash
-   cd cloudflare/workers/allmail-edge
-   npm install
-   npm run doctor
-   npm run check
+   ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install
+   ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor
+   ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check
    ```
 
 5. 导出 Cloudflare API Token 后部署：
 
    ```bash
    export CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
-   npm run deploy:prod
+   ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run deploy:prod
    ```
 
 6. 到 Cloudflare Dashboard 的 **Email Routing** 里，把目标地址或 catch-all 规则绑定到 `worker: allmail-edge`
@@ -557,7 +566,7 @@ curl https://allmail-edge.<your-subdomain>.workers.dev/health
 7. 最后执行：
 
    ```bash
-   npm run doctor -- --postdeploy
+   ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor -- --postdeploy
    curl https://allmail-edge.<your-subdomain>.workers.dev/health
    ```
 
@@ -640,9 +649,8 @@ in `cloudflare/workers/allmail-edge/.dev.vars`.
 After the Tunnel hostname works, run the normal Worker deployment flow:
 
 ```bash
-cd cloudflare/workers/allmail-edge
-npm run doctor
-npm run deploy:prod
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run deploy:prod
 ```
 
 ### Step E: bind Email Routing to the Worker

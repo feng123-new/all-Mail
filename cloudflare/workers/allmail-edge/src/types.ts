@@ -39,6 +39,7 @@ export interface IngressAttachmentInput {
 
 export interface IngressReceiveInput {
   provider: string;
+  deliveryKey: string;
   receivedAt: string;
   envelope: {
     from: string;
@@ -57,5 +58,6 @@ export interface IngressReceiveInput {
     headers?: Record<string, string | undefined>;
     attachments?: IngressAttachmentInput[];
     rawObjectKey?: string | null;
+    storageStatus?: 'PENDING' | 'STORED' | 'FAILED';
   };
 }

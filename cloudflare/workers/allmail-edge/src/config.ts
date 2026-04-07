@@ -16,6 +16,14 @@ function requireString(name: string, value: string | undefined): string {
   return value.trim();
 }
 
+function requireSecretString(name: string, value: string | undefined): string {
+  const resolved = requireString(name, value);
+  if (resolved.toLowerCase().startsWith('replace-with-')) {
+    throw new Error(`${name} must be replaced with a real shared secret`);
+  }
+  return resolved;
+}
+
 function normalizePrefix(value: string | undefined): string {
   const trimmed = value?.trim();
   if (!trimmed) {
@@ -39,7 +47,7 @@ export function resolveEnv(env: WorkerEnv): ResolvedEnv {
   return {
     ingressUrl,
     ingressKeyId: requireString('INGRESS_KEY_ID', env.INGRESS_KEY_ID),
-    ingressSigningSecret: requireString('INGRESS_SIGNING_SECRET', env.INGRESS_SIGNING_SECRET),
+    ingressSigningSecret: requireSecretString('INGRESS_SIGNING_SECRET', env.INGRESS_SIGNING_SECRET),
     ingressProvider: env.INGRESS_PROVIDER?.trim() || 'CLOUDFLARE_EMAIL_ROUTING',
     rawEmailObjectPrefix: normalizePrefix(env.RAW_EMAIL_OBJECT_PREFIX),
     rawEmailBucket: env.RAW_EMAIL_BUCKET,

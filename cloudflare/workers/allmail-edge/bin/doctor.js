@@ -70,6 +70,10 @@ function logResult(status, title, detail) {
   }
 }
 
+function isPlaceholderSecret(value) {
+  return typeof value === 'string' && value.trim().toLowerCase().startsWith('replace-with-');
+}
+
 function main() {
   const failures = [];
 
@@ -99,6 +103,17 @@ function main() {
     logResult('fail', 'Worker env keys', `Missing ${missingKeys.join(', ')}`);
   } else {
     logResult('pass', 'Worker env keys', requiredKeys.join(', '));
+  }
+
+  const ingressSigningSecret = envEntries.get('INGRESS_SIGNING_SECRET');
+  if (!ingressSigningSecret) {
+    failures.push('INGRESS_SIGNING_SECRET is missing in .dev.vars');
+    logResult('fail', 'Worker ingress secret', 'Missing INGRESS_SIGNING_SECRET');
+  } else if (isPlaceholderSecret(ingressSigningSecret)) {
+    failures.push('INGRESS_SIGNING_SECRET still uses the shipped placeholder');
+    logResult('fail', 'Worker ingress secret', 'Replace the shipped placeholder with the real backend shared secret');
+  } else {
+    logResult('pass', 'Worker ingress secret', 'INGRESS_SIGNING_SECRET is set to a non-placeholder value');
   }
 
   const whoAmI = runCapture('npx', ['wrangler', 'whoami']);

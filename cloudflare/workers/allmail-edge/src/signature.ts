@@ -24,6 +24,12 @@ export async function sha256Hex(value: string): Promise<string> {
   return toHex(digest);
 }
 
+export async function sha256HexBytes(value: ArrayBuffer | Uint8Array): Promise<string> {
+  const bytes = value instanceof Uint8Array ? Uint8Array.from(value) : new Uint8Array(value);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return toHex(digest);
+}
+
 export function buildCanonicalString(input: {
   timestamp: string;
   method: string;

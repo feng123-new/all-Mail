@@ -26,7 +26,7 @@ The Worker does **not** own mailbox business logic. Domain resolution, alias han
 Before deploying the Worker:
 
 1. make sure the backend has `INGRESS_SIGNING_SECRET`
-2. run `cd server && npm run ingress:ensure`
+2. run `./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:ensure`
 3. confirm the backend can receive `POST /ingress/domain-mail/receive`
 
 ## Secrets and vars
@@ -51,8 +51,8 @@ Edit `wrangler.jsonc` or `.dev.vars` with your own values:
 ## Local verification
 
 ```bash
-npm install
-npm run check
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check
 ```
 
 Signed payload smoke against a local backend ingress:
@@ -68,16 +68,18 @@ node scripts/post-signed-fixture.mjs
 ## Deploy
 
 ```bash
-npm install
-npm run doctor
-npm run deploy:prod
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run deploy:prod
 ```
 
 After deploy, finish the Email Routing address/worker binding in the Cloudflare Dashboard and run:
 
 ```bash
-npm run doctor -- --postdeploy
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor -- --postdeploy
 ```
+
+If your shell exports `NODE_USE_ENV_PROXY` or `HTTP[S]_PROXY`, keep using the wrapped commands above. They sanitize those startup flags before Node/npm bootstraps, which avoids noisy `UNDICI-EHPA` warnings during worker operations.
 
 ## Public repo hygiene
 

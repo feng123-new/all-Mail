@@ -1,5 +1,6 @@
 import PostalMime from 'postal-mime';
 import { buildRawObjectKey, parseRoutingAddress } from './routing.js';
+import { sha256Hex, sha256HexBytes } from './signature.js';
 import type { ResolvedEnv } from './config.js';
 import type { EmailMessageLike, IngressAttachmentInput, IngressReceiveInput } from './types.js';
 
@@ -61,6 +62,46 @@ function mapAttachments(attachments: unknown): IngressAttachmentInput[] {
   });
 }
 
+function buildMessageSummary(input: {
+  parsed: Awaited<ReturnType<PostalMime['parse']>>;
+  headers: Record<string, string>;
+  rawObjectKey: string | null;
+  storageStatus: 'PENDING' | 'STORED' | 'FAILED';
+  messageId: string | null;
+}): IngressReceiveInput['message'] {
+  const { parsed, headers, rawObjectKey, storageStatus, messageId } = input;
+
+  return {
+    messageId,
+    subject: firstNonEmpty(
+      typeof parsed.subject === 'string' ? parsed.subject : null,
+      headers.subject,
+    ),
+    textPreview: normalizePreview(typeof parsed.text === 'string' ? parsed.text : null, 12000),
+    htmlPreview: normalizePreview(typeof parsed.html === 'string' ? parsed.html : null, 20000),
+    headers,
+    attachments: mapAttachments(parsed.attachments),
+    rawObjectKey,
+    storageStatus,
+  };
+}
+
+async function buildDeliveryKey(input: {
+  matchedAddress: string;
+  messageId: string | null;
+  rawEmail: ArrayBuffer;
+}): Promise<string> {
+  const normalizedAddress = input.matchedAddress.trim().toLowerCase();
+  const normalizedMessageId = input.messageId?.trim().toLowerCase() || null;
+
+  if (normalizedMessageId) {
+    return sha256Hex(`message-id\n${normalizedAddress}\n${normalizedMessageId}`);
+  }
+
+  const rawEmailHash = await sha256HexBytes(input.rawEmail);
+  return sha256Hex(`raw-email\n${normalizedAddress}\n${rawEmailHash}`);
+}
+
 async function readRawEmail(rawStream: ReadableStream<Uint8Array>): Promise<ArrayBuffer> {
   return new Response(rawStream).arrayBuffer();
 }
@@ -112,6 +153,30 @@ async function storeRawEmail(input: {
   }
 }
 
+async function resolveRawStorage(input: {
+  env: ResolvedEnv;
+  rawEmail: ArrayBuffer;
+  receivedAt: Date;
+  domain: string;
+  localPart: string;
+  messageId?: string | null;
+  from: string;
+  to: string;
+}): Promise<{ rawObjectKey: string | null; storageStatus: 'PENDING' | 'STORED' | 'FAILED' }> {
+  if (!input.env.rawEmailBucket) {
+    return {
+      rawObjectKey: null,
+      storageStatus: 'PENDING',
+    };
+  }
+
+  const rawObjectKey = await storeRawEmail(input);
+  return {
+    rawObjectKey,
+    storageStatus: rawObjectKey ? 'STORED' : 'FAILED',
+  };
+}
+
 export async function buildIngressPayload(message: EmailMessageLike, env: ResolvedEnv): Promise<IngressReceiveInput> {
   const receivedAt = new Date();
   const routing = parseRoutingAddress(message.to);
@@ -123,7 +188,7 @@ export async function buildIngressPayload(message: EmailMessageLike, env: Resolv
     typeof parsed.messageId === 'string' ? parsed.messageId : null,
     headers['message-id'],
   );
-  const rawObjectKey = await storeRawEmail({
+  const storage = await resolveRawStorage({
     env,
     rawEmail,
     receivedAt,
@@ -133,26 +198,28 @@ export async function buildIngressPayload(message: EmailMessageLike, env: Resolv
     from: message.from,
     to: message.to,
   });
+  const deliveryKey = await buildDeliveryKey({
+    matchedAddress: routing.matchedAddress,
+    messageId,
+    rawEmail,
+  });
+  const summarizedMessage = buildMessageSummary({
+    parsed,
+    headers,
+    rawObjectKey: storage.rawObjectKey,
+    storageStatus: storage.storageStatus,
+    messageId,
+  });
 
   return {
     provider: env.ingressProvider,
+    deliveryKey,
     receivedAt: receivedAt.toISOString(),
     envelope: {
       from: message.from.trim().toLowerCase(),
       to: message.to.trim().toLowerCase(),
     },
     routing,
-    message: {
-      messageId,
-      subject: firstNonEmpty(
-        typeof parsed.subject === 'string' ? parsed.subject : null,
-        headers.subject,
-      ),
-      textPreview: normalizePreview(typeof parsed.text === 'string' ? parsed.text : null, 12000),
-      htmlPreview: normalizePreview(typeof parsed.html === 'string' ? parsed.html : null, 20000),
-      headers,
-      attachments: mapAttachments(parsed.attachments),
-      rawObjectKey,
-    },
+    message: summarizedMessage,
   };
 }
