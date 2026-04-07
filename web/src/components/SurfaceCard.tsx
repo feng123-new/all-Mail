@@ -1,5 +1,6 @@
 import { Card, type CardProps } from 'antd';
 import type { CSSProperties, FC, ReactNode } from 'react';
+import { useI18n } from '../i18n';
 import { contentCardStyle, insetCardStyle, shellMetrics, shellPalette, shellRadii } from '../theme';
 
 interface SurfaceCardProps extends Omit<CardProps, 'styles'> {
@@ -13,8 +14,10 @@ const SurfaceCard: FC<SurfaceCardProps> = ({
   bodyStyle,
   tone = 'default',
   style,
+  title,
   ...rest
 }) => {
+  const { t } = useI18n();
   const baseStyle = tone === 'muted'
     ? insetCardStyle
     : contentCardStyle;
@@ -23,6 +26,7 @@ const SurfaceCard: FC<SurfaceCardProps> = ({
     <Card
       variant="borderless"
       {...rest}
+      title={typeof title === 'string' ? t(title) : title}
       style={{
         ...baseStyle,
         borderRadius: shellRadii.card,
