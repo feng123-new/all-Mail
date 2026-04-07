@@ -37,7 +37,7 @@ Commands:
   up        One-command app startup; optionally boot dockerized deps first
   start     Start compiled all-Mail API + jobs runtimes with env resolution and Prisma fallback
   deploy    Build first, then start
-  check     Run lint/test/build verification across the repository
+  check     Run the full repository release gate, including production audits
   setup     Install nested dependencies, then build everything
 
 Examples:

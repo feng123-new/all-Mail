@@ -39,4 +39,16 @@ test('root release scripts include worker install and production audits', async 
 
   assert.match(packageJson.scripts['install:all'], /cloudflare\/workers\/allmail-edge install/);
   assert.match(packageJson.scripts['verify:release'], /npm run audit:prod/);
+  assert.match(packageJson.scripts.check, /npm run verify:release/);
+});
+
+test('bootstrap password output stays opt-in and points operators at persisted state', async () => {
+  const [startScript, entrypoint] = await Promise.all([
+    readFile(path.join(repoRoot, 'scripts/start-all-mail.mjs'), 'utf8'),
+    readFile(path.join(repoRoot, 'docker/entrypoint.sh'), 'utf8'),
+  ]);
+
+  assert.match(startScript, /buildBootstrapAdminPasswordMessages/);
+  assert.match(entrypoint, /ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD/);
+  assert.match(entrypoint, /Retrieve it from the runtime state file instead of startup logs\./);
 });
