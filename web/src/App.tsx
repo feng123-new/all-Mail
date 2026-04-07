@@ -1,9 +1,9 @@
 import { App as AntApp, ConfigProvider, Spin } from 'antd';
-import zhCN from 'antd/locale/zh_CN';
 import { type FC, lazy, type ReactElement, type ReactNode, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { authContract } from './contracts/shared/auth';
 import { portalAccountContract } from './contracts/portal/account';
+import { I18nProvider, useI18n } from './i18n';
 import { useAuthStore } from './stores/authStore';
 import type { MailboxUser } from './stores/mailboxAuthStore';
 import { useMailboxAuthStore } from './stores/mailboxAuthStore';
@@ -188,7 +188,8 @@ const MailboxProtectedRoute: FC<{ children: ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
-const App: FC = () => {
+const AppShell: FC = () => {
+  const { antdLocale } = useI18n();
   const withSuspense = (element: ReactElement) => (
     <Suspense fallback={<PageFallback />}>
       {element}
@@ -197,7 +198,7 @@ const App: FC = () => {
 
   return (
     <ConfigProvider
-      locale={zhCN}
+      locale={antdLocale}
       theme={appTheme}
     >
       <AntApp>
@@ -261,5 +262,11 @@ const App: FC = () => {
     </ConfigProvider>
   );
 };
+
+const App: FC = () => (
+  <I18nProvider>
+    <AppShell />
+  </I18nProvider>
+);
 
 export default App;
