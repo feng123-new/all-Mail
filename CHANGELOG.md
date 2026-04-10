@@ -11,5 +11,7 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 - hardened production dependency tree and reduced `npm audit --omit=dev` to zero known vulnerabilities across `web`, `server`, and `cloudflare/workers/allmail-edge`
 - upgraded core runtime packages including `axios`, `react-router-dom`, `fastify`, `mailparser`, `nodemailer`, `undici`, `prisma`, and `@prisma/client`
 - added safe public screenshots for dashboard and Outlook OAuth setup to improve repository presentation
+- added a dedicated login screenshot, end-to-end Mermaid flow diagram, and clearer guided-reading links for the GitHub README
+- separated `docs/` into public operator docs plus `docs/internal/` for design notes, plans, and maintainer-only reference material
 - documented publish-readiness and open-source release closure guidance in the main README
 - made backend static asset registration degrade gracefully when local `public/` assets are absent during tests or non-Docker runtimes

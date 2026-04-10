@@ -19,6 +19,42 @@ The repository is **Docker-first**. The default deployment shape is one Docker C
 - **outbound sending** — manage send configs and outbound delivery flows
 - **automation APIs** — expose script-friendly mailbox allocation and message retrieval endpoints
 
+## Screenshots
+
+| Admin sign-in | Dashboard overview |
+| --- | --- |
+| ![all-Mail admin sign-in page](./docs/screenshots/login-page.png) | ![all-Mail dashboard overview](./docs/screenshots/dashboard-home.png) |
+
+Both images are repository-tracked, sanitized screenshots intended for GitHub-facing documentation. The dashboard image uses the local proof scenario so the README stays public-safe while still showing the real homepage shape.
+
+## End-to-end control-plane flow
+
+```mermaid
+flowchart TD
+    Operator["Operator signs in to the admin console"] --> UI["React admin console and portal-aware UI"]
+    UI --> API["Fastify app service"]
+
+    Automation["Automation clients using API keys"] --> API
+    Ingress["Cloudflare Email Routing and allmail-edge Worker"] --> API
+
+    API --> Postgres["PostgreSQL stores config, state, logs, and mail records"]
+    API --> Redis["Redis handles queue, replay, and rate-limit support"]
+    API --> Providers["External mailbox providers and IMAP SMTP services"]
+    API --> Portal["Mailbox portal sessions and user flows"]
+
+    Jobs["Background jobs worker"] --> Postgres
+    Jobs --> Redis
+    Jobs --> Providers
+    API --> Jobs
+```
+
+In practice, the project runs in four connected lanes:
+
+1. **operator lane** — admins log in, read the dashboard posture, then move into mailbox, domain, sending, or log pages.
+2. **automation lane** — API-key callers allocate mailboxes, fetch messages, and drive workflow automation through the backend.
+3. **ingress lane** — Cloudflare Email Routing can send inbound domain-mail traffic through the Worker into the backend ingress endpoint.
+4. **jobs lane** — the dedicated `jobs` runtime handles background forwarding, retries, cleanup, and other asynchronous mailflow work.
+
 ## Provider support
 
 | Provider family | Typical auth path | Inbox read | Junk read | Clear mailbox | Send |
@@ -106,23 +142,42 @@ If your shell exports `NODE_USE_ENV_PROXY` or `HTTP[S]_PROXY`, prefer the `./bin
 
 Use the authoritative doc that matches the task instead of treating this README as the full runbook.
 
+Only the files listed below should be treated as the public onboarding and operator contract. Internal design notes, planning artifacts, and historical rewrite references now live under [`docs/internal/`](docs/internal/README.md) and are not part of the primary setup path.
+
 | Need | Canonical doc |
 | --- | --- |
 | Deploy, update, smoke check, rollback entry | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
 | Day-2 operations and recovery | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
 | Env variables and template ownership | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
+| External mailbox operations and provider-specific notes | [`docs/external-email-management-guide.md`](docs/external-email-management-guide.md) |
 | Cloudflare worker deployment and ingress troubleshooting | [`CLOUDFLARE-DEPLOY.md`](CLOUDFLARE-DEPLOY.md) |
 | Secondary npm/CLI source runtime | [`docs/advanced-runtime.md`](docs/advanced-runtime.md) |
+| Public docs index inside `docs/` | [`docs/README.md`](docs/README.md) |
 | Contribution workflow | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Provenance / release-governance context | [`PROVENANCE.md`](PROVENANCE.md), [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md) |
+
+### Guided reading by job-to-be-done
+
+| Goal | Start here | Then continue with |
+| --- | --- | --- |
+| Bring up the default local stack | [`README.md`](README.md#quick-start-canonical-docker-path) | [`docs/DEPLOY.md`](docs/DEPLOY.md), [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
+| Troubleshoot a running Docker deployment | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+| Operate external third-party mailboxes | [`docs/external-email-management-guide.md`](docs/external-email-management-guide.md) | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
+| Enable Cloudflare ingress for domain mail | [`CLOUDFLARE-DEPLOY.md`](CLOUDFLARE-DEPLOY.md) | [`docs/DEPLOY.md`](docs/DEPLOY.md), [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
+| Validate release readiness before publishing changes | [`./bin/all-mail check`](./bin/all-mail) | [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md) |
 
 ## Repository layout
 
 ```text
+├── bin/                             # repo entrypoints such as ./bin/all-mail doctor/check
+├── .env.example                     # default Docker-first environment template
+├── .env.cloudflare.example          # Cloudflare-oriented Docker environment template
 ├── server/                          # Fastify + Prisma backend
 ├── web/                             # React admin console
 ├── cloudflare/workers/allmail-edge/ # Signed inbound mail worker
-├── docs/                            # deployment, environment, runbook, and supporting docs
+├── docs/                            # public deployment, environment, runbook, guides, screenshots, and docs index
+│   ├── internal/                    # internal design notes, plans, and historical reference docs
+│   └── screenshots/                 # sanitized README-safe product images
 ├── docker-compose.yml
 └── Dockerfile
 ```
