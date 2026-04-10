@@ -18,12 +18,12 @@ describe('MailPortalOverviewPage proof scenario', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useMailboxAuthStore.setState({
-      mailboxUser: {
-        id: 1,
-        username: 'wangheng',
-        mailboxIds: [1, 2, 3],
-        mustChangePassword: false,
-      },
+		mailboxUser: {
+			id: 1,
+			username: 'portal-demo-user',
+			mailboxIds: [1, 2, 3],
+			mustChangePassword: false,
+		},
       isAuthenticated: true,
     });
   });
@@ -43,7 +43,7 @@ describe('MailPortalOverviewPage proof scenario', () => {
 
     expect(await screen.findByText('Proof scenario · unread demo')).toBeInTheDocument();
     expect(screen.getByText('Amazon Security Code')).toBeInTheDocument();
-    expect(screen.getByText('验证码 482761')).toBeInTheDocument();
+    expect(screen.getByText('验证码：482761')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /复制验证码/ })).toBeInTheDocument();
     expect(screen.getByText('优先展示最值得处理的 4 个邮箱')).toBeInTheDocument();
     expect(portalAccountContract.getSession).not.toHaveBeenCalled();

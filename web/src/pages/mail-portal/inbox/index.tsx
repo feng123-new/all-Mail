@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Alert, Button, Card, Col, Drawer, Empty, Form, Input, List, Row, Segmented, Select, Space, Spin, Switch, Tag, Typography, message as antdMessage } from 'antd';
+import { Alert, Button, Card, Col, Drawer, Empty, Form, Input, Row, Segmented, Select, Space, Spin, Switch, Tag, Typography, message as antdMessage } from 'antd';
 import { CopyOutlined, ReloadOutlined, SearchOutlined, SendOutlined } from '@ant-design/icons';
 import { PageHeader, SurfaceCard } from '../../../components';
 import { portalInboxContract } from '../../../contracts/portal/inbox';
+import {
+    getHostedInternalProfileSummaryHintMessage,
+    getRepresentativeProtocolLabelMessage,
+} from '../../../i18n/catalog/providers';
+import { useI18n } from '../../../i18n';
+import { defineMessage, type TranslationInput } from '../../../i18n/messages';
 import { requestData } from '../../../utils/request';
 import { renderPlainTextWithLinks, renderSanitizedEmailHtml } from '../../../utils/mailContent';
 import {
@@ -19,7 +25,6 @@ import { shellPalette } from '../../../theme';
 import {
     getHostedInternalProfileByProvisioningMode,
     getHostedInternalProfileDefinition,
-    getRepresentativeProtocolLabel,
     getRepresentativeProtocolTagColor,
     type HostedInternalCapabilitySummary,
     type HostedInternalProfileKey,
@@ -28,6 +33,119 @@ import {
 
 const { Text, Paragraph, Title } = Typography;
 type MailFolder = 'inbox' | 'sent';
+
+const portalInboxI18n = {
+    sent: defineMessage('portalInbox.status.sent', '已发送', 'Sent'),
+    failed: defineMessage('portalInbox.status.failed', '失败', 'Failed'),
+    running: defineMessage('portalInbox.status.running', '处理中', 'Running'),
+    skipped: defineMessage('portalInbox.status.skipped', '已跳过', 'Skipped'),
+    pending: defineMessage('portalInbox.status.pending', '待处理', 'Pending'),
+    sendReady: defineMessage('portalInbox.sendReady', '发件已就绪', 'Ready to send'),
+    sendingPending: defineMessage('portalInbox.sendingPending', '待配置发件', 'Sending pending setup'),
+    inboxOnly: defineMessage('portalInbox.inboxOnly', '仅收件', 'Inbox only'),
+    selectMailboxFirst: defineMessage('portalInbox.selectMailboxFirst', '请先选择邮箱', 'Select a mailbox first'),
+    refresh: defineMessage('portalInbox.refresh', '刷新', 'Refresh'),
+    composeMail: defineMessage('portalInbox.composeMail', '写邮件', 'Compose'),
+    selectMailbox: defineMessage('portalInbox.selectMailbox', '选择邮箱', 'Select mailbox'),
+    copyFailed: defineMessage('portalInbox.copyFailed', '复制失败，请手动复制', 'Copy failed. Please copy it manually.'),
+    titleInboxWorkspace: defineMessage('portalInbox.titleInboxWorkspace', '收/发件工作区', 'Inbox workspace'),
+    titleSentWorkspace: defineMessage('portalInbox.titleSentWorkspace', '发件工作区', 'Sent workspace'),
+    subtitle: defineMessage('portalInbox.subtitle', '按邮箱查看消息与发件记录，必要时直接写邮件。', 'Review inbox messages and sent history by mailbox, and compose mail when needed.'),
+    moveForwardingTitle: defineMessage('portalInbox.moveForwardingTitle', '当前邮箱启用了转发后隐藏收件', 'This mailbox hides inbox mail after forwarding'),
+    sendingUnavailableByChannel: defineMessage('portalInbox.sendingUnavailableByChannel', '当前邮箱所在域名尚未配置有效发件通道，暂时无法查看有效发件结果。', 'The mailbox domain does not have a working sending channel yet, so sent results are unavailable.'),
+    sendingUnavailableByDomain: defineMessage('portalInbox.sendingUnavailableByDomain', '当前邮箱所属域名为收件专用域名，不能发送邮件。', 'This mailbox belongs to an inbound-only domain and cannot send mail.'),
+    currentMailbox: defineMessage('portalInbox.currentMailbox', '当前邮箱', 'Current mailbox'),
+    domain: defineMessage('portalInbox.domain', '域名', 'Domain'),
+    accessMethod: defineMessage('portalInbox.accessMethod', '接入方式', 'Access method'),
+    forwardingEnabled: defineMessage('portalInbox.forwardingEnabled', '已启用转发', 'Forwarding enabled'),
+    notForwarding: defineMessage('portalInbox.notForwarding', '未转发', 'Not forwarding'),
+    mailboxCopied: defineMessage('portalInbox.mailboxCopied', '邮箱地址已复制', 'Mailbox address copied'),
+    copyMailboxAddress: defineMessage('portalInbox.copyMailboxAddress', '复制邮箱地址', 'Copy mailbox address'),
+    currentMessageCount: defineMessage('portalInbox.currentMessageCount', '当前消息数', 'Current message count'),
+    sentHistoryCount: defineMessage('portalInbox.sentHistoryCount', '发件记录', 'Sent history'),
+    inboxFolder: defineMessage('portalInbox.inboxFolder', '收件箱', 'Inbox'),
+    sentFolder: defineMessage('portalInbox.sentFolder', '发件箱', 'Sent'),
+    unreadAndCodes: defineMessage('portalInbox.unreadAndCodes', '未读 / 验证码', 'Unread / codes'),
+    successAndFailure: defineMessage('portalInbox.successAndFailure', '成功 / 失败', 'Success / failure'),
+    filters: defineMessage('portalInbox.filters', '过滤器', 'Filters'),
+    unreadOnly: defineMessage('portalInbox.unreadOnly', '只看未读', 'Unread only'),
+    inboxSearchPlaceholder: defineMessage('portalInbox.inboxSearchPlaceholder', '按主题、发件人、验证码搜索', 'Search by subject, sender, or code'),
+    sentSearchPlaceholder: defineMessage('portalInbox.sentSearchPlaceholder', '按主题、收件人、状态搜索', 'Search by subject, recipient, or status'),
+    noInboxMessages: defineMessage('portalInbox.noInboxMessages', '暂无符合条件的收件邮件', 'No inbox messages match the current filters'),
+    noSentMessages: defineMessage('portalInbox.noSentMessages', '暂无符合条件的发件记录', 'No sent messages match the current filters'),
+    noSubject: defineMessage('portalInbox.noSubject', '(无主题)', '(No subject)'),
+    verificationCode: defineMessage('portalInbox.verificationCode', '验证码：{code}', 'Code: {code}'),
+    read: defineMessage('portalInbox.read', '已读', 'Read'),
+    unread: defineMessage('portalInbox.unread', '未读', 'Unread'),
+    copyCode: defineMessage('portalInbox.copyCode', '复制验证码', 'Copy code'),
+    codeCopied: defineMessage('portalInbox.codeCopied', '验证码已复制', 'Verification code copied'),
+    fromMailbox: defineMessage('portalInbox.fromMailbox', '来自 {from} · 送达 {mailbox}', 'From {from} · Delivered to {mailbox}'),
+    noPreview: defineMessage('portalInbox.noPreview', '无预览', 'No preview'),
+    sentFromTo: defineMessage('portalInbox.sentFromTo', '发件人 {from} · 收件人 {recipients}', 'From {from} · To {recipients}'),
+    messageDetails: defineMessage('portalInbox.messageDetails', '邮件详情', 'Message details'),
+    composeTitle: defineMessage('portalInbox.composeTitle', '写邮件 · {address}', 'Compose · {address}'),
+    composeTitleFallback: defineMessage('portalInbox.composeTitleFallback', '写邮件', 'Compose'),
+    cancel: defineMessage('portalInbox.cancel', '取消', 'Cancel'),
+    send: defineMessage('portalInbox.send', '发送', 'Send'),
+    senderLine: defineMessage('portalInbox.senderLine', '发件人：{from}', 'Sender: {from}'),
+    recipientLine: defineMessage('portalInbox.recipientLine', '收件地址：{recipient}', 'Recipient: {recipient}'),
+    routeLine: defineMessage('portalInbox.routeLine', '命中路由：{routeKind}', 'Matched route: {routeKind}'),
+    statusLine: defineMessage('portalInbox.statusLine', '发送状态：{status}', 'Send status: {status}'),
+    providerMessageId: defineMessage('portalInbox.providerMessageId', 'Provider Message ID：', 'Provider Message ID:'),
+    failureReasonLine: defineMessage('portalInbox.failureReasonLine', '失败原因：{reason}', 'Failure reason: {reason}'),
+    selectRecipientLabel: defineMessage('portalInbox.recipientLabel', '收件人', 'Recipient'),
+    selectRecipientRequired: defineMessage('portalInbox.recipientRequired', '请填写收件人', 'Enter at least one recipient'),
+    recipientHint: defineMessage('portalInbox.recipientHint', '支持多个地址，使用逗号、分号或换行分隔。', 'Multiple addresses are supported. Separate them with commas, semicolons, or new lines.'),
+    subjectLabel: defineMessage('portalInbox.subjectLabel', '主题', 'Subject'),
+    subjectRequired: defineMessage('portalInbox.subjectRequired', '请填写主题', 'Enter a subject'),
+    subjectPlaceholder: defineMessage('portalInbox.subjectPlaceholder', '请输入邮件主题', 'Enter the mail subject'),
+    bodyLabel: defineMessage('portalInbox.bodyLabel', '正文', 'Body'),
+    bodyRequired: defineMessage('portalInbox.bodyRequired', '请填写正文', 'Enter the message body'),
+    bodyPlaceholder: defineMessage('portalInbox.bodyPlaceholder', '请输入正文，正文里的链接会按普通邮件发送。', 'Enter the body. Links in the body are sent as ordinary mail content.'),
+    loadMailboxListFailed: defineMessage('portalInbox.loadMailboxListFailed', '获取邮箱列表失败', 'Failed to load the mailbox list'),
+    loadMessageListFailed: defineMessage('portalInbox.loadMessageListFailed', '获取消息列表失败', 'Failed to load the message list'),
+    loadSentListFailed: defineMessage('portalInbox.loadSentListFailed', '获取发件列表失败', 'Failed to load the sent list'),
+    loadMessageDetailFailed: defineMessage('portalInbox.loadMessageDetailFailed', '获取消息详情失败', 'Failed to load the message details'),
+    loadSentDetailFailed: defineMessage('portalInbox.loadSentDetailFailed', '获取发件详情失败', 'Failed to load the sent-message details'),
+    recipientRequiredLegacy: defineMessage('portalInbox.recipientRequiredLegacy', '请至少填写一个收件人', 'Enter at least one recipient'),
+    sendFailed: defineMessage('portalInbox.sendFailed', '发送邮件失败', 'Failed to send the message'),
+    sendSuccess: defineMessage('portalInbox.sendSuccess', '邮件发送成功', 'Mail sent successfully'),
+    composeDomainMissingSendingChannel: defineMessage('portalInbox.compose.domainMissingSendingChannel', '当前邮箱所在域名尚未配置有效发件通道，请联系管理员先补齐发件配置。', 'This mailbox domain does not have a working sending channel yet. Ask an administrator to finish the sending configuration first.'),
+    composeDomainInboundOnly: defineMessage('portalInbox.compose.domainInboundOnly', '当前邮箱所属域名未开启发件能力，请切换到已允许发件的域名邮箱。', 'This mailbox belongs to a domain without sending enabled. Switch to a mailbox on a send-enabled domain.'),
+    composeRecipientsLabel: defineMessage('portalInbox.compose.recipients', '收件人', 'Recipients'),
+    composeRecipientsRequired: defineMessage('portalInbox.compose.recipientsRequired', '请填写收件人', 'Enter at least one recipient'),
+    composeRecipientsExtra: defineMessage('portalInbox.compose.recipientsExtra', '支持多个地址，使用逗号、分号或换行分隔。', 'Multiple addresses are supported; separate them with commas, semicolons, or new lines.'),
+    composeRecipientsPlaceholder: defineMessage('portalInbox.compose.recipientsPlaceholder', '例如：alice@example.com, bob@example.com', 'For example: alice@example.com, bob@example.com'),
+    composeSubjectLabel: defineMessage('portalInbox.compose.subject', '主题', 'Subject'),
+    composeSubjectRequired: defineMessage('portalInbox.compose.subjectRequired', '请填写主题', 'Enter a subject'),
+    composeSubjectPlaceholder: defineMessage('portalInbox.compose.subjectPlaceholder', '请输入邮件主题', 'Enter the mail subject'),
+    composeBodyLabel: defineMessage('portalInbox.compose.body', '正文', 'Body'),
+    composeBodyRequired: defineMessage('portalInbox.compose.bodyRequired', '请填写正文', 'Enter the message body'),
+    composeBodyPlaceholder: defineMessage('portalInbox.compose.bodyPlaceholder', '请输入正文，正文里的链接会按普通邮件发送。', 'Enter the message body. Links inside it will be sent as ordinary mail content.'),
+    htmlContent: defineMessage('portalInbox.htmlContent', 'HTML 内容', 'HTML content'),
+    textContent: defineMessage('portalInbox.textContent', '文本内容', 'Text content'),
+    body: defineMessage('portalInbox.body', '正文', 'Body'),
+} as const;
+
+function getSentStatusLabel(status: string, t: (source: TranslationInput) => string) {
+    if (status === 'SENT') {
+        return t(portalInboxI18n.sent);
+    }
+
+    if (status === 'FAILED') {
+        return t(portalInboxI18n.failed);
+    }
+
+    if (status === 'RUNNING') {
+        return t(portalInboxI18n.running);
+    }
+
+    if (status === 'SKIPPED') {
+        return t(portalInboxI18n.skipped);
+    }
+
+    return t(portalInboxI18n.pending);
+}
 
 interface MailboxItem {
     id: number;
@@ -96,6 +214,7 @@ const inboxStyles = {
 } as const;
 
 const MailPortalInboxPage: React.FC = () => {
+    const { t } = useI18n();
     const [searchParams, setSearchParams] = useSearchParams();
     const [folder, setFolder] = useState<MailFolder>('inbox');
     const [loading, setLoading] = useState(true);
@@ -117,10 +236,10 @@ const MailPortalInboxPage: React.FC = () => {
     const domainCanSend = Boolean(selectedMailbox?.domain?.canSend);
     const canSend = Boolean(selectedMailbox?.sendReady);
     const sendStatusLabel = canSend
-		? '发件已就绪'
-		: domainCanSend
-			? '待配置发件'
-			: '仅收件';
+        ? t(portalInboxI18n.sendReady)
+        : domainCanSend
+            ? t(portalInboxI18n.sendingPending)
+            : t(portalInboxI18n.inboxOnly);
     const selectedMailboxProfile = useMemo(() => {
         if (!selectedMailbox) {
             return null;
@@ -131,23 +250,23 @@ const MailPortalInboxPage: React.FC = () => {
     }, [selectedMailbox]);
 
     const loadMailboxes = useCallback(async () => {
-        const result = await requestData<MailboxItem[]>(() => portalInboxContract.getMailboxes(), '获取邮箱列表失败');
+        const result = await requestData<MailboxItem[]>(() => portalInboxContract.getMailboxes(), t(portalInboxI18n.loadMailboxListFailed));
         if (result) {
             setMailboxes(result);
             if (!selectedMailboxId && result[0]) {
                 setSelectedMailboxId(result[0].id);
             }
         }
-    }, [selectedMailboxId]);
+    }, [selectedMailboxId, t]);
 
     const loadInboxMessages = useCallback(async (mailboxId?: number, unread: boolean = false) => {
         setLoading(true);
-        const result = await requestData<{ list: MessageItem[] }>(() => portalInboxContract.getMessages({ mailboxId, unreadOnly: unread, page: 1, pageSize: 50 }), '获取消息列表失败');
+        const result = await requestData<{ list: MessageItem[] }>(() => portalInboxContract.getMessages({ mailboxId, unreadOnly: unread, page: 1, pageSize: 50 }), t(portalInboxI18n.loadMessageListFailed));
         if (result) {
             setMessages(result.list);
         }
         setLoading(false);
-    }, []);
+    }, [t]);
 
     const loadSentMessages = useCallback(async (mailboxId?: number) => {
         if (!mailboxId) {
@@ -155,12 +274,12 @@ const MailPortalInboxPage: React.FC = () => {
             return;
         }
         setLoading(true);
-        const result = await requestData<{ list: SentMessageItem[] }>(() => portalInboxContract.getSentMessages({ mailboxId, page: 1, pageSize: 50 }), '获取发件列表失败');
+        const result = await requestData<{ list: SentMessageItem[] }>(() => portalInboxContract.getSentMessages({ mailboxId, page: 1, pageSize: 50 }), t(portalInboxI18n.loadSentListFailed));
         if (result) {
             setSentMessages(result.list);
         }
         setLoading(false);
-    }, []);
+    }, [t]);
 
     const reloadCurrentFolder = useCallback(async () => {
         if (folder === 'inbox') {
@@ -194,7 +313,7 @@ const MailPortalInboxPage: React.FC = () => {
     const openInboxMessage = async (id: string) => {
         setDetailLoading(true);
         setDetailVisible(true);
-        const result = await requestData<Record<string, unknown>>(() => portalInboxContract.getMessage(id), '获取消息详情失败');
+        const result = await requestData<Record<string, unknown>>(() => portalInboxContract.getMessage(id), t(portalInboxI18n.loadMessageDetailFailed));
         if (result) {
             setSelectedMessage(result);
             setMessages((current) => current.map((item) => (item.id === id ? { ...item, isRead: true } : item)));
@@ -205,7 +324,7 @@ const MailPortalInboxPage: React.FC = () => {
     const openSentMessage = async (id: string) => {
         setDetailLoading(true);
         setDetailVisible(true);
-        const result = await requestData<Record<string, unknown>>(() => portalInboxContract.getSentMessage(id), '获取发件详情失败');
+        const result = await requestData<Record<string, unknown>>(() => portalInboxContract.getSentMessage(id), t(portalInboxI18n.loadSentDetailFailed));
         if (result) {
             setSelectedMessage(result);
         }
@@ -213,16 +332,16 @@ const MailPortalInboxPage: React.FC = () => {
     };
 
     const handleSend = async (values: SendFormValues) => {
-        if (!selectedMailboxId) {
-			antdMessage.error('请先选择邮箱');
+		if (!selectedMailboxId) {
+			antdMessage.error(t(portalInboxI18n.selectMailboxFirst));
             return;
         }
 
 		if (!canSend) {
 			antdMessage.error(
 				domainCanSend
-					? '当前邮箱所在域名尚未配置有效发件通道，请联系管理员补齐发件配置'
-					: '当前邮箱所属域名为收件专用域名，不能发送邮件。',
+					? t(portalInboxI18n.sendingUnavailableByChannel)
+					: t(portalInboxI18n.sendingUnavailableByDomain),
 			);
 			return;
 		}
@@ -232,7 +351,7 @@ const MailPortalInboxPage: React.FC = () => {
             .map((item) => item.trim())
             .filter(Boolean);
         if (recipients.length === 0) {
-            antdMessage.error('请至少填写一个收件人');
+			antdMessage.error(t(portalInboxI18n.recipientRequiredLegacy));
             return;
         }
 
@@ -244,15 +363,15 @@ const MailPortalInboxPage: React.FC = () => {
                 subject: values.subject,
                 text: values.text,
             }),
-            '发送邮件失败'
-        );
+			t(portalInboxI18n.sendFailed)
+		);
         setSending(false);
 
         if (!result) {
             return;
         }
 
-        antdMessage.success('邮件发送成功');
+		antdMessage.success(t(portalInboxI18n.sendSuccess));
         form.resetFields();
         setComposeVisible(false);
         setSearchParams(() => new URLSearchParams());
@@ -267,17 +386,17 @@ const MailPortalInboxPage: React.FC = () => {
         return (
         <Space orientation="vertical" style={inboxStyles.fullWidth} size={12}>
                 {htmlPreview ? (
-                    <Card size="small" title="HTML 内容">
+                    <Card size="small" title={t(portalInboxI18n.htmlContent)}>
                         <div>{renderSanitizedEmailHtml(htmlPreview)}</div>
                     </Card>
                 ) : null}
                 {textPreview ? (
-                    <Card size="small" title={htmlPreview ? '文本内容' : '正文'}>
+                    <Card size="small" title={htmlPreview ? t(portalInboxI18n.textContent) : t(portalInboxI18n.body)}>
                         <div style={inboxStyles.detailMessageBody}>{renderPlainTextWithLinks(textPreview)}</div>
                     </Card>
                 ) : null}
                 {!htmlPreview && !textPreview ? (
-                    <Card size="small" title="正文">
+                    <Card size="small" title={t(portalInboxI18n.body)}>
                         <div>-</div>
                     </Card>
                 ) : null}
@@ -322,7 +441,7 @@ const MailPortalInboxPage: React.FC = () => {
             await navigator.clipboard.writeText(value);
             antdMessage.success(successMessage);
         } catch {
-            antdMessage.error('复制失败，请手动复制');
+            antdMessage.error(t(portalInboxI18n.copyFailed));
         }
     };
 
@@ -331,20 +450,20 @@ const MailPortalInboxPage: React.FC = () => {
     return (
         <Space orientation="vertical" size={20} style={inboxStyles.fullWidth}>
             <PageHeader
-                title={folder === 'inbox' ? '收/发件工作区' : '发件工作区'}
-                subtitle="按邮箱查看消息与发件记录，必要时直接写邮件。"
+                title={folder === 'inbox' ? t(portalInboxI18n.titleInboxWorkspace) : t(portalInboxI18n.titleSentWorkspace)}
+                subtitle={t(portalInboxI18n.subtitle)}
                 extra={
                     <Space wrap>
                         <Segmented<MailFolder>
                             value={folder}
                             onChange={(value) => setFolder(value)}
                             options={[
-                                { label: '收件箱', value: 'inbox' },
-                                { label: '发件箱', value: 'sent' },
+                                { label: t(portalInboxI18n.inboxFolder), value: 'inbox' },
+                                { label: t(portalInboxI18n.sentFolder), value: 'sent' },
                             ]}
                         />
-                        <Button type="text" icon={<ReloadOutlined />} onClick={() => void reloadCurrentFolder()}>刷新</Button>
-                        <Button type="primary" icon={<SendOutlined />} onClick={() => setComposeVisible(true)} disabled={!canSend || !selectedMailboxId}>写邮件</Button>
+                        <Button type="text" icon={<ReloadOutlined />} onClick={() => void reloadCurrentFolder()}>{t(portalInboxI18n.refresh)}</Button>
+                        <Button type="primary" icon={<SendOutlined />} onClick={() => setComposeVisible(true)} disabled={!canSend || !selectedMailboxId}>{t(portalInboxI18n.composeMail)}</Button>
                     </Space>
                 }
             />
@@ -352,7 +471,7 @@ const MailPortalInboxPage: React.FC = () => {
                 <Alert
                     type="info"
                     showIcon
-                    title="当前邮箱启用了转发后隐藏收件"
+                    title={t(portalInboxI18n.moveForwardingTitle)}
                 />
             ) : null}
 
@@ -362,8 +481,8 @@ const MailPortalInboxPage: React.FC = () => {
 					showIcon
 					title={
 						domainCanSend
-							? '当前邮箱所在域名尚未配置有效发件通道，暂时无法查看有效发件结果。'
-							: '当前邮箱所属域名为收件专用域名，不能发送邮件。'
+							? t(portalInboxI18n.sendingUnavailableByChannel)
+							: t(portalInboxI18n.sendingUnavailableByDomain)
 					}
 				/>
 			) : null}
@@ -374,37 +493,37 @@ const MailPortalInboxPage: React.FC = () => {
                         <SurfaceCard style={inboxStyles.sectionCard} bodyStyle={{ padding: 22 }}>
                             <Space orientation="vertical" size={16} style={inboxStyles.fullWidth}>
                                 <div>
-                                    <Title level={4} style={inboxStyles.titleNoMargin}>当前邮箱</Title>
+                                    <Title level={4} style={inboxStyles.titleNoMargin}>{t(portalInboxI18n.currentMailbox)}</Title>
                                 </div>
-                                <Select style={inboxStyles.fullWidth} value={selectedMailboxId} onChange={setSelectedMailboxId} options={mailboxOptions} placeholder="选择邮箱" />
+                                <Select style={inboxStyles.fullWidth} value={selectedMailboxId} onChange={setSelectedMailboxId} options={mailboxOptions} placeholder={t(portalInboxI18n.selectMailbox)} />
                                 {selectedMailbox ? (
                                     <Space orientation="vertical" size={10} style={inboxStyles.fullWidth}>
                                         <div>
-                                            <Text type="secondary">当前邮箱</Text>
+                                            <Text type="secondary">{t(portalInboxI18n.currentMailbox)}</Text>
                                             <div style={inboxStyles.mailboxValue}>{selectedMailbox.address}</div>
                                         </div>
                                         <div>
-                                            <Text type="secondary">域名</Text>
+                                            <Text type="secondary">{t(portalInboxI18n.domain)}</Text>
                                             <div>{selectedMailbox.domain?.name || '-'}</div>
                                         </div>
                                         {selectedMailboxProfile ? (
                                             <div>
-                                                <Text type="secondary">接入方式</Text>
-                                                <div style={inboxStyles.mailboxValue}>{selectedMailbox.profileSummaryHint || selectedMailboxProfile.summaryHint}</div>
+                                                <Text type="secondary">{t(portalInboxI18n.accessMethod)}</Text>
+                                                <div style={inboxStyles.mailboxValue}>{t(getHostedInternalProfileSummaryHintMessage(selectedMailboxProfile.key))}</div>
                                             </div>
                                         ) : null}
                                         <Space wrap>
                                             {selectedMailboxProfile ? (
                                                 <Tag color={getRepresentativeProtocolTagColor(selectedMailbox.representativeProtocol || selectedMailboxProfile.representativeProtocol)}>
-                                                    {getRepresentativeProtocolLabel(selectedMailbox.representativeProtocol || selectedMailboxProfile.representativeProtocol)}
+                                                    {t(getRepresentativeProtocolLabelMessage(selectedMailbox.representativeProtocol || selectedMailboxProfile.representativeProtocol))}
                                                 </Tag>
                                             ) : null}
-												<Tag color={canSend ? 'success' : domainCanSend ? 'warning' : 'default'}>{sendStatusLabel}</Tag>
+											<Tag color={canSend ? 'success' : domainCanSend ? 'warning' : 'default'}>{sendStatusLabel}</Tag>
                                             <Tag color={selectedMailbox.forwardMode && selectedMailbox.forwardMode !== 'DISABLED' ? 'purple' : 'default'}>
-                                                {selectedMailbox.forwardMode && selectedMailbox.forwardMode !== 'DISABLED' ? '已启用转发' : '未转发'}
+																{selectedMailbox.forwardMode && selectedMailbox.forwardMode !== 'DISABLED' ? t(portalInboxI18n.forwardingEnabled) : t(portalInboxI18n.notForwarding)}
                                             </Tag>
                                         </Space>
-                                        <Button icon={<CopyOutlined />} onClick={() => void handleCopy(selectedMailbox.address, '邮箱地址已复制')}>复制邮箱地址</Button>
+                                        <Button icon={<CopyOutlined />} onClick={() => void handleCopy(selectedMailbox.address, t(portalInboxI18n.mailboxCopied))}>{t(portalInboxI18n.copyMailboxAddress)}</Button>
                                     </Space>
                                 ) : null}
                             </Space>
@@ -413,13 +532,13 @@ const MailPortalInboxPage: React.FC = () => {
                         <Row gutter={[12, 12]}>
                             <Col span={12}>
                                 <SurfaceCard style={inboxStyles.compactCard} bodyStyle={{ padding: 18 }}>
-                                    <Text type="secondary">{folder === 'inbox' ? '当前消息数' : '发件记录'}</Text>
+                                    <Text type="secondary">{folder === 'inbox' ? t(portalInboxI18n.currentMessageCount) : t(portalInboxI18n.sentHistoryCount)}</Text>
                                     <div style={inboxStyles.statsValueLarge}>{folder === 'inbox' ? inboxStats.total : sentStats.total}</div>
                                 </SurfaceCard>
                             </Col>
                             <Col span={12}>
                                 <SurfaceCard style={inboxStyles.compactCard} bodyStyle={{ padding: 18 }}>
-                                    <Text type="secondary">{folder === 'inbox' ? '未读 / 验证码' : '成功 / 失败'}</Text>
+                                    <Text type="secondary">{folder === 'inbox' ? t(portalInboxI18n.unreadAndCodes) : t(portalInboxI18n.successAndFailure)}</Text>
                                     <div style={inboxStyles.statsValueCompact}>
                                         {folder === 'inbox' ? `${inboxStats.unread} / ${inboxStats.withCode}` : `${sentStats.sent} / ${sentStats.failed}`}
                                     </div>
@@ -430,11 +549,11 @@ const MailPortalInboxPage: React.FC = () => {
                         <SurfaceCard style={inboxStyles.sectionCard} bodyStyle={{ padding: 22 }}>
                             <Space orientation="vertical" size={14} style={inboxStyles.fullWidth}>
                                 <div>
-                                    <Title level={5} style={inboxStyles.titleNoMargin}>过滤器</Title>
+                                    <Title level={5} style={inboxStyles.titleNoMargin}>{t(portalInboxI18n.filters)}</Title>
                                 </div>
                                 {folder === 'inbox' ? (
                                     <Space style={flexBetweenFullWidthStyle}>
-                                        <Text>只看未读</Text>
+                                        <Text>{t(portalInboxI18n.unreadOnly)}</Text>
                                         <Switch checked={unreadOnly} onChange={setUnreadOnly} />
                                     </Space>
                                 ) : null}
@@ -442,7 +561,7 @@ const MailPortalInboxPage: React.FC = () => {
                                     prefix={<SearchOutlined />}
                                     value={keyword}
                                     onChange={(event) => setKeyword(event.target.value)}
-                                    placeholder={folder === 'inbox' ? '按主题、发件人、验证码搜索' : '按主题、收件人、状态搜索'}
+                                    placeholder={folder === 'inbox' ? t(portalInboxI18n.inboxSearchPlaceholder) : t(portalInboxI18n.sentSearchPlaceholder)}
                                 />
                             </Space>
                         </SurfaceCard>
@@ -454,95 +573,100 @@ const MailPortalInboxPage: React.FC = () => {
                         {loading ? (
                             <div style={centeredPadding56Style}><Spin /></div>
                         ) : listData.length === 0 ? (
-                            <Empty description={folder === 'inbox' ? '暂无符合条件的收件邮件' : '暂无符合条件的发件记录'} />
+                            <Empty description={folder === 'inbox' ? t(portalInboxI18n.noInboxMessages) : t(portalInboxI18n.noSentMessages)} />
                         ) : folder === 'inbox' ? (
-                            <List
-                                itemLayout="vertical"
-                                dataSource={filteredInboxMessages}
-                                renderItem={(item) => (
-                                    <List.Item key={item.id} style={inboxStyles.listCursor} onClick={() => void openInboxMessage(item.id)}>
+                            <Space orientation="vertical" size={12} style={inboxStyles.fullWidth}>
+                                {filteredInboxMessages.map((item) => (
+                                    <div key={item.id} style={inboxStyles.listCursor}>
                                         <Space orientation="vertical" style={inboxStyles.fullWidth} size={6}>
                                             <Space wrap style={flexBetweenFullWidthStyle}>
                                                 <Space wrap style={flexBetweenFullWidthStyle}>
-                                                    <Text strong>{item.subject || '(无主题)'}</Text>
-                                                    {item.verificationCode ? <Tag color="magenta">验证码 {item.verificationCode}</Tag> : null}
+                                                    <Text strong>{item.subject || t(portalInboxI18n.noSubject)}</Text>
+                                                    {item.verificationCode ? <Tag color="magenta">{t(portalInboxI18n.verificationCode, { code: item.verificationCode })}</Tag> : null}
                                                     {item.routeKind ? <Tag>{item.routeKind}</Tag> : null}
-                                                    <Tag color={item.isRead ? 'default' : 'blue'}>{item.isRead ? '已读' : '未读'}</Tag>
+                                                    <Tag color={item.isRead ? 'default' : 'blue'}>{item.isRead ? t(portalInboxI18n.read) : t(portalInboxI18n.unread)}</Tag>
                                                 </Space>
-                                                {item.verificationCode ? (
-                                                    <Button
-                                                        type="link"
-                                                        icon={<CopyOutlined />}
-                                                        onClick={(event) => {
-                                                            event.stopPropagation();
-                                                            void handleCopy(item.verificationCode || '', '验证码已复制');
-                                                        }}
-                                                    >
-                                                        复制验证码
+                                                <Space wrap>
+                                                    {item.verificationCode ? (
+                                                        <Button
+                                                            type="link"
+                                                            icon={<CopyOutlined />}
+                                                            onClick={() => {
+                                                                void handleCopy(item.verificationCode || '', t(portalInboxI18n.codeCopied));
+                                                            }}
+                                                        >
+                                                            {t(portalInboxI18n.copyCode)}
+                                                        </Button>
+                                                    ) : null}
+                                                    <Button type="link" onClick={() => void openInboxMessage(item.id)}>
+                                                        {t(portalInboxI18n.messageDetails)}
                                                     </Button>
-                                                ) : null}
+                                                </Space>
                                             </Space>
-                                            <Text type="secondary">来自 {item.fromAddress} · 送达 {item.mailbox?.address || '-'}</Text>
+                                            <Text type="secondary">{t(portalInboxI18n.fromMailbox, { from: item.fromAddress, mailbox: item.mailbox?.address || '-' })}</Text>
                                             <Paragraph ellipsis={{ rows: 2, expandable: false }} style={noMarginBottomStyle}>
-                                                {item.textPreview || item.htmlPreview || '无预览'}
+                                                {item.textPreview || item.htmlPreview || t(portalInboxI18n.noPreview)}
                                             </Paragraph>
                                             <Text type="secondary">{new Date(item.receivedAt).toLocaleString()}</Text>
                                         </Space>
-                                    </List.Item>
-                                )}
-                            />
+                                    </div>
+                                ))}
+                            </Space>
                         ) : (
-                            <List
-                                itemLayout="vertical"
-                                dataSource={filteredSentMessages}
-                                renderItem={(item) => (
-                                    <List.Item key={item.id} style={inboxStyles.listCursor} onClick={() => void openSentMessage(item.id)}>
+                            <Space orientation="vertical" size={12} style={inboxStyles.fullWidth}>
+                                {filteredSentMessages.map((item) => (
+                                    <div key={item.id} style={inboxStyles.listCursor}>
                                         <Space orientation="vertical" style={inboxStyles.fullWidth} size={6}>
-                                            <Space wrap>
-                                                <Text strong>{item.subject || '(无主题)'}</Text>
-                                                <Tag color={item.status === 'SENT' ? 'green' : item.status === 'FAILED' ? 'red' : 'default'}>{item.status}</Tag>
+                                            <Space wrap style={flexBetweenFullWidthStyle}>
+											<Space wrap>
+                                                <Text strong>{item.subject || t(portalInboxI18n.noSubject)}</Text>
+											<Tag color={item.status === 'SENT' ? 'green' : item.status === 'FAILED' ? 'red' : 'default'}>{getSentStatusLabel(item.status, t)}</Tag>
+                                                </Space>
+											<Button type="link" onClick={() => void openSentMessage(item.id)}>
+												{t(portalInboxI18n.messageDetails)}
+											</Button>
                                             </Space>
-                                            <Text type="secondary">发件人 {item.fromAddress} · 收件人 {item.toAddresses.join(', ') || '-'}</Text>
+                                            <Text type="secondary">{t(portalInboxI18n.sentFromTo, { from: item.fromAddress, recipients: item.toAddresses.join(', ') || '-' })}</Text>
                                             <Text type="secondary">{new Date(item.createdAt).toLocaleString()}</Text>
                                         </Space>
-                                    </List.Item>
-                                )}
-                            />
+                                    </div>
+                                ))}
+                            </Space>
                         )}
                     </SurfaceCard>
                 </Col>
             </Row>
 
-            <Drawer title={String(selectedMessage?.subject || '邮件详情')} open={detailVisible} onClose={() => setDetailVisible(false)} width={760}>
+            <Drawer title={String(selectedMessage?.subject || t(portalInboxI18n.messageDetails))} open={detailVisible} onClose={() => setDetailVisible(false)} size={760}>
                 {detailLoading ? <Spin /> : (
                     <Space orientation="vertical" style={inboxStyles.detailStack} size={14}>
                         <Space wrap style={flexBetweenFullWidthStyle}>
-                            <Text><strong>发件人：</strong>{String(selectedMessage?.fromAddress || '-')}</Text>
+                            <Text>{t(portalInboxI18n.senderLine, { from: String(selectedMessage?.fromAddress || '-') })}</Text>
                             {folder === 'inbox' && String(selectedMessage?.verificationCode || '').trim() ? (
-                                <Button icon={<CopyOutlined />} onClick={() => void handleCopy(String(selectedMessage?.verificationCode || ''), '验证码已复制')}>
-                                    复制验证码
+                                <Button icon={<CopyOutlined />} onClick={() => void handleCopy(String(selectedMessage?.verificationCode || ''), t(portalInboxI18n.codeCopied))}>
+                                    {t(portalInboxI18n.copyCode)}
                                 </Button>
                             ) : null}
                         </Space>
-                        <Text><strong>收件地址：</strong>{String(selectedMessage?.toAddress || selectedMessage?.toAddresses || '-')}</Text>
-                        {folder === 'inbox' ? <Text><strong>命中路由：</strong>{String(selectedMessage?.routeKind || '-')}</Text> : null}
-                        {folder === 'inbox' ? <Text><strong>验证码：</strong>{String(selectedMessage?.verificationCode || '-')}</Text> : null}
-                        {folder === 'sent' ? <Text><strong>发送状态：</strong>{String(selectedMessage?.status || '-')}</Text> : null}
-                        {folder === 'sent' ? <Text><strong>Provider Message ID：</strong>{String(selectedMessage?.providerMessageId || '-')}</Text> : null}
-                        {folder === 'sent' ? <Text><strong>失败原因：</strong>{String(selectedMessage?.lastError || '-')}</Text> : null}
+                        <Text>{t(portalInboxI18n.recipientLine, { recipient: String(selectedMessage?.toAddress || selectedMessage?.toAddresses || '-') })}</Text>
+                        {folder === 'inbox' ? <Text>{t(portalInboxI18n.routeLine, { routeKind: String(selectedMessage?.routeKind || '-') })}</Text> : null}
+                        {folder === 'inbox' ? <Text>{t(portalInboxI18n.verificationCode, { code: String(selectedMessage?.verificationCode || '-') })}</Text> : null}
+                        {folder === 'sent' ? <Text>{t(portalInboxI18n.statusLine, { status: getSentStatusLabel(String(selectedMessage?.status || '-'), t) })}</Text> : null}
+                        {folder === 'sent' ? <Text><strong>{t(portalInboxI18n.providerMessageId)}</strong>{String(selectedMessage?.providerMessageId || '-')}</Text> : null}
+                        {folder === 'sent' ? <Text>{t(portalInboxI18n.failureReasonLine, { reason: String(selectedMessage?.lastError || '-') })}</Text> : null}
                         {renderMessageBody()}
                     </Space>
                 )}
             </Drawer>
 
             <Drawer
-                title={selectedMailbox ? `写邮件 · ${selectedMailbox.address}` : '写邮件'}
+                title={selectedMailbox ? t(portalInboxI18n.composeTitle, { address: selectedMailbox.address }) : t(portalInboxI18n.composeTitleFallback)}
                 open={composeVisible}
                 onClose={() => {
                     setComposeVisible(false);
                     setSearchParams(() => new URLSearchParams());
                 }}
-                width={680}
+                size={680}
                 destroyOnHidden
             >
                 <Form form={form} layout="vertical" onFinish={handleSend} initialValues={{ to: '', subject: '', text: '' }}>
@@ -550,26 +674,26 @@ const MailPortalInboxPage: React.FC = () => {
 						<Alert
 							style={marginBottom16Style}
 							type="warning"
-							showIcon
+						showIcon
 						title={
-								domainCanSend
-									? '当前邮箱所在域名尚未配置有效发件通道，请联系管理员先补齐发件配置。'
-									: '当前邮箱所属域名未开启发件能力，请切换到已允许发件的域名邮箱。'
-							}
-						/>
-					) : null}
-                    <Form.Item label="收件人" name="to" rules={[{ required: true, message: '请填写收件人' }]} extra="支持多个地址，使用逗号、分号或换行分隔。">
-                        <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="例如：alice@example.com, bob@example.com" />
-                    </Form.Item>
-                    <Form.Item label="主题" name="subject" rules={[{ required: true, message: '请填写主题' }]}>
-                        <Input maxLength={500} placeholder="请输入邮件主题" />
-                    </Form.Item>
-                    <Form.Item label="正文" name="text" rules={[{ required: true, message: '请填写正文' }]}>
-                        <Input.TextArea autoSize={{ minRows: 10, maxRows: 18 }} placeholder="请输入正文，正文里的链接会按普通邮件发送。" />
-                    </Form.Item>
+							domainCanSend
+								? t(portalInboxI18n.composeDomainMissingSendingChannel)
+								: t(portalInboxI18n.composeDomainInboundOnly)
+						}
+					/>
+				) : null}
+					<Form.Item label={t(portalInboxI18n.composeRecipientsLabel)} name="to" rules={[{ required: true, message: t(portalInboxI18n.composeRecipientsRequired) }]} extra={t(portalInboxI18n.composeRecipientsExtra)}>
+						<Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder={t(portalInboxI18n.composeRecipientsPlaceholder)} />
+					</Form.Item>
+					<Form.Item label={t(portalInboxI18n.composeSubjectLabel)} name="subject" rules={[{ required: true, message: t(portalInboxI18n.composeSubjectRequired) }]}>
+						<Input maxLength={500} placeholder={t(portalInboxI18n.composeSubjectPlaceholder)} />
+					</Form.Item>
+					<Form.Item label={t(portalInboxI18n.composeBodyLabel)} name="text" rules={[{ required: true, message: t(portalInboxI18n.composeBodyRequired) }]}>
+						<Input.TextArea autoSize={{ minRows: 10, maxRows: 18 }} placeholder={t(portalInboxI18n.composeBodyPlaceholder)} />
+					</Form.Item>
                     <Space>
-                        <Button onClick={() => setComposeVisible(false)}>取消</Button>
-                        <Button type="primary" htmlType="submit" loading={sending} disabled={!canSend || !selectedMailboxId}>发送</Button>
+								<Button onClick={() => setComposeVisible(false)}>{t(portalInboxI18n.cancel)}</Button>
+								<Button type="primary" htmlType="submit" loading={sending} disabled={!canSend || !selectedMailboxId}>{t(portalInboxI18n.send)}</Button>
                     </Space>
                 </Form>
             </Drawer>

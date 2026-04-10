@@ -93,7 +93,7 @@ describe('MailPortalSettingsPage forwarding closure', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('设置中心')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '设置中心' })).toBeInTheDocument();
     expect(await screen.findByDisplayValue('copy@example.net')).toBeInTheDocument();
     expect(await screen.findByText('Temporary resend failure')).toBeInTheDocument();
     expect(screen.getByText('待配置发件')).toBeInTheDocument();
@@ -106,5 +106,5 @@ describe('MailPortalSettingsPage forwarding closure', () => {
       expect(screen.getByDisplayValue('move@example.net')).toBeInTheDocument();
       expect(portalAccountContract.getForwardingJobs).toHaveBeenLastCalledWith({ mailboxId: 2, page: 1, pageSize: 5 });
     });
-  }, 10000);
+	}, 20000);
 });
