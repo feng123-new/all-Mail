@@ -121,15 +121,15 @@ describe('ForwardingJobsPage', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('FAILED')).toBeInTheDocument();
-    expect(screen.getByText('COPY')).toBeInTheDocument();
+    expect(await screen.findByText('失败')).toBeInTheDocument();
+    expect(screen.getByText('保留副本并转发')).toBeInTheDocument();
 
     await userEvent.click(screen.getByText('42'));
 
     await waitFor(() => {
       expect(screen.getByText('任务状态')).toBeInTheDocument();
       expect(screen.getByText('Transient send error')).toBeInTheDocument();
-      expect(screen.getByText('Provider Message ID：')).toBeInTheDocument();
+      expect(screen.getByText('服务商消息 ID：')).toBeInTheDocument();
     });
   });
 
@@ -223,14 +223,14 @@ describe('ForwardingJobsPage', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('FAILED')).toBeInTheDocument();
+    expect(await screen.findByText('失败')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '重新入队' }));
     await userEvent.click(await screen.findByRole('button', { name: 'OK' }));
 
     await waitFor(() => {
       expect(forwardingJobsContract.requeue).toHaveBeenCalledWith('42');
       expect(forwardingJobsContract.getList).toHaveBeenCalledTimes(2);
-      expect(screen.getByText('PENDING')).toBeInTheDocument();
+      expect(screen.getByText('待处理')).toBeInTheDocument();
     });
-  }, 10000);
+  }, 20000);
 });

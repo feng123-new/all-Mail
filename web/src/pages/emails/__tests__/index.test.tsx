@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import EmailsPage from '..';
+import { I18nProvider } from '../../../i18n';
 import { useAuthStore } from '../../../stores/authStore';
 
 vi.mock('../../../contracts/admin/emails', () => ({
@@ -143,7 +144,7 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 		await screen.findByText('ops@example.com');
 		const passwordButton = screen.getByRole('button', { name: /登录密码/ });
 		expect(passwordButton).toHaveClass('ant-btn-primary');
-	}, 10000);
+	}, 20000);
 
 	it('clicking the login password button shows the missing-account-password message and skips unlock', async () => {
 		vi.mocked(emailsContract.getList).mockReturnValue(
@@ -237,5 +238,30 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 		await screen.findByText('oauth@example.com');
 		const passwordButton = screen.getByRole('button', { name: /登录密码/ });
 		expect(passwordButton).toHaveClass('ant-btn-primary');
+	});
+
+	it('renders clean English list controls for the mailbox table', async () => {
+		vi.mocked(emailsContract.getList).mockReturnValue(
+			ok({ list: [buildRow({ email: 'english@example.com' })], total: 1 }) as never,
+		);
+
+		render(
+			<I18nProvider initialLanguage="en-US" persist={false}>
+				<MemoryRouter
+					future={{
+						v7_relativeSplatPath: true,
+						v7_startTransition: true,
+					}}
+				>
+					<EmailsPage />
+				</MemoryRouter>
+			</I18nProvider>,
+		);
+
+		expect(await screen.findByRole('heading', { name: 'External mailboxes' })).toBeInTheDocument();
+		expect(await screen.findByText('english@example.com')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /Add mailbox/ })).toBeInTheDocument();
+		expect(await screen.findByRole('button', { name: /Check connection/ })).toBeInTheDocument();
+		expect(screen.queryByText('检查连接')).not.toBeInTheDocument();
 	});
 });

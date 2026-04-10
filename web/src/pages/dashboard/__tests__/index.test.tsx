@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import DashboardPage from '..';
+import { I18nProvider } from '../../../i18n';
 
 vi.mock('../../../contracts/admin/dashboard', () => ({
   dashboardContract: {
@@ -33,8 +34,8 @@ describe('DashboardPage proof scenario', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('Proof scenario · degraded data')).toBeInTheDocument();
-    expect(screen.getByText(/5 类 Provider 正在承载当前邮箱池|3 类 Provider 正在承载当前邮箱池/)).toBeInTheDocument();
+    expect(await screen.findByText('本地证据场景 · 降级数据')).toBeInTheDocument();
+    expect(screen.getByText(/5 类服务商正在承载当前邮箱池|3 类服务商正在承载当前邮箱池/)).toBeInTheDocument();
     expect(screen.getByText('outlook-hot-01@example.com')).toBeInTheDocument();
     expect(await screen.findByTestId('mock-line-chart')).toHaveTextContent('7');
     expect(dashboardContract.getStats).not.toHaveBeenCalled();
@@ -42,5 +43,27 @@ describe('DashboardPage proof scenario', () => {
     expect(dashboardContract.getLogs).not.toHaveBeenCalled();
     expect(dashboardContract.getEmailStats).not.toHaveBeenCalled();
     expect(dashboardContract.getErrorEmails).not.toHaveBeenCalled();
+  });
+
+  it('renders clean English copy in proof mode', async () => {
+    render(
+      <I18nProvider initialLanguage="en-US" persist={false}>
+        <MemoryRouter
+          initialEntries={['/dashboard?proof=degraded-data']}
+          future={{
+            v7_relativeSplatPath: true,
+            v7_startTransition: true,
+          }}
+        >
+          <DashboardPage />
+        </MemoryRouter>
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument();
+    expect(screen.getByText('Daily posture')).toBeInTheDocument();
+    expect(screen.getByText('Calls in last 14 days')).toBeInTheDocument();
+    expect(screen.getByText('Provider breakdown')).toBeInTheDocument();
+    expect(screen.queryByText('控制台概览')).not.toBeInTheDocument();
   });
 });

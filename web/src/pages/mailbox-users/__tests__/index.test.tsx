@@ -205,6 +205,7 @@ vi.mock('antd', async () => {
 });
 
 import MailboxUsersPage from '..';
+import { I18nProvider } from '../../../i18n';
 
 vi.mock('../../../contracts/admin/mailboxUsers', () => ({
 	mailboxUsersContract: {
@@ -269,14 +270,16 @@ describe('MailboxUsersPage editing flow', () => {
 
 	it('loads current mailbox memberships before editing continues', async () => {
 		const { unmount } = render(
-			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
-			>
-				<MailboxUsersPage />
-			</MemoryRouter>,
+			<I18nProvider initialLanguage="zh-CN" persist={false}>
+				<MemoryRouter
+					future={{
+						v7_relativeSplatPath: true,
+						v7_startTransition: true,
+					}}
+				>
+					<MailboxUsersPage />
+				</MemoryRouter>
+			</I18nProvider>,
 		);
 
 		await screen.findByText('portal-user');
@@ -296,4 +299,27 @@ describe('MailboxUsersPage editing flow', () => {
 		unmount();
 		await new Promise<void>((resolve) => setImmediate(() => resolve()));
 	}, 10000);
+
+	it('renders clean English actions and statuses when the language is en-US', async () => {
+		render(
+			<I18nProvider initialLanguage="en-US" persist={false}>
+				<MemoryRouter
+					future={{
+						v7_relativeSplatPath: true,
+						v7_startTransition: true,
+					}}
+				>
+					<MailboxUsersPage />
+				</MemoryRouter>
+			</I18nProvider>,
+		);
+
+		expect(await screen.findByRole('heading', { name: 'Portal users' })).toBeInTheDocument();
+		expect(await screen.findByText('portal-user')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Add portal user' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /Portal login/ })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /Copy link/ })).toBeInTheDocument();
+		expect(screen.getByText('Enabled')).toBeInTheDocument();
+		expect(screen.queryByText('门户登录')).not.toBeInTheDocument();
+	});
 });

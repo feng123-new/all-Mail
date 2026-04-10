@@ -229,6 +229,19 @@ vi.mock('antd', async () => {
         </button>
     );
 
+    const Popconfirm = ({ children, onConfirm }: { children?: React.ReactNode; onConfirm?: () => void }) => {
+        if (!children || !React.isValidElement<Record<string, unknown>>(children)) {
+            return null;
+        }
+        const originalOnClick = children.props.onClick as (() => void) | undefined;
+        return React.cloneElement(children, {
+            onClick: () => {
+                originalOnClick?.();
+                onConfirm?.();
+            },
+        });
+    };
+
     const Table = ({ dataSource = [], columns = [] }: {
         dataSource?: Array<Record<string, unknown>>;
         columns?: Array<Record<string, unknown>>;
@@ -279,6 +292,7 @@ vi.mock('antd', async () => {
                 )}
             </div>
         ) : null,
+        Popconfirm,
         Select,
         Space: ({ children }: { children?: unknown }) => <div>{children as never}</div>,
         Switch,
@@ -386,6 +400,32 @@ describe('DomainsPage hosted_internal admin closure', () => {
         vi.mocked(domainsContract.saveCatchAll).mockImplementation(() => ok({ success: true }) as never);
         vi.mocked(domainsContract.saveSendingConfig).mockImplementation(() => ok({ success: true }) as never);
         vi.mocked(domainsContract.createAlias).mockImplementation(() => ok({ success: true }) as never);
+        vi.mocked(domainsContract.delete).mockImplementation(() => ok({ success: true }) as never);
+    });
+
+    it('deletes a domain and refreshes the list', async () => {
+        vi.mocked(domainsContract.getList)
+            .mockImplementationOnce(() => ok(listResult) as never)
+            .mockImplementationOnce(() => ok({ list: [], total: 0 }) as never);
+
+        render(
+			<MemoryRouter
+				future={{
+					v7_relativeSplatPath: true,
+					v7_startTransition: true,
+				}}
+			>
+				<DomainsPage />
+			</MemoryRouter>,
+		);
+
+        await screen.findByText('example.com');
+        await clickAndFlush('删除');
+
+        await waitFor(() => {
+            expect(domainsContract.delete).toHaveBeenCalledWith(1);
+            expect(domainsContract.getList).toHaveBeenCalledTimes(2);
+        });
     });
 
     it('loads domain detail and aliases when opening the config modal', async () => {

@@ -36,6 +36,9 @@ import {
 } from '@ant-design/icons';
 import { PageHeader, SurfaceCard } from '../../components';
 import { apiKeysContract } from '../../contracts/admin/apiKeys';
+import { adminI18n } from '../../i18n/catalog/admin';
+import { useI18n } from '../../i18n';
+import { defineMessage } from '../../i18n/messages';
 import {
     centeredPadding40Style,
     centeredTextStyle,
@@ -57,6 +60,65 @@ import { LOG_ACTION_OPTIONS } from '../../constants/logActions';
 import dayjs from 'dayjs';
 
 const { Text, Paragraph } = Typography;
+
+const apiKeysPageI18n = {
+    deleteFailed: defineMessage('apiKeys.deleteFailed', '删除失败', 'Delete failed'),
+    updateSuccess: defineMessage('apiKeys.updateSuccess', '更新成功', 'Updated successfully'),
+    close: defineMessage('apiKeys.close', '关闭', 'Close'),
+    loadGroupsFailed: defineMessage('apiKeys.loadGroupsFailed', '获取分组失败', 'Failed to load groups'),
+    loadDomainsFailed: defineMessage('apiKeys.loadDomainsFailed', '获取域名失败', 'Failed to load domains'),
+    loadEmailOptionsFailed: defineMessage('apiKeys.loadEmailOptionsFailed', '获取邮箱选项失败', 'Failed to load mailbox options'),
+    loadListFailed: defineMessage('apiKeys.loadListFailed', '获取数据失败', 'Failed to load data'),
+    loadDetailFailed: defineMessage('apiKeys.loadDetailFailed', '获取访问密钥详情失败', 'Failed to load the API key details'),
+    fetchAllocationStatsFailed: defineMessage('apiKeys.fetchAllocationStatsFailed', '获取分配统计失败', 'Failed to load allocation stats'),
+    allocationReset: defineMessage('apiKeys.allocationReset', '分配记录已重置', 'Allocation history reset'),
+    resetFailed: defineMessage('apiKeys.resetFailed', '重置失败', 'Reset failed'),
+    fetchMailboxScopeFailed: defineMessage('apiKeys.fetchMailboxScopeFailed', '获取资源邮箱列表失败', 'Failed to load resource mailboxes'),
+    savedMailboxScope: defineMessage('apiKeys.savedMailboxScope', '已保存，共 {count} 个资源邮箱', 'Saved. {count} resource mailboxes are selected.'),
+    enabled: defineMessage('apiKeys.enabled', '启用', 'Enabled'),
+    nameRequired: defineMessage('apiKeys.nameRequired', '请输入名称', 'Enter a name'),
+    nameExample: defineMessage('apiKeys.nameExample', '例如：生产环境、测试环境', 'For example: production, staging'),
+    rateLimitPerMinute: defineMessage('apiKeys.rateLimitPerMinute', '速率限制（每分钟请求数）', 'Rate limit (requests per minute)'),
+    expiresAtOptional: defineMessage('apiKeys.expiresAtOptional', '过期时间（可选）', 'Expires at (optional)'),
+    neverExpiresPlaceholder: defineMessage('apiKeys.neverExpiresPlaceholder', '不设置则永不过期', 'Leave empty for no expiry'),
+    permissions: defineMessage('apiKeys.permissions', '可调用接口权限', 'Allowed API permissions'),
+    permissionsRequired: defineMessage('apiKeys.permissionsRequired', '至少选择一个权限', 'Select at least one permission'),
+    allowedGroups: defineMessage('apiKeys.allowedGroups', '可用分组（可选）', 'Allowed groups (optional)'),
+    allowedGroupsHint: defineMessage('apiKeys.allowedGroupsHint', '不选择表示不限制分组', 'Leave empty to allow all groups'),
+    allGroupsPlaceholder: defineMessage('apiKeys.allGroupsPlaceholder', '默认：全部分组', 'Default: all groups'),
+    allowedMailboxes: defineMessage('apiKeys.allowedMailboxes', '可分配邮箱（可选）', 'Allowed mailboxes (optional)'),
+    allowedMailboxesHint: defineMessage('apiKeys.allowedMailboxesHint', '不选择表示使用分组范围内全部邮箱资源', 'Leave empty to use every mailbox in the allowed groups'),
+    allMailboxesPlaceholder: defineMessage('apiKeys.allMailboxesPlaceholder', '默认：分组范围内全部邮箱', 'Default: every mailbox in the allowed groups'),
+    allowedDomains: defineMessage('apiKeys.allowedDomains', '可用域名邮箱域名（可选）', 'Allowed domain-mail domains (optional)'),
+    allowedDomainsHint: defineMessage('apiKeys.allowedDomainsHint', '用于域名邮箱自动化接口；不选择表示不限制域名范围', 'Used by domain-mail automation APIs. Leave empty to allow all domains.'),
+    allDomainsPlaceholder: defineMessage('apiKeys.allDomainsPlaceholder', '默认：全部 API 池域名', 'Default: all API-pool domains'),
+    scopedMailboxCount: defineMessage('apiKeys.scopedMailboxCount', '当前可选邮箱：{count}', 'Currently available mailboxes: {count}'),
+    copyKeyWarning: defineMessage('apiKeys.copyKeyWarning', '⚠️ 请立即复制并妥善保存此访问密钥，它不会再次显示！', '⚠️ Copy and store this API key now. It will not be shown again.'),
+    copied: defineMessage('apiKeys.copied', '已复制', 'Copied'),
+    perMinute: defineMessage('apiKeys.perMinute', '{count}/分钟', '{count}/min'),
+    poolStatsTitle: defineMessage('apiKeys.poolStatsTitle', '分配统计 - {name}', 'Allocation stats - {name}'),
+    loading: defineMessage('apiKeys.loading', '加载中...', 'Loading...'),
+    filterByGroupInline: defineMessage('apiKeys.filterByGroupInline', '按分组筛选：', 'Filter by group:'),
+    allGroupsFilterPlaceholder: defineMessage('apiKeys.allGroupsFilterPlaceholder', '全部分组', 'All groups'),
+    totalResourcesTitle: defineMessage('apiKeys.totalResourcesTitle', '总资源数', 'Total resources'),
+    allocatedTitle: defineMessage('apiKeys.allocatedTitle', '已分配', 'Allocated'),
+    remainingAllocatableTitle: defineMessage('apiKeys.remainingAllocatableTitle', '剩余可分配', 'Remaining allocatable'),
+    allocationProgress: defineMessage('apiKeys.allocationProgress', '分配进度', 'Allocation progress'),
+    resetNotice: defineMessage('apiKeys.resetNotice', '重置后，此访问密钥会清空当前分配记录，可重新分配邮箱资源', 'After reset, this API key clears its current allocation history and can allocate mailbox resources again.'),
+    resetConfirm: defineMessage('apiKeys.resetConfirm', '确定要重置分配记录吗？', 'Reset the allocation history?'),
+    resetConfirmGroupDescription: defineMessage('apiKeys.resetConfirmGroupDescription', '仅重置分组 "{groupName}" 的分配记录', 'Only reset the allocation history for group "{groupName}"'),
+    resetConfirmAllDescription: defineMessage('apiKeys.resetConfirmAllDescription', '重置后该访问密钥可重新分配所有邮箱资源', 'After reset, this API key can allocate all mailbox resources again'),
+    resetAllocationButton: defineMessage('apiKeys.resetAllocationButton', '重置分配记录', 'Reset allocation history'),
+    noData: defineMessage('apiKeys.noData', '暂无数据', 'No data'),
+    mailboxScopeTitle: defineMessage('apiKeys.mailboxScopeTitle', '资源邮箱范围 - {name}', 'Resource mailbox scope - {name}'),
+    saveButton: defineMessage('apiKeys.saveButton', '保存', 'Save'),
+    cancelButton: defineMessage('apiKeys.cancelButton', '取消', 'Cancel'),
+    searchMailboxOrGroup: defineMessage('apiKeys.searchMailboxOrGroup', '搜索邮箱或分组', 'Search mailboxes or groups'),
+    mailboxScopeHint: defineMessage('apiKeys.mailboxScopeHint', '勾选的邮箱表示该访问密钥已占用这些邮箱资源，自动分配时会跳过它们', 'Checked mailboxes are already occupied by this API key, so automatic allocation skips them.'),
+    selectFiltered: defineMessage('apiKeys.selectFiltered', '全选当前筛选', 'Select all filtered'),
+    clearFiltered: defineMessage('apiKeys.clearFiltered', '清空当前筛选', 'Clear filtered selection'),
+    selectedCountSummary: defineMessage('apiKeys.selectedCountSummary', '已选择 {selectedCount} / {totalCount}（当前筛选 {filteredSelectedCount} / {filteredTotalCount}）', 'Selected {selectedCount} / {totalCount} (current filter {filteredSelectedCount} / {filteredTotalCount})'),
+} as const;
 
 const apiKeyStyles = {
     fullWidth: fullWidthStyle,
@@ -165,6 +227,7 @@ async function fetchAllPagedItems<T>(fetchPage: (page: number, pageSize: number)
 }
 
 const ApiKeysPage = () => {
+    const { t } = useI18n();
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<ApiKey[]>([]);
     const [total, setTotal] = useState(0);
@@ -198,9 +261,9 @@ const ApiKeysPage = () => {
         () =>
             LOG_ACTION_OPTIONS.map((item) => ({
                 value: item.value,
-                label: item.label,
+                label: t(item.label),
             })),
-        []
+        [t]
     );
     const allPermissionActions = useMemo(
         () => permissionActionOptions.map((item) => item.value),
@@ -215,46 +278,46 @@ const ApiKeysPage = () => {
     const fetchGroups = useCallback(async () => {
         const result = await requestData<EmailGroup[]>(
             () => apiKeysContract.getGroups(),
-            '获取分组失败',
+            t(apiKeysPageI18n.loadGroupsFailed),
             { silent: true }
         );
         if (result) {
             setGroups(result);
         }
-    }, []);
+    }, [t]);
 
     const fetchDomains = useCallback(async () => {
         const result = await requestData<DomainOption[]>(
             async () => fetchAllPagedItems<DomainOption>(
                 async (page, pageSize) => apiKeysContract.getDomains<DomainOption>({ page, pageSize })
             ),
-            '获取域名失败',
+            t(apiKeysPageI18n.loadDomainsFailed),
             { silent: true }
         );
         if (result) {
             setDomains(result.filter((item) => item.status !== 'DISABLED'));
         }
-    }, []);
+    }, [t]);
 
     const fetchAllEmailOptions = useCallback(async () => {
         const result = await requestData<EmailOptionItem[]>(
             async () => fetchAllPagedItems<EmailOptionItem>(
                 async (page, pageSize) => apiKeysContract.getEmails<EmailOptionItem>({ page, pageSize, status: 'ACTIVE' })
             ),
-            '获取邮箱选项失败',
+            t(apiKeysPageI18n.loadEmailOptionsFailed),
             { silent: true }
         );
         if (result) {
             setAllEmailOptions(result);
         }
-    }, []);
+    }, [t]);
 
     const fetchData = useCallback(async () => {
         const currentRequestId = ++latestListRequestIdRef.current;
         setLoading(true);
         const result = await requestData<ApiKeyListResult>(
             () => apiKeysContract.getList({ page, pageSize: Math.min(pageSize, MAX_LIST_PAGE_SIZE) }),
-            '获取数据失败'
+            t(apiKeysPageI18n.loadListFailed)
         );
         if (currentRequestId !== latestListRequestIdRef.current) {
             return;
@@ -264,7 +327,7 @@ const ApiKeysPage = () => {
             setTotal(result.total);
         }
         setLoading(false);
-    }, [page, pageSize]);
+    }, [page, pageSize, t]);
 
     useEffect(() => {
         fetchGroups();
@@ -309,7 +372,7 @@ const ApiKeysPage = () => {
         try {
             const detail = await requestData<ApiKeyDetail>(
                 () => apiKeysContract.getById(record.id),
-                '获取访问密钥详情失败'
+                t(apiKeysPageI18n.loadDetailFailed)
             );
             if (detail) {
                 const selectedPermissions = detail.permissions
@@ -331,21 +394,19 @@ const ApiKeysPage = () => {
         } finally {
             setApiKeyDetailLoading(false);
         }
-    }, [allPermissionActions, form]);
+    }, [allPermissionActions, form, t]);
 
     const handleDelete = useCallback(async (id: number) => {
         try {
             const res = await apiKeysContract.delete(id);
             if (res.code === 200) {
-                message.success('删除成功');
+                message.success(t(adminI18n.apiKeys.deletedSuccess));
                 fetchData();
-            } else {
-                message.error(res.message);
             }
         } catch (err: unknown) {
-            message.error(getErrorMessage(err, '删除失败'));
+            message.error(getErrorMessage(err, t(apiKeysPageI18n.deleteFailed)));
         }
-    }, [fetchData]);
+    }, [fetchData, t]);
 
     const handleSubmit = async () => {
         try {
@@ -378,11 +439,9 @@ const ApiKeysPage = () => {
                 };
                 const res = await apiKeysContract.update(editingId, submitData);
                 if (res.code === 200) {
-                    message.success('更新成功');
+                    message.success(t(apiKeysPageI18n.updateSuccess));
                     setModalVisible(false);
                     fetchData();
-                } else {
-                    message.error(res.message);
                 }
             } else {
                 const submitData = {
@@ -399,12 +458,10 @@ const ApiKeysPage = () => {
                     setNewKey(res.data.key);
                     setNewKeyModalVisible(true);
                     fetchData();
-                } else {
-                    message.error(res.message);
                 }
             }
         } catch (err: unknown) {
-            message.error(getErrorMessage(err, '保存失败'));
+            message.error(getErrorMessage(err, t(adminI18n.apiKeys.saveFailed)));
         }
     };
 
@@ -419,11 +476,11 @@ const ApiKeysPage = () => {
                 setPoolStats(res.data);
             }
         } catch {
-            message.error('获取分配统计失败');
+            message.error(t(apiKeysPageI18n.fetchAllocationStatsFailed));
         } finally {
             setPoolLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const handlePoolGroupChange = async (groupName: string | undefined) => {
         setPoolGroupName(groupName);
@@ -435,7 +492,7 @@ const ApiKeysPage = () => {
                 setPoolStats(res.data);
             }
         } catch {
-            message.error('获取分配统计失败');
+            message.error(t(apiKeysPageI18n.fetchAllocationStatsFailed));
         } finally {
             setPoolLoading(false);
         }
@@ -446,16 +503,14 @@ const ApiKeysPage = () => {
         try {
             const res = await apiKeysContract.resetAllocation(currentApiKey.id, poolGroupName);
             if (res.code === 200) {
-                message.success('分配记录已重置');
+                message.success(t(apiKeysPageI18n.allocationReset));
                 const statsRes = await apiKeysContract.getAllocationStats(currentApiKey.id, poolGroupName);
                 if (statsRes.code === 200) {
                     setPoolStats(statsRes.data);
                 }
-            } else {
-                message.error(res.message || '重置失败');
             }
         } catch {
-            message.error('重置失败');
+                message.error(t(apiKeysPageI18n.resetFailed));
         }
     };
 
@@ -473,11 +528,11 @@ const ApiKeysPage = () => {
                 setEmailKeyword('');
             }
         } catch {
-            message.error('获取资源邮箱列表失败');
+            message.error(t(apiKeysPageI18n.fetchMailboxScopeFailed));
         } finally {
             setEmailLoading(false);
         }
-    }, [extractUsedEmailIds]);
+    }, [extractUsedEmailIds, t]);
 
     const handleEmailGroupChange = useCallback(async (groupId: number | undefined) => {
         setEmailGroupId(groupId);
@@ -492,11 +547,11 @@ const ApiKeysPage = () => {
                 setEmailKeyword('');
             }
         } catch {
-            message.error('获取资源邮箱列表失败');
+            message.error(t(apiKeysPageI18n.fetchMailboxScopeFailed));
         } finally {
             setEmailLoading(false);
         }
-    }, [currentApiKey, extractUsedEmailIds]);
+    }, [currentApiKey, extractUsedEmailIds, t]);
 
     const handleSaveEmails = async () => {
         if (!currentApiKey) return;
@@ -504,17 +559,15 @@ const ApiKeysPage = () => {
         try {
             const res = await apiKeysContract.updateAssignedMailboxes(currentApiKey.id, selectedEmails, emailGroupId);
             if (res.code === 200) {
-                message.success(`已保存，共 ${res.data.count} 个资源邮箱`);
+                message.success(t(apiKeysPageI18n.savedMailboxScope, { count: res.data.count }));
                 setEmailModalVisible(false);
                 const statsRes = await apiKeysContract.getAllocationStats(currentApiKey.id);
                 if (statsRes.code === 200) {
                     setPoolStats(statsRes.data);
                 }
-            } else {
-                message.error(res.message || '保存失败');
             }
         } catch {
-            message.error('保存失败');
+            message.error(t(adminI18n.apiKeys.saveFailed));
         } finally {
             setSavingEmails(false);
         }
@@ -522,7 +575,7 @@ const ApiKeysPage = () => {
 
     const columns: ColumnsType<ApiKey> = useMemo(() => [
         {
-            title: '名称',
+            title: t(adminI18n.apiKeys.name),
             dataIndex: 'name',
             key: 'name',
             render: (name, record) => (
@@ -533,44 +586,44 @@ const ApiKeysPage = () => {
             ),
         },
         {
-            title: '密钥前缀',
+            title: t(adminI18n.apiKeys.keyPrefix),
             dataIndex: 'keyPrefix',
             key: 'keyPrefix',
             width: 120,
             render: (text) => <Text code>{text}...</Text>,
         },
         {
-            title: '速率限制',
+            title: t(adminI18n.apiKeys.rateLimit),
             dataIndex: 'rateLimit',
             key: 'rateLimit',
             width: 100,
-            render: (val) => <Tag color="blue">{val}/分钟</Tag>,
+            render: (val) => <Tag color="blue">{t(apiKeysPageI18n.perMinute, { count: val })}</Tag>,
         },
         {
-            title: '状态',
+            title: t(adminI18n.common.status),
             dataIndex: 'status',
             key: 'status',
             width: 80,
             render: (status) => (
                 <Tag color={status === 'ACTIVE' ? 'green' : 'red'}>
-                    {status === 'ACTIVE' ? '启用' : '禁用'}
+                    {status === 'ACTIVE' ? t(apiKeysPageI18n.enabled) : t(adminI18n.common.disabled)}
                 </Tag>
             ),
         },
         {
-            title: '使用次数',
+            title: t(adminI18n.apiKeys.usageCount),
             dataIndex: 'usageCount',
             key: 'usageCount',
             width: 100,
             render: (val) => <Text type="secondary">{val?.toLocaleString() || 0}</Text>,
         },
         {
-            title: '过期时间',
+            title: t(adminI18n.apiKeys.expiresAt),
             dataIndex: 'expiresAt',
             key: 'expiresAt',
             width: 120,
             render: (val) => {
-                if (!val) return <Text type="secondary">永不过期</Text>;
+                if (!val) return <Text type="secondary">{t(adminI18n.apiKeys.neverExpires)}</Text>;
                 const isExpired = dayjs(val).isBefore(dayjs());
                 return (
                     <Text type={isExpired ? 'danger' : undefined}>
@@ -580,42 +633,42 @@ const ApiKeysPage = () => {
             },
         },
         {
-            title: '最后使用',
+            title: t(adminI18n.apiKeys.lastUsedAt),
             dataIndex: 'lastUsedAt',
             key: 'lastUsedAt',
             width: 140,
-            render: (val) => val ? dayjs(val).format('MM-DD HH:mm') : <Text type="secondary">从未使用</Text>,
+            render: (val) => val ? dayjs(val).format('MM-DD HH:mm') : <Text type="secondary">{t(adminI18n.apiKeys.neverUsed)}</Text>,
         },
         {
-            title: '操作',
+            title: t(adminI18n.common.actions),
             key: 'action',
             width: 180,
             render: (_, record) => (
                 <Space size="small">
-                    <Tooltip title="分配统计">
+                    <Tooltip title={t(adminI18n.apiKeys.allocationStats)}>
                         <Button
                             type="text"
                             icon={<DatabaseOutlined />}
                             onClick={() => handleViewPool(record)}
                         />
                     </Tooltip>
-                    <Tooltip title="管理资源邮箱">
+                    <Tooltip title={t(adminI18n.apiKeys.manageMailboxes)}>
                         <Button
                             type="text"
                             icon={<ThunderboltOutlined />}
                             onClick={() => handleManageEmails(record)}
                         />
                     </Tooltip>
-                    <Tooltip title="编辑">
+                    <Tooltip title={t(adminI18n.common.edit)}>
                         <Button
                             type="text"
                             icon={<EditOutlined />}
                             onClick={() => handleEdit(record)}
                         />
                     </Tooltip>
-                    <Tooltip title="删除">
+                    <Tooltip title={t(adminI18n.common.remove)}>
                         <Popconfirm
-                            title="确定要删除此访问密钥吗？"
+                            title={t(adminI18n.apiKeys.deleteConfirm)}
                             onConfirm={() => handleDelete(record.id)}
                         >
                             <Button type="text" danger icon={<DeleteOutlined />} />
@@ -624,7 +677,7 @@ const ApiKeysPage = () => {
                 </Space>
             ),
         },
-    ], [handleDelete, handleEdit, handleManageEmails, handleViewPool]);
+    ], [handleDelete, handleEdit, handleManageEmails, handleViewPool, t]);
 
     const tablePagination = useMemo(
         () => ({
@@ -633,13 +686,13 @@ const ApiKeysPage = () => {
             total,
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (count: number) => `共 ${count} 条`,
+            showTotal: (count: number) => t(adminI18n.common.totalCount, { count }),
             onChange: (currentPage: number, currentPageSize: number) => {
                 setPage(currentPage);
                 setPageSize(Math.min(currentPageSize, MAX_LIST_PAGE_SIZE));
             },
         }),
-        [page, pageSize, total]
+        [page, pageSize, t, total]
     );
 
     const poolGroupOptions = useMemo(
@@ -717,15 +770,15 @@ const ApiKeysPage = () => {
     return (
         <div>
             <PageHeader
-                title="访问密钥与资源范围"
-                subtitle="统一管理自动化访问密钥、权限边界、速率限制与邮箱资源分配，让外部 API 使用保持可控。"
+                title={t(adminI18n.apiKeys.title)}
+                subtitle={t(adminI18n.apiKeys.subtitle)}
                 extra={
                     <Space>
                         <Button icon={<ReloadOutlined />} onClick={fetchData}>
-                            刷新
+                            {t(adminI18n.common.refresh)}
                         </Button>
                         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-                            创建访问密钥
+                            {t(adminI18n.apiKeys.create)}
                         </Button>
                     </Space>
                 }
@@ -745,7 +798,7 @@ const ApiKeysPage = () => {
 
             {/* 创建/编辑弹窗 */}
             <Modal
-                title={editingId ? '编辑访问密钥' : '创建访问密钥'}
+                title={editingId ? t(adminI18n.apiKeys.edit) : t(adminI18n.apiKeys.create)}
                 open={modalVisible}
                 onOk={handleSubmit}
                 onCancel={() => setModalVisible(false)}
@@ -756,43 +809,43 @@ const ApiKeysPage = () => {
                 <Form form={form} layout="vertical">
                     <Form.Item
                         name="name"
-                        label="名称"
-                        rules={[{ required: true, message: '请输入名称' }]}
+                        label={t(adminI18n.apiKeys.name)}
+                    rules={[{ required: true, message: t(apiKeysPageI18n.nameRequired) }]}
                     >
-                        <Input placeholder="例如：生产环境、测试环境" />
+                        <Input placeholder={t(apiKeysPageI18n.nameExample)} />
                     </Form.Item>
                     <Form.Item
                         name="rateLimit"
-                        label="速率限制（每分钟请求数）"
+                    label={t(apiKeysPageI18n.rateLimitPerMinute)}
                         initialValue={60}
                     >
                         <InputNumber min={1} max={10000} style={apiKeyStyles.fullWidth} />
                     </Form.Item>
                     <Form.Item
                         name="expiresAt"
-                        label="过期时间（可选）"
+                    label={t(apiKeysPageI18n.expiresAtOptional)}
                     >
                         <DatePicker
                             style={apiKeyStyles.fullWidth}
-                            placeholder="不设置则永不过期"
+                        placeholder={t(apiKeysPageI18n.neverExpiresPlaceholder)}
                             disabledDate={(current) => current && current < dayjs().startOf('day')}
                         />
                     </Form.Item>
                     {editingId && (
                         <Form.Item
                             name="status"
-                            label="状态"
+                            label={t(adminI18n.common.status)}
                         >
                             <Select>
-                                <Select.Option value="ACTIVE">启用</Select.Option>
-                                <Select.Option value="DISABLED">禁用</Select.Option>
+                            <Select.Option value="ACTIVE">{t(apiKeysPageI18n.enabled)}</Select.Option>
+                                <Select.Option value="DISABLED">{t(adminI18n.common.disabled)}</Select.Option>
                             </Select>
                         </Form.Item>
                     )}
                     <Form.Item
                         name="permissions"
-                        label="可调用接口权限"
-                        rules={[{ required: true, type: 'array', min: 1, message: '至少选择一个权限' }]}
+                    label={t(apiKeysPageI18n.permissions)}
+                    rules={[{ required: true, type: 'array', min: 1, message: t(apiKeysPageI18n.permissionsRequired) }]}
                     >
                         <Checkbox.Group
                             options={permissionActionOptions}
@@ -801,13 +854,13 @@ const ApiKeysPage = () => {
                     </Form.Item>
                     <Form.Item
                         name="allowedGroupIds"
-                        label="可用分组（可选）"
-                        tooltip="不选择表示不限制分组"
+                    label={t(apiKeysPageI18n.allowedGroups)}
+                    tooltip={t(apiKeysPageI18n.allowedGroupsHint)}
                     >
                         <Select
                             mode="multiple"
                             allowClear
-                            placeholder="默认：全部分组"
+                        placeholder={t(apiKeysPageI18n.allGroupsPlaceholder)}
                             options={emailGroupOptions}
                             optionFilterProp="label"
                             maxTagCount="responsive"
@@ -815,14 +868,14 @@ const ApiKeysPage = () => {
                     </Form.Item>
                     <Form.Item
                         name="allowedEmailIds"
-                        label="可分配邮箱（可选）"
-                        tooltip="不选择表示使用分组范围内全部邮箱资源"
+                    label={t(apiKeysPageI18n.allowedMailboxes)}
+                    tooltip={t(apiKeysPageI18n.allowedMailboxesHint)}
                     >
                         <Select
                             mode="multiple"
                             allowClear
                             showSearch
-                            placeholder="默认：分组范围内全部邮箱"
+                        placeholder={t(apiKeysPageI18n.allMailboxesPlaceholder)}
                             options={scopedAllowedEmailOptions}
                             optionFilterProp="label"
                             maxTagCount="responsive"
@@ -830,20 +883,20 @@ const ApiKeysPage = () => {
                     </Form.Item>
                     <Form.Item
                         name="allowedDomainIds"
-                        label="可用域名邮箱域名（可选）"
-                        tooltip="用于域名邮箱自动化接口；不选择表示不限制域名范围"
+                    label={t(apiKeysPageI18n.allowedDomains)}
+                    tooltip={t(apiKeysPageI18n.allowedDomainsHint)}
                     >
                         <Select
                             mode="multiple"
                             allowClear
-                            placeholder="默认：全部 API_POOL 域名"
+                        placeholder={t(apiKeysPageI18n.allDomainsPlaceholder)}
                             options={domains.map((item) => ({ value: item.id, label: item.name }))}
                             optionFilterProp="label"
                             maxTagCount="responsive"
                         />
                     </Form.Item>
                     <Text type="secondary">
-                        当前可选邮箱：{scopedAllowedEmailOptions.length}
+                            {t(apiKeysPageI18n.scopedMailboxCount, { count: scopedAllowedEmailOptions.length })}
                     </Text>
                 </Form>
                 </Spin>
@@ -851,25 +904,25 @@ const ApiKeysPage = () => {
 
             {/* 新建 Key 显示弹窗 */}
             <Modal
-                title="访问密钥已创建"
+                title={t(adminI18n.apiKeys.created)}
                 open={newKeyModalVisible}
                 onOk={() => setNewKeyModalVisible(false)}
                 onCancel={() => setNewKeyModalVisible(false)}
                 destroyOnHidden
-                footer={[
-                    <Button key="close" onClick={() => setNewKeyModalVisible(false)}>
-                        关闭
-                    </Button>,
-                ]}
+                    footer={[
+                        <Button key="close" onClick={() => setNewKeyModalVisible(false)}>
+						{t(apiKeysPageI18n.close)}
+                        </Button>,
+                    ]}
             >
                 <Card>
                     <Text type="warning" style={apiKeyStyles.warningBlock}>
-                        ⚠️ 请立即复制并妥善保存此访问密钥，它不会再次显示！
+                        {t(apiKeysPageI18n.copyKeyWarning)}
                     </Text>
                     <Paragraph
                         copyable={{
                             text: newKey,
-                            onCopy: () => message.success('已复制'),
+                            onCopy: () => message.success(t(apiKeysPageI18n.copied)),
                         }}
                         code
                         style={apiKeyStyles.keyPreview}
@@ -884,7 +937,7 @@ const ApiKeysPage = () => {
                     title={
                         <Space>
                             <DatabaseOutlined />
-                            <span>分配统计 - {currentApiKey?.name}</span>
+                            <span>{t(apiKeysPageI18n.poolStatsTitle, { name: currentApiKey?.name || '-' })}</span>
                         </Space>
                     }
                     open={poolModalVisible}
@@ -893,16 +946,16 @@ const ApiKeysPage = () => {
                     destroyOnHidden
                     width={500}
                 >
-                    {poolLoading ? (
-                        <div style={apiKeyStyles.centeredLoading}>加载中...</div>
-                    ) : poolStats ? (
-                        <div>
-                            <div style={apiKeyStyles.filterRow}>
-                                <Text type="secondary" style={marginRight8Style}>按分组筛选：</Text>
-                                <Select
-                                    allowClear
-                                    placeholder="全部分组"
-                                    style={width200Style}
+					{poolLoading ? (
+						<div style={apiKeyStyles.centeredLoading}>{t(apiKeysPageI18n.loading)}</div>
+					) : poolStats ? (
+						<div>
+							<div style={apiKeyStyles.filterRow}>
+								<Text type="secondary" style={marginRight8Style}>{t(apiKeysPageI18n.filterByGroupInline)}</Text>
+								<Select
+									allowClear
+									placeholder={t(apiKeysPageI18n.allGroupsFilterPlaceholder)}
+									style={width200Style}
                                     value={poolGroupName}
                                     options={poolGroupOptions}
                                     onChange={(val: string | undefined) => handlePoolGroupChange(val)}
@@ -911,26 +964,26 @@ const ApiKeysPage = () => {
                             <Row gutter={16} style={apiKeyStyles.marginBottom24}>
                                 <Col span={8}>
                                     <div className="stat-blue">
-                                        <Statistic
-                                            title="总资源数"
-                                            value={poolStats.total}
-                                        />
+								<Statistic
+									title={t(apiKeysPageI18n.totalResourcesTitle)}
+									value={poolStats.total}
+								/>
                                     </div>
                                 </Col>
                                 <Col span={8}>
                                     <div className="stat-orange">
-                                        <Statistic
-                                            title="已分配"
-                                            value={poolStats.used}
-                                        />
+								<Statistic
+									title={t(apiKeysPageI18n.allocatedTitle)}
+									value={poolStats.used}
+								/>
                                     </div>
                                 </Col>
                                 <Col span={8}>
                                     <div className={poolStats.remaining > 0 ? 'stat-green' : 'stat-red'}>
-                                        <Statistic
-                                            title="剩余可分配"
-                                            value={poolStats.remaining}
-                                        />
+								<Statistic
+									title={t(apiKeysPageI18n.remainingAllocatableTitle)}
+									value={poolStats.remaining}
+								/>
                                     </div>
                                 </Col>
                             </Row>
@@ -942,9 +995,9 @@ const ApiKeysPage = () => {
                             `}</style>
 
                             <div style={apiKeyStyles.marginBottom24}>
-                                <Text type="secondary" style={apiKeyStyles.progressLabel}>
-                                    分配进度
-                                </Text>
+								<Text type="secondary" style={apiKeyStyles.progressLabel}>
+									{t(apiKeysPageI18n.allocationProgress)}
+								</Text>
                                 <Progress
                                     percent={poolStats.total > 0 ? Math.round((poolStats.used / poolStats.total) * 100) : 0}
                                     status={poolStats.remaining === 0 ? 'exception' : 'active'}
@@ -958,29 +1011,29 @@ const ApiKeysPage = () => {
                             <Divider />
 
                             <div style={apiKeyStyles.centeredText}>
-                                <Text type="secondary" style={apiKeyStyles.warningBlock}>
-                                    重置后，此访问密钥会清空当前分配记录，可重新分配邮箱资源
-                                </Text>
-                                <Popconfirm
-                                    title="确定要重置分配记录吗？"
-                                    description={poolGroupName ? `仅重置分组 "${poolGroupName}" 的分配记录` : '重置后该访问密钥可重新分配所有邮箱资源'}
-                                    onConfirm={handleResetPool}
-                                >
+								<Text type="secondary" style={apiKeyStyles.warningBlock}>
+									{t(apiKeysPageI18n.resetNotice)}
+								</Text>
+								<Popconfirm
+									title={t(apiKeysPageI18n.resetConfirm)}
+									description={poolGroupName ? t(apiKeysPageI18n.resetConfirmGroupDescription, { groupName: poolGroupName }) : t(apiKeysPageI18n.resetConfirmAllDescription)}
+									onConfirm={handleResetPool}
+								>
                                     <Button
                                         type="primary"
                                         danger
                                         icon={<ThunderboltOutlined />}
                                     >
-                                        重置分配记录
-                                    </Button>
-                                </Popconfirm>
-                            </div>
-                        </div>
-                    ) : (
-                        <div style={apiKeyStyles.emptyMuted}>
-                            暂无数据
-                        </div>
-                    )}
+										{t(apiKeysPageI18n.resetAllocationButton)}
+									</Button>
+								</Popconfirm>
+							</div>
+						</div>
+					) : (
+						<div style={apiKeyStyles.emptyMuted}>
+							{t(apiKeysPageI18n.noData)}
+						</div>
+					)}
                 </Modal>
             )}
 
@@ -989,14 +1042,14 @@ const ApiKeysPage = () => {
                     title={
                         <Space>
                             <ThunderboltOutlined />
-                            <span>资源邮箱范围 - {currentApiKey?.name}</span>
+                            <span>{t(apiKeysPageI18n.mailboxScopeTitle, { name: currentApiKey?.name || '-' })}</span>
                         </Space>
                     }
                     open={emailModalVisible}
                     onCancel={() => setEmailModalVisible(false)}
-                    onOk={handleSaveEmails}
-                    okText="保存"
-                    cancelText="取消"
+					onOk={handleSaveEmails}
+					okText={t(apiKeysPageI18n.saveButton)}
+					cancelText={t(apiKeysPageI18n.cancelButton)}
                     confirmLoading={savingEmails}
                     destroyOnHidden
                     width={600}
@@ -1006,14 +1059,14 @@ const ApiKeysPage = () => {
                             <Spin />
                         </div>
                     ) : (
-                        <div>
-                            <div style={apiKeyStyles.filterRow}>
-                                <Space>
-                                    <Text type="secondary">按分组筛选：</Text>
-                                    <Select
-                                        allowClear
-                                        placeholder="全部分组"
-                                        style={width180Style}
+						<div>
+							<div style={apiKeyStyles.filterRow}>
+							<Space>
+								<Text type="secondary">{t(apiKeysPageI18n.filterByGroupInline)}</Text>
+								<Select
+									allowClear
+									placeholder={t(apiKeysPageI18n.allGroupsFilterPlaceholder)}
+									style={width180Style}
                                         value={emailGroupId}
                                         options={emailGroupOptions}
                                         onChange={(val: number | undefined) => handleEmailGroupChange(val)}
@@ -1021,18 +1074,18 @@ const ApiKeysPage = () => {
                                 </Space>
                             </div>
                             <div style={apiKeyStyles.filterRow}>
-                                <Input
-                                    allowClear
-                                    value={emailKeyword}
-                                    onChange={(event) => setEmailKeyword(event.target.value)}
-                                    prefix={<SearchOutlined />}
-                                    placeholder="搜索邮箱或分组"
-                                />
-                            </div>
-                            <div style={apiKeyStyles.filterRow}>
-                                <Text type="secondary">
-                                    勾选的邮箱表示该访问密钥已占用这些邮箱资源，自动分配时会跳过它们
-                                </Text>
+								<Input
+									allowClear
+									value={emailKeyword}
+									onChange={(event) => setEmailKeyword(event.target.value)}
+									prefix={<SearchOutlined />}
+									placeholder={t(apiKeysPageI18n.searchMailboxOrGroup)}
+								/>
+							</div>
+							<div style={apiKeyStyles.filterRow}>
+								<Text type="secondary">
+									{t(apiKeysPageI18n.mailboxScopeHint)}
+								</Text>
                             </div>
                             <div style={apiKeyStyles.filterRow}>
                                 <Space>
@@ -1045,7 +1098,7 @@ const ApiKeysPage = () => {
                                             ])));
                                         }}
                                     >
-                                        全选当前筛选
+										{t(apiKeysPageI18n.selectFiltered)}
                                     </Button>
                                     <Button
                                         size="small"
@@ -1053,11 +1106,15 @@ const ApiKeysPage = () => {
                                             setSelectedEmails((prev) => prev.filter((id) => !filteredEmailIdSet.has(id)));
                                         }}
                                     >
-                                        清空当前筛选
+										{t(apiKeysPageI18n.clearFiltered)}
                                     </Button>
                                     <Text type="secondary">
-                                        已选择 {selectedEmails.length} / {emailList.length}
-                                        {`（当前筛选 ${selectedInFilteredCount} / ${filteredEmailList.length}）`}
+										{t(apiKeysPageI18n.selectedCountSummary, {
+											selectedCount: selectedEmails.length,
+											totalCount: emailList.length,
+											filteredSelectedCount: selectedInFilteredCount,
+											filteredTotalCount: filteredEmailList.length,
+										})}
                                     </Text>
                                 </Space>
                             </div>

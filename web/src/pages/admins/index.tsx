@@ -16,6 +16,9 @@ import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { PageHeader, SurfaceCard } from '../../components';
 import { adminsContract } from '../../contracts/admin/admins';
+import { adminI18n } from '../../i18n/catalog/admin';
+import { useI18n } from '../../i18n';
+import { defineMessage } from '../../i18n/messages';
 import { useAuthStore } from '../../stores/authStore';
 import { getAdminRoleLabel, getAdminStatusLabel, isSuperAdmin, normalizeAdminStatus } from '../../utils/auth';
 import { getErrorMessage } from '../../utils/error';
@@ -39,7 +42,33 @@ interface AdminListResult {
     total: number;
 }
 
+const adminsPageI18n = {
+    fetchFailed: defineMessage('admins.fetchFailed', '获取数据失败', 'Failed to load admin data'),
+    deleteSuccess: defineMessage('admins.deleteSuccess', '删除成功', 'Deleted successfully'),
+    deleteFailed: defineMessage('admins.deleteFailed', '删除失败', 'Delete failed'),
+    updateSuccess: defineMessage('admins.updateSuccess', '更新成功', 'Updated successfully'),
+    createSuccess: defineMessage('admins.createSuccess', '创建成功', 'Created successfully'),
+    saveFailed: defineMessage('admins.saveFailed', '保存失败', 'Save failed'),
+    email: defineMessage('admins.email', '邮箱', 'Email'),
+    enabled: defineMessage('admins.enabled', '已启用', 'Enabled'),
+    disabled: defineMessage('admins.disabled', '未启用', 'Disabled'),
+    ipAddress: defineMessage('admins.ipAddress', 'IP：{value}', 'IP: {value}'),
+    unknown: defineMessage('admins.unknown', '未知', 'Unknown'),
+    usernameRequired: defineMessage('admins.usernameRequired', '请输入用户名', 'Enter a username'),
+    usernameMinLength: defineMessage('admins.usernameMinLength', '用户名至少 3 个字符', 'Username must be at least 3 characters'),
+    password: defineMessage('admins.password', '密码', 'Password'),
+    passwordRequired: defineMessage('admins.passwordRequired', '请输入密码', 'Enter a password'),
+    passwordMinLength: defineMessage('admins.passwordMinLength', '密码至少 8 个字符', 'Password must be at least 8 characters'),
+    keepPasswordEmpty: defineMessage('admins.keepPasswordEmpty', '留空则不修改密码', 'Leave blank to keep the current password'),
+    optional: defineMessage('admins.optional', '可选', 'Optional'),
+    admin: defineMessage('admins.role.admin', '管理员', 'Admin'),
+    superAdmin: defineMessage('admins.role.superAdmin', '超级管理员', 'Super admin'),
+    twoFactor: defineMessage('admins.twoFactor', '双重验证', 'Two-factor authentication'),
+    twoFactorExtra: defineMessage('admins.twoFactorExtra', '启用双重验证需管理员本人在“设置”页完成绑定', 'Enabling two-factor authentication requires the admin to complete setup in Settings.'),
+} as const;
+
 const AdminsPage: FC = () => {
+    const { t } = useI18n();
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<Admin[]>([]);
     const [total, setTotal] = useState(0);
@@ -55,14 +84,14 @@ const AdminsPage: FC = () => {
         setLoading(true);
         const result = await requestData<AdminListResult>(
             () => adminsContract.getList({ page, pageSize }),
-            '获取数据失败'
+            t(adminsPageI18n.fetchFailed)
         );
         if (result) {
             setData(result.list);
             setTotal(result.total);
         }
         setLoading(false);
-    }, [page, pageSize]);
+    }, [page, pageSize, t]);
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
@@ -96,13 +125,11 @@ const AdminsPage: FC = () => {
         try {
             const res = await adminsContract.delete(id);
             if (res.code === 200) {
-                message.success('删除成功');
+                message.success(t(adminsPageI18n.deleteSuccess));
                 fetchData();
-            } else {
-                message.error(res.message);
             }
         } catch (err: unknown) {
-            message.error(getErrorMessage(err, '删除失败'));
+            message.error(getErrorMessage(err, t(adminsPageI18n.deleteFailed)));
         }
     };
 
@@ -117,76 +144,72 @@ const AdminsPage: FC = () => {
                 }
                 const res = await adminsContract.update(editingId, values);
                 if (res.code === 200) {
-                    message.success('更新成功');
+                    message.success(t(adminsPageI18n.updateSuccess));
                     setModalVisible(false);
                     fetchData();
-                } else {
-                    message.error(res.message);
                 }
             } else {
                 const res = await adminsContract.create(values);
                 if (res.code === 200) {
-                    message.success('创建成功');
+                    message.success(t(adminsPageI18n.createSuccess));
                     setModalVisible(false);
                     fetchData();
-                } else {
-                    message.error(res.message);
                 }
             }
         } catch (err: unknown) {
-            message.error(getErrorMessage(err, '保存失败'));
+            message.error(getErrorMessage(err, t(adminsPageI18n.saveFailed)));
         }
     };
 
     const columns: ColumnsType<Admin> = [
         {
-            title: '用户名',
+            title: t(adminI18n.admins.username),
             dataIndex: 'username',
             key: 'username',
         },
         {
-            title: '邮箱',
+            title: t(adminsPageI18n.email),
             dataIndex: 'email',
             key: 'email',
             render: (val) => val || '-',
         },
         {
-            title: '角色',
+            title: t(adminI18n.admins.role),
             dataIndex: 'role',
             key: 'role',
             render: (role) => (
                 <Tag color={isSuperAdmin(role) ? 'gold' : 'blue'}>
-                    {getAdminRoleLabel(role)}
+                    {t(getAdminRoleLabel(role))}
                 </Tag>
             ),
         },
         {
-            title: '状态',
+            title: t(adminI18n.common.status),
             dataIndex: 'status',
             key: 'status',
             render: (status) => (
                 <Tag color={normalizeAdminStatus(status) === 'ACTIVE' ? 'green' : 'red'}>
-                    {getAdminStatusLabel(status)}
+                    {t(getAdminStatusLabel(status))}
                 </Tag>
             ),
         },
         {
-            title: '2FA',
+            title: t(adminI18n.admins.twoFactor),
             dataIndex: 'twoFactorEnabled',
             key: 'twoFactorEnabled',
             render: (enabled: boolean) => (
                 <Tag color={enabled ? 'green' : 'default'}>
-                    {enabled ? '已启用' : '未启用'}
+                    {enabled ? t(adminsPageI18n.enabled) : t(adminsPageI18n.disabled)}
                 </Tag>
             ),
         },
         {
-            title: '最后登录',
+            title: t(adminI18n.admins.lastLogin),
             dataIndex: 'lastLoginAt',
             key: 'lastLoginAt',
             render: (val, record) =>
                 val ? (
-                    <Tooltip title={`IP: ${record.lastLoginIp || '未知'}`}>
+                    <Tooltip title={t(adminsPageI18n.ipAddress, { value: record.lastLoginIp || t(adminsPageI18n.unknown) })}>
                         {dayjs(val).format('YYYY-MM-DD HH:mm')}
                     </Tooltip>
                 ) : (
@@ -194,18 +217,18 @@ const AdminsPage: FC = () => {
                 ),
         },
         {
-            title: '创建时间',
+            title: t(adminI18n.common.createdAt),
             dataIndex: 'createdAt',
             key: 'createdAt',
             render: (val) => dayjs(val).format('YYYY-MM-DD HH:mm'),
         },
         {
-            title: '操作',
+            title: t(adminI18n.common.actions),
             key: 'action',
             width: 120,
             render: (_, record) => (
                 <Space>
-                    <Tooltip title="编辑">
+                    <Tooltip title={t(adminI18n.common.edit)}>
                         <Button
                             type="text"
                             icon={<EditOutlined />}
@@ -213,9 +236,9 @@ const AdminsPage: FC = () => {
                         />
                     </Tooltip>
                     {record.id !== currentAdmin?.id && (
-                        <Tooltip title="删除">
+                        <Tooltip title={t(adminI18n.common.remove)}>
                             <Popconfirm
-                                title="确定要删除此管理员吗？"
+                                title={t(adminI18n.admins.addDeleteConfirm)}
                                 onConfirm={() => handleDelete(record.id)}
                             >
                                 <Button type="text" danger icon={<DeleteOutlined />} />
@@ -230,9 +253,9 @@ const AdminsPage: FC = () => {
     return (
         <div>
             <PageHeader
-                title="管理员管理"
-                subtitle="集中维护后台管理员账号、角色、状态与 2FA 状态，避免高权限操作散落到其他设置页。"
-                extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>添加管理员</Button>}
+                title={t(adminI18n.admins.title)}
+                subtitle={t(adminI18n.admins.subtitle)}
+                extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t(adminI18n.admins.add)}</Button>}
             />
 
             <SurfaceCard>
@@ -246,7 +269,7 @@ const AdminsPage: FC = () => {
                         pageSize,
                         total,
                         showSizeChanger: true,
-                        showTotal: (total) => `共 ${total} 条`,
+                        showTotal: (total) => t(adminI18n.common.totalCount, { count: total }),
                         onChange: (p, ps) => {
                             setPage(p);
                             setPageSize(ps);
@@ -256,7 +279,7 @@ const AdminsPage: FC = () => {
             </SurfaceCard>
 
             <Modal
-                title={editingId ? '编辑管理员' : '添加管理员'}
+                title={editingId ? t(adminI18n.admins.edit) : t(adminI18n.admins.add)}
                 open={modalVisible}
                 onOk={handleSubmit}
                 onCancel={() => setModalVisible(false)}
@@ -264,54 +287,54 @@ const AdminsPage: FC = () => {
                 <Form form={form} layout="vertical">
                     <Form.Item
                         name="username"
-                        label="用户名"
+                        label={t(adminI18n.admins.username)}
                         rules={[
-                            { required: true, message: '请输入用户名' },
-                            { min: 3, message: '用户名至少 3 个字符' },
+                            { required: true, message: t(adminsPageI18n.usernameRequired) },
+                            { min: 3, message: t(adminsPageI18n.usernameMinLength) },
                         ]}
                     >
-                        <Input placeholder="请输入用户名" />
+                        <Input placeholder={t(adminsPageI18n.usernameRequired)} />
                     </Form.Item>
                     <Form.Item
                         name="password"
-                        label="密码"
+                        label={t(adminsPageI18n.password)}
                         rules={
                             editingId
                                 ? []
                                 : [
-                                    { required: true, message: '请输入密码' },
-                                    { min: 8, message: '密码至少 8 个字符' },
+                                    { required: true, message: t(adminsPageI18n.passwordRequired) },
+                                    { min: 8, message: t(adminsPageI18n.passwordMinLength) },
                                 ]
                         }
                     >
                         <Input.Password
-                            placeholder={editingId ? '留空则不修改密码' : '请输入密码'}
+                            placeholder={editingId ? t(adminsPageI18n.keepPasswordEmpty) : t(adminsPageI18n.passwordRequired)}
                         />
                     </Form.Item>
-                    <Form.Item name="email" label="邮箱">
-                        <Input placeholder="可选" type="email" />
+                    <Form.Item name="email" label={t(adminsPageI18n.email)}>
+                        <Input placeholder={t(adminsPageI18n.optional)} type="email" />
                     </Form.Item>
-                    <Form.Item name="role" label="角色" initialValue="ADMIN">
+                    <Form.Item name="role" label={t(adminI18n.admins.role)} initialValue="ADMIN">
                         <Select>
-                            <Select.Option value="ADMIN">管理员</Select.Option>
-                            <Select.Option value="SUPER_ADMIN">超级管理员</Select.Option>
+                            <Select.Option value="ADMIN">{t(adminsPageI18n.admin)}</Select.Option>
+                            <Select.Option value="SUPER_ADMIN">{t(adminsPageI18n.superAdmin)}</Select.Option>
                         </Select>
                     </Form.Item>
-                    <Form.Item name="status" label="状态" initialValue="ACTIVE">
+                    <Form.Item name="status" label={t(adminI18n.common.status)} initialValue="ACTIVE">
                         <Select>
-                            <Select.Option value="ACTIVE">启用</Select.Option>
-                            <Select.Option value="DISABLED">禁用</Select.Option>
+                            <Select.Option value="ACTIVE">{t(adminsPageI18n.enabled)}</Select.Option>
+                            <Select.Option value="DISABLED">{t(adminI18n.common.disabled)}</Select.Option>
                         </Select>
                     </Form.Item>
                     {editingId && (
                         <Form.Item
                             name="twoFactorEnabled"
-                            label="二次验证（2FA）"
-                            extra={!editingTwoFactorEnabled ? '启用 2FA 需管理员本人在“设置”页完成绑定' : undefined}
+                            label={t(adminsPageI18n.twoFactor)}
+                            extra={!editingTwoFactorEnabled ? t(adminsPageI18n.twoFactorExtra) : undefined}
                         >
                             <Select>
-                                <Select.Option value={true} disabled={!editingTwoFactorEnabled}>已启用</Select.Option>
-                                <Select.Option value={false}>未启用</Select.Option>
+                                <Select.Option value={true} disabled={!editingTwoFactorEnabled}>{t(adminsPageI18n.enabled)}</Select.Option>
+                                <Select.Option value={false}>{t(adminsPageI18n.disabled)}</Select.Option>
                             </Select>
                         </Form.Item>
                     )}

@@ -19,9 +19,9 @@ import {
 	Dropdown,
 	Form,
 	Input,
-	List,
 	Modal,
 	message,
+	Pagination,
 	Popconfirm,
 	Select,
 	Space,
@@ -47,9 +47,7 @@ import {
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader, SurfaceCard } from "../../components";
 import {
-	AUTH_TYPE_LABELS,
 	EMAIL_AUTH_TYPE_OPTIONS,
-	EMAIL_PROVIDER_LABELS,
 	EMAIL_PROVIDER_OPTIONS,
 	type EmailAuthType,
 	type EmailProvider,
@@ -61,10 +59,7 @@ import {
 	getProviderProfileDefinition,
 	getProviderProfileDefinitionByKey,
 	getProviderProfilesByRepresentativeProtocol,
-	getRepresentativeProtocolDefinition,
-	getRepresentativeProtocolLabel,
 	getRepresentativeProtocolTagColor,
-	getSecondaryProtocolLabel,
 	type MailProviderConfig,
 	type ProviderProfileCapabilities,
 	type ProviderProfileKey,
@@ -77,6 +72,7 @@ import {
 	displayBlockMarginBottom4Style,
 	displayBlockMarginBottom6Style,
 	displayBlockMarginBottom12Style,
+	flexBetweenFullWidthStyle,
 	flexBetweenWrapStyle,
 	fullWidthStyle,
 	marginBottom8Style,
@@ -100,36 +96,263 @@ import {
 	renderPlainTextWithLinks,
 	renderSanitizedEmailHtml,
 } from "../../utils/mailContent";
+import { adminI18n } from "../../i18n/catalog/admin";
+import {
+	getAuthTypeLabelMessage,
+	getProviderEmailPlaceholderMessage,
+	getProviderLabelMessage,
+	getProviderProfileDescriptionMessage,
+	getProviderProfileLabelMessage,
+	getProviderProfileSecretHelpTextMessage,
+	getProviderProfileSecretLabelMessage,
+	getProviderProfileSecretPlaceholderMessage,
+	getProviderProfileServerConfigHelpTextMessage,
+	getProviderProfileSummaryHintMessage,
+	getRepresentativeProtocolConnectionLabelMessage,
+	getRepresentativeProtocolDescriptionMessage,
+	getRepresentativeProtocolLabelMessage,
+	getSecondaryProtocolLabelMessage,
+} from "../../i18n/catalog/providers";
+import { providerSetupI18n } from "../../i18n/catalog/providerSetup";
+import { useI18n } from "../../i18n";
+import { defineMessage, type TranslationInput } from "../../i18n/messages";
 import { requestData } from "../../utils/request";
+import { emailsInlineI18n } from "./inlineMessages";
+
+const emailsPageI18n = {
+	fetchStrategyGraphFirstVerbose: defineMessage(
+		"emails.fetchStrategy.graphFirstVerbose",
+		"Graph 优先（失败回退 IMAP）",
+		"Graph first (fallback to IMAP on failure)",
+	),
+	fetchStrategyImapFirstVerbose: defineMessage(
+		"emails.fetchStrategy.imapFirstVerbose",
+		"IMAP 优先（失败回退 Graph）",
+		"IMAP first (fallback to Graph on failure)",
+	),
+	fetchStrategyGraphOnly: defineMessage(
+		"emails.fetchStrategy.graphOnly",
+		"仅 Graph",
+		"Graph only",
+	),
+	fetchStrategyImapOnly: defineMessage(
+		"emails.fetchStrategy.imapOnly",
+		"仅 IMAP",
+		"IMAP only",
+	),
+	fetchStrategyGraphFirstShort: defineMessage(
+		"emails.fetchStrategy.graphFirstShort",
+		"Graph 优先",
+		"Graph first",
+	),
+	fetchStrategyImapFirstShort: defineMessage(
+		"emails.fetchStrategy.imapFirstShort",
+		"IMAP 优先",
+		"IMAP first",
+	),
+	statusError: defineMessage("emails.status.error", "异常", "Error"),
+	mailboxJunk: defineMessage("emails.mailbox.junk", "垃圾箱", "Junk"),
+	capabilityGroupReceive: defineMessage(
+		"emails.capabilityGroup.receive",
+		"收取能力",
+		"Receive capabilities",
+	),
+	capabilityGroupOperate: defineMessage(
+		"emails.capabilityGroup.operate",
+		"操作能力",
+		"Operational capabilities",
+	),
+	capabilityGroupConnect: defineMessage(
+		"emails.capabilityGroup.connect",
+		"连接能力",
+		"Connection capabilities",
+	),
+	capabilityReadInbox: defineMessage(
+		"emails.capability.readInbox",
+		"收件箱",
+		"Inbox",
+	),
+	capabilityReadJunk: defineMessage(
+		"emails.capability.readJunk",
+		"垃圾箱",
+		"Junk",
+	),
+	capabilityReadSent: defineMessage(
+		"emails.capability.readSent",
+		"已发送",
+		"Sent",
+	),
+	capabilityClearMailbox: defineMessage(
+		"emails.capability.clearMailbox",
+		"批量清空",
+		"Bulk clear",
+	),
+	capabilitySendMail: defineMessage(
+		"emails.capability.sendMail",
+		"发信",
+		"Send mail",
+	),
+	capabilityUsesOAuth: defineMessage(
+		"emails.capability.usesOAuth",
+		"OAuth",
+		"OAuth",
+	),
+	capabilityReceiveMail: defineMessage(
+		"emails.capability.receiveMail",
+		"可收件",
+		"Receives mail",
+	),
+	capabilityApiAccess: defineMessage(
+		"emails.capability.apiAccess",
+		"API Access",
+		"API access",
+	),
+	capabilityForwarding: defineMessage(
+		"emails.capability.forwarding",
+		"Forwarding",
+		"Forwarding",
+	),
+	capabilitySearch: defineMessage(
+		"emails.capability.search",
+		"搜索",
+		"Search",
+	),
+	capabilityRefreshToken: defineMessage(
+		"emails.capability.refreshToken",
+		"Refresh Token",
+		"Refresh token",
+	),
+	capabilityWebhook: defineMessage(
+		"emails.capability.webhook",
+		"Webhook",
+		"Webhook",
+	),
+	capabilityAliasSupport: defineMessage(
+		"emails.capability.aliasSupport",
+		"Alias",
+		"Alias",
+	),
+	capabilityModes: defineMessage(
+		"emails.capability.modes",
+		"Modes",
+		"Modes",
+	),
+	capabilitySupported: defineMessage(
+		"emails.capability.supported",
+		"支持",
+		"Supported",
+	),
+	capabilityUnsupported: defineMessage(
+		"emails.capability.unsupported",
+		"否",
+		"No",
+	),
+	capabilityNoModes: defineMessage(
+		"emails.capability.noModes",
+		"无",
+		"None",
+	),
+	providerProfileHeading: defineMessage(
+		"emails.providerProfile.heading",
+		"Provider Profile",
+		"Provider profile",
+	),
+	selectedProtocolAlertTitle: defineMessage(
+		"emails.selectedProtocol.alertTitle",
+		"当前选择会按 {protocol} 主分类展示",
+		"The current selection will be shown under the {protocol} primary family",
+	),
+	currentProfileInline: defineMessage(
+		"emails.selectedProtocol.currentProfileInline",
+		"当前 profile：{profile}",
+		"Current profile: {profile}",
+	),
+	representativeProtocolInline: defineMessage(
+		"emails.selectedProtocol.representativeInline",
+		"代表协议：{protocol}",
+		"Representative protocol: {protocol}",
+	),
+	profileInline: defineMessage(
+		"emails.selectedProtocol.profileInline",
+		"Profile：{profile}",
+		"Profile: {profile}",
+	),
+	secondaryProtocolInline: defineMessage(
+		"emails.selectedProtocol.secondaryInline",
+		"辅助协议：{protocol}",
+		"Secondary protocol: {protocol}",
+	),
+	connectionPathHint: defineMessage(
+		"emails.selectedProtocol.connectionPathHint",
+		"当前连接路径遵循“协议家族 → provider profile → capability”顺序：先确定是 OAuth API 还是 IMAP / SMTP，再落到具体 provider profile。",
+		"This connection path follows protocol family → provider profile → capability: first decide between OAuth API and IMAP / SMTP, then land on the specific provider profile.",
+	),
+	capabilityMatrixHeading: defineMessage(
+		"emails.capabilityMatrix.heading",
+		"Capability Matrix",
+		"Capability matrix",
+	),
+	capabilityMatrixDescription: defineMessage(
+		"emails.capabilityMatrix.description",
+		"当前 profile 的能力矩阵会直接决定列表页的可检查、可发信、可清空和后续扩展边界。",
+		"The current profile’s capability matrix directly defines what the list can check, send, clear, and extend later.",
+	),
+	editMailboxTitle: defineMessage(
+		"emails.modal.editMailboxTitle",
+		"编辑邮箱",
+		"Edit mailbox",
+	),
+	manualSaveAdvanced: defineMessage(
+		"emails.modal.manualSaveAdvanced",
+		"手动保存（高级）",
+		"Manual save (advanced)",
+	),
+	save: defineMessage("emails.modal.save", "保存", "Save"),
+	emailAddressLabel: defineMessage(
+		"emails.form.emailAddressLabel",
+		"邮箱地址",
+		"Mailbox address",
+	),
+	emailAddressRequired: defineMessage(
+		"emails.form.emailAddressRequired",
+		"请输入邮箱地址",
+		"Enter the mailbox address",
+	),
+	validEmailRequired: defineMessage(
+		"emails.form.validEmailRequired",
+		"请输入有效的邮箱地址",
+		"Enter a valid email address",
+	),
+} as const;
 
 const { Text } = Typography;
 const { TextArea } = Input;
 const { Dragger } = Upload;
 const MAIL_FETCH_STRATEGY_OPTIONS = [
-	{ value: "GRAPH_FIRST", label: "Graph 优先（失败回退 IMAP）" },
-	{ value: "IMAP_FIRST", label: "IMAP 优先（失败回退 Graph）" },
-	{ value: "GRAPH_ONLY", label: "仅 Graph" },
-	{ value: "IMAP_ONLY", label: "仅 IMAP" },
+	{ value: "GRAPH_FIRST", label: emailsPageI18n.fetchStrategyGraphFirstVerbose },
+	{ value: "IMAP_FIRST", label: emailsPageI18n.fetchStrategyImapFirstVerbose },
+	{ value: "GRAPH_ONLY", label: emailsPageI18n.fetchStrategyGraphOnly },
+	{ value: "IMAP_ONLY", label: emailsPageI18n.fetchStrategyImapOnly },
 ] as const;
 
 type MailFetchStrategy = (typeof MAIL_FETCH_STRATEGY_OPTIONS)[number]["value"];
 
-const MAIL_FETCH_STRATEGY_LABELS: Record<MailFetchStrategy, string> = {
-	GRAPH_FIRST: "Graph 优先",
-	IMAP_FIRST: "IMAP 优先",
-	GRAPH_ONLY: "仅 Graph",
-	IMAP_ONLY: "仅 IMAP",
+const MAIL_FETCH_STRATEGY_LABELS: Record<MailFetchStrategy, TranslationInput> = {
+	GRAPH_FIRST: emailsPageI18n.fetchStrategyGraphFirstShort,
+	IMAP_FIRST: emailsPageI18n.fetchStrategyImapFirstShort,
+	GRAPH_ONLY: emailsPageI18n.fetchStrategyGraphOnly,
+	IMAP_ONLY: emailsPageI18n.fetchStrategyImapOnly,
 };
 
 type EmailAccountStatus = EmailAccount["status"];
 
 const EMAIL_STATUS_FILTER_OPTIONS: Array<{
 	value: EmailAccountStatus;
-	label: string;
+	label: TranslationInput;
 }> = [
-	{ value: "ACTIVE", label: "正常" },
-	{ value: "ERROR", label: "异常" },
-	{ value: "DISABLED", label: "禁用" },
+	{ value: "ACTIVE", label: adminI18n.common.healthy },
+	{ value: "ERROR", label: emailsPageI18n.statusError },
+	{ value: "DISABLED", label: adminI18n.common.disabled },
 ];
 
 function parseEmailStatus(
@@ -224,16 +447,19 @@ const emailStyles = {
 	},
 } as const;
 
-function getEmailStatusMeta(status: EmailAccountStatus) {
+function getEmailStatusMeta(
+	status: EmailAccountStatus,
+	t: (source: TranslationInput, params?: Record<string, number | string>) => string,
+) {
 	const colors: Record<EmailAccountStatus, string> = {
 		ACTIVE: "green",
 		ERROR: "red",
 		DISABLED: "default",
 	};
 	const labels: Record<EmailAccountStatus, string> = {
-		ACTIVE: "正常",
-		ERROR: "异常",
-		DISABLED: "禁用",
+		ACTIVE: t(adminI18n.common.healthy),
+		ERROR: t(emailsPageI18n.statusError),
+		DISABLED: t(adminI18n.common.disabled),
 	};
 	return { color: colors[status], label: labels[status] };
 }
@@ -348,56 +574,61 @@ const EMPTY_MAILBOX_STATUS: MailboxStatus = {
 	Junk: createEmptyMailboxState(),
 };
 
-const MAILBOX_LABELS: Record<MailboxName, string> = {
-	INBOX: "收件箱",
-	SENT: "已发送",
-	Junk: "垃圾箱",
+const MAILBOX_LABELS: Record<MailboxName, TranslationInput> = {
+	INBOX: adminI18n.emails.inbox,
+	SENT: adminI18n.emails.sent,
+	Junk: emailsPageI18n.mailboxJunk,
 };
 
 const CAPABILITY_GROUPS: Array<{
-	title: string;
+	key: string;
+	title: TranslationInput;
 	keys: Array<keyof ProviderProfileCapabilities>;
 }> = [
 	{
-		title: "收取能力",
+		key: "receive",
+		title: emailsPageI18n.capabilityGroupReceive,
 		keys: ["readInbox", "readJunk", "readSent", "receiveMail"],
 	},
 	{
-		title: "操作能力",
+		key: "operate",
+		title: emailsPageI18n.capabilityGroupOperate,
 		keys: ["clearMailbox", "sendMail", "search", "aliasSupport"],
 	},
 	{
-		title: "连接能力",
+		key: "connect",
+		title: emailsPageI18n.capabilityGroupConnect,
 		keys: ["usesOAuth", "refreshToken", "webhook", "apiAccess", "forwarding"],
 	},
 ];
 
-const CAPABILITY_LABELS: Record<keyof ProviderProfileCapabilities, string> = {
-	readInbox: "收件箱",
-	readJunk: "垃圾箱",
-	readSent: "已发送",
-	clearMailbox: "批量清空",
-	sendMail: "发信",
-	usesOAuth: "OAuth",
-	receiveMail: "可收件",
-	apiAccess: "API Access",
-	forwarding: "Forwarding",
-	search: "搜索",
-	refreshToken: "Refresh Token",
-	webhook: "Webhook",
-	aliasSupport: "Alias",
-	modes: "Modes",
+const CAPABILITY_LABELS: Record<keyof ProviderProfileCapabilities, TranslationInput> = {
+	readInbox: emailsPageI18n.capabilityReadInbox,
+	readJunk: emailsPageI18n.capabilityReadJunk,
+	readSent: emailsPageI18n.capabilityReadSent,
+	clearMailbox: emailsPageI18n.capabilityClearMailbox,
+	sendMail: emailsPageI18n.capabilitySendMail,
+	usesOAuth: emailsPageI18n.capabilityUsesOAuth,
+	receiveMail: emailsPageI18n.capabilityReceiveMail,
+	apiAccess: emailsPageI18n.capabilityApiAccess,
+	forwarding: emailsPageI18n.capabilityForwarding,
+	search: emailsPageI18n.capabilitySearch,
+	refreshToken: emailsPageI18n.capabilityRefreshToken,
+	webhook: emailsPageI18n.capabilityWebhook,
+	aliasSupport: emailsPageI18n.capabilityAliasSupport,
+	modes: emailsPageI18n.capabilityModes,
 };
 
 const renderCapabilityMatrix = (
 	capabilitySummary: ProviderProfileCapabilities,
+	t: (source: TranslationInput, params?: Record<string, number | string>) => string,
 	compact = false,
 ) => (
 	<Space orientation="vertical" size={compact ? 8 : 12} style={fullWidthStyle}>
 		{CAPABILITY_GROUPS.map((group) => (
-			<div key={group.title}>
+			<div key={group.key}>
 				<Text strong style={displayBlockMarginBottom6Style}>
-					{group.title}
+					{t(group.title)}
 				</Text>
 				<Space wrap>
 					{group.keys.map((key) => (
@@ -405,7 +636,7 @@ const renderCapabilityMatrix = (
 							key={key}
 							color={capabilitySummary[key] ? "success" : "default"}
 						>
-							{CAPABILITY_LABELS[key]}：{capabilitySummary[key] ? "支持" : "否"}
+							{t(CAPABILITY_LABELS[key])}：{capabilitySummary[key] ? t(emailsPageI18n.capabilitySupported) : t(emailsPageI18n.capabilityUnsupported)}
 						</Tag>
 					))}
 				</Space>
@@ -413,7 +644,7 @@ const renderCapabilityMatrix = (
 		))}
 		<div>
 			<Text strong style={displayBlockMarginBottom6Style}>
-				底层模式
+				{t(emailsPageI18n.capabilityModes)}
 			</Text>
 			<Space wrap>
 				{capabilitySummary.modes.length > 0 ? (
@@ -423,7 +654,7 @@ const renderCapabilityMatrix = (
 						</Tag>
 					))
 				) : (
-					<Tag>无</Tag>
+					<Tag>{t(emailsPageI18n.capabilityNoModes)}</Tag>
 				)}
 			</Space>
 		</div>
@@ -550,9 +781,9 @@ interface GoogleClientSecretParseResult {
 interface OAuthCompletionPayload {
 	provider: "GMAIL" | "OUTLOOK";
 	status: "success" | "warning" | "error";
+	code: string;
 	email?: string;
 	action?: string;
-	message: string;
 }
 
 interface OAuthAuthorizationStartResult {
@@ -605,6 +836,24 @@ const getOutlookOAuthFormDefaults = (status: OAuthProviderStatus) => ({
 });
 
 const EmailsPage: FC = () => {
+	const { t } = useI18n();
+	const getOAuthProviderLabel = useCallback(
+		(provider: "GMAIL" | "OUTLOOK") =>
+			t(getProviderLabelMessage(provider)),
+		[t],
+	);
+	const getOAuthActionLabel = useCallback(
+		(action?: string) => {
+			if (action === "created_new_email") {
+				return t(providerSetupI18n["emails.oauth.actionCreated"]);
+			}
+			if (action === "updated_exact_email" || action === "updated_target_id") {
+				return t(providerSetupI18n["emails.oauth.actionUpdated"]);
+			}
+			return t(providerSetupI18n["emails.oauth.actionUpdated"]);
+		},
+		[t],
+	);
 	const navigate = useNavigate();
 	const { admin } = useAuthStore();
 	const [searchParams] = useSearchParams();
@@ -654,6 +903,8 @@ const EmailsPage: FC = () => {
 		null,
 	);
 	const [selectedMailIds, setSelectedMailIds] = useState<string[]>([]);
+	const [mailListPage, setMailListPage] = useState(1);
+	const [mailListPageSize, setMailListPageSize] = useState(10);
 	const [deletingSelectedMails, setDeletingSelectedMails] = useState(false);
 	const [composeModalVisible, setComposeModalVisible] = useState(false);
 	const [composeSending, setComposeSending] = useState(false);
@@ -720,6 +971,22 @@ const EmailsPage: FC = () => {
 		useState<number | null>(null);
 	const [form] = Form.useForm();
 	const [composeForm] = Form.useForm<ComposeMailValues>();
+	const mailFetchStrategyOptions = useMemo(
+		() =>
+			MAIL_FETCH_STRATEGY_OPTIONS.map((option) => ({
+				...option,
+				label: t(option.label),
+			})),
+		[t],
+	);
+	const emailStatusFilterOptions = useMemo(
+		() =>
+			EMAIL_STATUS_FILTER_OPTIONS.map((option) => ({
+				...option,
+				label: t(option.label),
+			})),
+		[t],
+	);
 
 	// Group-related state
 	const [groups, setGroups] = useState<EmailGroup[]>([]);
@@ -772,10 +1039,6 @@ const EmailsPage: FC = () => {
 		selectedProfileDefinition.capabilitySummary;
 	const selectedRepresentativeProtocol =
 		selectedProfileDefinition.representativeProtocol;
-	const selectedRepresentativeProtocolDefinition = useMemo(
-		() => getRepresentativeProtocolDefinition(selectedRepresentativeProtocol),
-		[selectedRepresentativeProtocol],
-	);
 	const isTwoFactorEnabled = Boolean(admin?.twoFactorEnabled);
 	const hasActiveRevealGrant = Boolean(
 		revealGrantToken && revealGrantExpiresAt && revealGrantExpiresAt > Date.now(),
@@ -785,13 +1048,20 @@ const EmailsPage: FC = () => {
 		: undefined;
 	const revealTargetLabel =
 		revealTargetSource === "row"
-			? "登录密码"
+			? t(emailsInlineI18n["emails.reveal.loginPasswordLabel"])
 			: revealTargetField === "accountLoginPassword"
-			? "账号登录密码"
+			? t(emailsInlineI18n["emails.reveal.accountLoginPasswordLabel"])
 			: revealTargetField === "refreshToken"
-			? "Refresh Token"
-			: selectedProfileDefinition.secretLabel ||
-				`${selectedProviderDefinition.label} 授权码 / 应用专用密码`;
+			? t(emailsInlineI18n["emails.reveal.refreshTokenLabel"])
+			: t(
+				getProviderProfileSecretLabelMessage(selectedProfileDefinition.key) ||
+					defineMessage(
+						"emails.imap.genericCredentialLabel",
+						"{providerLabel} 授权码 / 应用专用密码",
+						"{providerLabel} authorization code / app password",
+					),
+				{ providerLabel: t(getProviderLabelMessage(selectedProvider)) },
+			);
 	const availableProfileDefinitions = useMemo(
 		() =>
 			getProviderProfilesByRepresentativeProtocol(
@@ -801,7 +1071,10 @@ const EmailsPage: FC = () => {
 	);
 	const filterProviderOptions = useMemo(() => {
 		if (!filterRepresentativeProtocol) {
-			return EMAIL_PROVIDER_OPTIONS;
+			return EMAIL_PROVIDER_OPTIONS.map((option) => ({
+				...option,
+				label: t(getProviderLabelMessage(option.value)),
+			}));
 		}
 
 		const supportedProviders = new Set(
@@ -812,8 +1085,11 @@ const EmailsPage: FC = () => {
 
 		return EMAIL_PROVIDER_OPTIONS.filter((option) =>
 			supportedProviders.has(option.value),
-		);
-	}, [filterRepresentativeProtocol]);
+		).map((option) => ({
+			...option,
+			label: t(getProviderLabelMessage(option.value)),
+		}));
+	}, [filterRepresentativeProtocol, t]);
 	const importTemplates = useMemo(
 		() => getProviderImportTemplates(separator),
 		[separator],
@@ -860,11 +1136,11 @@ const EmailsPage: FC = () => {
 		const timer = window.setTimeout(() => {
 			setRevealedSecrets({});
 			setRevealExpiresAt(null);
-			message.info("已自动隐藏临时显示的密钥");
+			message.info(t(emailsInlineI18n["emails.reveal.secretAutoHidden"]));
 		}, remainingMs);
 
 		return () => window.clearTimeout(timer);
-	}, [revealExpiresAt]);
+	}, [revealExpiresAt, t]);
 
 	useEffect(() => {
 		if (!rowRevealExpiresAt) {
@@ -879,11 +1155,11 @@ const EmailsPage: FC = () => {
 
 		const timer = window.setTimeout(() => {
 			resetRowRevealState();
-			message.info("已自动隐藏临时显示的密码");
+			message.info(t(emailsInlineI18n["emails.reveal.passwordAutoHidden"]));
 		}, remainingMs);
 
 		return () => window.clearTimeout(timer);
-	}, [resetRowRevealState, rowRevealExpiresAt]);
+	}, [resetRowRevealState, rowRevealExpiresAt, t]);
 
 	useEffect(() => {
 		if (!revealGrantExpiresAt) {
@@ -900,11 +1176,11 @@ const EmailsPage: FC = () => {
 		const timer = window.setTimeout(() => {
 			setRevealGrantToken(null);
 			setRevealGrantExpiresAt(null);
-			message.info("密码查看授权已过期，请重新验证");
+			message.info(t(emailsInlineI18n["emails.reveal.grantExpiredInfo"]));
 		}, remainingMs);
 
 		return () => window.clearTimeout(timer);
-	}, [revealGrantExpiresAt]);
+	}, [revealGrantExpiresAt, t]);
 
 	const buildBatchActionPayload = useCallback(() => {
 		if (selectedRowKeys.length > 0) {
@@ -976,6 +1252,26 @@ const EmailsPage: FC = () => {
 
 	const allMailsSelected =
 		mailList.length > 0 && selectedMailIds.length === mailList.length;
+
+	const paginatedMailList = useMemo(() => {
+		const startIndex = (mailListPage - 1) * mailListPageSize;
+		return mailList.slice(startIndex, startIndex + mailListPageSize);
+	}, [mailList, mailListPage, mailListPageSize]);
+
+	const mailListViewKey = `${currentEmailId ?? "none"}:${currentMailbox}`;
+
+	useEffect(() => {
+		const maxPage = Math.max(1, Math.ceil(mailList.length / mailListPageSize));
+		if (mailListPage > maxPage) {
+			setMailListPage(maxPage);
+		}
+	}, [mailList.length, mailListPage, mailListPageSize]);
+
+	useEffect(() => {
+		if (mailListViewKey) {
+			setMailListPage(1);
+		}
+	}, [mailListViewKey]);
 
 	const toggleMailSelection = useCallback(
 		(mailId: string, checked: boolean) => {
@@ -1122,23 +1418,33 @@ const EmailsPage: FC = () => {
 
 	const handleOAuthCompletionFeedback = useCallback(
 		(result: OAuthCompletionPayload) => {
-			const label = result.provider === "GMAIL" ? "Gmail" : "Outlook";
-			const suffix = [
-				result.email ? `邮箱：${result.email}` : "",
-				result.action ? `动作：${result.action}` : "",
-			]
-				.filter(Boolean)
-				.join("，");
-			const toastMessage = suffix
-				? `${result.message}（${suffix}）`
-				: result.message;
+			const providerLabel = getOAuthProviderLabel(result.provider);
+			const actionLabel = getOAuthActionLabel(result.action);
+			const messageKey = `result.${result.code}`;
+		const toastMessage = t(messageKey, {
+			providerLabel,
+			actionLabel,
+			defaultValue:
+				result.status === "success"
+					? t(providerSetupI18n["emails.oauth.resultAuthorizedSuccess"], {
+						providerLabel,
+						actionLabel,
+					})
+					: result.status === "warning"
+						? t(providerSetupI18n["emails.oauth.resultAuthorizedVerifyFailed"], {
+							providerLabel,
+						})
+						: t(providerSetupI18n["emails.oauth.resultProviderAuthFailed"], {
+							providerLabel,
+						}),
+		});
 
 			if (result.status === "success") {
-				message.success(toastMessage || `${label} 授权成功`);
+				message.success(toastMessage);
 			} else if (result.status === "warning") {
-				message.warning(toastMessage || `${label} 已授权，但验证存在告警`);
+				message.warning(toastMessage);
 			} else {
-				message.error(toastMessage || `${label} 授权失败`);
+				message.error(toastMessage);
 			}
 
 			if (result.provider === "GMAIL") {
@@ -1160,8 +1466,11 @@ const EmailsPage: FC = () => {
 			closeEmailModal,
 			fetchData,
 			fetchGroups,
+			getOAuthActionLabel,
+			getOAuthProviderLabel,
 			resetGoogleOAuthFlow,
 			resetOutlookOAuthFlow,
+			t,
 		],
 	);
 
@@ -1196,8 +1505,8 @@ const EmailsPage: FC = () => {
 	useEffect(() => {
 		const oauthStatus = searchParams.get("oauth_status");
 		const oauthProvider = searchParams.get("oauth_provider");
-		const oauthMessage = searchParams.get("oauth_message");
-		if (!oauthStatus || !oauthProvider || !oauthMessage) {
+		const oauthCode = searchParams.get("oauth_code");
+		if (!oauthStatus || !oauthProvider || !oauthCode) {
 			return;
 		}
 
@@ -1207,7 +1516,7 @@ const EmailsPage: FC = () => {
 				oauthStatus === "success" || oauthStatus === "warning"
 					? oauthStatus
 					: "error",
-			message: oauthMessage,
+			code: oauthCode,
 			email: searchParams.get("oauth_email") || undefined,
 			action: searchParams.get("oauth_action") || undefined,
 		});
@@ -1237,7 +1546,7 @@ const EmailsPage: FC = () => {
 
 			if (result.status === "expired") {
 				resetGoogleOAuthFlow();
-				message.warning("Google 授权链接已过期，请重新生成。");
+				message.warning(t(providerSetupI18n["emails.oauth.googleLinkExpired"]));
 				return;
 			}
 
@@ -1265,6 +1574,7 @@ const EmailsPage: FC = () => {
 		googleOAuthPendingState,
 		handleOAuthCompletionFeedback,
 		resetGoogleOAuthFlow,
+		t,
 	]);
 
 	useEffect(() => {
@@ -1290,7 +1600,7 @@ const EmailsPage: FC = () => {
 
 			if (result.status === "expired") {
 				resetOutlookOAuthFlow();
-				message.warning("Microsoft 授权链接已过期，请重新生成。");
+				message.warning(t(providerSetupI18n["emails.oauth.microsoftLinkExpired"]));
 				return;
 			}
 
@@ -1318,6 +1628,7 @@ const EmailsPage: FC = () => {
 		outlookOAuthPendingState,
 		handleOAuthCompletionFeedback,
 		resetOutlookOAuthFlow,
+		t,
 	]);
 
 	const applyProfileSelection = useCallback(
@@ -1464,7 +1775,7 @@ const EmailsPage: FC = () => {
 					});
 				}
 			} catch {
-				message.error("获取详情失败");
+				message.error(t(emailsInlineI18n["emails.details.fetchFailed"]));
 			} finally {
 				setEmailEditLoading(false);
 			}
@@ -1475,6 +1786,7 @@ const EmailsPage: FC = () => {
 			oauthProviderStatuses.OUTLOOK,
 			resetSecretRevealState,
 			resetAllOAuthFlows,
+			t,
 		],
 	);
 
@@ -1498,7 +1810,7 @@ const EmailsPage: FC = () => {
 			targetEmailLabel?: string | null,
 		) => {
 			if (!isTwoFactorEnabled) {
-				message.warning("请先在设置页启用 2FA，再查看已存储的密钥");
+				message.warning(t(emailsInlineI18n["emails.reveal.enable2faFirst"]));
 				return;
 			}
 			setRevealTargetEmailId(targetEmailId);
@@ -1508,7 +1820,7 @@ const EmailsPage: FC = () => {
 			setRevealOtp("");
 			setRevealModalVisible(true);
 		},
-		[isTwoFactorEnabled],
+		[isTwoFactorEnabled, t],
 	);
 
 	const executeRevealWithGrant = useCallback(
@@ -1525,7 +1837,7 @@ const EmailsPage: FC = () => {
 					fields: [targetField],
 				});
 				if (response.code !== 200) {
-					message.error(response.message || "查看密钥失败");
+					message.error(t(emailsInlineI18n["emails.reveal.failed"]));
 					return;
 				}
 
@@ -1537,13 +1849,13 @@ const EmailsPage: FC = () => {
 					);
 					setRowRevealVisible(true);
 					setRowRevealExpiresAt(Date.now() + 60_000);
-					message.success("已受控显示账号登录密码，60 秒后自动隐藏");
+					message.success(t(emailsInlineI18n["emails.reveal.loginPasswordShown"]));
 					return;
 				}
 
 				setRevealedSecrets(result.secrets || {});
 				setRevealExpiresAt(Date.now() + 60_000);
-				message.success("已受控显示密钥，60 秒后自动隐藏");
+				message.success(t(emailsInlineI18n["emails.reveal.secretShown"]));
 			} catch (err: unknown) {
 				const errCode = String((err as { code?: unknown })?.code || "").toUpperCase();
 				if (errCode === "SECRET_REVEAL_NOT_ALLOWED") {
@@ -1572,7 +1884,7 @@ const EmailsPage: FC = () => {
 				if (errCode === "REVEAL_UNLOCK_EXPIRED") {
 					setRevealGrantToken(null);
 					setRevealGrantExpiresAt(null);
-					message.warning("查看授权已过期，请重新验证");
+					message.warning(t(emailsInlineI18n["emails.reveal.grantExpired"]));
 					openRevealModalForTarget(
 						targetEmailId,
 						targetField,
@@ -1583,14 +1895,14 @@ const EmailsPage: FC = () => {
 				}
 				if (errCode === "TWO_FACTOR_REQUIRED") {
 					setRevealModalVisible(false);
-					message.warning("请先在设置页启用 2FA，再查看已存储的密钥");
+					message.warning(t(emailsInlineI18n["emails.reveal.enable2faFirst"]));
 					navigate("/settings");
 					return;
 				}
-				message.error(getErrorMessage(err, "查看密钥失败"));
+				message.error(getErrorMessage(err, t(emailsInlineI18n["emails.reveal.failed"])));
 			}
 		},
-		[navigate, openRevealModalForTarget],
+		[navigate, openRevealModalForTarget, t],
 	);
 
 	const handleOpenRevealModal = useCallback(() => {
@@ -1626,7 +1938,7 @@ const EmailsPage: FC = () => {
 	const handleRowPasswordReveal = useCallback(
 		async (record: EmailAccount) => {
 			if (!record.hasStoredAccountLoginPassword) {
-				message.info("该账号暂无已存储的账号登录密码，可在启用 2FA 后进入编辑页补录");
+				message.info(t(emailsInlineI18n["emails.reveal.noStoredAccountLoginPassword"]));
 				return;
 			}
 
@@ -1653,6 +1965,7 @@ const EmailsPage: FC = () => {
 			executeRevealWithGrant,
 			getActiveRevealGrantToken,
 			openRevealModalForTarget,
+			t,
 		],
 	);
 
@@ -1662,11 +1975,11 @@ const EmailsPage: FC = () => {
 		}
 		try {
 			await navigator.clipboard.writeText(rowRevealedAccountLoginPassword);
-			message.success("已复制密码");
+			message.success(t(emailsInlineI18n["emails.reveal.passwordCopied"]));
 		} catch {
-			message.error("复制失败，请手动复制");
+			message.error(t(emailsInlineI18n["emails.reveal.copyFailed"]));
 		}
-	}, [rowRevealedAccountLoginPassword]);
+	}, [rowRevealedAccountLoginPassword, t]);
 
 	const handleConfirmReveal = useCallback(async () => {
 		if (!revealTargetEmailId || !revealTargetField || !revealTargetSource) {
@@ -1675,7 +1988,7 @@ const EmailsPage: FC = () => {
 
 		const otp = revealOtp.trim();
 		if (!/^\d{6}$/.test(otp)) {
-			message.error("请输入 6 位验证码");
+			message.error(t(emailsInlineI18n["emails.reveal.otpRequired"]));
 			return;
 		}
 
@@ -1704,16 +2017,16 @@ const EmailsPage: FC = () => {
 		} catch (err: unknown) {
 			const errCode = String((err as { code?: unknown })?.code || "").toUpperCase();
 			if (errCode === "INVALID_OTP") {
-				message.error("验证码错误，请重试");
+				message.error(t(emailsInlineI18n["emails.reveal.invalidOtp"]));
 				return;
 			}
 			if (errCode === "TWO_FACTOR_REQUIRED") {
 				setRevealModalVisible(false);
-				message.warning("请先在设置页启用 2FA，再查看已存储的密钥");
+				message.warning(t(emailsInlineI18n["emails.reveal.enable2faFirst"]));
 				navigate("/settings");
 				return;
 			}
-			message.error(getErrorMessage(err, "查看密钥失败"));
+			message.error(getErrorMessage(err, t(emailsInlineI18n["emails.reveal.failed"])));
 		} finally {
 			setRevealLoading(false);
 		}
@@ -1725,6 +2038,7 @@ const EmailsPage: FC = () => {
 		revealTargetEmailLabel,
 		revealTargetField,
 		revealTargetSource,
+		t,
 	]);
 
 	const focusedEmailRecord = useMemo(
@@ -1740,37 +2054,37 @@ const EmailsPage: FC = () => {
 			try {
 				const res = await emailsContract.delete(id);
 				if (res.code === 200) {
-					message.success("删除成功");
+					message.success(t(adminI18n.common.deleteSuccess));
 					fetchData();
 					fetchGroups();
 				} else {
-					message.error(res.message);
+					message.error(t(adminI18n.common.deleteFailed));
 				}
 			} catch (err: unknown) {
-				message.error(getErrorMessage(err, "删除失败"));
+				message.error(getErrorMessage(err, t(adminI18n.common.deleteFailed)));
 			}
 		},
-		[fetchData, fetchGroups],
+		[fetchData, fetchGroups, t],
 	);
 
 	const handleBatchDelete = async () => {
 		if (selectedRowKeys.length === 0) {
-			message.warning("请选择要删除的邮箱");
+			message.warning(t(emailsInlineI18n["emails.common.selectMailboxToDelete"]));
 			return;
 		}
 
 		try {
 			const res = await emailsContract.batchDelete(selectedRowKeys as number[]);
 			if (res.code === 200) {
-				message.success(`成功删除 ${res.data.deleted} 个邮箱`);
+				message.success(t(emailsInlineI18n["emails.common.deletedMailboxCount"], { count: res.data.deleted }));
 				setSelectedRowKeys([]);
 				fetchData();
 				fetchGroups();
 			} else {
-				message.error(res.message);
+				message.error(t(adminI18n.common.deleteFailed));
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "删除失败"));
+			message.error(getErrorMessage(err, t(adminI18n.common.deleteFailed)));
 		}
 	};
 
@@ -1814,7 +2128,7 @@ const EmailsPage: FC = () => {
 					emailsContract.parseGoogleClientSecret({
 						jsonText: fileContent,
 					}),
-				"导入 Google client secret 文件后自动解析失败",
+				t(providerSetupI18n["emails.google.parseImportedSecretFailed"]),
 			);
 			if (result) {
 				form.setFieldsValue({
@@ -1825,11 +2139,11 @@ const EmailsPage: FC = () => {
 						form.getFieldValue("gmailOAuthScopes") ||
 						DEFAULT_GOOGLE_OAUTH_SCOPES,
 				});
-				message.success(`已导入 ${fileName}，并自动填充 Google OAuth 字段`);
+				message.success(t(providerSetupI18n["emails.google.importedClientSecret"], { fileName }));
 			}
 			setGoogleParseLoading(false);
 		},
-		[form, resetGoogleOAuthFlow],
+		[form, resetGoogleOAuthFlow, t],
 	);
 
 	const handleGoogleJsonUpload = (file: File) => {
@@ -1837,13 +2151,13 @@ const EmailsPage: FC = () => {
 		reader.onload = (event) => {
 			const fileContent = event.target?.result;
 			if (typeof fileContent !== "string" || !fileContent.trim()) {
-				message.error("读取 Google client_secret 文件失败");
+				message.error(t(providerSetupI18n["emails.google.readClientSecretFailed"]));
 				return;
 			}
 			void applyGoogleJsonImport(fileContent, file.name);
 		};
 		reader.onerror = () => {
-			message.error("读取 Google client_secret 文件失败");
+			message.error(t(providerSetupI18n["emails.google.readClientSecretFailed"]));
 		};
 		reader.readAsText(file);
 		return false;
@@ -1863,7 +2177,7 @@ const EmailsPage: FC = () => {
 						jsonText: values.gmailOAuthJsonText || null,
 						callbackUri: values.gmailOAuthCallbackUri || null,
 					}),
-				"解析 Google client secret 失败",
+				t(providerSetupI18n["emails.google.parseClientSecretFailed"]),
 			);
 			if (result) {
 				resetGoogleOAuthFlow();
@@ -1877,14 +2191,16 @@ const EmailsPage: FC = () => {
 				});
 				if (showSuccessMessage) {
 					message.success(
-						`Google client secret 解析成功${result.projectId ? `（project: ${result.projectId}）` : ""}`,
+						result.projectId
+							? t(providerSetupI18n["emails.google.parseClientSecretSuccessWithProject"], { projectId: result.projectId })
+							: t(providerSetupI18n["emails.google.parseClientSecretSuccess"]),
 					);
 				}
 			}
 			setGoogleParseLoading(false);
 			return result;
 		},
-		[form, resetGoogleOAuthFlow],
+		[form, resetGoogleOAuthFlow, t],
 	);
 
 	const saveGoogleOAuthConfig = useCallback(
@@ -1904,18 +2220,18 @@ const EmailsPage: FC = () => {
 						clientSecret: values.gmailOAuthClientSecret || undefined,
 						scopes: values.gmailOAuthScopes,
 					}),
-				"保存 Google OAuth 配置失败",
+				t(providerSetupI18n["emails.google.saveConfigFailed"]),
 			);
 			if (result) {
 				await fetchOAuthProviderStatuses();
 				if (showSuccessMessage) {
-					message.success("Google OAuth 配置已保存");
+					message.success(t(providerSetupI18n["emails.google.configSaved"]));
 				}
 			}
 			setGoogleSaveLoading(false);
 			return result;
 		},
-		[fetchOAuthProviderStatuses, form],
+		[fetchOAuthProviderStatuses, form, t],
 	);
 
 	const saveOutlookOAuthConfig = useCallback(
@@ -1937,18 +2253,18 @@ const EmailsPage: FC = () => {
 						tenant: values.outlookOAuthTenant,
 						scopes: values.outlookOAuthScopes,
 					}),
-				"保存 Microsoft OAuth 配置失败",
+				t(providerSetupI18n["emails.microsoft.saveConfigFailed"]),
 			);
 			if (result) {
 				await fetchOAuthProviderStatuses();
 				if (showSuccessMessage) {
-					message.success("Microsoft OAuth 配置已保存");
+					message.success(t(providerSetupI18n["emails.microsoft.configSaved"]));
 				}
 			}
 			setOutlookSaveLoading(false);
 			return result;
 		},
-		[fetchOAuthProviderStatuses, form],
+		[fetchOAuthProviderStatuses, form, t],
 	);
 
 	const handleGenerateGoogleAuthUrl = async () => {
@@ -1977,19 +2293,17 @@ const EmailsPage: FC = () => {
 						groupId: toOptionalNumber(form.getFieldValue("groupId")),
 						emailId: editingId ?? undefined,
 					}),
-				"生成 Google 授权链接失败",
+				t(providerSetupI18n["emails.google.generateAuthUrlFailed"]),
 			);
 			if (result?.authUrl) {
 				setGeneratedGoogleAuthUrl(result.authUrl);
 				setGoogleOAuthPendingState(result.state);
 				setGoogleOAuthPollStatus("pending");
 				setGoogleOAuthStatusExpiresAt(result.expiresAt);
-				message.success(
-					"Google 授权链接已生成，请复制到已登录 Google 的浏览器中打开；授权完成后会自动回调 all-Mail。",
-				);
+				message.success(t(providerSetupI18n["emails.google.authUrlGenerated"]));
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "生成 Google 授权链接失败"));
+			message.error(getErrorMessage(err, t(providerSetupI18n["emails.google.generateAuthUrlFailed"])));
 		} finally {
 			setGoogleAuthUrlLoading(false);
 		}
@@ -2010,19 +2324,17 @@ const EmailsPage: FC = () => {
 						groupId: toOptionalNumber(form.getFieldValue("groupId")),
 						emailId: editingId ?? undefined,
 					}),
-				"生成 Microsoft 授权链接失败",
+				t(providerSetupI18n["emails.microsoft.generateAuthUrlFailed"]),
 			);
 			if (result?.authUrl) {
 				setGeneratedOutlookAuthUrl(result.authUrl);
 				setOutlookOAuthPendingState(result.state);
 				setOutlookOAuthPollStatus("pending");
 				setOutlookOAuthStatusExpiresAt(result.expiresAt);
-				message.success(
-					"Microsoft 授权链接已生成，请复制到已登录 Microsoft 的浏览器中打开；授权完成后会自动回调 all-Mail。",
-				);
+				message.success(t(providerSetupI18n["emails.microsoft.authUrlGenerated"]));
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "生成 Microsoft 授权链接失败"));
+			message.error(getErrorMessage(err, t(providerSetupI18n["emails.microsoft.generateAuthUrlFailed"])));
 		} finally {
 			setOutlookAuthUrlLoading(false);
 		}
@@ -2037,9 +2349,9 @@ const EmailsPage: FC = () => {
 		}
 		try {
 			await navigator.clipboard.writeText(url);
-			message.success(`${providerLabel} 授权链接已复制`);
+			message.success(t(providerSetupI18n["emails.oauth.authUrlCopied"], { providerLabel }));
 		} catch {
-			message.error("复制失败，请手动复制下方链接");
+			message.error(t(providerSetupI18n["emails.oauth.copyAuthUrlFailed"]));
 		}
 	};
 
@@ -2071,8 +2383,11 @@ const EmailsPage: FC = () => {
 					(provider === "OUTLOOK" && authType === "MICROSOFT_OAUTH"))
 			) {
 				message.warning(
-					`如果你想自动接入 ${provider === "GMAIL" ? "Gmail" : "Outlook"}，请使用上方的 ${provider === "GMAIL" ? "Google" : "Microsoft"} 授权链接流程；只有“手动保存（高级）”时才需要填写邮箱地址。`,
-				);
+				t(providerSetupI18n["emails.oauth.useAuthorizationFlowHint"], {
+				        providerName: provider === "GMAIL" ? "Gmail" : "Outlook",
+                         authProviderLabel: provider === "GMAIL" ? "Google" : "Microsoft",
+                     }),
+                 );
 				return;
 			}
 
@@ -2116,17 +2431,17 @@ const EmailsPage: FC = () => {
 					normalizedPayload.accountLoginPassword &&
 					!normalizedPayload.accountPasswordGrantToken
 				) {
-					message.warning("请先完成 2FA 验证，再补录或更新账号登录密码");
+					message.warning(t(emailsInlineI18n["emails.accountPassword.requireStepUp"]));
 					return;
 				}
 				const res = await emailsContract.update(editingId, normalizedPayload);
 				if (res.code === 200) {
-					message.success("更新成功");
+					message.success(t(adminI18n.common.updateSuccess));
 					closeEmailModal();
 					fetchData();
 					fetchGroups();
 				} else {
-					message.error(res.message);
+					message.error(t(adminI18n.common.saveFailed));
 				}
 			} else {
 				const res = await emailsContract.create({
@@ -2143,16 +2458,16 @@ const EmailsPage: FC = () => {
 					providerConfig: normalizedPayload.providerConfig,
 				});
 				if (res.code === 200) {
-					message.success("创建成功");
+					message.success(t(adminI18n.common.createSuccess));
 					closeEmailModal();
 					fetchData();
 					fetchGroups();
 				} else {
-					message.error(res.message);
+					message.error(t(adminI18n.common.createFailed));
 				}
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "保存失败"));
+			message.error(getErrorMessage(err, t(adminI18n.common.saveFailed)));
 		}
 	};
 
@@ -2196,22 +2511,22 @@ const EmailsPage: FC = () => {
 									readOnly
 								/>
 							) : (
-								<Text type="secondary">当前未存储该密钥。</Text>
+								<Text type="secondary">{t(emailsInlineI18n["emails.reveal.noStoredSecret"])}</Text>
 							)
 						) : null}
 						{revealExpiresAt ? (
 							<Text type="secondary">
-								将于 {dayjs(revealExpiresAt).format("HH:mm:ss")} 自动隐藏。
+								{t(emailsInlineI18n["emails.reveal.secretAutoHideAt"], { time: dayjs(revealExpiresAt).format("HH:mm:ss") })}
 							</Text>
 						) : null}
 						{revealGrantExpiresAt ? (
 							<Text type="secondary">
-								当前查看授权有效至 {dayjs(revealGrantExpiresAt).format("HH:mm:ss")}。
+								{t(emailsInlineI18n["emails.reveal.grantValidUntil"], { time: dayjs(revealGrantExpiresAt).format("HH:mm:ss") })}
 							</Text>
 						) : null}
 						{revealTargetField === "accountLoginPassword" && hasActiveRevealGrant ? (
 							<Text type="success">
-								已通过 2FA 验证，可直接在下方填写并保存账号登录密码。
+								{t(emailsInlineI18n["emails.accountPassword.verifiedCanSave"])}
 							</Text>
 						) : null}
 					</Space>
@@ -2261,7 +2576,7 @@ const EmailsPage: FC = () => {
 					showIcon
 					type={isTwoFactorEnabled ? "info" : "warning"}
 					style={marginBottom12Style}
-					title="账号登录密码（2FA 后查看 / 补录）"
+						title={t(emailsInlineI18n["emails.accountPassword.alertTitle"])}
 					action={
 						<Button
 							type="primary"
@@ -2270,7 +2585,7 @@ const EmailsPage: FC = () => {
 							disabled={!isTwoFactorEnabled}
 							onClick={() => void handleOpenAccountLoginPasswordAccess()}
 						>
-							{hasActiveRevealGrant ? "重新验证 / 继续补录" : "验证后查看 / 补录"}
+							{hasActiveRevealGrant ? t(emailsInlineI18n["emails.accountPassword.reverifyOrContinue"]) : t(emailsInlineI18n["emails.accountPassword.verifyThenEdit"])}
 						</Button>
 					}
 					description={
@@ -2285,13 +2600,13 @@ const EmailsPage: FC = () => {
 									/>
 								) : (
 									<Text type="secondary">
-										当前未存储账号登录密码，但你现在可以在下方补录并保存。
+										{t(emailsInlineI18n["emails.accountPassword.noneStoredYet"])}
 									</Text>
 								)
 							) : null}
 							{hasActiveRevealGrant ? (
 								<Text type="success">
-									当前 step-up grant 有效，可直接填写并保存账号登录密码。
+									{t(emailsInlineI18n["emails.accountPassword.stepUpActive"])}
 								</Text>
 							) : null}
 						</Space>
@@ -2300,12 +2615,12 @@ const EmailsPage: FC = () => {
 			) : null}
 			<Form.Item
 				name="accountLoginPassword"
-				label="账号登录密码（可选）"
+				label={t(emailsInlineI18n["emails.accountPassword.fieldLabel"])}
 				extra={
 					editingId
 						? hasActiveRevealGrant
-							? "当前已完成 2FA 验证，本次保存会更新账号登录密码。"
-							: "编辑已有账号时需先完成 2FA 验证后才能补录或更新。"
+							? t(emailsInlineI18n["emails.accountPassword.stepUpSaveHint"])
+							: t(emailsInlineI18n["emails.accountPassword.stepUpRequiredHint"])
 						: description
 				}
 			>
@@ -2319,7 +2634,7 @@ const EmailsPage: FC = () => {
 
 	const handleImport = async () => {
 		if (!importContent.trim()) {
-			message.warning("请输入或粘贴邮箱数据");
+			message.warning(t(emailsInlineI18n["emails.import.empty"]));
 			return;
 		}
 
@@ -2340,10 +2655,10 @@ const EmailsPage: FC = () => {
 					: [];
 				if (failedCount > 0) {
 					message.warning(
-						`导入完成：成功 ${successCount} 条，失败 ${failedCount} 条${firstErrors.length ? `；${firstErrors.join("；")}` : ""}`,
+						`${t(emailsInlineI18n["emails.import.partialPrefix"], { successCount, failedCount })}${firstErrors.length ? `；${firstErrors.join("；")}` : ""}`,
 					);
 				} else {
-					message.success(`导入完成：成功 ${successCount} 条`);
+					message.success(t(emailsInlineI18n["emails.import.successCount"], { count: successCount }));
 				}
 				setImportModalVisible(false);
 				setImportContent("");
@@ -2351,10 +2666,10 @@ const EmailsPage: FC = () => {
 				fetchData();
 				fetchGroups();
 			} else {
-				message.error(res.message);
+				message.error(t(emailsInlineI18n["emails.import.failed"]));
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "导入失败"));
+			message.error(getErrorMessage(err, t(emailsInlineI18n["emails.import.failed"])));
 		}
 	};
 
@@ -2365,7 +2680,7 @@ const EmailsPage: FC = () => {
 			const groupId = ids ? undefined : toOptionalNumber(filterGroupId);
 			const res = await emailsContract.export(ids, separator, groupId);
 			if (res.code !== 200) {
-				message.error(res.message || "导出失败");
+				message.error(t(emailsInlineI18n["emails.export.failed"]));
 				return;
 			}
 			const content = res.data?.content || "";
@@ -2378,9 +2693,9 @@ const EmailsPage: FC = () => {
 			a.click();
 			URL.revokeObjectURL(url);
 
-			message.success("导出成功");
+			message.success(t(emailsInlineI18n["emails.export.success"]));
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "导出失败"));
+			message.error(getErrorMessage(err, t(emailsInlineI18n["emails.export.failed"])));
 		}
 	};
 
@@ -2411,12 +2726,12 @@ const EmailsPage: FC = () => {
 					lastViewedAt: markAsSeen ? now : undefined,
 				});
 				if (showSuccessToast) {
-					message.success("刷新成功");
+					message.success(t(emailsInlineI18n["emails.mailbox.refreshSuccess"]));
 				}
 			}
 			setMailLoading(false);
 		},
-		[patchMailboxStatusForEmail],
+		[patchMailboxStatusForEmail, t],
 	);
 
 	const handleViewMails = useCallback(
@@ -2452,7 +2767,7 @@ const EmailsPage: FC = () => {
 				currentMailbox,
 			);
 			if (res.code === 200) {
-				message.success(`已清空 ${res.data?.deletedCount || 0} 封邮件`);
+				message.success(t(emailsInlineI18n["emails.mailbox.clearedCount"], { count: res.data?.deletedCount || 0 }));
 				setSelectedMailIds([]);
 				setMailList([]);
 				const now = new Date().toISOString();
@@ -2465,16 +2780,16 @@ const EmailsPage: FC = () => {
 					lastViewedAt: now,
 				});
 			} else {
-				message.error(res.message || "清空失败");
+				message.error(t(emailsInlineI18n["emails.mailbox.clearFailed"]));
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "清空失败"));
+			message.error(getErrorMessage(err, t(emailsInlineI18n["emails.mailbox.clearFailed"])));
 		}
 	};
 
 	const handleDeleteSelectedMails = async () => {
 		if (!currentEmailId || selectedMailIds.length === 0) {
-			message.warning("请先选择要删除的邮件");
+			message.warning(t(emailsInlineI18n["emails.mailbox.selectMessagesToDelete"]));
 			return;
 		}
 
@@ -2491,7 +2806,7 @@ const EmailsPage: FC = () => {
 				const messages = res.data?.messages || [];
 				const latestMessage = messages[0];
 				const now = new Date().toISOString();
-				message.success(`已删除 ${res.data?.deletedCount || 0} 封邮件`);
+				message.success(t(emailsInlineI18n["emails.mailbox.deletedMessageCount"], { count: res.data?.deletedCount || 0 }));
 				setSelectedMailIds([]);
 				setMailList(messages);
 				patchMailboxStatusForEmail(currentEmailId, currentMailbox, {
@@ -2503,10 +2818,10 @@ const EmailsPage: FC = () => {
 					lastViewedAt: now,
 				});
 			} else {
-				message.error(res.message || "删除选中邮件失败");
+				message.error(t(emailsInlineI18n["emails.mailbox.deleteSelectedFailed"]));
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "删除选中邮件失败"));
+			message.error(getErrorMessage(err, t(emailsInlineI18n["emails.mailbox.deleteSelectedFailed"])));
 		} finally {
 			setDeletingSelectedMails(false);
 		}
@@ -2528,7 +2843,7 @@ const EmailsPage: FC = () => {
 		);
 		if (result) {
 			if (result.targeted === 0) {
-				message.warning("没有可检查的邮箱");
+				message.warning(t(emailsInlineI18n["emails.batchCheck.noneAvailable"]));
 			} else if (result.errorCount > 0 || result.partialCount > 0) {
 				message.warning(
 					`一键检查完成：${scopeLabel}中成功 ${result.successCount} 个，部分成功 ${result.partialCount} 个，失败 ${result.errorCount} 个，跳过 ${result.skippedCount} 个`,
@@ -2541,7 +2856,7 @@ const EmailsPage: FC = () => {
 			await fetchData();
 		}
 		setBatchFetchLoading(false);
-	}, [buildBatchActionPayload, fetchData, selectedRowKeys.length]);
+	}, [buildBatchActionPayload, fetchData, selectedRowKeys.length, t]);
 
 	const handleCheckSingleMailbox = useCallback(
 		async (record: EmailAccount) => {
@@ -2559,20 +2874,20 @@ const EmailsPage: FC = () => {
 
 			if (result) {
 				if (result.targeted === 0) {
-					message.warning(`邮箱 ${record.email} 当前不可检查`);
+					message.warning(t(emailsInlineI18n["emails.batchCheck.mailboxUnavailable"], { email: record.email }));
 				} else if (result.errorCount > 0 || result.partialCount > 0) {
 					message.warning(
 						`检查 ${record.email} 完成：成功 ${result.successCount} 个，部分成功 ${result.partialCount} 个，失败 ${result.errorCount} 个，跳过 ${result.skippedCount} 个邮箱夹`,
 					);
 				} else {
-					message.success(`已检查 ${record.email}，最后检查时间已更新`);
+					message.success(t(emailsInlineI18n["emails.batchCheck.mailboxUpdated"], { email: record.email }));
 				}
 				await fetchData();
 			}
 
 			setCheckingEmailIds((prev) => prev.filter((id) => id !== record.id));
 		},
-		[fetchData],
+		[fetchData, t],
 	);
 
 	const handleBatchClearMailbox = useCallback(async () => {
@@ -2593,7 +2908,7 @@ const EmailsPage: FC = () => {
 		);
 		if (result) {
 			if (result.targeted === 0) {
-				message.warning("没有可清空的邮箱");
+				message.warning(t(emailsInlineI18n["emails.batchClear.noneAvailable"]));
 			} else if (result.errorCount > 0) {
 				message.warning(
 					`批量清空完成：共删除 ${result.deletedCount} 封，成功 ${result.successCount} 个，失败 ${result.errorCount} 个，跳过 ${result.skippedCount} 个`,
@@ -2607,7 +2922,7 @@ const EmailsPage: FC = () => {
 			await fetchData();
 		}
 		setBatchClearLoading(false);
-	}, [batchClearMailbox, buildBatchActionPayload, fetchData]);
+	}, [batchClearMailbox, buildBatchActionPayload, fetchData, t]);
 
 	const handleViewEmailDetail = (record: MailItem) => {
 		setSelectedMailDetail(record);
@@ -2626,7 +2941,9 @@ const EmailsPage: FC = () => {
 				.filter(Boolean);
 
 			if (recipients.length === 0) {
-				message.error("请至少填写一个收件人");
+				message.error(
+					t(emailsInlineI18n["emails.compose.recipientRequired"]),
+				);
 				return;
 			}
 
@@ -2640,17 +2957,26 @@ const EmailsPage: FC = () => {
 			setComposeSending(false);
 
 			if (result.code !== 200) {
-				message.error(result.message || "发送失败");
+				message.error(
+					t(emailsInlineI18n["emails.compose.sendFailed"]),
+				);
 				return;
 			}
 
-			message.success("发送成功");
+			message.success(
+				t(emailsInlineI18n["emails.compose.sendSuccess"]),
+			);
 			setComposeModalVisible(false);
 			composeForm.resetFields();
 			await handleMailboxTabChange("SENT");
 		} catch (err: unknown) {
 			setComposeSending(false);
-			message.error(getErrorMessage(err, "发送失败"));
+			message.error(
+				getErrorMessage(
+					err,
+					t(emailsInlineI18n["emails.compose.sendFailed"]),
+				),
+			);
 		}
 	};
 
@@ -2682,15 +3008,22 @@ const EmailsPage: FC = () => {
 			try {
 				const res = await emailsContract.deleteGroup(id);
 				if (res.code === 200) {
-					message.success("分组已删除");
+					message.success(
+						t(emailsInlineI18n["emails.group.deleted"]),
+					);
 					fetchGroups();
 					fetchData();
 				}
 			} catch (err: unknown) {
-				message.error(getErrorMessage(err, "删除失败"));
+				message.error(
+					getErrorMessage(
+						err,
+						t(adminI18n.common.deleteFailed),
+					),
+				);
 			}
 		},
-		[fetchData, fetchGroups],
+		[fetchData, fetchGroups, t],
 	);
 
 	const handleGroupSubmit = async () => {
@@ -2699,30 +3032,43 @@ const EmailsPage: FC = () => {
 			if (editingGroupId) {
 				const res = await emailsContract.updateGroup(editingGroupId, values);
 				if (res.code === 200) {
-					message.success("分组已更新");
+					message.success(
+						t(emailsInlineI18n["emails.group.updated"]),
+					);
 					setGroupModalVisible(false);
 					fetchGroups();
 				}
 			} else {
 				const res = await emailsContract.createGroup(values);
 				if (res.code === 200) {
-					message.success("分组已创建");
+					message.success(
+						t(emailsInlineI18n["emails.group.created"]),
+					);
 					setGroupModalVisible(false);
 					fetchGroups();
 				}
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "分组保存失败"));
+			message.error(
+				getErrorMessage(
+					err,
+					t(emailsInlineI18n["emails.group.saveFailed"]),
+				),
+			);
 		}
 	};
 
 	const handleBatchAssignGroup = async () => {
 		if (selectedRowKeys.length === 0) {
-			message.warning("请先选择邮箱");
+			message.warning(
+				t(emailsInlineI18n["emails.selection.selectMailboxFirst"]),
+			);
 			return;
 		}
 		if (!assignTargetGroupId) {
-			message.warning("请选择目标分组");
+			message.warning(
+				t(emailsInlineI18n["emails.group.selectTargetGroup"]),
+			);
 			return;
 		}
 		try {
@@ -2731,7 +3077,9 @@ const EmailsPage: FC = () => {
 				selectedRowKeys as number[],
 			);
 			if (res.code === 200) {
-				message.success(`已将 ${res.data.count} 个邮箱分配到分组`);
+				message.success(
+					t(emailsInlineI18n["emails.group.assignedCount"], { count: res.data.count }),
+				);
 				setAssignGroupModalVisible(false);
 				setAssignTargetGroupId(undefined);
 				setSelectedRowKeys([]);
@@ -2739,13 +3087,20 @@ const EmailsPage: FC = () => {
 				fetchGroups();
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "分配失败"));
+			message.error(
+				getErrorMessage(
+					err,
+					t(emailsInlineI18n["emails.group.assignFailed"]),
+				),
+			);
 		}
 	};
 
 	const handleBatchRemoveGroup = async () => {
 		if (selectedRowKeys.length === 0) {
-			message.warning("请先选择邮箱");
+			message.warning(
+				t(emailsInlineI18n["emails.selection.selectMailboxFirst"]),
+			);
 			return;
 		}
 		// Find the groupIds of selected emails, remove from each group
@@ -2765,12 +3120,19 @@ const EmailsPage: FC = () => {
 					.map((e: EmailAccount) => e.id);
 				await emailsContract.removeEmails(gid, emailIds);
 			}
-			message.success("已将选中邮箱移出分组");
+			message.success(
+				t(emailsInlineI18n["emails.group.removedFromGroups"]),
+			);
 			setSelectedRowKeys([]);
 			fetchData();
 			fetchGroups();
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, "移出失败"));
+			message.error(
+				getErrorMessage(
+					err,
+					t(emailsInlineI18n["emails.group.removeFailed"]),
+				),
+			);
 		}
 	};
 
@@ -2780,78 +3142,83 @@ const EmailsPage: FC = () => {
 	const columns: ColumnsType<EmailAccount> = useMemo(
 		() => [
 			{
-				title: "邮箱地址",
+				title: t(adminI18n.emails.mailboxAddress),
 				dataIndex: "email",
 				key: "email",
 				width: 300,
-				render: (_: string, record: EmailAccount) => (
-					<div style={emailStyles.addressCell}>
-						<Text style={emailStyles.addressText}>{record.email}</Text>
-						{record.profileSummaryHint ? <div style={emailStyles.metaText}>{record.profileSummaryHint}</div> : null}
-						{record.errorMessage ? <div style={emailStyles.errorText}>错误：{record.errorMessage}</div> : null}
-					</div>
-				),
+					render: (_: string, record: EmailAccount) => {
+						const profileDefinition = record.providerProfile
+							? getProviderProfileDefinitionByKey(record.providerProfile as ProviderProfileKey)
+							: getProviderProfileDefinition(record.provider, record.authType);
+						return (
+							<div style={emailStyles.addressCell}>
+								<Text style={emailStyles.addressText}>{record.email}</Text>
+								<div style={emailStyles.metaText}>{t(getProviderProfileSummaryHintMessage(profileDefinition.key))}</div>
+								{record.errorMessage ? <div style={emailStyles.errorText}>{t(emailsInlineI18n["emails.row.errorMessage"], { message: record.errorMessage })}</div> : null}
+							</div>
+						);
+					},
 			},
 			{
-				title: "连接合同",
+				title: t(adminI18n.emails.connectionContract),
 				key: "connection",
-				render: (_: unknown, record: EmailAccount) => {
-					const profileDefinition = record.providerProfile
-						? getProviderProfileDefinitionByKey(record.providerProfile as ProviderProfileKey)
-						: getProviderProfileDefinition(record.provider, record.authType);
-					const representativeProtocol = record.representativeProtocol || profileDefinition.representativeProtocol;
-					return (
-						<div style={emailStyles.contractCell}>
-							<Space wrap>
-								<Tag color={getProviderDefinition(record.provider).tagColor}>{EMAIL_PROVIDER_LABELS[record.provider]}</Tag>
-								<Tag color={getRepresentativeProtocolTagColor(representativeProtocol)}>{getRepresentativeProtocolLabel(representativeProtocol)}</Tag>
-								<Tag>{AUTH_TYPE_LABELS[record.authType]}</Tag>
-							</Space>
-							<div style={emailStyles.metaText}>{profileDefinition.summaryHint}</div>
-						</div>
-					);
-				},
+					render: (_: unknown, record: EmailAccount) => {
+						const profileDefinition = record.providerProfile
+							? getProviderProfileDefinitionByKey(record.providerProfile as ProviderProfileKey)
+							: getProviderProfileDefinition(record.provider, record.authType);
+						const representativeProtocol = record.representativeProtocol || profileDefinition.representativeProtocol;
+						return (
+							<div style={emailStyles.contractCell}>
+								<Space wrap>
+									<Tag color={getProviderDefinition(record.provider).tagColor}>{t(getProviderLabelMessage(record.provider))}</Tag>
+									<Tag color={getRepresentativeProtocolTagColor(representativeProtocol)}>{t(getRepresentativeProtocolLabelMessage(representativeProtocol))}</Tag>
+									<Tag>{t(getAuthTypeLabelMessage(record.authType))}</Tag>
+								</Space>
+								<div style={emailStyles.metaText}>{t(getProviderProfileSummaryHintMessage(profileDefinition.key))}</div>
+							</div>
+						);
+					},
 			},
 			{
-				title: "分组",
+				title: t(adminI18n.emails.group),
 				key: "group",
 				render: (_: unknown, record: EmailAccount) => (
-					record.group ? <Tag color="blue">{record.group.name}</Tag> : <Tag>未分组</Tag>
+					record.group ? <Tag color="blue">{record.group.name}</Tag> : <Tag>{t(adminI18n.emails.ungrouped)}</Tag>
 				),
 			},
 			{
-				title: "Client ID",
+				title: t(adminI18n.common.clientId),
 				dataIndex: "clientId",
 				key: "clientId",
 				width: 180,
 				render: (value: string | null) => <div style={emailStyles.clientIdText}>{value || "-"}</div>,
 			},
 			{
-				title: "状态",
+				title: t(adminI18n.common.status),
 				dataIndex: "status",
 				key: "status",
 				width: 100,
-				render: (value: EmailAccountStatus) => {
-					const statusMeta = getEmailStatusMeta(value);
-					return <Tag color={statusMeta.color}>{statusMeta.label}</Tag>;
-				},
+					render: (value: EmailAccountStatus) => {
+						const statusMeta = getEmailStatusMeta(value, t);
+						return <Tag color={statusMeta.color}>{statusMeta.label}</Tag>;
+					},
 			},
 			{
-				title: "最后检查",
+				title: t(adminI18n.common.lastChecked),
 				dataIndex: "lastCheckAt",
 				key: "lastCheckAt",
 				width: 168,
 				render: (value: string | null) => value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "-",
 			},
 			{
-				title: "创建时间",
+				title: t(adminI18n.common.createdAt),
 				dataIndex: "createdAt",
 				key: "createdAt",
 				width: 168,
 				render: (value: string) => dayjs(value).format("YYYY-MM-DD HH:mm"),
 			},
 			{
-				title: "动作",
+				title: t(adminI18n.common.actions),
 				key: "action",
 				width: 220,
 				render: (_: unknown, record: EmailAccount) => (
@@ -2862,21 +3229,21 @@ const EmailsPage: FC = () => {
 								type={hasNewMailboxMessages(record, "INBOX") ? "primary" : "default"}
 								onClick={() => handleViewMails(record, "INBOX")}
 							>
-								收件箱
+								{t(adminI18n.emails.inbox)}
 							</Button>
 							<Button
 								size="small"
 								onClick={() => handleViewMails(record, "SENT")}
 							>
-								已发送
+								{t(adminI18n.emails.sent)}
 							</Button>
 							<Tooltip
 								title={
 									canRevealStoredAccountLoginPassword(record)
-										? "查看已存储的登录密码"
+										? t(emailsInlineI18n["emails.row.viewStoredLoginPassword"])
 										: record.hasStoredAccountLoginPassword
-											? "当前账号已存储登录密码，请通过 2FA 查看"
-											: "该账号暂无已存储的登录密码"
+											? t(emailsInlineI18n["emails.row.loginPasswordStoredWith2fa"])
+											: t(emailsInlineI18n["emails.row.noStoredLoginPassword"])
 								}
 							>
 								<Button
@@ -2886,30 +3253,30 @@ const EmailsPage: FC = () => {
 											? "primary"
 											: "default"
 									}
-									aria-label="登录密码"
+									aria-label={t(emailsInlineI18n["emails.row.loginPasswordAriaLabel"])}
 									onClick={() => void handleRowPasswordReveal(record)}
 								>
-									登录密码
+									{t(emailsInlineI18n["emails.row.loginPasswordButton"])}
 								</Button>
 							</Tooltip>
 							<Button
 								size="small"
 								onClick={() => void handleCheckSingleMailbox(record)}
 							>
-								检查连接
+								{t(adminI18n.emails.checkConnection)}
 							</Button>
 							<Button
 								size="small"
 								onClick={() => handleEdit(record)}
 							>
-								编辑
+								{t(adminI18n.common.edit)}
 							</Button>
 							<Popconfirm
-								title="确定要删除此邮箱吗？"
+								title={t(emailsInlineI18n["emails.row.deleteConfirm"])}
 								onConfirm={() => handleDelete(record.id)}
 							>
 								<Button size="small" danger>
-									删除
+									{t(adminI18n.common.remove)}
 								</Button>
 							</Popconfirm>
 						</Space>
@@ -2924,6 +3291,7 @@ const EmailsPage: FC = () => {
 			handleRowPasswordReveal,
 			handleViewMails,
 			hasNewMailboxMessages,
+			t,
 		],
 	);
 
@@ -2942,13 +3310,13 @@ const EmailsPage: FC = () => {
 			pageSize,
 			total,
 			showSizeChanger: true,
-			showTotal: (count: number) => `共 ${count} 条`,
+			showTotal: (count: number) => t(adminI18n.common.totalCount, { count }),
 			onChange: (currentPage: number, currentPageSize: number) => {
 				setPage(currentPage);
 				setPageSize(currentPageSize);
 			},
 		}),
-		[page, pageSize, total],
+		[page, pageSize, t, total],
 	);
 
 	const groupFilterOptions = useMemo(
@@ -2970,11 +3338,10 @@ const EmailsPage: FC = () => {
 	);
 
 	const createActionItems = EXTERNAL_REPRESENTATIVE_PROTOCOLS.map((protocol) => {
-		const definition = getRepresentativeProtocolDefinition(protocol);
 		return {
 			key: protocol,
 			icon: <PlusOutlined />,
-			label: definition.connectionLabel,
+			label: t(getRepresentativeProtocolConnectionLabelMessage(protocol)),
 			onClick: () => handleCreate(protocol),
 		};
 	});
@@ -2983,13 +3350,13 @@ const EmailsPage: FC = () => {
 		{
 			key: "import",
 			icon: <UploadOutlined />,
-			label: "导入",
+			label: t(adminI18n.common.import),
 			onClick: () => setImportModalVisible(true),
 		},
 		{
 			key: "export",
 			icon: <DownloadOutlined />,
-			label: "导出",
+			label: t(adminI18n.common.export),
 			onClick: handleExport,
 		},
 		{
@@ -2997,8 +3364,8 @@ const EmailsPage: FC = () => {
 			icon: <ReloadOutlined />,
 			label:
 				selectedRowKeys.length > 0
-					? `一键检查 (${selectedRowKeys.length})`
-					: "一键检查筛选结果",
+					? t(emailsInlineI18n["emails.tools.batchCheckSelected"], { count: selectedRowKeys.length })
+					: t(emailsInlineI18n["emails.tools.batchCheckFiltered"]),
 			disabled: batchFetchLoading,
 			onClick: () => {
 				void handleBatchFetchMailboxes();
@@ -3009,8 +3376,8 @@ const EmailsPage: FC = () => {
 			icon: <DeleteOutlined />,
 			label:
 				selectedRowKeys.length > 0
-					? `批量清空邮件 (${selectedRowKeys.length})`
-					: "批量清空邮箱邮件",
+					? t(emailsInlineI18n["emails.tools.batchClearSelected"], { count: selectedRowKeys.length })
+					: t(emailsInlineI18n["emails.tools.batchClearFiltered"]),
 			danger: true,
 			onClick: () => setBatchClearModalVisible(true),
 		},
@@ -3022,41 +3389,41 @@ const EmailsPage: FC = () => {
 	const groupColumns: ColumnsType<EmailGroup> = useMemo(
 		() => [
 			{
-				title: "分组名称",
+				title: t(emailsInlineI18n["emails.group.columnName"]),
 				dataIndex: "name",
 				key: "name",
 				render: (name: string) => <Tag color="blue">{name}</Tag>,
 			},
 			{
-				title: "描述",
+				title: t(emailsInlineI18n["emails.group.columnDescription"]),
 				dataIndex: "description",
 				key: "description",
 				render: (val: string | null) => val || "-",
 			},
 			{
-				title: "拉取策略",
+				title: t(emailsInlineI18n["emails.group.columnFetchStrategy"]),
 				dataIndex: "fetchStrategy",
 				key: "fetchStrategy",
 				width: 190,
-				render: (value: MailFetchStrategy) => (
-					<Tag color="purple">{MAIL_FETCH_STRATEGY_LABELS[value]}</Tag>
-				),
+					render: (value: MailFetchStrategy) => (
+						<Tag color="purple">{t(MAIL_FETCH_STRATEGY_LABELS[value])}</Tag>
+					),
 			},
 			{
-				title: "邮箱数",
+				title: t(emailsInlineI18n["emails.group.columnEmailCount"]),
 				dataIndex: "emailCount",
 				key: "emailCount",
 				width: 100,
 			},
 			{
-				title: "创建时间",
+				title: t(adminI18n.common.createdAt),
 				dataIndex: "createdAt",
 				key: "createdAt",
 				width: 180,
 				render: (val: string) => dayjs(val).format("YYYY-MM-DD HH:mm"),
 			},
 			{
-				title: "操作",
+				title: t(adminI18n.common.actions),
 				key: "action",
 				width: 160,
 				render: (_: unknown, record: EmailGroup) => (
@@ -3067,8 +3434,8 @@ const EmailsPage: FC = () => {
 							onClick={() => handleEditGroup(record)}
 						/>
 						<Popconfirm
-							title="删除分组后，组内邮箱将变为「未分组」。确认？"
-							onConfirm={() => handleDeleteGroup(record.id)}
+								title={t(emailsInlineI18n["emails.group.deleteConfirm"])}
+								onConfirm={() => handleDeleteGroup(record.id)}
 						>
 							<Button type="text" danger icon={<DeleteOutlined />} />
 						</Popconfirm>
@@ -3076,7 +3443,7 @@ const EmailsPage: FC = () => {
 				),
 			},
 		],
-		[handleDeleteGroup, handleEditGroup],
+		[handleDeleteGroup, handleEditGroup, t],
 	);
 
 	// ========================================
@@ -3085,15 +3452,15 @@ const EmailsPage: FC = () => {
 	return (
 		<div>
 			<PageHeader
-				title="外部邮箱连接"
-				subtitle="统一管理 OAuth API 与 IMAP / SMTP 外部连接。"
+				title={t(adminI18n.emails.title)}
+				subtitle={t(adminI18n.emails.subtitle)}
 				extra={
 					<Space wrap>
 						<Dropdown menu={{ items: toolActionItems }}>
-							<Button icon={<MoreOutlined />}>工具</Button>
+							<Button icon={<MoreOutlined />}>{t(adminI18n.emails.tools)}</Button>
 						</Dropdown>
 						<Dropdown menu={{ items: createActionItems }}>
-							<Button type="primary" icon={<PlusOutlined />}>添加邮箱</Button>
+							<Button type="primary" icon={<PlusOutlined />}>{t(adminI18n.emails.addMailbox)}</Button>
 						</Dropdown>
 					</Space>
 				}
@@ -3105,13 +3472,13 @@ const EmailsPage: FC = () => {
 				items={[
 					{
 						key: "emails",
-						label: "邮箱列表",
+						label: t(adminI18n.emails.mailboxList),
 						children: (
 							<>
 								<div style={emailStyles.filterToolbar}>
 									<Space wrap>
 										<Input
-											placeholder="搜索邮箱"
+										placeholder={t(adminI18n.emails.searchMailboxes)}
 											prefix={<SearchOutlined />}
 											value={keyword}
 											onChange={(e) => setKeyword(e.target.value)}
@@ -3119,14 +3486,14 @@ const EmailsPage: FC = () => {
 											allowClear
 										/>
 										<Select
-											placeholder="按协议家族筛选"
+										placeholder={t(adminI18n.emails.filterByProtocol)}
 											allowClear
 											style={width170Style}
 											value={filterRepresentativeProtocol}
 											options={EXTERNAL_REPRESENTATIVE_PROTOCOLS.map(
 												(protocol) => ({
 													value: protocol,
-													label: getRepresentativeProtocolLabel(protocol),
+													label: t(getRepresentativeProtocolLabelMessage(protocol)),
 												}),
 											)}
 											onChange={(value: RepresentativeProtocol | undefined) => {
@@ -3135,7 +3502,7 @@ const EmailsPage: FC = () => {
 											}}
 										/>
 										<Select
-											placeholder="按 Provider 筛选"
+										placeholder={t(adminI18n.emails.filterByProvider)}
 											allowClear
 											style={width150Style}
 											value={filterProvider}
@@ -3146,18 +3513,18 @@ const EmailsPage: FC = () => {
 											}}
 										/>
 										<Select
-											placeholder="按状态筛选"
+										placeholder={t(adminI18n.emails.filterByStatus)}
 											allowClear
 											style={width140Style}
 											value={filterStatus}
-											options={EMAIL_STATUS_FILTER_OPTIONS}
+										options={emailStatusFilterOptions}
 											onChange={(value: EmailAccountStatus | undefined) => {
 												setFilterStatus(value);
 												setPage(1);
 											}}
 										/>
 										<Select
-											placeholder="按分组筛选"
+										placeholder={t(adminI18n.emails.filterByGroup)}
 											allowClear
 											style={width160Style}
 											value={filterGroupId}
@@ -3172,22 +3539,22 @@ const EmailsPage: FC = () => {
 
 								{selectedRowKeys.length > 0 ? (
 									<SurfaceCard tone="muted" style={emailStyles.selectionBar} bodyStyle={{ padding: '12px 16px' }}>
-										<Space wrap style={{ width: '100%', justifyContent: 'space-between', gap: 12 }}>
-											<Text type="secondary">已选择 {selectedRowKeys.length} 个邮箱，可以继续做分组或删除。</Text>
-											<Space wrap>
-												<Button type="text" icon={<GroupOutlined />} onClick={() => setAssignGroupModalVisible(true)}>
-													分配分组
-												</Button>
-												<Button type="text" onClick={handleBatchRemoveGroup}>
-													移出分组
-												</Button>
-												<Popconfirm
-													title={`确定要删除选中的 ${selectedRowKeys.length} 个邮箱吗？`}
-													onConfirm={handleBatchDelete}
-												>
-													<Button danger>批量删除</Button>
-												</Popconfirm>
-											</Space>
+									<Space wrap style={{ width: '100%', justifyContent: 'space-between', gap: 12 }}>
+										<Text type="secondary">{t(emailsInlineI18n["emails.selection.banner"], { count: selectedRowKeys.length })}</Text>
+										<Space wrap>
+											<Button type="text" icon={<GroupOutlined />} onClick={() => setAssignGroupModalVisible(true)}>
+												{t(emailsInlineI18n["emails.selection.assignGroup"])}
+											</Button>
+											<Button type="text" onClick={handleBatchRemoveGroup}>
+												{t(emailsInlineI18n["emails.selection.removeGroup"])}
+											</Button>
+											<Popconfirm
+												title={t(emailsInlineI18n["emails.selection.deleteSelectedConfirm"], { count: selectedRowKeys.length })}
+												onConfirm={handleBatchDelete}
+											>
+												<Button danger>{t(emailsInlineI18n["emails.selection.batchDelete"])}</Button>
+											</Popconfirm>
+										</Space>
 										</Space>
 									</SurfaceCard>
 								) : null}
@@ -3199,14 +3566,14 @@ const EmailsPage: FC = () => {
 										style={marginBottom16Style}
 						title={
 											focusedEmailRecord
-												? `已定位异常邮箱：${focusedEmailRecord.email}`
-												: "当前正在查看异常邮箱列表"
-										}
-										description={
-											focusedEmailRecord
-												? `${focusedEmailRecord.errorMessage || "当前连接检查失败，建议重新检查或重新走 OAuth 授权。"}${focusedEmailRecord.lastCheckAt ? ` 最后检查：${dayjs(focusedEmailRecord.lastCheckAt).format("YYYY-MM-DD HH:mm:ss")}` : ""}`
-												: "这里会只显示 status=ERROR 的外部邮箱，适合集中排查 OAuth 续期、网络超时和 Provider 配置问题。"
-										}
+												? t(emailsInlineI18n["emails.errorFilter.focusedTitle"], { email: focusedEmailRecord.email })
+												: t(emailsInlineI18n["emails.errorFilter.listTitle"])
+									}
+									description={
+										focusedEmailRecord
+											? `${focusedEmailRecord.errorMessage || t(emailsInlineI18n["emails.errorFilter.defaultReason"])}${focusedEmailRecord.lastCheckAt ? ` ${t(emailsInlineI18n["emails.errorFilter.lastChecked"], { time: dayjs(focusedEmailRecord.lastCheckAt).format("YYYY-MM-DD HH:mm:ss") })}` : ""}`
+											: t(emailsInlineI18n["emails.errorFilter.listDescription"])
+									}
 										action={
 											<Space wrap>
 												{focusedEmailRecord ? (
@@ -3220,7 +3587,7 @@ const EmailsPage: FC = () => {
 															void handleCheckSingleMailbox(focusedEmailRecord)
 														}
 													>
-														重新检查
+												{t(emailsInlineI18n["emails.errorFilter.recheck"])}
 													</Button>
 												) : null}
 												{focusedEmailRecord ? (
@@ -3228,7 +3595,7 @@ const EmailsPage: FC = () => {
 														size="small"
 														onClick={() => void handleEdit(focusedEmailRecord)}
 													>
-														查看配置
+												{t(emailsInlineI18n["emails.errorFilter.viewConfig"])}
 													</Button>
 												) : null}
 												<Button
@@ -3238,7 +3605,7 @@ const EmailsPage: FC = () => {
 														navigate("/emails", { replace: true });
 													}}
 												>
-													清除定位
+												{t(emailsInlineI18n["emails.errorFilter.clearFocus"])}
 												</Button>
 											</Space>
 										}
@@ -3260,17 +3627,17 @@ const EmailsPage: FC = () => {
 					},
 					{
 						key: "groups",
-						label: "邮箱分组",
+						label: t(adminI18n.emails.mailboxGroups),
 						children: (
 							<>
-								<div style={emailStyles.listTopActions}>
-									<Button
-										type="primary"
-										icon={<PlusOutlined />}
-										onClick={handleCreateGroup}
-									>
-										创建分组
-									</Button>
+							<div style={emailStyles.listTopActions}>
+								<Button
+									type="primary"
+									icon={<PlusOutlined />}
+									onClick={handleCreateGroup}
+								>
+									{t(emailsInlineI18n["emails.group.createButton"])}
+								</Button>
 								</div>
 								<Table
 									columns={groupColumns}
@@ -3288,13 +3655,21 @@ const EmailsPage: FC = () => {
 			<Modal
 				title={
 					editingId
-						? "编辑邮箱"
-						: selectedRepresentativeProtocolDefinition.connectionLabel
+						? t(emailsPageI18n.editMailboxTitle)
+						: t(
+							getRepresentativeProtocolConnectionLabelMessage(
+								selectedRepresentativeProtocol,
+							),
+						)
 				}
 				open={modalVisible}
 				onOk={handleSubmit}
 				onCancel={closeEmailModal}
-				okText={requiresOAuthFields ? "手动保存（高级）" : "保存"}
+				okText={
+					requiresOAuthFields
+						? t(emailsPageI18n.manualSaveAdvanced)
+						: t(emailsPageI18n.save)
+				}
 				destroyOnHidden
 				width={680}
 			>
@@ -3312,19 +3687,17 @@ const EmailsPage: FC = () => {
 								)
 							}
 							items={EXTERNAL_REPRESENTATIVE_PROTOCOLS.map((protocol) => {
-								const definition =
-									getRepresentativeProtocolDefinition(protocol);
 								const protocolProfiles =
 									getProviderProfilesByRepresentativeProtocol(protocol);
 								return {
 									key: protocol,
-									label: definition.label,
+									label: t(getRepresentativeProtocolLabelMessage(protocol)),
 									children: (
 										<div style={marginBottom12Style}>
 											<div style={emailStyles.modalSectionHeading}>
-												{definition.label}
+												{t(getRepresentativeProtocolLabelMessage(protocol))}
 											</div>
-											<Text type="secondary">{definition.description}</Text>
+											<Text type="secondary">{t(getRepresentativeProtocolDescriptionMessage(protocol))}</Text>
 											<div style={marginTop8Style}>
 												<Space wrap>
 													{protocolProfiles.map((profile) => (
@@ -3336,7 +3709,7 @@ const EmailsPage: FC = () => {
 																	: "default"
 															}
 														>
-															{profile.label}
+															{t(getProviderProfileLabelMessage(profile.key))}
 														</Tag>
 													))}
 												</Space>
@@ -3349,7 +3722,7 @@ const EmailsPage: FC = () => {
 
 						<div style={marginBottom12Style}>
 							<div style={emailStyles.modalSectionHeadingWide}>
-								Provider Profile
+								{t(emailsPageI18n.providerProfileHeading)}
 							</div>
 							<Space wrap>
 								{availableProfileDefinitions.map((profile) => (
@@ -3362,7 +3735,7 @@ const EmailsPage: FC = () => {
 										}
 										onClick={() => handleProfileSelection(profile.key)}
 									>
-										{profile.label}
+										{t(getProviderProfileLabelMessage(profile.key))}
 									</Button>
 								))}
 							</Space>
@@ -3373,8 +3746,14 @@ const EmailsPage: FC = () => {
 								type="info"
 								showIcon
 								style={marginBottom12Style}
-							title={`当前选择会按 ${getRepresentativeProtocolLabel(selectedRepresentativeProtocol)} 主分类展示`}
-								description={`${selectedRepresentativeProtocolDefinition.description} 当前 profile：${selectedProfileDefinition.label}。${selectedProfileDefinition.summaryHint}`}
+							title={t(emailsPageI18n.selectedProtocolAlertTitle, {
+								protocol: t(
+									getRepresentativeProtocolLabelMessage(
+										selectedRepresentativeProtocol,
+									),
+								),
+							})}
+							description={`${t(getRepresentativeProtocolDescriptionMessage(selectedRepresentativeProtocol))} ${t(emailsPageI18n.currentProfileInline, { profile: t(getProviderProfileLabelMessage(selectedProfileDefinition.key)) })}。${t(getProviderProfileSummaryHintMessage(selectedProfileDefinition.key))}`}
 							/>
 						)}
 
@@ -3384,49 +3763,54 @@ const EmailsPage: FC = () => {
 									selectedProfileDefinition.representativeProtocol,
 								)}
 							>
-								代表协议：
-								{getRepresentativeProtocolLabel(
-									selectedProfileDefinition.representativeProtocol,
-								)}
+								{t(emailsPageI18n.representativeProtocolInline, {
+									protocol: t(
+										getRepresentativeProtocolLabelMessage(
+											selectedProfileDefinition.representativeProtocol,
+										),
+									),
+								})}
 							</Tag>
 							<Tag color={selectedProviderDefinition.tagColor}>
-								Profile：{selectedProfileDefinition.label}
+								{t(emailsPageI18n.profileInline, {
+									profile: t(
+										getProviderProfileLabelMessage(selectedProfileDefinition.key),
+									),
+								})}
 							</Tag>
 							{selectedProfileDefinition.secondaryProtocols.map((protocol) => (
 								<Tag
 									key={`selected-${selectedProfileDefinition.key}-${protocol}`}
 								>
-									辅助协议：{getSecondaryProtocolLabel(protocol)}
+									{t(emailsPageI18n.secondaryProtocolInline, {
+										protocol: t(getSecondaryProtocolLabelMessage(protocol)),
+									})}
 								</Tag>
 							))}
 						</Space>
 
 						<Text type="secondary" style={emailStyles.secondaryBlock}>
-							{selectedProviderDefinition.authTypeNotes[selectedAuthType] ||
-								selectedProviderDefinition.classificationNote}{" "}
-							当前连接路径遵循“协议家族 → provider profile →
-							capability”顺序：先确定是 OAuth API 还是 IMAP / SMTP，再落到具体
-							provider profile。
+							{t(getProviderProfileDescriptionMessage(selectedProfileDefinition.key))}{" "}
+							{t(emailsPageI18n.connectionPathHint)}
 						</Text>
 
 						<div style={emailStyles.capabilityBox}>
 						<Space orientation="vertical" size={12} style={fullWidthStyle}>
 								<div>
 									<Text strong style={displayBlockMarginBottom4Style}>
-										Capability Matrix
+										{t(emailsPageI18n.capabilityMatrixHeading)}
 									</Text>
 									<Text type="secondary">
-										当前 profile
-										的能力矩阵会直接决定列表页的可检查、可发信、可清空和后续扩展边界。
+										{t(emailsPageI18n.capabilityMatrixDescription)}
 									</Text>
 								</div>
-								{renderCapabilityMatrix(selectedProfileCapabilitySummary)}
+								{renderCapabilityMatrix(selectedProfileCapabilitySummary, t)}
 							</Space>
 						</div>
 
 						<Form.Item
 							name="email"
-							label="邮箱地址"
+							label={t(emailsPageI18n.emailAddressLabel)}
 							extra={
 								(isGmailOAuth || isOutlookProvider) && !editingId
 									? `使用上方 ${isGmailOAuth ? "Google" : "Microsoft"} OAuth 授权链接时可先留空，授权完成后系统会自动识别邮箱地址；若点击底部“手动保存（高级）”，这里仍需填写。`
@@ -3438,22 +3822,26 @@ const EmailsPage: FC = () => {
 										const normalizedValue =
 											typeof value === "string" ? value.trim() : "";
 										if (!normalizedValue) {
-											if ((isGmailOAuth || isOutlookProvider) && !editingId) {
-												return Promise.resolve();
-											}
-											return Promise.reject(new Error("请输入邮箱地址"));
+										if ((isGmailOAuth || isOutlookProvider) && !editingId) {
+											return Promise.resolve();
 										}
-										const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-										if (!emailPattern.test(normalizedValue)) {
-											return Promise.reject(new Error("请输入有效的邮箱地址"));
-										}
+										return Promise.reject(
+											new Error(t(emailsPageI18n.emailAddressRequired)),
+										);
+									}
+									const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+									if (!emailPattern.test(normalizedValue)) {
+										return Promise.reject(
+											new Error(t(emailsPageI18n.validEmailRequired)),
+										);
+									}
 										return Promise.resolve();
 									},
 								},
 							]}
 						>
 							<Input
-								placeholder={selectedProviderDefinition.emailPlaceholder}
+								placeholder={t(getProviderEmailPlaceholderMessage(selectedProvider))}
 							/>
 						</Form.Item>
 
@@ -3462,9 +3850,9 @@ const EmailsPage: FC = () => {
 								<Form.Item name="authType" hidden>
 									<Input />
 								</Form.Item>
-								<Form.Item label="鉴权方式">
-									<Input value="Microsoft OAuth" disabled />
-								</Form.Item>
+							<Form.Item label={t(emailsInlineI18n["emails.form.authTypeLabel"])}>
+								<Input value={t(getAuthTypeLabelMessage("MICROSOFT_OAUTH"))} disabled />
+							</Form.Item>
 								<Text type="secondary" style={emailStyles.secondaryBlock}>
 									使用 Microsoft OAuth 接入 Outlook / Microsoft 365。产品层按
 									OAuth API 主分类展示，默认用 Graph
@@ -3517,40 +3905,40 @@ const EmailsPage: FC = () => {
 								</Space>
 								<Form.Item
 									name="outlookOAuthCallbackUri"
-									label="Microsoft 回调地址（手工输入）"
-									rules={[
-										{ required: true, message: "请输入 Microsoft 回调地址" },
-									]}
-								>
-									<Input placeholder="http://localhost:3002/oauth" />
-								</Form.Item>
+								label={t(providerSetupI18n["emails.outlook.callbackLabel"])}
+								rules={[
+									{ required: true, message: t(providerSetupI18n["emails.outlook.callbackRequired"]) },
+								]}
+							>
+								<Input placeholder={t(providerSetupI18n["emails.outlook.callbackPlaceholder"])} />
+							</Form.Item>
 								<Form.Item
 									name="outlookOAuthClientId"
-									label="Microsoft OAuth Client ID"
-									rules={[
-										{
-											required: true,
-											message: "请输入 Microsoft OAuth Client ID",
-										},
-									]}
-								>
-									<Input placeholder="Azure / Entra Client ID" />
-								</Form.Item>
+								label={t(providerSetupI18n["emails.outlook.clientIdLabel"])}
+								rules={[
+									{
+										required: true,
+										message: t(providerSetupI18n["emails.outlook.clientIdRequired"]),
+									},
+								]}
+							>
+								<Input placeholder={t(providerSetupI18n["emails.outlook.clientIdPlaceholder"])} />
+							</Form.Item>
 								<Form.Item
 									name="outlookOAuthClientSecret"
-									label="Microsoft OAuth Client Secret"
-									extra="留空不会覆盖当前已存储的 client secret；如果你正在录入新的 Web 应用，这里需要填写。"
-								>
-									<Input.Password placeholder="Microsoft OAuth Client Secret" />
-								</Form.Item>
-								<Form.Item name="outlookOAuthTenant" label="Microsoft Tenant">
-									<Input placeholder="consumers / common / tenant-id" />
-								</Form.Item>
+								label={t(providerSetupI18n["emails.outlook.clientSecretLabel"])}
+								extra={t(providerSetupI18n["emails.outlook.clientSecretExtra"])}
+							>
+								<Input.Password placeholder={t(providerSetupI18n["emails.outlook.clientSecretPlaceholder"])} />
+							</Form.Item>
+							<Form.Item name="outlookOAuthTenant" label={t(providerSetupI18n["emails.outlook.tenantLabel"])}>
+								<Input placeholder={t(providerSetupI18n["emails.outlook.tenantPlaceholder"])} />
+							</Form.Item>
 								<Form.Item
 									name="outlookOAuthScopes"
-									label="Microsoft OAuth Scopes"
-									extra="默认值只包含 Microsoft Graph scopes。`https://outlook.office.com/IMAP.AccessAsUser.All` 属于另一个资源，不能和 Graph scopes 混在同一次授权请求里；如需 IMAP OAuth，请单独申请。"
-								>
+								label={t(providerSetupI18n["emails.outlook.scopesLabel"])}
+								extra={t(providerSetupI18n["emails.outlook.scopesExtra"])}
+							>
 									<TextArea
 										rows={3}
 										placeholder={DEFAULT_OUTLOOK_OAUTH_SCOPES}
@@ -3562,24 +3950,24 @@ const EmailsPage: FC = () => {
 										loading={outlookAuthUrlLoading}
 										onClick={() => void handleGenerateOutlookAuthUrl()}
 									>
-										保存配置并生成 Microsoft 授权链接
+									{t(providerSetupI18n["emails.outlook.generateLinkButton"])}
 									</Button>
 									<Button
 										onClick={() => void saveOutlookOAuthConfig()}
 										loading={outlookSaveLoading}
 									>
-										仅保存 Microsoft OAuth 配置
+									{t(providerSetupI18n["emails.outlook.saveConfigButton"])}
 									</Button>
 									{generatedOutlookAuthUrl ? (
 										<Button
 											onClick={() =>
 												void handleCopyGeneratedAuthUrl(
 													generatedOutlookAuthUrl,
-													"Microsoft",
+													t(getProviderLabelMessage("OUTLOOK")),
 												)
 											}
 										>
-											复制授权链接
+											{t(providerSetupI18n["emails.oauth.copyAuthLinkButton"])}
 										</Button>
 									) : null}
 									{generatedOutlookAuthUrl ? (
@@ -3592,7 +3980,7 @@ const EmailsPage: FC = () => {
 												)
 											}
 										>
-											当前浏览器打开
+											{t(providerSetupI18n["emails.oauth.openCurrentBrowser"])}
 										</Button>
 									) : null}
 									{generatedOutlookAuthUrl ? (
@@ -3602,7 +3990,7 @@ const EmailsPage: FC = () => {
 												void fetchGroups();
 											}}
 										>
-											授权完成后刷新列表
+											{t(providerSetupI18n["emails.oauth.refreshAfterAuth"])}
 										</Button>
 									) : null}
 								</Space>
@@ -3613,18 +4001,18 @@ const EmailsPage: FC = () => {
 										style={marginBottom12Style}
 							title={
 											outlookOAuthPollStatus === "processing"
-												? "Microsoft 已回调，正在完成令牌交换与邮箱验证…"
-												: "正在等待另一个浏览器完成 Microsoft 授权…"
+												? t(providerSetupI18n["emails.outlook.pending.processingTitle"])
+												: t(providerSetupI18n["emails.outlook.pending.waitingTitle"])
 										}
-										description={
-											outlookOAuthStatusExpiresAt
-												? `完成后当前页面会自动刷新结果。若一直未完成，请在 ${dayjs(outlookOAuthStatusExpiresAt).format("HH:mm:ss")} 前重新检查授权页。`
-												: "完成后当前页面会自动刷新结果。"
-										}
-									/>
-								) : null}
+							description={
+								outlookOAuthStatusExpiresAt
+									? t(providerSetupI18n["emails.oauth.pending.recheckBefore"], { time: dayjs(outlookOAuthStatusExpiresAt).format("HH:mm:ss") })
+									: t(providerSetupI18n["emails.oauth.pending.genericDescription"])
+								}
+							/>
+						) : null}
 								{generatedOutlookAuthUrl ? (
-									<Form.Item label="Microsoft 授权链接（复制到已登录 Microsoft 的浏览器中打开）">
+									<Form.Item label={t(providerSetupI18n["emails.outlook.authUrlLabel"])}>
 										<TextArea
 											rows={5}
 											value={generatedOutlookAuthUrl}
@@ -3632,48 +4020,45 @@ const EmailsPage: FC = () => {
 										/>
 									</Form.Item>
 								) : null}
-								<Text type="secondary" style={emailStyles.secondaryBlock}>
-									这个链接可以手动粘贴到另一个已登录 Microsoft
-									的浏览器里打开。Microsoft
-									完成登录、二次验证、授权同意后，会自动回调 all-Mail
-									并写回邮箱记录。
-								</Text>
+						<Text type="secondary" style={emailStyles.secondaryBlock}>
+							{t(providerSetupI18n["emails.microsoft.authUrlHelp"])}
+						</Text>
 								{editingId && revealTargetField === "refreshToken"
 									? renderStoredSecretRevealPanel()
 									: null}
 								<Form.Item
 									name="clientId"
-									label="邮箱记录 Client ID（高级手动保存）"
+									label={t(providerSetupI18n["emails.outlook.recordClientIdLabel"])}
 									rules={[
 										{
 											required: !editingId,
-											message: "请输入 Microsoft 刷新令牌对应的 Client ID",
+										message: t(providerSetupI18n["emails.outlook.recordClientIdRequired"]),
 										},
 									]}
 								>
-									<Input placeholder="仅在不走上方授权链接、而是手工维护 Outlook 邮箱记录时使用" />
+									<Input placeholder={t(providerSetupI18n["emails.outlook.recordClientIdPlaceholder"])} />
 								</Form.Item>
 								<Form.Item
 									name="refreshToken"
-									label="邮箱记录 Refresh Token（高级手动保存）"
+									label={t(providerSetupI18n["emails.outlook.recordRefreshTokenLabel"])}
 									rules={[
 										{
 											required: !editingId,
-											message: "请输入 Microsoft 刷新令牌",
+										message: t(providerSetupI18n["emails.outlook.recordRefreshTokenRequired"]),
 										},
 									]}
 								>
 									<TextArea
 										rows={4}
-										placeholder="仅在手动保存 Outlook OAuth 邮箱记录时填写"
+										placeholder={t(providerSetupI18n["emails.outlook.recordRefreshTokenPlaceholder"])}
 									/>
 								</Form.Item>
 								<Form.Item
 									name="clientSecret"
-									label="邮箱记录 Client Secret（高级手动保存）"
-									extra="只有你跳过上方自动授权流程、改为手工保存 Outlook OAuth 邮箱记录时才需要填写。"
+									label={t(providerSetupI18n["emails.outlook.recordClientSecretLabel"])}
+									extra={t(providerSetupI18n["emails.outlook.recordClientSecretExtra"])}
 								>
-									<Input.Password placeholder="可选：手工保存邮箱记录时的 Microsoft client secret" />
+									<Input.Password placeholder={t(providerSetupI18n["emails.outlook.recordClientSecretPlaceholder"])} />
 								</Form.Item>
 								{renderAccountLoginPasswordField(
 									"这是邮箱账号本身的登录密码，不是 OAuth Refresh Token。编辑已有账号时需先完成 2FA 验证后才能补录或更新。",
@@ -3686,14 +4071,14 @@ const EmailsPage: FC = () => {
 							<>
 								<Form.Item
 									name="authType"
-									label="鉴权方式"
-									rules={[{ required: true, message: "请选择 Gmail 鉴权方式" }]}
-								>
-									<Select
-										options={EMAIL_AUTH_TYPE_OPTIONS.GMAIL}
-										onChange={handleAuthTypeChange}
-									/>
-								</Form.Item>
+								label={t(emailsInlineI18n["emails.form.authTypeLabel"])}
+								rules={[{ required: true, message: t(providerSetupI18n["emails.gmail.authTypeRequired"]) }]}
+							>
+								<Select
+									options={EMAIL_AUTH_TYPE_OPTIONS.GMAIL.map((option) => ({ ...option, label: t(getAuthTypeLabelMessage(option.value)) }))}
+									onChange={handleAuthTypeChange}
+								/>
+							</Form.Item>
 								<Text type="secondary" style={emailStyles.secondaryBlock}>
 									Gmail 支持两种 profile：Google OAuth 归入 OAuth API
 									主分类，应用专用密码归入 IMAP / SMTP
@@ -3748,13 +4133,13 @@ const EmailsPage: FC = () => {
 										</Space>
 										<Form.Item
 											name="gmailOAuthCallbackUri"
-											label="Google 回调地址（手工输入）"
+											label={t(providerSetupI18n["emails.google.callbackLabel"])}
 											rules={[
-												{ required: true, message: "请输入 Google 回调地址" },
+												{ required: true, message: t(providerSetupI18n["emails.google.callbackRequired"]) },
 											]}
-											extra="这里填写你准备在 Google Console 注册的 callback URI；如果你同时导入或粘贴了 client_secret JSON，系统会校验它是否存在于 redirect_uris 中。"
+											extra={t(providerSetupI18n["emails.google.callbackExtra"])}
 										>
-											<Input placeholder="http://127.0.0.1:3002/admin/oauth/google/callback" />
+											<Input placeholder={t(providerSetupI18n["emails.google.callbackPlaceholder"])} />
 										</Form.Item>
 										<Space wrap style={marginBottom8Style}>
 											<Upload
@@ -3764,19 +4149,19 @@ const EmailsPage: FC = () => {
 												accept=".json"
 											>
 												<Button icon={<UploadOutlined />}>
-													导入 client_secret JSON 文件
+													{t(providerSetupI18n["emails.google.importJsonButton"])}
 												</Button>
 											</Upload>
 											<Button
 												onClick={() => void handleParseGoogleClientSecret()}
 												loading={googleParseLoading}
 											>
-												仅解析 Google JSON
+												{t(providerSetupI18n["emails.google.parseJsonButton"])}
 											</Button>
 										</Space>
 										<Form.Item
 											name="gmailOAuthJsonText"
-											label="Google client_secret JSON 内容（可选，支持直接粘贴）"
+											label={t(providerSetupI18n["emails.google.jsonTextLabel"])}
 										>
 											<TextArea
 												rows={4}
@@ -3785,26 +4170,26 @@ const EmailsPage: FC = () => {
 										</Form.Item>
 										<Form.Item
 											name="gmailOAuthClientId"
-											label="Google OAuth Client ID"
+											label={t(providerSetupI18n["emails.google.clientIdLabel"])}
 											rules={[
 												{
 													required: true,
-													message: "请输入 Google OAuth Client ID",
+													message: t(providerSetupI18n["emails.google.clientIdRequired"]),
 												},
 											]}
 										>
-											<Input placeholder="Google OAuth Client ID" />
+											<Input placeholder={t(providerSetupI18n["emails.google.clientIdPlaceholder"])} />
 										</Form.Item>
 										<Form.Item
 											name="gmailOAuthClientSecret"
-											label="Google OAuth Client Secret"
-											extra="留空不会覆盖当前已存储的 client secret；如果你刚导入 JSON，系统会自动填好。"
+											label={t(providerSetupI18n["emails.google.clientSecretLabel"])}
+											extra={t(providerSetupI18n["emails.google.clientSecretExtra"])}
 										>
-											<Input.Password placeholder="Google OAuth Client Secret" />
+											<Input.Password placeholder={t(providerSetupI18n["emails.google.clientSecretPlaceholder"])} />
 										</Form.Item>
 										<Form.Item
 											name="gmailOAuthScopes"
-											label="Google OAuth Scopes"
+											label={t(providerSetupI18n["emails.google.scopesLabel"])}
 										>
 											<TextArea
 												rows={3}
@@ -3817,21 +4202,21 @@ const EmailsPage: FC = () => {
 												loading={googleAuthUrlLoading}
 												onClick={() => void handleGenerateGoogleAuthUrl()}
 											>
-												保存配置并生成 Google 授权链接
+												{t(providerSetupI18n["emails.google.generateLinkButton"])}
 											</Button>
 											<Button
 												onClick={() => void saveGoogleOAuthConfig()}
 												loading={googleSaveLoading}
 											>
-												仅保存 Google OAuth 配置
+												{t(providerSetupI18n["emails.google.saveConfigButton"])}
 											</Button>
 											{generatedGoogleAuthUrl ? (
 												<Button
 													onClick={() =>
 														void handleCopyGeneratedAuthUrl(
 															generatedGoogleAuthUrl,
-															"Google",
-														)
+													t(getProviderLabelMessage("GMAIL")),
+												)
 													}
 												>
 													复制授权链接
@@ -3868,18 +4253,18 @@ const EmailsPage: FC = () => {
 												style={marginBottom12Style}
 							title={
 													googleOAuthPollStatus === "processing"
-														? "Google 已回调，正在完成令牌交换与邮箱验证…"
-														: "正在等待另一个浏览器完成 Google 授权…"
-												}
-												description={
-													googleOAuthStatusExpiresAt
-														? `完成后当前页面会自动刷新结果。若一直未完成，请在 ${dayjs(googleOAuthStatusExpiresAt).format("HH:mm:ss")} 前重新检查授权页。`
-														: "完成后当前页面会自动刷新结果。"
-												}
-											/>
+												? t(providerSetupI18n["emails.google.pending.processingTitle"])
+												: t(providerSetupI18n["emails.google.pending.waitingTitle"])
+										}
+										description={
+											googleOAuthStatusExpiresAt
+												? t(providerSetupI18n["emails.oauth.pending.recheckBefore"], { time: dayjs(googleOAuthStatusExpiresAt).format("HH:mm:ss") })
+												: t(providerSetupI18n["emails.oauth.pending.genericDescription"])
+										}
+									/>
 										) : null}
 										{generatedGoogleAuthUrl ? (
-											<Form.Item label="Google 授权链接（复制到已登录 Google 的浏览器中打开）">
+									<Form.Item label={t(providerSetupI18n["emails.google.authUrlLabel"])}>
 												<TextArea
 													rows={5}
 													value={generatedGoogleAuthUrl}
@@ -3887,48 +4272,45 @@ const EmailsPage: FC = () => {
 												/>
 											</Form.Item>
 										) : null}
-									<Text type="secondary" style={emailStyles.secondaryBlock}>
-										这个链接可以手动粘贴到另一个已登录 Google
-										的浏览器里打开。Google
-										完成登录、二次验证、授权同意后，会自动回调 all-Mail
-										并写回邮箱记录。
-									</Text>
+					<Text type="secondary" style={emailStyles.secondaryBlock}>
+						{t(providerSetupI18n["emails.google.authUrlHelp"])}
+					</Text>
 									{editingId && revealTargetField === "refreshToken"
 										? renderStoredSecretRevealPanel()
 										: null}
 									<Form.Item
 										name="clientId"
-										label="邮箱记录 Client ID（高级手动保存）"
+										label={t(providerSetupI18n["emails.google.recordClientIdLabel"])}
 											rules={[
 												{
 													required: !editingId,
-													message: "请输入 Google 刷新令牌对应的 Client ID",
+												message: t(providerSetupI18n["emails.google.recordClientIdRequired"]),
 												},
 											]}
 										>
-											<Input placeholder="仅在不走上方授权链接、而是手工维护邮箱记录时使用" />
+											<Input placeholder={t(providerSetupI18n["emails.google.recordClientIdPlaceholder"])} />
 										</Form.Item>
 										<Form.Item
 											name="refreshToken"
-											label="邮箱记录 Refresh Token（高级手动保存）"
+											label={t(providerSetupI18n["emails.google.recordRefreshTokenLabel"])}
 											rules={[
 												{
 													required: !editingId,
-													message: "请输入 Google 刷新令牌",
+												message: t(providerSetupI18n["emails.google.recordRefreshTokenRequired"]),
 												},
 											]}
 										>
 											<TextArea
 												rows={4}
-												placeholder="仅在手动保存 Gmail OAuth 邮箱记录时填写"
+												placeholder={t(providerSetupI18n["emails.google.recordRefreshTokenPlaceholder"])}
 											/>
 										</Form.Item>
 									<Form.Item
 										name="clientSecret"
-										label="邮箱记录 Client Secret（高级手动保存）"
-										extra="只有你跳过上方自动授权流程、改为手工保存 Gmail OAuth 邮箱记录时才需要填写。"
+										label={t(providerSetupI18n["emails.google.recordClientSecretLabel"])}
+										extra={t(providerSetupI18n["emails.google.recordClientSecretExtra"])}
 									>
-										<Input.Password placeholder="可选：手工保存邮箱记录时的 Google client secret" />
+										<Input.Password placeholder={t(providerSetupI18n["emails.google.recordClientSecretPlaceholder"])} />
 									</Form.Item>
 									{renderAccountLoginPasswordField(
 										"这是 Gmail 账号本身的登录密码，不是 Refresh Token。编辑已有账号时需先完成 2FA 验证后才能补录或更新。",
@@ -3940,16 +4322,16 @@ const EmailsPage: FC = () => {
 								<>
 									<Form.Item
 										name="password"
-										label="Gmail 应用专用密码"
+										label={t(providerSetupI18n["emails.gmail.appPasswordLabel"])}
 										rules={[
 											{
 												required: !editingId,
-												message: "请输入 Gmail 应用专用密码",
+												message: t(providerSetupI18n["emails.gmail.appPasswordRequired"]),
 											},
 										]}
-										extra="适用于已开启两步验证后的 Gmail 应用专用密码模式。当前 profile 按 IMAP / SMTP 主分类展示，不再视为 OAuth API 邮箱。留空不会覆盖当前已存储值。"
+										extra={t(providerSetupI18n["emails.gmail.appPasswordExtra"])}
 									>
-										<Input.Password placeholder="Gmail App Password" />
+										<Input.Password placeholder={t(providerSetupI18n["emails.gmail.appPasswordPlaceholder"])} />
 									</Form.Item>
 									{editingId && revealTargetField === "password"
 										? renderStoredSecretRevealPanel()
@@ -3968,32 +4350,54 @@ const EmailsPage: FC = () => {
 								<Form.Item name="authType" hidden>
 									<Input />
 								</Form.Item>
-								<Form.Item label="鉴权方式">
-									<Input value="授权码 / 应用专用密码" disabled />
-								</Form.Item>
-								<Text type="secondary" style={emailStyles.secondaryBlock}>
-									{selectedProfileDefinition.description} 当前 profile 统一归入
-									IMAP / SMTP 协议家族，适合走标准收信/发信协议而不是 OAuth
-									API。
-								</Text>
+							<Form.Item label={t(emailsInlineI18n["emails.form.authTypeLabel"])}>
+								<Input value={t(providerSetupI18n["emails.imap.authTypeValue"])} disabled />
+							</Form.Item>
+							<Text type="secondary" style={emailStyles.secondaryBlock}>
+								{t(providerSetupI18n["emails.imap.profileDescription"], { profileDescription: t(getProviderProfileDescriptionMessage(selectedProfileDefinition.key)) })}
+							</Text>
 								<Form.Item
 									name="password"
 									label={
-										selectedProfileDefinition.secretLabel ||
-										`${selectedProviderDefinition.label} 授权码 / 应用专用密码`
+										t(
+											getProviderProfileSecretLabelMessage(
+												selectedProfileDefinition.key,
+											) ||
+											defineMessage(
+												"emails.imap.genericCredentialLabel",
+												"{providerLabel} 授权码 / 应用专用密码",
+												"{providerLabel} authorization code / app password",
+											),
+											{ providerLabel: t(getProviderLabelMessage(selectedProvider)) },
+										)
 									}
 									rules={[
 										{
 											required: !editingId,
-											message: `请输入${selectedProfileDefinition.secretLabel || selectedProviderDefinition.label}`,
+											message: t(providerSetupI18n["emails.imap.genericCredentialRequired"], {
+													label: t(
+														getProviderProfileSecretLabelMessage(
+															selectedProfileDefinition.key,
+														) || getProviderLabelMessage(selectedProvider),
+													),
+												}),
 										},
 									]}
-									extra={`${selectedProfileDefinition.secretHelpText || ""}${editingId ? " 留空不会覆盖当前已存储值。" : ""}`.trim()}
+									extra={`${t(getProviderProfileSecretHelpTextMessage(selectedProfileDefinition.key) || defineMessage("emails.imap.genericCredentialHelp", "", ""))}${editingId ? ` ${t(providerSetupI18n["emails.imap.blankKeepsStoredValue"])}` : ""}`.trim()}
 									>
 										<Input.Password
 										placeholder={
-											selectedProfileDefinition.secretPlaceholder ||
-											`${selectedProviderDefinition.label} 授权码 / 应用专用密码`
+											t(
+												getProviderProfileSecretPlaceholderMessage(
+													selectedProfileDefinition.key,
+												) ||
+												defineMessage(
+													"emails.imap.genericCredentialLabel",
+													"{providerLabel} 授权码 / 应用专用密码",
+													"{providerLabel} authorization code / app password",
+												),
+												{ providerLabel: t(getProviderLabelMessage(selectedProvider)) },
+											)
 										}
 										/>
 									</Form.Item>
@@ -4008,20 +4412,28 @@ const EmailsPage: FC = () => {
 								<div style={emailStyles.capabilityBox}>
 						<Space orientation="vertical" size={12} style={fullWidthStyle}>
 										<div>
-											<Text strong style={displayBlockMarginBottom4Style}>
-												服务器配置
-											</Text>
-											<Text type="secondary">
-												{selectedProfileDefinition.serverConfigHelpText ||
-													"大多数 IMAP / SMTP provider 已预填服务器设置；如你的服务商要求不同主机、端口或文件夹名称，可以在这里覆盖。"}
-											</Text>
+										<Text strong style={displayBlockMarginBottom4Style}>
+											{t(providerSetupI18n["emails.imap.serverConfigHeading"])}
+										</Text>
+										<Text type="secondary">
+											{t(
+												getProviderProfileServerConfigHelpTextMessage(
+													selectedProfileDefinition.key,
+												) ||
+												defineMessage(
+													"emails.imap.serverConfigHelp",
+													"大多数 IMAP / SMTP provider 已预填服务器设置；如你的服务商要求不同主机、端口或文件夹名称，可以在这里覆盖。",
+													"Most IMAP / SMTP providers already have prefilled server settings. Override them here if your provider requires different hosts, ports, or folder names.",
+												),
+											)}
+										</Text>
 										</div>
 										<Form.Item
 											name={["providerConfig", "imapHost"]}
-											label="IMAP Host"
+										label={t(providerSetupI18n["emails.imap.imapHostLabel"])}
 											rules={
 												selectedProfileDefinition.requiresManualServerConfig
-													? [{ required: true, message: "请输入 IMAP Host" }]
+											? [{ required: true, message: t(providerSetupI18n["emails.imap.imapHostRequired"]) }]
 													: undefined
 											}
 										>
@@ -4034,7 +4446,7 @@ const EmailsPage: FC = () => {
 										</Form.Item>
 										<Form.Item
 											name={["providerConfig", "imapPort"]}
-											label="IMAP Port"
+										label={t(providerSetupI18n["emails.imap.imapPortLabel"])}
 										>
 											<Input
 												type="number"
@@ -4046,16 +4458,16 @@ const EmailsPage: FC = () => {
 										<Form.Item
 											name={["providerConfig", "imapTls"]}
 											valuePropName="checked"
-											label="IMAP TLS"
-										>
-											<Checkbox>使用 SSL / TLS</Checkbox>
-										</Form.Item>
+											label={t(providerSetupI18n["emails.imap.imapTlsLabel"])}
+									>
+										<Checkbox>{t(providerSetupI18n["emails.imap.useSslTls"])}</Checkbox>
+									</Form.Item>
 										<Form.Item
 											name={["providerConfig", "smtpHost"]}
-											label="SMTP Host"
+										label={t(providerSetupI18n["emails.imap.smtpHostLabel"])}
 											rules={
 												selectedProfileDefinition.requiresManualServerConfig
-													? [{ required: true, message: "请输入 SMTP Host" }]
+											? [{ required: true, message: t(providerSetupI18n["emails.imap.smtpHostRequired"]) }]
 													: undefined
 											}
 										>
@@ -4068,7 +4480,7 @@ const EmailsPage: FC = () => {
 										</Form.Item>
 										<Form.Item
 											name={["providerConfig", "smtpPort"]}
-											label="SMTP Port"
+										label={t(providerSetupI18n["emails.imap.smtpPortLabel"])}
 										>
 											<Input
 												type="number"
@@ -4080,10 +4492,10 @@ const EmailsPage: FC = () => {
 										<Form.Item
 											name={["providerConfig", "smtpSecure"]}
 											valuePropName="checked"
-											label="SMTP Secure"
+											label={t(providerSetupI18n["emails.imap.smtpSecureLabel"])}
 										>
 											<Checkbox>
-												使用 SSL（取消后按 STARTTLS / 明文端口处理）
+												{t(providerSetupI18n["emails.imap.useSslCheckbox"])}
 											</Checkbox>
 										</Form.Item>
 										<Alert
@@ -4091,18 +4503,18 @@ const EmailsPage: FC = () => {
 											showIcon
 							title={
 												isCustomImapSmtpProvider
-													? "Custom IMAP / SMTP 需要手工确认服务器信息"
-													: "可选：覆盖预设的邮箱夹名称"
+												? t(providerSetupI18n["emails.imap.customServerWarningTitle"])
+												: t(providerSetupI18n["emails.imap.overrideFolderNamesTitle"])
 											}
 											description={
 												isCustomImapSmtpProvider
-													? "如果你接入的是企业自建邮箱、域名邮箱或 Amazon WorkMail，请确认 IMAP/SMTP 主机、端口和 TLS 设置与服务商要求一致。"
-													: "如果服务商的垃圾箱、已发送文件夹名称与默认值不同，可在下方手工指定。"
+												? t(providerSetupI18n["emails.imap.customServerWarningDescription"])
+												: t(providerSetupI18n["emails.imap.overrideFolderNamesDescription"])
 											}
 										/>
 										<Form.Item
 											name={["providerConfig", "folders", "inbox"]}
-											label="Inbox 文件夹"
+										label={t(providerSetupI18n["emails.imap.inboxFolderLabel"])}
 										>
 											<Input
 												placeholder={
@@ -4113,7 +4525,7 @@ const EmailsPage: FC = () => {
 										</Form.Item>
 										<Form.Item
 											name={["providerConfig", "folders", "junk"]}
-											label="Junk 文件夹"
+										label={t(providerSetupI18n["emails.imap.junkFolderLabel"])}
 										>
 											<Input
 												placeholder={
@@ -4123,7 +4535,7 @@ const EmailsPage: FC = () => {
 										</Form.Item>
 										<Form.Item
 											name={["providerConfig", "folders", "sent"]}
-											label="Sent 文件夹"
+										label={t(providerSetupI18n["emails.imap.sentFolderLabel"])}
 										>
 											<Input
 												placeholder={
@@ -4136,17 +4548,17 @@ const EmailsPage: FC = () => {
 							</>
 						)}
 
-						<Form.Item name="groupId" label="所属分组">
+						<Form.Item name="groupId" label={t(emailsInlineI18n["emails.form.groupLabel"])}>
 							<Select
-								placeholder="可选：选择分组"
+								placeholder={t(emailsInlineI18n["emails.form.groupPlaceholder"])}
 								allowClear
 								options={groupOptions}
 							/>
 						</Form.Item>
-						<Form.Item name="status" label="状态" initialValue="ACTIVE">
+						<Form.Item name="status" label={t(adminI18n.common.status)} initialValue="ACTIVE">
 							<Select>
-								<Select.Option value="ACTIVE">正常</Select.Option>
-								<Select.Option value="DISABLED">禁用</Select.Option>
+								<Select.Option value="ACTIVE">{t(adminI18n.common.healthy)}</Select.Option>
+								<Select.Option value="DISABLED">{t(adminI18n.common.disabled)}</Select.Option>
 							</Select>
 						</Form.Item>
 					</Form>
@@ -4156,8 +4568,8 @@ const EmailsPage: FC = () => {
 			<Modal
 				title={
 					revealTargetSource === "row"
-						? `二次验证后查看 ${revealTargetEmailLabel || "该邮箱"} 的登录密码`
-						: "二次验证后查看密钥"
+						? t(emailsInlineI18n["emails.reveal.modalTitleWithMailbox"], { email: revealTargetEmailLabel || t(emailsInlineI18n["emails.reveal.thisMailbox"]) })
+						: t(emailsInlineI18n["emails.reveal.modalTitle"])
 				}
 				open={revealModalVisible}
 				onOk={() => void handleConfirmReveal()}
@@ -4165,17 +4577,17 @@ const EmailsPage: FC = () => {
 					setRevealModalVisible(false);
 					setRevealOtp("");
 				}}
-				okText="验证并查看"
-				cancelText="取消"
+				okText={t(emailsInlineI18n["emails.reveal.okText"])}
+				cancelText={t(emailsInlineI18n["emails.reveal.cancelText"])}
 				confirmLoading={revealLoading}
 				destroyOnHidden
 			>
 				<Space orientation="vertical" style={fullWidthStyle} size="middle">
 					<Text type="secondary">
-						请输入验证器中的 6 位动态码，验证成功后会开启一个短时查看授权，并临时显示已存储的 {revealTargetLabel}。
+						{t(emailsInlineI18n["emails.reveal.modalDescription"], { targetLabel: revealTargetLabel || t(emailsInlineI18n["emails.reveal.secretLabelFallback"]) })}
 					</Text>
 					{revealTargetSource === "row" && revealTargetEmailLabel ? (
-						<Text type="secondary">目标邮箱：{revealTargetEmailLabel}</Text>
+						<Text type="secondary">{t(emailsInlineI18n["emails.reveal.targetMailbox"], { email: revealTargetEmailLabel })}</Text>
 					) : null}
 					<Input
 						value={revealOtp}
@@ -4184,33 +4596,33 @@ const EmailsPage: FC = () => {
 						}
 						prefix={<SafetyCertificateOutlined />}
 						maxLength={6}
-						placeholder="6 位验证码"
+						placeholder={t(emailsInlineI18n["emails.reveal.otpPlaceholder"])}
 					/>
 				</Space>
 			</Modal>
 
 			<Modal
-				title={`已受控显示 ${revealTargetEmailLabel || "邮箱"} 的登录密码`}
+					title={t(emailsInlineI18n["emails.reveal.rowTitle"], { label: revealTargetEmailLabel || t(emailsInlineI18n["emails.reveal.mailboxFallback"]) })}
 				open={rowRevealVisible}
 				onCancel={resetRowRevealState}
 				footer={[
 					<Button key="copy" type="primary" onClick={() => void handleCopyRowRevealedPassword()}>
-						复制密码
+						{t(emailsInlineI18n["emails.reveal.copyPassword"])}
 					</Button>,
 					<Button key="close" onClick={resetRowRevealState}>
-						关闭
+						{t(emailsInlineI18n["emails.reveal.close"])}
 					</Button>,
 				]}
 				destroyOnHidden
 			>
 				<Space orientation="vertical" style={fullWidthStyle} size="middle">
 					<Text type="secondary">
-						该密码仅临时显示，请避免在公共环境中查看。
+						{t(emailsInlineI18n["emails.reveal.rowDescription"])}
 					</Text>
 					<TextArea rows={2} value={rowRevealedAccountLoginPassword || ""} readOnly />
 					{rowRevealExpiresAt ? (
 						<Text type="secondary">
-							将于 {dayjs(rowRevealExpiresAt).format("HH:mm:ss")} 自动隐藏。
+							{t(emailsInlineI18n["emails.reveal.rowAutoHideAt"], { time: dayjs(rowRevealExpiresAt).format("HH:mm:ss") })}
 						</Text>
 					) : null}
 				</Space>
@@ -4218,7 +4630,7 @@ const EmailsPage: FC = () => {
 
 			{/* 批量导入 Modal */}
 			<Modal
-				title="批量导入邮箱"
+				title={t(emailsInlineI18n["emails.import.modalTitle"])}
 				open={importModalVisible}
 				onOk={handleImport}
 				onCancel={() => setImportModalVisible(false)}
@@ -4228,7 +4640,7 @@ const EmailsPage: FC = () => {
 				<Space orientation="vertical" style={fullWidthStyle} size="middle">
 					<div>
 						<Text type="secondary">
-							上传文件或粘贴内容。推荐优先使用无 provider 前缀的基础格式：
+							{t(emailsInlineI18n["emails.import.instructionsIntro"])}
 							<br />
 							{recommendedImportTemplates.map((template, index) => (
 								<span key={template}>
@@ -4237,9 +4649,9 @@ const EmailsPage: FC = () => {
 								</span>
 							))}
 							<br />
-							基础格式说明：IMAP / SMTP 两列格式默认表示“邮箱----连接凭据”；三列格式表示“邮箱----连接凭据----账号登录密码”；OAuth 四列 / 五列格式表示“邮箱----账号登录密码----clientId----refreshToken[----clientSecret]”。
+							{t(emailsInlineI18n["emails.import.basicFormatExplanation"])}
 							<br />
-							旧的 provider-token 格式仍兼容，例如：
+							{t(emailsInlineI18n["emails.import.legacyFormatIntro"])}
 							<br />
 							{legacyImportTemplates.map((template, index) => (
 								<span key={template}>
@@ -4247,17 +4659,17 @@ const EmailsPage: FC = () => {
 									{index < legacyImportTemplates.length - 1 ? <br /> : null}
 								</span>
 							))}
-							Amazon WorkMail 与 Custom IMAP / SMTP 因为主机信息通常需要手工确认，当前更适合通过表单创建而不是批量导入。
+							{t(emailsInlineI18n["emails.import.manualProvidersHint"])}
 						</Text>
 					</div>
 					<Input
-						addonBefore="分隔符"
+						addonBefore={t(emailsInlineI18n["emails.import.separatorLabel"])}
 						value={separator}
 						onChange={(e) => setSeparator(e.target.value)}
 						style={width200Style}
 					/>
 					<Select
-						placeholder="导入到分组（可选）"
+						placeholder={t(emailsInlineI18n["emails.import.groupPlaceholder"])}
 						allowClear
 						value={importGroupId}
 						options={groupOptions}
@@ -4280,7 +4692,7 @@ const EmailsPage: FC = () => {
 										.filter((line: string) => line.trim());
 									setImportContent(normalizedContent);
 									message.success(
-										`文件读取成功，已解析 ${lines.length} 行数据`,
+										t(emailsInlineI18n["emails.import.fileParsed"], { count: lines.length }),
 									);
 								}
 							};
@@ -4294,8 +4706,8 @@ const EmailsPage: FC = () => {
 						<p className="ant-upload-drag-icon">
 							<InboxOutlined />
 						</p>
-						<p className="ant-upload-text">点击或拖拽文件到此区域</p>
-						<p className="ant-upload-hint">支持 .txt 或 .csv 文件</p>
+						<p className="ant-upload-text">{t(emailsInlineI18n["emails.import.draggerText"])}</p>
+						<p className="ant-upload-hint">{t(emailsInlineI18n["emails.import.draggerHint"])}</p>
 					</Dragger>
 					<TextArea
 						rows={12}
@@ -4309,7 +4721,7 @@ const EmailsPage: FC = () => {
 			{/* 邮件列表 Modal */}
 			{mailModalVisible && (
 				<Modal
-					title={`${currentEmail} 的${MAILBOX_LABELS[currentMailbox]}`}
+					title={t(emailsInlineI18n["emails.mailbox.modalTitle"], { email: currentEmail, mailbox: t(MAILBOX_LABELS[currentMailbox]) })}
 					open={mailModalVisible}
 					onCancel={() => {
 						setSelectedMailIds([]);
@@ -4327,9 +4739,9 @@ const EmailsPage: FC = () => {
 								void handleMailboxTabChange(key as MailboxName)
 							}
 							items={[
-								{ key: "INBOX", label: "收件箱" },
-								{ key: "SENT", label: "已发送" },
-								{ key: "Junk", label: "垃圾箱" },
+								{ key: "INBOX", label: t(adminI18n.emails.inbox) },
+								{ key: "SENT", label: t(adminI18n.emails.sent) },
+								{ key: "Junk", label: t(emailsPageI18n.mailboxJunk) },
 							]}
 						/>
 					</Space>
@@ -4339,24 +4751,24 @@ const EmailsPage: FC = () => {
 							onClick={handleRefreshMails}
 							loading={mailLoading}
 						>
-							收取新邮件
+							{t(emailsInlineI18n["emails.mailbox.refreshMail"])}
 						</Button>
 						<Button
 							icon={<SendOutlined />}
 							onClick={() => setComposeModalVisible(true)}
 							disabled={sendMailboxDisabled}
 						>
-							写邮件
+							{t(emailsInlineI18n["emails.mailbox.composeButton"])}
 						</Button>
 						<Checkbox
 							checked={allMailsSelected}
 							indeterminate={selectedMailIds.length > 0 && !allMailsSelected}
 							onChange={(event) => toggleSelectAllMails(event.target.checked)}
 						>
-							全选当前列表
+							{t(emailsInlineI18n["emails.mailbox.selectAllCurrentList"])}
 						</Checkbox>
 						<Popconfirm
-							title={`确定要删除选中的 ${selectedMailIds.length} 封邮件吗？`}
+							title={t(emailsInlineI18n["emails.mailbox.deleteSelectedConfirm"], { count: selectedMailIds.length })}
 							onConfirm={() => void handleDeleteSelectedMails()}
 							disabled={selectedMailIds.length === 0}
 						>
@@ -4365,11 +4777,11 @@ const EmailsPage: FC = () => {
 								loading={deletingSelectedMails}
 								disabled={selectedMailIds.length === 0}
 							>
-								批量删除选中 ({selectedMailIds.length})
+								{t(emailsInlineI18n["emails.mailbox.deleteSelectedButton"], { count: selectedMailIds.length })}
 							</Button>
 						</Popconfirm>
 						<Popconfirm
-							title={`确定要清空${MAILBOX_LABELS[currentMailbox]}的所有邮件吗？`}
+							title={t(emailsInlineI18n["emails.mailbox.clearAllConfirm"], { mailbox: t(MAILBOX_LABELS[currentMailbox]) })}
 							onConfirm={handleClearMailbox}
 							disabled={clearMailboxDisabled || currentMailbox === "SENT"}
 						>
@@ -4377,94 +4789,85 @@ const EmailsPage: FC = () => {
 								danger
 								disabled={clearMailboxDisabled || currentMailbox === "SENT"}
 							>
-								清空
+								{t(emailsInlineI18n["emails.mailbox.clearButton"])}
 							</Button>
 						</Popconfirm>
 						{(clearMailboxDisabled || currentMailbox === "SENT") && (
 							<span style={emailStyles.mailSummaryLink}>
-								当前 Provider/鉴权模式不支持清空邮箱
+								{t(emailsInlineI18n["emails.mailbox.clearUnsupported"])}
 							</span>
 						)}
 						<span style={emailStyles.mailSummaryCount}>
-							共 {mailList.length} 封邮件
+							{t(emailsInlineI18n["emails.mailbox.messageCount"], { count: mailList.length })}
 						</span>
 					</Space>
 					<Alert
 						type="info"
 						showIcon
 						style={marginBottom12Style}
-						title="支持在当前邮箱夹内勾选多封邮件后批量删除"
-						description="API 模式会删除/移入垃圾箱；IMAP 模式会按 UID 标记删除并 expunge 当前邮箱夹中的选中邮件。"
+						title={t(emailsInlineI18n["emails.mailbox.bulkDeleteHintTitle"])}
+						description={t(emailsInlineI18n["emails.mailbox.bulkDeleteHintDescription"])}
 					/>
-					<List
-						loading={mailLoading}
-						dataSource={mailList}
-						itemLayout="horizontal"
-						pagination={{
-							pageSize: 10,
-							showSizeChanger: true,
-							showQuickJumper: true,
-							showTotal: (total: number) => `共 ${total} 条`,
-							style: { marginTop: 16 },
-						}}
-						style={emailStyles.selectedMailList}
-						renderItem={(item: MailItem) => (
-							<List.Item
-								key={item.id}
-								actions={[
-									<Checkbox
-										key="select"
-										checked={selectedMailIds.includes(item.id)}
-										onChange={(event) =>
-											toggleMailSelection(item.id, event.target.checked)
-										}
-									>
-										选择
-									</Checkbox>,
-									<Button
-										key="view"
-										type="primary"
-										size="small"
-										onClick={() => handleViewEmailDetail(item)}
-									>
-										查看
-									</Button>,
-								]}
-							>
-								<List.Item.Meta
-									title={
-										<Typography.Text
-											ellipsis
-											style={emailStyles.messagePreviewText}
-										>
-											{item.subject || "(无主题)"}
+					<Space orientation="vertical" size={12} style={emailStyles.selectedMailList}>
+						{paginatedMailList.map((item: MailItem) => (
+							<div key={item.id} style={{ border: "1px solid #f0f0f0", borderRadius: 8, padding: 12, background: "#fff" }}>
+								<Space orientation="vertical" size={10} style={fullWidthStyle}>
+									<Space wrap style={flexBetweenFullWidthStyle}>
+										<Typography.Text ellipsis style={emailStyles.messagePreviewText}>
+											{item.subject || t(emailsInlineI18n["emails.mailbox.noSubject"])}
 										</Typography.Text>
-									}
-									description={
-										<Space size="large">
-											<span style={emailStyles.primaryMailSummaryLink}>
-												{currentMailbox === "SENT"
-													? item.to || "未知收件人"
-													: item.from || "未知发件人"}
-											</span>
-											<span style={emailStyles.mailSummaryLink}>
-												{item.date
-													? dayjs(item.date).format("YYYY-MM-DD HH:mm")
-													: "-"}
-											</span>
+										<Space wrap>
+											<Checkbox
+												checked={selectedMailIds.includes(item.id)}
+												onChange={(event) =>
+													toggleMailSelection(item.id, event.target.checked)
+												}
+											>
+												{t(emailsInlineI18n["emails.mailbox.selectMessage"])}
+											</Checkbox>
+											<Button type="primary" size="small" onClick={() => handleViewEmailDetail(item)}>
+												{t(emailsInlineI18n["emails.mailbox.viewMessage"])}
+											</Button>
 										</Space>
-									}
-								/>
-							</List.Item>
-						)}
-					/>
+									</Space>
+									<Space size="large" wrap>
+										<span style={emailStyles.primaryMailSummaryLink}>
+											{currentMailbox === "SENT"
+												? item.to || t(emailsInlineI18n["emails.mailbox.unknownRecipient"])
+												: item.from || t(emailsInlineI18n["emails.mailbox.unknownSender"])}
+										</span>
+										<span style={emailStyles.mailSummaryLink}>
+											{item.date ? dayjs(item.date).format("YYYY-MM-DD HH:mm") : "-"}
+										</span>
+									</Space>
+									</Space>
+							</div>
+						))}
+						{mailList.length > 0 ? (
+							<Pagination
+								current={mailListPage}
+								pageSize={mailListPageSize}
+								total={mailList.length}
+								showSizeChanger
+								showQuickJumper
+								showTotal={(total: number) =>
+									t(adminI18n.common.totalCount, { count: total })
+								}
+								onChange={(page, pageSize) => {
+									setMailListPage(page);
+									setMailListPageSize(pageSize);
+								}}
+								style={{ marginTop: 16 }}
+							/>
+						) : null}
+					</Space>
 				</Modal>
 			)}
 
 			{/* 邮件详情 Modal */}
 			{emailDetailVisible && (
 				<Modal
-					title={selectedMailDetail?.subject || "无主题"}
+					title={selectedMailDetail?.subject || t(emailsInlineI18n["emails.mailDetail.noSubject"])}
 					open={emailDetailVisible}
 					onCancel={() => setEmailDetailVisible(false)}
 					footer={null}
@@ -4475,13 +4878,13 @@ const EmailsPage: FC = () => {
 					<Space orientation="vertical" style={fullWidthStyle} size={12}>
 						<Text>
 							<strong>
-								{currentMailbox === "SENT" ? "发件人" : "发件人"}：
+								{t(emailsInlineI18n["emails.mailDetail.sender"])}：
 							</strong>
 							{selectedMailDetail?.from || "-"}
 						</Text>
 						<Text>
 							<strong>
-								{currentMailbox === "SENT" ? "收件人" : "收件地址"}：
+								{currentMailbox === "SENT" ? t(emailsInlineI18n["emails.mailDetail.recipient"]) : t(emailsInlineI18n["emails.mailDetail.recipientAddress"])}：
 							</strong>
 							{selectedMailDetail?.to || "-"}
 						</Text>
@@ -4500,12 +4903,16 @@ const EmailsPage: FC = () => {
 			)}
 
 			<Modal
-				title={currentEmail ? `通过 ${currentEmail} 发送邮件` : "发送邮件"}
+				title={
+					currentEmail
+						? t(emailsInlineI18n["emails.compose.modalTitleWithMailbox"], { email: currentEmail })
+						: t(emailsInlineI18n["emails.compose.modalTitle"])
+				}
 				open={composeModalVisible}
 				onOk={() => void handleSendMail()}
 				confirmLoading={composeSending}
 				onCancel={() => setComposeModalVisible(false)}
-				okText="发送"
+				okText={t(emailsInlineI18n["emails.compose.okText"])}
 				destroyOnHidden
 				width={720}
 			>
@@ -4515,13 +4922,23 @@ const EmailsPage: FC = () => {
 					showIcon
 					title={
 						sendMailboxDisabled
-							? "当前账号配置不支持直接发信。"
-							: "发送成功后，可切到“已发送”查看结果。"
+							? t(emailsInlineI18n["emails.compose.disabledTitle"])
+							: t(emailsInlineI18n["emails.compose.enabledTitle"])
 					}
 					description={
 						currentEmailRecord?.provider === "OUTLOOK"
-							? "如果 Outlook 老账号提示缺少 Mail.Send scope，需要在后台重新走一次 Outlook OAuth 授权。"
-							: currentEmailRecord?.profileSummaryHint
+							? t(emailsInlineI18n["emails.compose.outlookScopeHint"])
+							: currentEmailRecord
+								? t(
+									getProviderProfileSummaryHintMessage(
+										(currentEmailRecord.providerProfile as ProviderProfileKey | undefined) ||
+											getProviderProfileDefinition(
+												currentEmailRecord.provider,
+												currentEmailRecord.authType,
+											).key,
+									),
+								)
+								: undefined
 					}
 				/>
 				<Form
@@ -4529,64 +4946,64 @@ const EmailsPage: FC = () => {
 					layout="vertical"
 					initialValues={{ fromName: "", to: "", subject: "", text: "" }}
 				>
-					<Form.Item label="发件显示名" name="fromName">
-						<Input placeholder="例如：all-Mail" />
+					<Form.Item label={t(emailsInlineI18n["emails.compose.fromNameLabel"])} name="fromName">
+						<Input placeholder={t(emailsInlineI18n["emails.compose.fromNamePlaceholder"])} />
 					</Form.Item>
 					<Form.Item
-						label="收件人"
+						label={t(emailsInlineI18n["emails.compose.recipientLabel"])}
 						name="to"
-						rules={[{ required: true, message: "请输入收件人" }]}
-						extra="支持多个地址，使用逗号、分号或换行分隔。"
+						rules={[{ required: true, message: t(emailsInlineI18n["emails.compose.recipientRequired"]) }]}
+						extra={t(emailsInlineI18n["emails.compose.recipientExtra"])}
 					>
 						<TextArea
 							rows={3}
-							placeholder="alice@example.com, bob@example.com"
+							placeholder={t(emailsInlineI18n["emails.compose.recipientPlaceholder"])}
 						/>
 					</Form.Item>
 					<Form.Item
-						label="主题"
+						label={t(emailsInlineI18n["emails.compose.subjectLabel"])}
 						name="subject"
-						rules={[{ required: true, message: "请输入主题" }]}
+						rules={[{ required: true, message: t(emailsInlineI18n["emails.compose.subjectRequired"]) }]}
 					>
-						<Input maxLength={500} placeholder="请输入邮件主题" />
+						<Input maxLength={500} placeholder={t(emailsInlineI18n["emails.compose.subjectPlaceholder"])} />
 					</Form.Item>
 					<Form.Item
-						label="正文"
+						label={t(emailsInlineI18n["emails.compose.bodyLabel"])}
 						name="text"
-						rules={[{ required: true, message: "请输入正文" }]}
+						rules={[{ required: true, message: t(emailsInlineI18n["emails.compose.bodyRequired"]) }]}
 					>
 						<TextArea
 							rows={10}
-							placeholder="请输入正文，正文中的链接会作为普通邮件内容发送。"
+							placeholder={t(emailsInlineI18n["emails.compose.bodyPlaceholder"])}
 						/>
 					</Form.Item>
 				</Form>
 			</Modal>
 
 			<Modal
-				title="批量清空邮箱邮件"
+				title={t(emailsInlineI18n["emails.batchClear.modalTitle"])}
 				open={batchClearModalVisible}
 				onOk={() => void handleBatchClearMailbox()}
 				confirmLoading={batchClearLoading}
 				onCancel={() => setBatchClearModalVisible(false)}
-				okText="开始清空"
+				okText={t(emailsInlineI18n["emails.batchClear.okText"])}
 				destroyOnHidden
 			>
 				<Space orientation="vertical" size={16} style={fullWidthStyle}>
 					<Alert
 						type="warning"
 						showIcon
-					title={`即将对${selectedRowKeys.length > 0 ? `选中的 ${selectedRowKeys.length} 个邮箱` : '当前筛选结果中的全部邮箱'}执行批量清空`}
-						description="该操作会清空所选邮箱夹中的全部邮件；凡是 capability 标记为不支持清空的 profile（例如 Gmail 应用专用密码、QQ IMAP / SMTP）都会被后端自动跳过。"
+					title={selectedRowKeys.length > 0 ? t(emailsInlineI18n["emails.batchClear.selectionTitle"], { count: selectedRowKeys.length }) : t(emailsInlineI18n["emails.batchClear.filteredTitle"])}
+					description={t(emailsInlineI18n["emails.batchClear.description"])}
 					/>
 					<div>
-						<Text strong>目标邮箱夹</Text>
+						<Text strong>{t(emailsInlineI18n["emails.batchClear.targetMailbox"])}</Text>
 						<Select
 							value={batchClearMailbox}
 							style={widthFullMarginTop8Style}
 							options={[
-								{ value: "INBOX", label: "收件箱" },
-								{ value: "Junk", label: "垃圾箱" },
+								{ value: "INBOX", label: t(adminI18n.emails.inbox) },
+								{ value: "Junk", label: t(emailsPageI18n.mailboxJunk) },
 							]}
 							onChange={(value) =>
 								setBatchClearMailbox(value as "INBOX" | "Junk")
@@ -4598,7 +5015,7 @@ const EmailsPage: FC = () => {
 
 			{/* 创建/编辑分组 Modal */}
 			<Modal
-				title={editingGroupId ? "编辑分组" : "创建分组"}
+				title={editingGroupId ? t(emailsInlineI18n["emails.group.editTitle"]) : t(emailsInlineI18n["emails.group.createTitle"])}
 				open={groupModalVisible}
 				onOk={handleGroupSubmit}
 				onCancel={() => setGroupModalVisible(false)}
@@ -4608,41 +5025,36 @@ const EmailsPage: FC = () => {
 				<Form form={groupForm} layout="vertical">
 					<Form.Item
 						name="name"
-						label="分组名称"
-						rules={[{ required: true, message: "请输入分组名称" }]}
+						label={t(emailsInlineI18n["emails.group.nameLabel"])}
+						rules={[{ required: true, message: t(emailsInlineI18n["emails.group.nameRequired"]) }]}
 					>
-						<Input placeholder="例如：aws、discord" />
+						<Input placeholder={t(emailsInlineI18n["emails.group.namePlaceholder"])} />
 					</Form.Item>
-					<Form.Item name="description" label="描述">
-						<Input placeholder="可选描述" />
+					<Form.Item name="description" label={t(emailsInlineI18n["emails.group.descriptionLabel"])}>
+						<Input placeholder={t(emailsInlineI18n["emails.group.descriptionPlaceholder"])} />
 					</Form.Item>
 					<Form.Item
 						name="fetchStrategy"
-						label="邮件拉取策略"
-						rules={[{ required: true, message: "请选择拉取策略" }]}
+						label={t(emailsInlineI18n["emails.group.fetchStrategyLabel"])}
+						rules={[{ required: true, message: t(emailsInlineI18n["emails.group.fetchStrategyRequired"]) }]}
 					>
-						<Select
-							options={MAIL_FETCH_STRATEGY_OPTIONS.map((option) => ({
-								value: option.value,
-								label: option.label,
-							}))}
-						/>
+						<Select options={mailFetchStrategyOptions} />
 					</Form.Item>
 				</Form>
 			</Modal>
 
 			{/* 批量分配分组 Modal */}
 			<Modal
-				title="分配邮箱到分组"
+				title={t(emailsInlineI18n["emails.group.assignModalTitle"])}
 				open={assignGroupModalVisible}
 				onOk={handleBatchAssignGroup}
 				onCancel={() => setAssignGroupModalVisible(false)}
 				destroyOnHidden
 				width={400}
 			>
-				<p>已选择 {selectedRowKeys.length} 个邮箱</p>
+				<p>{t(emailsInlineI18n["emails.group.assignSelectedCount"], { count: selectedRowKeys.length })}</p>
 				<Select
-					placeholder="选择目标分组"
+					placeholder={t(emailsInlineI18n["emails.group.assignPlaceholder"])}
 					style={fullWidthStyle}
 					value={assignTargetGroupId}
 					options={groupOptions}

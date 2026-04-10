@@ -4,6 +4,9 @@ import type { ColumnsType } from 'antd/es/table';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader, SurfaceCard } from '../../components';
 import { forwardingJobsContract } from '../../contracts/admin/forwardingJobs';
+import { adminI18n } from '../../i18n/catalog/admin';
+import { useI18n } from '../../i18n';
+import { defineMessage } from '../../i18n/messages';
 import {
   fullWidthStyle,
   preWrapBreakWordStyle,
@@ -16,6 +19,53 @@ import { requestData } from '../../utils/request';
 
 const { Link, Text } = Typography;
 const { Search } = Input;
+
+const forwardingJobsI18n = {
+  fetchDomainsFailed: defineMessage('forwardingJobs.fetchDomainsFailed', '获取域名失败', 'Failed to load domains'),
+  fetchMailboxesFailed: defineMessage('forwardingJobs.fetchMailboxesFailed', '获取邮箱失败', 'Failed to load mailboxes'),
+  fetchListFailed: defineMessage('forwardingJobs.fetchListFailed', '获取转发任务失败', 'Failed to load forwarding jobs'),
+  fetchDetailFailed: defineMessage('forwardingJobs.fetchDetailFailed', '获取转发任务详情失败', 'Failed to load forwarding job details'),
+  requeueFailed: defineMessage('forwardingJobs.requeueFailed', '重新入队失败', 'Failed to requeue the forwarding job'),
+  requeued: defineMessage('forwardingJobs.requeued', '转发任务已重新入队', 'Forwarding job requeued'),
+  mailbox: defineMessage('forwardingJobs.mailbox', '邮箱', 'Mailbox'),
+  noSubject: defineMessage('forwardingJobs.noSubject', '(无主题)', '(No subject)'),
+  statusLabel: defineMessage('forwardingJobs.detail.statusLabel', '状态：', 'Status: '),
+  modeLabel: defineMessage('forwardingJobs.detail.modeLabel', '模式：', 'Mode: '),
+  targetAddressLabel: defineMessage('forwardingJobs.detail.targetAddressLabel', '目标地址：', 'Target address: '),
+  attemptCountLabel: defineMessage('forwardingJobs.detail.attemptCountLabel', '尝试次数：', 'Attempt count: '),
+  nextRetryLabel: defineMessage('forwardingJobs.detail.nextRetryLabel', '下次重试：', 'Next retry: '),
+  processedAtLabel: defineMessage('forwardingJobs.detail.processedAtLabel', '处理时间：', 'Processed at: '),
+  createdAtLabel: defineMessage('forwardingJobs.detail.createdAtLabel', '创建时间：', 'Created at: '),
+  updatedAtLabel: defineMessage('forwardingJobs.detail.updatedAtLabel', '更新时间：', 'Updated at: '),
+  providerMessageIdLabel: defineMessage('forwardingJobs.detail.providerMessageIdLabel', '服务商消息 ID：', 'Provider message ID: '),
+  mailboxLabel: defineMessage('forwardingJobs.detail.mailboxLabel', '邮箱：', 'Mailbox: '),
+  mailboxModeLabel: defineMessage('forwardingJobs.detail.mailboxModeLabel', '邮箱模式：', 'Mailbox mode: '),
+  currentForwardingLabel: defineMessage('forwardingJobs.detail.currentForwardingLabel', '当前转发配置：', 'Current forwarding config: '),
+  domainLabel: defineMessage('forwardingJobs.detail.domainLabel', '域名：', 'Domain: '),
+  domainCapabilityLabel: defineMessage('forwardingJobs.detail.domainCapabilityLabel', '域名能力：', 'Domain capability: '),
+  receiveEnabled: defineMessage('forwardingJobs.detail.receiveEnabled', '收件开启', 'Inbound enabled'),
+  receiveDisabled: defineMessage('forwardingJobs.detail.receiveDisabled', '收件关闭', 'Inbound disabled'),
+  sendEnabled: defineMessage('forwardingJobs.detail.sendEnabled', '发件开启', 'Sending enabled'),
+  sendDisabled: defineMessage('forwardingJobs.detail.sendDisabled', '发件关闭', 'Sending disabled'),
+  messageIdLabel: defineMessage('forwardingJobs.detail.messageIdLabel', '消息 ID：', 'Message ID: '),
+  originalSenderLabel: defineMessage('forwardingJobs.detail.originalSenderLabel', '原始发件人：', 'Original sender: '),
+  subjectLabel: defineMessage('forwardingJobs.detail.subjectLabel', '主题：', 'Subject: '),
+  matchedAddressLabel: defineMessage('forwardingJobs.detail.matchedAddressLabel', '命中地址：', 'Matched address: '),
+  finalAddressLabel: defineMessage('forwardingJobs.detail.finalAddressLabel', '最终地址：', 'Final address: '),
+  routeTypeLabel: defineMessage('forwardingJobs.detail.routeTypeLabel', '路由类型：', 'Route type: '),
+  portalVisibilityLabel: defineMessage('forwardingJobs.detail.portalVisibilityLabel', '门户可见性：', 'Portal visibility: '),
+  receivedAtLabel: defineMessage('forwardingJobs.detail.receivedAtLabel', '接收时间：', 'Received at: '),
+  contentPreviewLabel: defineMessage('forwardingJobs.detail.contentPreviewLabel', '内容预览：', 'Content preview: '),
+  present: defineMessage('forwardingJobs.detail.present', '有', 'Yes'),
+  absent: defineMessage('forwardingJobs.detail.absent', '无', 'No'),
+  pending: defineMessage('forwardingJobs.status.pending', '待处理', 'Pending'),
+  running: defineMessage('forwardingJobs.status.running', '处理中', 'Running'),
+  sent: defineMessage('forwardingJobs.status.sent', '已发送', 'Sent'),
+  failed: defineMessage('forwardingJobs.status.failed', '失败', 'Failed'),
+  skipped: defineMessage('forwardingJobs.status.skipped', '已跳过', 'Skipped'),
+  modeCopy: defineMessage('forwardingJobs.mode.copy', '保留副本并转发', 'Keep a copy and forward'),
+  modeMove: defineMessage('forwardingJobs.mode.move', '转发后作为唯一副本', 'Forward and remove the original copy'),
+} as const;
 
 type ForwardingJobStatus = 'PENDING' | 'RUNNING' | 'SENT' | 'FAILED' | 'SKIPPED';
 type ForwardingJobMode = 'COPY' | 'MOVE';
@@ -73,18 +123,39 @@ interface ForwardingJobDetail extends ForwardingJobRow {
   };
 }
 
-const STATUS_OPTIONS: Array<{ value: ForwardingJobStatus; label: string }> = [
-  { value: 'PENDING', label: 'PENDING' },
-  { value: 'RUNNING', label: 'RUNNING' },
-  { value: 'SENT', label: 'SENT' },
-  { value: 'FAILED', label: 'FAILED' },
-  { value: 'SKIPPED', label: 'SKIPPED' },
+const STATUS_OPTIONS: Array<{ value: ForwardingJobStatus; label: ReturnType<typeof defineMessage> }> = [
+  { value: 'PENDING', label: forwardingJobsI18n.pending },
+  { value: 'RUNNING', label: forwardingJobsI18n.running },
+  { value: 'SENT', label: forwardingJobsI18n.sent },
+  { value: 'FAILED', label: forwardingJobsI18n.failed },
+  { value: 'SKIPPED', label: forwardingJobsI18n.skipped },
 ];
 
-const MODE_OPTIONS: Array<{ value: ForwardingJobMode; label: string }> = [
-  { value: 'COPY', label: 'COPY' },
-  { value: 'MOVE', label: 'MOVE' },
+const MODE_OPTIONS: Array<{ value: ForwardingJobMode; label: ReturnType<typeof defineMessage> }> = [
+  { value: 'COPY', label: forwardingJobsI18n.modeCopy },
+  { value: 'MOVE', label: forwardingJobsI18n.modeMove },
 ];
+
+function getStatusLabel(status: ForwardingJobStatus) {
+  switch (status) {
+    case 'PENDING':
+      return forwardingJobsI18n.pending;
+    case 'RUNNING':
+      return forwardingJobsI18n.running;
+    case 'SENT':
+      return forwardingJobsI18n.sent;
+    case 'FAILED':
+      return forwardingJobsI18n.failed;
+    case 'SKIPPED':
+      return forwardingJobsI18n.skipped;
+    default:
+      return forwardingJobsI18n.pending;
+  }
+}
+
+function getModeLabel(mode: ForwardingJobMode) {
+  return mode === 'COPY' ? forwardingJobsI18n.modeCopy : forwardingJobsI18n.modeMove;
+}
 
 function getStatusColor(status: ForwardingJobStatus) {
   switch (status) {
@@ -112,6 +183,7 @@ function formatDateTime(value?: string | null) {
 }
 
 const ForwardingJobsPage: FC = () => {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [jobs, setJobs] = useState<ForwardingJobRow[]>([]);
@@ -132,18 +204,18 @@ const ForwardingJobsPage: FC = () => {
 
   const loadOptions = useCallback(async () => {
     const [domainResult, mailboxResult] = await Promise.all([
-      requestData<{ list: DomainOption[] }>(() => forwardingJobsContract.getDomains({ page: 1, pageSize: 100 }), '获取域名失败', { silent: true }),
-      requestData<{ list: MailboxOption[] }>(() => forwardingJobsContract.getMailboxes({ page: 1, pageSize: 100 }), '获取邮箱失败', { silent: true }),
+      requestData<{ list: DomainOption[] }>(() => forwardingJobsContract.getDomains({ page: 1, pageSize: 100 }), t(forwardingJobsI18n.fetchDomainsFailed), { silent: true }),
+      requestData<{ list: MailboxOption[] }>(() => forwardingJobsContract.getMailboxes({ page: 1, pageSize: 100 }), t(forwardingJobsI18n.fetchMailboxesFailed), { silent: true }),
     ]);
     setDomains(domainResult?.list || []);
     setMailboxes(mailboxResult?.list || []);
-  }, []);
+  }, [t]);
 
   const loadJobs = useCallback(async () => {
     setLoading(true);
     const result = await requestData<{ list: ForwardingJobRow[]; total: number; page: number; pageSize: number }>(
       () => forwardingJobsContract.getList({ page, pageSize, status, mode, domainId, mailboxId, keyword }),
-      '获取转发任务失败'
+      t(forwardingJobsI18n.fetchListFailed)
     );
     if (result) {
       setJobs(result.list);
@@ -152,7 +224,7 @@ const ForwardingJobsPage: FC = () => {
       setPageSize(result.pageSize);
     }
     setLoading(false);
-  }, [domainId, keyword, mailboxId, mode, page, pageSize, status]);
+  }, [domainId, keyword, mailboxId, mode, page, pageSize, status, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -170,30 +242,30 @@ const ForwardingJobsPage: FC = () => {
 
   const openDetail = useCallback(async (id: string) => {
     setDetailLoading(true);
-    const result = await requestData<ForwardingJobDetail>(() => forwardingJobsContract.getById(id), '获取转发任务详情失败');
+    const result = await requestData<ForwardingJobDetail>(() => forwardingJobsContract.getById(id), t(forwardingJobsI18n.fetchDetailFailed));
     if (result) {
       setDetail(result);
       setDrawerVisible(true);
     }
     setDetailLoading(false);
-  }, []);
+  }, [t]);
 
   const handleRequeue = useCallback(async (id: string) => {
     setRequeueingId(id);
-    const result = await requestData(() => forwardingJobsContract.requeue(id), '重新入队失败');
+    const result = await requestData(() => forwardingJobsContract.requeue(id), t(forwardingJobsI18n.requeueFailed));
     if (result) {
-      message.success('转发任务已重新入队');
+      message.success(t(forwardingJobsI18n.requeued));
       await loadJobs();
       if (drawerVisible && detail?.id === id) {
         await openDetail(id);
       }
     }
     setRequeueingId(null);
-  }, [detail?.id, drawerVisible, loadJobs, openDetail]);
+  }, [detail?.id, drawerVisible, loadJobs, openDetail, t]);
 
   const columns: ColumnsType<ForwardingJobRow> = useMemo(() => [
     {
-      title: 'Job ID',
+      title: t(adminI18n.forwardingJobs.jobId),
       dataIndex: 'id',
       key: 'id',
       width: 180,
@@ -205,129 +277,129 @@ const ForwardingJobsPage: FC = () => {
       ),
     },
     {
-      title: '状态',
+      title: t(adminI18n.common.status),
       dataIndex: 'status',
       key: 'status',
       width: 120,
-      render: (value: ForwardingJobStatus) => <Tag color={getStatusColor(value)}>{value}</Tag>,
+      render: (value: ForwardingJobStatus) => <Tag color={getStatusColor(value)}>{t(getStatusLabel(value))}</Tag>,
     },
     {
-      title: '模式',
+      title: t(adminI18n.forwardingJobs.mode),
       dataIndex: 'mode',
       key: 'mode',
       width: 100,
-      render: (value: ForwardingJobMode) => <Tag color={getModeColor(value)}>{value}</Tag>,
+      render: (value: ForwardingJobMode) => <Tag color={getModeColor(value)}>{t(getModeLabel(value))}</Tag>,
     },
     {
-      title: '目标地址',
+      title: t(adminI18n.forwardingJobs.target),
       dataIndex: 'forwardTo',
       key: 'forwardTo',
       width: 220,
       ellipsis: true,
     },
     {
-      title: '域名',
+      title: t(adminI18n.sendingConfigs.domain),
       key: 'domain',
       width: 160,
       render: (_value, record) => record.domain?.name || '-',
     },
     {
-      title: '邮箱',
+      title: t(forwardingJobsI18n.mailbox),
       key: 'mailbox',
       width: 220,
       render: (_value, record) => record.mailbox?.address || '-',
     },
     {
-      title: '原始发件人',
+      title: t(adminI18n.forwardingJobs.originalSender),
       key: 'fromAddress',
       width: 220,
       ellipsis: true,
       render: (_value, record) => record.inboundMessage?.fromAddress || '-',
     },
     {
-      title: '主题',
+      title: t(adminI18n.sendingConfigs.subject),
       key: 'subject',
       ellipsis: true,
-      render: (_value, record) => record.inboundMessage?.subject || '(无主题)',
+      render: (_value, record) => record.inboundMessage?.subject || t(forwardingJobsI18n.noSubject),
     },
     {
-      title: '尝试次数',
+      title: t(adminI18n.forwardingJobs.attemptCount),
       dataIndex: 'attemptCount',
       key: 'attemptCount',
       width: 100,
       align: 'right',
     },
     {
-      title: '下次重试',
+      title: t(adminI18n.forwardingJobs.nextRetry),
       dataIndex: 'nextAttemptAt',
       key: 'nextAttemptAt',
       width: 180,
       render: (value?: string | null) => formatDateTime(value),
     },
     {
-      title: '处理时间',
+      title: t(adminI18n.forwardingJobs.processedAt),
       dataIndex: 'processedAt',
       key: 'processedAt',
       width: 180,
       render: (value?: string | null) => formatDateTime(value),
     },
     {
-      title: '创建时间',
+      title: t(adminI18n.common.createdAt),
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 180,
       render: (value: string) => formatDateTime(value),
     },
     {
-      title: '操作',
+      title: t(adminI18n.common.actions),
       key: 'actions',
       width: 140,
       render: (_value, record) => (
         record.status === 'FAILED' || record.status === 'SKIPPED' ? (
           <Popconfirm
-            title="确定重新入队这条转发任务吗？"
-            description="任务会重置为待处理状态，并重新进入转发执行循环。"
+            title={t(adminI18n.forwardingJobs.requeueConfirm)}
+            description={t(adminI18n.forwardingJobs.requeueDescription)}
             onConfirm={() => void handleRequeue(record.id)}
           >
-            <Button loading={requeueingId === record.id}>重新入队</Button>
+            <Button loading={requeueingId === record.id}>{t(adminI18n.forwardingJobs.requeue)}</Button>
           </Popconfirm>
         ) : <Typography.Text type="secondary">-</Typography.Text>
       ),
     },
-  ], [handleRequeue, openDetail, requeueingId]);
+  ], [handleRequeue, openDetail, requeueingId, t]);
 
   return (
     <div>
       <PageHeader
-        title="转发任务"
-        subtitle="查看 forwarding job 状态、失败原因、重试时间和关联入站上下文，并可把失败/跳过任务重新送回执行队列。"
+        title={t(adminI18n.forwardingJobs.title)}
+        subtitle={t(adminI18n.forwardingJobs.subtitle)}
         extra={
           <Space wrap>
             <Select
               allowClear
-              placeholder="筛选状态"
+              placeholder={t(adminI18n.forwardingJobs.filterStatus)}
               style={width160Style}
               value={status}
               onChange={(value) => {
                 setStatus(value);
                 setPage(1);
               }}
-              options={STATUS_OPTIONS}
+              options={STATUS_OPTIONS.map((item) => ({ ...item, label: t(item.label) }))}
             />
             <Select
               allowClear
-              placeholder="筛选模式"
+              placeholder={t(adminI18n.forwardingJobs.filterMode)}
               style={width160Style}
               value={mode}
               onChange={(value) => {
                 setMode(value);
                 setPage(1);
               }}
-              options={MODE_OPTIONS}
+              options={MODE_OPTIONS.map((item) => ({ ...item, label: t(item.label) }))}
             />
             <Select
               allowClear
-              placeholder="筛选域名"
+              placeholder={t(adminI18n.forwardingJobs.filterDomain)}
               style={width180Style}
               value={domainId}
               onChange={(value) => {
@@ -338,7 +410,7 @@ const ForwardingJobsPage: FC = () => {
             />
             <Select
               allowClear
-              placeholder="筛选邮箱"
+              placeholder={t(adminI18n.forwardingJobs.filterMailbox)}
               style={width220Style}
               value={mailboxId}
               onChange={(value) => {
@@ -349,7 +421,7 @@ const ForwardingJobsPage: FC = () => {
             />
             <Search
               allowClear
-              placeholder="搜索目标地址 / 发件人 / 主题"
+              placeholder={t(adminI18n.forwardingJobs.search)}
               style={width260Style}
               value={keywordInput}
               onChange={(event) => setKeywordInput(event.target.value)}
@@ -361,7 +433,7 @@ const ForwardingJobsPage: FC = () => {
               }}
             />
             <Button icon={<ReloadOutlined />} onClick={() => void loadJobs()}>
-              刷新
+              {t(adminI18n.common.refresh)}
             </Button>
           </Space>
         }
@@ -380,18 +452,18 @@ const ForwardingJobsPage: FC = () => {
             total,
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (value) => `共 ${value} 条`,
+            showTotal: (value) => t(adminI18n.common.totalCount, { count: value }),
             onChange: (nextPage, nextPageSize) => {
               setPage(nextPage);
               setPageSize(nextPageSize);
             },
           }}
-          locale={{ emptyText: '暂无转发任务' }}
+          locale={{ emptyText: t(adminI18n.forwardingJobs.empty) }}
         />
       </SurfaceCard>
 
       <Drawer
-        title={`转发任务 ${detail?.id || ''}`}
+        title={`${t(adminI18n.forwardingJobs.title)} ${detail?.id || ''}`}
         open={drawerVisible}
         onClose={() => {
           setDrawerVisible(false);
@@ -401,45 +473,45 @@ const ForwardingJobsPage: FC = () => {
         loading={detailLoading}
       >
         <Space orientation="vertical" style={fullWidthStyle} size={16}>
-          <SurfaceCard size="small" title="任务状态" tone="muted">
+          <SurfaceCard size="small" title={t(adminI18n.forwardingJobs.statusCard)} tone="muted">
             <Space orientation="vertical" style={fullWidthStyle}>
-              <Text><strong>状态：</strong><Tag color={detail?.status ? getStatusColor(detail.status) : 'default'}>{detail?.status || '-'}</Tag></Text>
-              <Text><strong>模式：</strong>{detail?.mode ? <Tag color={getModeColor(detail.mode)}>{detail.mode}</Tag> : '-'}</Text>
-              <Text><strong>目标地址：</strong>{detail?.forwardTo || '-'}</Text>
-              <Text><strong>尝试次数：</strong>{detail?.attemptCount ?? '-'}</Text>
-              <Text><strong>Provider Message ID：</strong>{detail?.providerMessageId || '-'}</Text>
-              <Text><strong>下次重试：</strong>{formatDateTime(detail?.nextAttemptAt)}</Text>
-              <Text><strong>处理时间：</strong>{formatDateTime(detail?.processedAt)}</Text>
-              <Text><strong>创建时间：</strong>{formatDateTime(detail?.createdAt)}</Text>
-              <Text><strong>更新时间：</strong>{formatDateTime(detail?.updatedAt)}</Text>
+              <Text><strong>{t(forwardingJobsI18n.statusLabel)}</strong><Tag color={detail?.status ? getStatusColor(detail.status) : 'default'}>{detail?.status ? t(getStatusLabel(detail.status)) : '-'}</Tag></Text>
+              <Text><strong>{t(forwardingJobsI18n.modeLabel)}</strong>{detail?.mode ? <Tag color={getModeColor(detail.mode)}>{t(getModeLabel(detail.mode))}</Tag> : '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.targetAddressLabel)}</strong>{detail?.forwardTo || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.attemptCountLabel)}</strong>{detail?.attemptCount ?? '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.providerMessageIdLabel)}</strong>{detail?.providerMessageId || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.nextRetryLabel)}</strong>{formatDateTime(detail?.nextAttemptAt)}</Text>
+              <Text><strong>{t(forwardingJobsI18n.processedAtLabel)}</strong>{formatDateTime(detail?.processedAt)}</Text>
+              <Text><strong>{t(forwardingJobsI18n.createdAtLabel)}</strong>{formatDateTime(detail?.createdAt)}</Text>
+              <Text><strong>{t(forwardingJobsI18n.updatedAtLabel)}</strong>{formatDateTime(detail?.updatedAt)}</Text>
             </Space>
           </SurfaceCard>
 
-          <SurfaceCard size="small" title="邮箱与域名上下文" tone="muted">
+          <SurfaceCard size="small" title={t(adminI18n.forwardingJobs.mailboxContext)} tone="muted">
             <Space orientation="vertical" style={fullWidthStyle}>
-              <Text><strong>邮箱：</strong>{detail?.mailbox?.address || '-'}</Text>
-              <Text><strong>邮箱模式：</strong>{detail?.mailbox?.provisioningMode || '-'}</Text>
-              <Text><strong>当前转发配置：</strong>{detail?.mailbox ? `${detail.mailbox.forwardMode} / ${detail.mailbox.forwardTo || '-'}` : '-'}</Text>
-              <Text><strong>域名：</strong>{detail?.domain?.name || '-'}</Text>
-              <Text><strong>域名能力：</strong>{detail?.domain ? `收件 ${detail.domain.canReceive ? '开启' : '关闭'} / 发件 ${detail.domain.canSend ? '开启' : '关闭'}` : '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.mailboxLabel)}</strong>{detail?.mailbox?.address || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.mailboxModeLabel)}</strong>{detail?.mailbox?.provisioningMode || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.currentForwardingLabel)}</strong>{detail?.mailbox ? `${detail.mailbox.forwardMode ? t(getModeLabel(detail.mailbox.forwardMode as ForwardingJobMode)) : '-'} / ${detail.mailbox.forwardTo || '-'}` : '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.domainLabel)}</strong>{detail?.domain?.name || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.domainCapabilityLabel)}</strong>{detail?.domain ? `${detail.domain.canReceive ? t(forwardingJobsI18n.receiveEnabled) : t(forwardingJobsI18n.receiveDisabled)} / ${detail.domain.canSend ? t(forwardingJobsI18n.sendEnabled) : t(forwardingJobsI18n.sendDisabled)}` : '-'}</Text>
             </Space>
           </SurfaceCard>
 
-          <SurfaceCard size="small" title="关联入站消息" tone="muted">
+          <SurfaceCard size="small" title={t(adminI18n.forwardingJobs.inboundContext)} tone="muted">
             <Space orientation="vertical" style={fullWidthStyle}>
-              <Text><strong>消息 ID：</strong>{detail?.inboundMessageId || '-'}</Text>
-              <Text><strong>原始发件人：</strong>{detail?.inboundMessage?.fromAddress || '-'}</Text>
-              <Text><strong>主题：</strong>{detail?.inboundMessage?.subject || '(无主题)'}</Text>
-              <Text><strong>命中地址：</strong>{detail?.inboundMessage?.matchedAddress || '-'}</Text>
-              <Text><strong>最终地址：</strong>{detail?.inboundMessage?.finalAddress || '-'}</Text>
-              <Text><strong>路由类型：</strong>{detail?.inboundMessage?.routeKind || '-'}</Text>
-              <Text><strong>门户可见性：</strong>{detail?.inboundMessage?.portalState || '-'}</Text>
-              <Text><strong>接收时间：</strong>{formatDateTime(detail?.inboundMessage?.receivedAt)}</Text>
-              <Text><strong>内容预览：</strong>{detail?.inboundMessage ? `text=${detail.inboundMessage.hasTextPreview ? 'yes' : 'no'}, html=${detail.inboundMessage.hasHtmlPreview ? 'yes' : 'no'}` : '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.messageIdLabel)}</strong>{detail?.inboundMessageId || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.originalSenderLabel)}</strong>{detail?.inboundMessage?.fromAddress || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.subjectLabel)}</strong>{detail?.inboundMessage?.subject || t(forwardingJobsI18n.noSubject)}</Text>
+              <Text><strong>{t(forwardingJobsI18n.matchedAddressLabel)}</strong>{detail?.inboundMessage?.matchedAddress || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.finalAddressLabel)}</strong>{detail?.inboundMessage?.finalAddress || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.routeTypeLabel)}</strong>{detail?.inboundMessage?.routeKind || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.portalVisibilityLabel)}</strong>{detail?.inboundMessage?.portalState || '-'}</Text>
+              <Text><strong>{t(forwardingJobsI18n.receivedAtLabel)}</strong>{formatDateTime(detail?.inboundMessage?.receivedAt)}</Text>
+              <Text><strong>{t(forwardingJobsI18n.contentPreviewLabel)}</strong>{detail?.inboundMessage ? `text=${detail.inboundMessage.hasTextPreview ? t(forwardingJobsI18n.present) : t(forwardingJobsI18n.absent)}, html=${detail.inboundMessage.hasHtmlPreview ? t(forwardingJobsI18n.present) : t(forwardingJobsI18n.absent)}` : '-'}</Text>
             </Space>
           </SurfaceCard>
 
-          <SurfaceCard size="small" title="失败 / 跳过诊断" tone="muted">
+          <SurfaceCard size="small" title={t(adminI18n.forwardingJobs.diagnostics)} tone="muted">
             <div style={preWrapBreakWordStyle}>{detail?.lastError || '-'}</div>
           </SurfaceCard>
         </Space>
