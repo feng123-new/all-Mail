@@ -71,7 +71,7 @@
     "audit:server": "./scripts/sanitize-runtime-env.sh npm --prefix server audit --omit=dev",
     "audit:web": "./scripts/sanitize-runtime-env.sh npm --prefix web audit --omit=dev",
     "audit:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge audit --omit=dev",
-    "audit:prod": "./scripts/sanitize-runtime-env.sh npm --prefix server audit --omit=dev && ./scripts/sanitize-runtime-env.sh npm --prefix web audit --omit=dev && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge audit --omit=dev",
+    "audit:prod": "./scripts/sanitize-runtime-env.sh node scripts/run-audit-prod.mjs",
     "check:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check",
     "verify:release": "./scripts/sanitize-runtime-env.sh npm --prefix server run lint && ./scripts/sanitize-runtime-env.sh npm --prefix web run lint && ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs && ./scripts/sanitize-runtime-env.sh npm --prefix server run test && ./scripts/sanitize-runtime-env.sh npm --prefix web run test && ./scripts/sanitize-runtime-env.sh npm --prefix server run db:generate && ./scripts/sanitize-runtime-env.sh npm --prefix server run build && ./scripts/sanitize-runtime-env.sh npm --prefix web run build && ./scripts/sanitize-runtime-env.sh node scripts/prepare-public.mjs && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check && ./scripts/sanitize-runtime-env.sh npm run audit:prod",
     "check": "./scripts/sanitize-runtime-env.sh npm run verify:release"
