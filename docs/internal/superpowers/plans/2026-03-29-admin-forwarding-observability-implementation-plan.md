@@ -1,7 +1,7 @@
 # all-Mail Admin Forwarding Observability Implementation Plan
 
 Date: 2026-03-29
-Based on: `docs/superpowers/specs/2026-03-29-admin-forwarding-observability-design.md`
+Based on: `docs/internal/superpowers/specs/2026-03-29-admin-forwarding-observability-design.md`
 
 ## Goal
 

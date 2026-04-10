@@ -1,7 +1,7 @@
 # all-Mail Step 3 Operational Hardening Implementation Plan
 
 Date: 2026-03-31
-Based on: `docs/superpowers/specs/2026-03-31-step3-operational-hardening-design.md`
+Based on: `docs/internal/superpowers/specs/2026-03-31-step3-operational-hardening-design.md`
 
 ## Goal
 
@@ -132,7 +132,7 @@ Do not change the order. The higher-level docs need stable authoritative targets
 - `README.md`
 - `docs/advanced-runtime.md`
 - `web/README.md`
-- `docs/opencode-all-mail-ops.md`
+- `docs/internal/ops/opencode-all-mail-ops.md`
 
 ### Changes
 - Reduce `README.md` to:
@@ -142,7 +142,7 @@ Do not change the order. The higher-level docs need stable authoritative targets
   - canonical link-out to `DEPLOY.md`, `RUNBOOK.md`, `ENVIRONMENT.md`, and Cloudflare guide
 - Elevate root-level commands (`npm run doctor`, `npm run check`, `npm run verify:release`) as the default verification entrypoints.
 - Fix obvious documentation drift identified during exploration, including mismatches between package scripts and subordinate README/operator docs.
-- If `docs/opencode-all-mail-ops.md` points to missing tooling, either correct the path/reference or explicitly mark it historical/out-of-scope.
+- If `docs/internal/ops/opencode-all-mail-ops.md` points to missing tooling, either correct the path/reference or explicitly mark it historical/out-of-scope.
 
 ### Verification gate
 - `README.md` is shorter, clearer, and points to the new authoritative docs.
