@@ -210,8 +210,8 @@ Do not change the order. The higher-level docs need stable authoritative targets
 
 ### Final verification commands
 ```bash
-cd /home/fengyong/github/all-Mail && npm run doctor
-cd /home/fengyong/github/all-Mail && npm run check
+cd /path/to/all-Mail && npm run doctor
+cd /path/to/all-Mail && npm run check
 ```
 
 If Step 3 changes affect only docs/CI templates and `npm run doctor` is environment-sensitive in a way that cannot pass in the local session, document that constraint explicitly and still run the strongest truthful local gate available.

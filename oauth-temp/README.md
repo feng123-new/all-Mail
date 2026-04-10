@@ -143,7 +143,7 @@ TARGET_EMAIL_ID=5
 例如：
 
 ```text
-example@outlook.com----00000000-0000-0000-0000-000000000000----secret-value----oauth----0.AUkA...
+example@outlook.com----client-id----client-secret----oauth----refresh-token
 ```
 
 这个格式现在已经被仓库里的批量导入逻辑识别，不需要再手动拆字段。

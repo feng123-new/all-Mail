@@ -197,7 +197,7 @@ Do not change this order. The frontend depends on a stable backend shape, and th
 
 ### Commands
 ```bash
-cd /home/fengyong/github/all-Mail
+cd /path/to/all-Mail
 npm run check
 ```
 

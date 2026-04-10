@@ -167,5 +167,5 @@ The following stay out of v1:
 ```bash
 cd server && npm run test
 cd server && npm run build
-cd /home/fengyong/github/all-Mail && npm run check
+cd /path/to/all-Mail && npm run check
 ```

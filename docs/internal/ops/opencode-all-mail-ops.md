@@ -25,7 +25,7 @@ Use:
 
 The underlying implementation lives at:
 
-- `/home/fengyong/github/all-Mail/tools/all_mail_ops.py`
+- `<repo-root>/tools/all_mail_ops.py`
 
 ## Local config
 
