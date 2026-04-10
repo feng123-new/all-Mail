@@ -10,8 +10,8 @@ import {
 	deleteSelectedMailsSchema,
 	importEmailSchema,
 	listEmailSchema,
-	revealEmailUnlockSchema,
 	revealEmailSecretsSchema,
+	revealEmailUnlockSchema,
 	updateEmailSchema,
 } from "./email.schema.js";
 import { emailService } from "./email.service.js";
@@ -219,7 +219,10 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 				input.accountPasswordGrantToken,
 			);
 		}
-		const { accountPasswordGrantToken: _accountPasswordGrantToken, ...updateData } = input;
+		const {
+			accountPasswordGrantToken: _accountPasswordGrantToken,
+			...updateData
+		} = input;
 		const email = await emailService.update(parseInt(id, 10), updateData);
 		return { success: true, data: email };
 	});
@@ -228,7 +231,7 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 	fastify.delete("/:id(^\\d+$)", async (request) => {
 		const { id } = request.params as { id: string };
 		await emailService.delete(parseInt(id, 10));
-		return { success: true, data: { message: "Email account deleted" } };
+		return { success: true, data: { code: "EMAIL_ACCOUNT_DELETED" } };
 	});
 
 	// 批量删除
@@ -245,13 +248,13 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 			id: number;
 			email: string;
 			status: "success" | "partial" | "error" | "skipped";
+			code?: string;
 			mailboxResults: Array<{
 				mailbox: string;
 				status: "success" | "error";
+				code?: string;
 				count?: number;
-				message?: string;
 			}>;
-			message?: string;
 		}> = [];
 
 		for (const target of targets) {
@@ -260,8 +263,8 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 					id: target.id,
 					email: target.email,
 					status: "skipped",
+					code: "EMAIL_TARGET_DISABLED",
 					mailboxResults: [],
-					message: "邮箱已禁用，跳过收取",
 				});
 				continue;
 			}
@@ -276,11 +279,12 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 			const mailboxResults: Array<{
 				mailbox: string;
 				status: "success" | "error";
+				code?: string;
 				count?: number;
-				message?: string;
 			}> = [];
 			let successCount = 0;
 			let lastErrorMessage: string | undefined;
+			let lastErrorCode: string | undefined;
 
 			for (const mailbox of input.mailboxes) {
 				try {
@@ -311,9 +315,14 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 					mailboxResults.push({
 						mailbox,
 						status: "error",
-						message: errorMessage,
+						code:
+							toErrorCode(error instanceof AppError ? error.code : undefined) ||
+							"MAILBOX_FETCH_FAILED",
 					});
 					lastErrorMessage = errorMessage;
+					lastErrorCode =
+						toErrorCode(error instanceof AppError ? error.code : undefined) ||
+						"MAILBOX_FETCH_FAILED";
 				}
 			}
 
@@ -334,13 +343,13 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 				id: target.id,
 				email: target.email,
 				status: finalStatus,
-				mailboxResults,
-				message:
+				code:
 					finalStatus === "success"
-						? "邮箱收取完成"
+						? "EMAIL_BATCH_FETCH_SUCCESS"
 						: finalStatus === "partial"
-							? "部分邮箱夹收取成功"
-							: lastErrorMessage,
+							? "EMAIL_BATCH_FETCH_PARTIAL"
+							: lastErrorCode || "EMAIL_BATCH_FETCH_FAILED",
+				mailboxResults,
 			});
 		}
 
@@ -375,8 +384,8 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 			id: number;
 			email: string;
 			status: "success" | "error" | "skipped";
+			code: string;
 			deletedCount: number;
-			message: string;
 		}> = [];
 		let deletedCount = 0;
 
@@ -386,8 +395,8 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 					id: target.id,
 					email: target.email,
 					status: "skipped",
+					code: "EMAIL_TARGET_DISABLED",
 					deletedCount: 0,
-					message: "邮箱已禁用，跳过删除",
 				});
 				continue;
 			}
@@ -397,8 +406,8 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 					id: target.id,
 					email: target.email,
 					status: "skipped",
+					code: "MAILBOX_CLEAR_UNSUPPORTED",
 					deletedCount: 0,
-					message: "当前 Provider / 鉴权模式不支持批量清空邮箱",
 				});
 				continue;
 			}
@@ -422,8 +431,8 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 					id: target.id,
 					email: target.email,
 					status: "success",
+					code: "MAILBOX_CLEAR_SUCCESS",
 					deletedCount: result.deletedCount,
-					message: result.message,
 				});
 			} catch (error) {
 				const errorMessage =
@@ -435,8 +444,10 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 					id: target.id,
 					email: target.email,
 					status: "error",
+					code:
+						toErrorCode(error instanceof AppError ? error.code : undefined) ||
+						"MAILBOX_CLEAR_FAILED",
 					deletedCount: 0,
-					message: errorMessage,
 				});
 			}
 		}
@@ -574,10 +585,11 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 				},
 			);
 			await mailService.updateEmailStatus(emailId, true);
+			const { message: _message, ...resultData } = result;
 			return {
 				success: true,
 				data: {
-					...result,
+					...resultData,
 					messages: remainingMails.messages,
 					remainingCount: remainingMails.count,
 				},
@@ -640,7 +652,8 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 			const result = await mailService.processMailbox(credentials, { mailbox });
 			await emailService.clearMailboxStatus(emailId, mailbox);
 			await mailService.updateEmailStatus(emailId, true);
-			return { success: true, data: result };
+			const { message: _message, ...resultData } = result;
+			return { success: true, data: resultData };
 		} catch (error) {
 			const errorMessage =
 				error instanceof Error && error.message
