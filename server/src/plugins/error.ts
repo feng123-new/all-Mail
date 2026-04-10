@@ -7,7 +7,8 @@ export class AppError extends Error {
     constructor(
         public code: string,
         message: string,
-        public statusCode: number = 400
+        public statusCode: number = 400,
+        public details?: unknown
     ) {
         super(message);
         this.name = 'AppError';
@@ -25,8 +26,10 @@ const errorPlugin: FastifyPluginAsync = async (fastify) => {
                 requestId: request.id,
                 error: {
                     code: 'VALIDATION_ERROR',
-                    message: 'Invalid request data',
-                    details: error.errors,
+                    details: error.errors.map((issue) => ({
+                        code: issue.code,
+                        path: issue.path,
+                    })),
                 },
             });
         }
@@ -38,7 +41,7 @@ const errorPlugin: FastifyPluginAsync = async (fastify) => {
                 requestId: request.id,
                 error: {
                     code: error.code,
-                    message: error.message,
+                    details: error.details,
                 },
             });
         }
@@ -50,7 +53,6 @@ const errorPlugin: FastifyPluginAsync = async (fastify) => {
                 requestId: request.id,
                 error: {
                     code: 'VALIDATION_ERROR',
-                    message: error.message,
                 },
             });
         }
@@ -62,7 +64,6 @@ const errorPlugin: FastifyPluginAsync = async (fastify) => {
             requestId: request.id,
             error: {
                 code: 'INTERNAL_ERROR',
-                message: statusCode === 500 ? 'Internal server error' : error.message,
             },
         });
     });

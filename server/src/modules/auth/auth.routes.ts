@@ -33,7 +33,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
     // 登出
     fastify.post('/logout', async (request, reply) => {
         reply.clearCookie('token', adminClearCookieOptions);
-        return { success: true, data: { message: 'Logged out' } };
+        return { success: true, data: { code: 'AUTH_LOGGED_OUT' } };
     });
 
     // 获取当前用户
@@ -50,7 +50,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request, _reply) => {
         const input = changePasswordSchema.parse(request.body);
         await authService.changePassword(request.user!.id, input);
-        return { success: true, data: { message: 'Password changed' } };
+        return { success: true, data: { code: 'AUTH_PASSWORD_CHANGED' } };
     });
 
     // 2FA 状态

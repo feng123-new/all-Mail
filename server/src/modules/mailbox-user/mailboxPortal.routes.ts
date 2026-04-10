@@ -47,7 +47,7 @@ const mailboxPortalRoutes: FastifyPluginAsync = async (fastify) => {
 
     fastify.post('/logout', async (_request, reply) => {
         reply.clearCookie('mailbox_token', mailboxClearCookieOptions);
-        return { success: true, data: { message: 'Logged out' } };
+        return { success: true, data: { code: 'MAILBOX_PORTAL_LOGGED_OUT' } };
     });
 
     fastify.get('/session', {

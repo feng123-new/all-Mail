@@ -40,7 +40,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.delete('/:id', async (request) => {
         const { id } = request.params as { id: string };
         await adminService.delete(parseInt(id));
-        return { success: true, data: { message: 'Admin deleted' } };
+        return { success: true, data: { code: 'ADMIN_DELETED' } };
     });
 };
 

@@ -48,7 +48,7 @@ const apiKeyRoutes: FastifyPluginAsync = async (fastify) => {
         const { id } = request.params as { id: string };
         const { group } = request.body as { group?: string };
         await poolService.reset(parseInt(id), group);
-        return { success: true, data: { message: '分配记录已重置' } };
+        return { success: true, data: { code: 'API_KEY_ALLOCATION_RESET' } };
     };
     for (const path of allocationResetPaths) {
         fastify.post(path, resetAllocation);
@@ -66,7 +66,7 @@ const apiKeyRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.delete('/:id', async (request) => {
         const { id } = request.params as { id: string };
         await apiKeyService.delete(parseInt(id));
-        return { success: true, data: { message: 'API Key deleted' } };
+        return { success: true, data: { code: 'API_KEY_DELETED' } };
     });
 
     const getAssignedMailboxes = async (request: FastifyRequest) => {

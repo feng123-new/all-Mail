@@ -631,7 +631,7 @@ const mailRoutes: FastifyPluginAsync = async (fastify) => {
                 request.id
             );
 
-            return { success: true, data: { message: `Pool reset successfully${groupName ? ` for group '${groupName}'` : ''}` } };
+            return { success: true, data: { code: 'EXTERNAL_POOL_RESET', groupName: groupName || null } };
         } catch (err: unknown) {
             await mailService.logApiCall(
                 MAIL_LOG_ACTIONS.POOL_RESET,

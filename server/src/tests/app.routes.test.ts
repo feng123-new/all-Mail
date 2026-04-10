@@ -45,10 +45,11 @@ async function expectErrorRoute(options: {
         assert.equal(response.statusCode, options.expectedStatusCode);
         const body = JSON.parse(response.payload) as {
             success: boolean;
-            error: { code: string };
+            error: { code: string; message?: string };
         };
         assert.equal(body.success, false);
         assert.equal(body.error.code, options.expectedCode);
+        assert.equal('message' in body.error, false);
     } finally {
         await app.close();
     }

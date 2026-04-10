@@ -145,7 +145,7 @@ export async function buildApp() {
             return reply.status(404).send({
                 success: false,
                 requestId: request.id,
-                error: { code: 'NOT_FOUND', message: 'Route not found' },
+                error: { code: 'NOT_FOUND' },
             });
         }
 
@@ -154,7 +154,7 @@ export async function buildApp() {
             return reply.status(404).send({
                 success: false,
                 requestId: request.id,
-                error: { code: 'NOT_FOUND', message: 'Route not found' },
+                error: { code: 'NOT_FOUND' },
             });
         }
 
@@ -166,7 +166,7 @@ export async function buildApp() {
         return reply.status(404).send({
             success: false,
             requestId: request.id,
-            error: { code: 'NOT_FOUND', message: 'Static frontend assets are not available in this runtime' },
+            error: { code: 'NOT_FOUND' },
         });
     });
 
