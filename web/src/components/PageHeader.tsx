@@ -6,16 +6,14 @@ import {
   pageHeaderEyebrowStyle,
 } from '../styles/common';
 import { shellPalette } from '../theme';
-import { useI18n } from '../i18n';
-
 const { Title, Text } = Typography;
 
 interface PageHeaderProps {
-    title: string;
-    subtitle?: string;
-    breadcrumb?: Array<{ title: string; path?: string }>;
+    title: ReactNode;
+    subtitle?: ReactNode;
+    breadcrumb?: Array<{ title: ReactNode; path?: string }>;
     extra?: ReactNode;
-    eyebrow?: string | null;
+    eyebrow?: ReactNode | null;
 }
 
 const PageHeader: FC<PageHeaderProps> = ({
@@ -25,14 +23,12 @@ const PageHeader: FC<PageHeaderProps> = ({
     extra,
     eyebrow = null,
 }) => {
-  const { t } = useI18n();
-
   return (
         <div style={pageHeaderCardStyle}>
             {breadcrumb && breadcrumb.length > 0 && (
                 <Breadcrumb
                     items={breadcrumb.map((item) => ({
-                        title: item.path ? <Link to={item.path}>{t(item.title)}</Link> : t(item.title),
+                        title: item.path ? <Link to={item.path}>{item.title}</Link> : item.title,
                     }))}
                     style={{ marginBottom: 6 }}
                 />
@@ -40,13 +36,13 @@ const PageHeader: FC<PageHeaderProps> = ({
             <div className="page-header__top">
                 <div style={{ maxWidth: 720 }}>
                      {eyebrow ? (
-                         <Text className="page-header__eyebrow" style={pageHeaderEyebrowStyle}>
-                            {t(eyebrow)}
-                         </Text>
-                     ) : null}
-                     <Title level={2} style={{ margin: 0, color: shellPalette.ink, fontSize: 26, lineHeight: 1.08, letterSpacing: -0.4, fontWeight: 680 }}>{t(title)}</Title>
-                     {subtitle ? (
-                      <Text
+                          <Text className="page-header__eyebrow" style={pageHeaderEyebrowStyle}>
+                             {eyebrow}
+                          </Text>
+                      ) : null}
+                      <Title level={2} style={{ margin: 0, color: shellPalette.ink, fontSize: 26, lineHeight: 1.08, letterSpacing: -0.4, fontWeight: 680 }}>{title}</Title>
+                      {subtitle ? (
+                       <Text
                         type="secondary"
                         style={{
                           marginTop: 4,
@@ -56,10 +52,10 @@ const PageHeader: FC<PageHeaderProps> = ({
                           lineHeight: 1.55,
                           color: shellPalette.inkSoft,
                         }}
-                      >
-                        {t(subtitle)}
-                       </Text>
-                     ) : null}
+                       >
+                         {subtitle}
+                        </Text>
+                      ) : null}
                 </div>
                 {extra ? <Space wrap className="page-header__extra" style={{ alignItems: 'center' }}>{extra}</Space> : null}
             </div>

@@ -4,20 +4,22 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
-    "test": "vitest run"
+    "dev": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"vite\"",
+    "build": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"tsc -b && vite build\"",
+    "lint": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"eslint .\"",
+    "preview": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"vite preview\"",
+    "test": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"vitest run\""
   },
   "dependencies": {
     "@ant-design/charts": "^2.6.7",
     "@ant-design/icons": "^6.1.0",
     "antd": "^6.1.2",
-    "axios": "^1.13.6",
+    "axios": "^1.15.0",
     "dayjs": "^1.11.19",
+    "i18next": "^26.0.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-i18next": "^17.0.2",
     "react-router-dom": "^6.30.3",
     "zustand": "^5.0.9"
   },

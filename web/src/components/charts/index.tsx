@@ -11,6 +11,7 @@ export interface SimpleLineChartProps {
   data: LineDatum[];
   color?: string;
   height?: number;
+  ariaLabel: string;
 }
 
 export interface SimpleDonutDatum {
@@ -24,6 +25,7 @@ export interface SimpleDonutChartProps {
   total: number;
   title: string;
   height?: number;
+  ariaLabel: string;
 }
 
 const lineChartPadding = {
@@ -52,6 +54,7 @@ export const SimpleLineChart: FC<SimpleLineChartProps> = ({
   data,
   color = shellPalette.primary,
   height = 280,
+  ariaLabel,
 }) => {
   const width = 640;
   const innerWidth = width - lineChartPadding.left - lineChartPadding.right;
@@ -73,7 +76,7 @@ export const SimpleLineChart: FC<SimpleLineChartProps> = ({
 
   return (
     <div className="chart-frame" style={{ height }}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="API 调用趋势图">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
         <defs>
           <linearGradient id="lineChartFill" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.24" />
@@ -116,6 +119,7 @@ export const SimpleDonutChart: FC<SimpleDonutChartProps> = ({
   total,
   title,
   height = 280,
+  ariaLabel,
 }) => {
   const width = 320;
   const centerX = width / 2;
@@ -135,7 +139,7 @@ export const SimpleDonutChart: FC<SimpleDonutChartProps> = ({
 
   return (
     <div className="chart-frame" style={{ height }}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="邮箱状态分布图">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
         {arcSegments.map((item) => (
             <path
               key={`${item.type}-${item.value}`}

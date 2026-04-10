@@ -1,3 +1,5 @@
+import { defineMessage, type TranslationInput } from '../i18n/messages';
+
 export const LOG_ACTIONS = {
     GET_EMAIL: 'external_allocate_mailbox',
     MAIL_NEW: 'external_read_latest_message',
@@ -42,24 +44,24 @@ const LEGACY_ACTION_ALIASES: Record<string, LogAction> = {
     emails: LOG_ACTIONS.LIST_EMAILS,
 };
 
-export const LOG_ACTION_LABELS: Record<LogAction, string> = {
-    [LOG_ACTIONS.GET_EMAIL]: '分配外部邮箱',
-    [LOG_ACTIONS.MAIL_NEW]: '读取外部最新邮件',
-    [LOG_ACTIONS.MAIL_TEXT]: '提取外部邮件文本',
-    [LOG_ACTIONS.MAIL_ALL]: '列出外部邮件',
-    [LOG_ACTIONS.PROCESS_MAILBOX]: '清理外部邮箱',
-    [LOG_ACTIONS.LIST_EMAILS]: '列出外部邮箱',
-    [LOG_ACTIONS.ADMIN_REVEAL_EXTERNAL_SECRET_UNLOCK]: '验证外部邮箱密钥查看授权',
-    [LOG_ACTIONS.ADMIN_REVEAL_EXTERNAL_SECRET]: '受控查看外部邮箱密钥',
-    [LOG_ACTIONS.POOL_STATS]: '外部分配统计',
-    [LOG_ACTIONS.POOL_RESET]: '重置外部分配',
-    [LOG_ACTIONS.DOMAIN_GET_MAILBOX]: '分配域名邮箱',
-    [LOG_ACTIONS.DOMAIN_MAIL_NEW]: '读取域名最新邮件',
-    [LOG_ACTIONS.DOMAIN_MAIL_TEXT]: '提取域名邮件文本',
-    [LOG_ACTIONS.DOMAIN_MAIL_ALL]: '列出域名邮件',
-    [LOG_ACTIONS.DOMAIN_LIST_MAILBOXES]: '列出域名邮箱',
-    [LOG_ACTIONS.DOMAIN_POOL_STATS]: '域名分配统计',
-    [LOG_ACTIONS.DOMAIN_POOL_RESET]: '重置域名分配',
+export const LOG_ACTION_LABELS: Record<LogAction, TranslationInput> = {
+    [LOG_ACTIONS.GET_EMAIL]: defineMessage('logActions.externalAllocateMailbox', '分配外部邮箱', 'Allocate external mailbox'),
+    [LOG_ACTIONS.MAIL_NEW]: defineMessage('logActions.externalReadLatestMessage', '读取外部最新邮件', 'Read latest external mail'),
+    [LOG_ACTIONS.MAIL_TEXT]: defineMessage('logActions.externalReadMessageText', '提取外部邮件文本', 'Extract external mail text'),
+    [LOG_ACTIONS.MAIL_ALL]: defineMessage('logActions.externalListMessages', '列出外部邮件', 'List external messages'),
+    [LOG_ACTIONS.PROCESS_MAILBOX]: defineMessage('logActions.externalClearMailbox', '清理外部邮箱', 'Clear external mailbox'),
+    [LOG_ACTIONS.LIST_EMAILS]: defineMessage('logActions.externalListMailboxes', '列出外部邮箱', 'List external mailboxes'),
+    [LOG_ACTIONS.ADMIN_REVEAL_EXTERNAL_SECRET_UNLOCK]: defineMessage('logActions.adminRevealExternalSecretUnlock', '验证外部邮箱密钥查看授权', 'Verify external-secret reveal access'),
+    [LOG_ACTIONS.ADMIN_REVEAL_EXTERNAL_SECRET]: defineMessage('logActions.adminRevealExternalSecret', '受控查看外部邮箱密钥', 'Reveal external mailbox secret under control'),
+    [LOG_ACTIONS.POOL_STATS]: defineMessage('logActions.externalMailboxAllocationStats', '外部分配统计', 'External allocation stats'),
+    [LOG_ACTIONS.POOL_RESET]: defineMessage('logActions.externalMailboxAllocationReset', '重置外部分配', 'Reset external allocation'),
+    [LOG_ACTIONS.DOMAIN_GET_MAILBOX]: defineMessage('logActions.domainAllocateMailbox', '分配域名邮箱', 'Allocate domain mailbox'),
+    [LOG_ACTIONS.DOMAIN_MAIL_NEW]: defineMessage('logActions.domainReadLatestMessage', '读取域名最新邮件', 'Read latest domain mail'),
+    [LOG_ACTIONS.DOMAIN_MAIL_TEXT]: defineMessage('logActions.domainReadMessageText', '提取域名邮件文本', 'Extract domain-mail text'),
+    [LOG_ACTIONS.DOMAIN_MAIL_ALL]: defineMessage('logActions.domainListMessages', '列出域名邮件', 'List domain-mail messages'),
+    [LOG_ACTIONS.DOMAIN_LIST_MAILBOXES]: defineMessage('logActions.domainListMailboxes', '列出域名邮箱', 'List domain mailboxes'),
+    [LOG_ACTIONS.DOMAIN_POOL_STATS]: defineMessage('logActions.domainMailboxAllocationStats', '域名分配统计', 'Domain allocation stats'),
+    [LOG_ACTIONS.DOMAIN_POOL_RESET]: defineMessage('logActions.domainMailboxAllocationReset', '重置域名分配', 'Reset domain allocation'),
 };
 
 export const LOG_ACTION_COLORS: Record<LogAction, string> = {
@@ -82,7 +84,7 @@ export const LOG_ACTION_COLORS: Record<LogAction, string> = {
     [LOG_ACTIONS.DOMAIN_POOL_RESET]: 'warning',
 };
 
-export const LOG_ACTION_OPTIONS: Array<{ value: LogAction; label: string }> = [
+export const LOG_ACTION_OPTIONS: Array<{ value: LogAction; label: TranslationInput }> = [
     { value: LOG_ACTIONS.GET_EMAIL, label: LOG_ACTION_LABELS[LOG_ACTIONS.GET_EMAIL] },
     { value: LOG_ACTIONS.MAIL_NEW, label: LOG_ACTION_LABELS[LOG_ACTIONS.MAIL_NEW] },
     { value: LOG_ACTIONS.MAIL_TEXT, label: LOG_ACTION_LABELS[LOG_ACTIONS.MAIL_TEXT] },
@@ -109,7 +111,7 @@ export function normalizeLogAction(action: string): LogAction | undefined {
     return LEGACY_ACTION_ALIASES[action];
 }
 
-export function getLogActionLabel(action: string): string {
+export function getLogActionLabel(action: string): TranslationInput {
     const normalizedAction = normalizeLogAction(action);
     if (!normalizedAction) {
         return action;

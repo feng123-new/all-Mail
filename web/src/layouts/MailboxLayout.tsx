@@ -6,6 +6,7 @@ import { AppstoreOutlined, InboxOutlined, SettingOutlined, LogoutOutlined, Safet
 import { mailboxPortalApi } from '../api';
 import { LanguageToggle, PageSurface } from '../components';
 import { APP_NAME, APP_SHORT_NAME } from '../constants/product';
+import { mailboxLayoutI18n } from '../i18n/catalog/shell';
 import { useI18n } from '../i18n';
 import { shellMetrics, shellPalette } from '../theme';
 import {
@@ -25,17 +26,17 @@ import { useMailboxAuthStore } from '../stores/mailboxAuthStore';
 const { Header, Sider, Content } = Layout;
 const { Text, Title } = Typography;
 
-const menuItems: Array<{ key: string; icon: ReactNode; label: string }> = [
-    { key: '/mail/overview', icon: <AppstoreOutlined />, label: '门户工作台' },
-    { key: '/mail/inbox', icon: <InboxOutlined />, label: '收/发件工作区' },
-    { key: '/mail/settings', icon: <SettingOutlined />, label: '设置中心' },
+const menuItems: Array<{ key: string; icon: ReactNode; label: typeof mailboxLayoutI18n.overview }> = [
+    { key: '/mail/overview', icon: <AppstoreOutlined />, label: mailboxLayoutI18n.overview },
+    { key: '/mail/inbox', icon: <InboxOutlined />, label: mailboxLayoutI18n.inbox },
+    { key: '/mail/settings', icon: <SettingOutlined />, label: mailboxLayoutI18n.settings },
 ];
 
-const routeMeta: Record<string, string> = {
-    '/mail/overview': '门户工作台',
-    '/mail/inbox': '收 / 发件工作区',
-    '/mail/settings': '设置中心',
-};
+const routeMeta = {
+    '/mail/overview': mailboxLayoutI18n.overview,
+    '/mail/inbox': mailboxLayoutI18n.inbox,
+    '/mail/settings': mailboxLayoutI18n.settings,
+} as const;
 
 const MailboxLayout: React.FC = () => {
     const navigate = useNavigate();
@@ -45,7 +46,7 @@ const MailboxLayout: React.FC = () => {
 
     const assignedMailboxCount = mailboxUser?.mailboxIds?.length || 0;
     const mustChangePassword = Boolean(mailboxUser?.mustChangePassword);
-    const activeMeta = t(routeMeta[location.pathname] || '邮箱门户');
+    const activeMeta = t(routeMeta[location.pathname as keyof typeof routeMeta] || mailboxLayoutI18n.mailboxPortal);
     const menuItemsWithState: MenuProps['items'] = menuItems.map((item) => ({
         key: item.key,
         icon: item.icon,
@@ -67,7 +68,7 @@ const MailboxLayout: React.FC = () => {
         {
             key: 'logout',
             icon: <LogoutOutlined />,
-            label: t('退出登录'),
+            label: t(mailboxLayoutI18n.signOut),
             onClick: handleLogout,
             danger: true,
         },
@@ -88,15 +89,15 @@ const MailboxLayout: React.FC = () => {
                             </div>
                             <div>
                                  <Title level={4} style={{ margin: 0, color: shellPalette.sidebarText }}>{APP_NAME}</Title>
-                                <Text style={{ color: shellPalette.sidebarMuted }}>{t('mailbox workspace')}</Text>
+                                <Text style={{ color: shellPalette.sidebarMuted }}>{t(mailboxLayoutI18n.mailboxWorkspace)}</Text>
                             </div>
                         </Space>
 
                         <div style={sidebarPanelStyle}>
                             <Space orientation="vertical" size={6} style={{ width: '100%' }}>
-                                <Text style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.3, textTransform: 'uppercase', color: shellPalette.muted }}>{t('Mailbox access')}</Text>
-                                <Text strong style={{ color: shellPalette.ink }}>{t(`${assignedMailboxCount} 个可访问邮箱`)}</Text>
-                                <Text style={{ color: shellPalette.inkSoft }}>{mailboxUser?.mustChangePassword ? t('当前账号需要先更新密码') : t('当前账号安全状态正常')}</Text>
+                                <Text style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.3, textTransform: 'uppercase', color: shellPalette.muted }}>{t(mailboxLayoutI18n.mailboxAccess)}</Text>
+                                <Text strong style={{ color: shellPalette.ink }}>{t(mailboxLayoutI18n.accessibleMailboxCount, { count: assignedMailboxCount })}</Text>
+                                <Text style={{ color: shellPalette.inkSoft }}>{mailboxUser?.mustChangePassword ? t(mailboxLayoutI18n.passwordUpdateRequired) : t(mailboxLayoutI18n.securityHealthy)}</Text>
                             </Space>
                         </div>
                     </Space>
@@ -104,7 +105,7 @@ const MailboxLayout: React.FC = () => {
 
                 <div style={{ padding: '14px 10px 20px' }}>
                     <Text style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase', color: shellPalette.muted, paddingInline: 10, marginBottom: 8 }}>
-                        {t('Workspace')}
+                        {t(mailboxLayoutI18n.workspace)}
                     </Text>
                     <Menu
                         mode="inline"
@@ -121,9 +122,9 @@ const MailboxLayout: React.FC = () => {
                             <Space orientation="vertical" size={8} style={{ width: '100%' }}>
                                 <Space>
                                      <SafetyCertificateOutlined style={{ color: shellPalette.warning }} />
-                                    <Text strong style={{ color: shellPalette.ink }}>{t('需要先更新密码')}</Text>
+                                    <Text strong style={{ color: shellPalette.ink }}>{t(mailboxLayoutI18n.updatePasswordFirst)}</Text>
                                 </Space>
-                                <Text style={{ color: shellPalette.inkSoft }}>{t('当前账号仍处于首次密码状态，建议先去设置中心更新密码。')}</Text>
+                                <Text style={{ color: shellPalette.inkSoft }}>{t(mailboxLayoutI18n.updatePasswordHint)}</Text>
                             </Space>
                         </div>
                     </div>
@@ -135,7 +136,7 @@ const MailboxLayout: React.FC = () => {
                     style={shellHeaderStyle}
                 >
                     <div style={shellHeaderContextStyle}>
-                        <Text style={shellHeaderLabelStyle}>{t('邮箱门户')}</Text>
+                        <Text style={shellHeaderLabelStyle}>{t(mailboxLayoutI18n.mailboxPortal)}</Text>
                         <Text type="secondary" style={shellHeaderMetaStyle}>{activeMeta}</Text>
                     </div>
 
@@ -148,8 +149,8 @@ const MailboxLayout: React.FC = () => {
                                         {(mailboxUser?.username || 'M').slice(0, 1).toUpperCase()}
                                     </Avatar>
                                     <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
-                                        <div>{mailboxUser?.username || t('Mailbox User')}</div>
-                                        <Text type="secondary" style={{ fontSize: 12 }}>{t(`${assignedMailboxCount} 个可访问邮箱`)}</Text>
+                                        <div>{mailboxUser?.username || t(mailboxLayoutI18n.mailboxUser)}</div>
+                                        <Text type="secondary" style={{ fontSize: 12 }}>{t(mailboxLayoutI18n.accessibleMailboxCount, { count: assignedMailboxCount })}</Text>
                                     </div>
                                 </Space>
                             </Button>

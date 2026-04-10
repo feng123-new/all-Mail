@@ -14,7 +14,7 @@ export function isSuperAdmin(role?: string | null): boolean {
 }
 
 export function getAdminRoleLabel(role?: string | null): string {
-    return isSuperAdmin(role) ? '超级管理员' : '管理员';
+    return isSuperAdmin(role) ? 'admin.role.superAdmin' : 'admin.role.admin';
 }
 
 export function normalizeAdminStatus(status?: string | null): AdminStatus | undefined {
@@ -26,6 +26,5 @@ export function normalizeAdminStatus(status?: string | null): AdminStatus | unde
 }
 
 export function getAdminStatusLabel(status?: string | null): string {
-    return normalizeAdminStatus(status) === 'ACTIVE' ? '启用' : '禁用';
+    return normalizeAdminStatus(status) === 'ACTIVE' ? 'admin.status.active' : 'admin.status.disabled';
 }
-

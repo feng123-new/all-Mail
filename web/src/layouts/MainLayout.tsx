@@ -32,6 +32,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { authApi } from '../api';
 import { LanguageToggle, PageSurface } from '../components';
 import { APP_NAME, APP_SHORT_NAME } from '../constants/product';
+import { mainLayoutI18n } from '../i18n/catalog/shell';
 import { useI18n } from '../i18n';
 import { useAuthStore } from '../stores/authStore';
 import {
@@ -51,19 +52,19 @@ const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
 const menuConfig = [
-    { key: '/dashboard', icon: <DashboardOutlined />, label: '控制台概览', title: '控制台概览', subtitle: '总览连接健康度、域名邮箱运行态和自动化热度。' },
-    { key: '/emails', icon: <MailOutlined />, label: '外部邮箱连接', title: '外部邮箱连接', subtitle: '管理 OAuth、IMAP / SMTP 与外部邮箱接入能力。' },
-    { key: '/domains', icon: <CloudServerOutlined />, label: '域名', title: '域名', subtitle: '查看域名收发状态、验证进度与基础配置。' },
-    { key: '/domain-mailboxes', icon: <InboxOutlined />, label: '域名邮箱', title: '域名邮箱', subtitle: '集中管理门户邮箱、批次与分配状态。' },
-    { key: '/mailbox-users', icon: <TeamOutlined />, label: '门户用户', title: '门户用户', subtitle: '管理门户访问人、邮箱归属和登录状态。' },
-    { key: '/domain-messages', icon: <MessageOutlined />, label: '域名消息', title: '域名消息', subtitle: '追踪入站消息、路由结果与可见性。' },
-    { key: '/forwarding-jobs', icon: <SwapOutlined />, label: '转发任务', title: '转发任务', subtitle: '查看 forwarding job 状态、失败原因和下一次重试时间。' },
-    { key: '/sending-configs', icon: <SendOutlined />, label: '发信配置', title: '发信配置', subtitle: '配置域名发信能力、默认 From 和发送路径。' },
-    { key: '/api-keys', icon: <KeyOutlined />, label: '访问密钥', title: '访问密钥与资源范围', subtitle: '约束自动化调用范围、速率和资源边界。' },
-    { key: '/api-docs', icon: <FileTextOutlined />, label: 'API 文档', title: 'API 文档', subtitle: '面向脚本、服务和集成方的调用入口。' },
-    { key: '/operation-logs', icon: <HistoryOutlined />, label: '操作日志', title: '操作日志', subtitle: '审计关键动作、调用轨迹与异常处理。' },
-    { key: '/admins', icon: <UserOutlined />, label: '管理员', title: '管理员管理', subtitle: '管理后台管理员权限与安全策略。', superAdmin: true },
-    { key: '/settings', icon: <SettingOutlined />, label: '系统设置', title: '系统设置', subtitle: '维护全局配置、安全与平台默认行为。' },
+    { key: '/dashboard', icon: <DashboardOutlined />, label: mainLayoutI18n.dashboard.label, title: mainLayoutI18n.dashboard.title, subtitle: mainLayoutI18n.dashboard.subtitle },
+    { key: '/emails', icon: <MailOutlined />, label: mainLayoutI18n.emails.label, title: mainLayoutI18n.emails.title, subtitle: mainLayoutI18n.emails.subtitle },
+    { key: '/domains', icon: <CloudServerOutlined />, label: mainLayoutI18n.domains.label, title: mainLayoutI18n.domains.title, subtitle: mainLayoutI18n.domains.subtitle },
+    { key: '/domain-mailboxes', icon: <InboxOutlined />, label: mainLayoutI18n.domainMailboxes.label, title: mainLayoutI18n.domainMailboxes.title, subtitle: mainLayoutI18n.domainMailboxes.subtitle },
+    { key: '/mailbox-users', icon: <TeamOutlined />, label: mainLayoutI18n.mailboxUsers.label, title: mainLayoutI18n.mailboxUsers.title, subtitle: mainLayoutI18n.mailboxUsers.subtitle },
+    { key: '/domain-messages', icon: <MessageOutlined />, label: mainLayoutI18n.domainMessages.label, title: mainLayoutI18n.domainMessages.title, subtitle: mainLayoutI18n.domainMessages.subtitle },
+    { key: '/forwarding-jobs', icon: <SwapOutlined />, label: mainLayoutI18n.forwardingJobs.label, title: mainLayoutI18n.forwardingJobs.title, subtitle: mainLayoutI18n.forwardingJobs.subtitle },
+    { key: '/sending-configs', icon: <SendOutlined />, label: mainLayoutI18n.sendingConfigs.label, title: mainLayoutI18n.sendingConfigs.title, subtitle: mainLayoutI18n.sendingConfigs.subtitle },
+    { key: '/api-keys', icon: <KeyOutlined />, label: mainLayoutI18n.apiKeys.label, title: mainLayoutI18n.apiKeys.title, subtitle: mainLayoutI18n.apiKeys.subtitle },
+    { key: '/api-docs', icon: <FileTextOutlined />, label: mainLayoutI18n.apiDocs.label, title: mainLayoutI18n.apiDocs.title, subtitle: mainLayoutI18n.apiDocs.subtitle },
+    { key: '/operation-logs', icon: <HistoryOutlined />, label: mainLayoutI18n.operationLogs.label, title: mainLayoutI18n.operationLogs.title, subtitle: mainLayoutI18n.operationLogs.subtitle },
+    { key: '/admins', icon: <UserOutlined />, label: mainLayoutI18n.admins.label, title: mainLayoutI18n.admins.title, subtitle: mainLayoutI18n.admins.subtitle, superAdmin: true },
+    { key: '/settings', icon: <SettingOutlined />, label: mainLayoutI18n.settings.label, title: mainLayoutI18n.settings.title, subtitle: mainLayoutI18n.settings.subtitle },
 ];
 
 const MainLayout: FC = () => {
@@ -75,7 +76,7 @@ const MainLayout: FC = () => {
     const mustChangePassword = Boolean(admin?.mustChangePassword);
 
     const hasSuperAdminPermission = isSuperAdmin(admin?.role);
-    const displayName = admin?.username?.trim() || t('Admin');
+    const displayName = admin?.username?.trim() || t(mainLayoutI18n.admin);
     const avatarText = displayName.charAt(0).toUpperCase();
     const menuItems: MenuProps['items'] = menuConfig
         .filter((item) => !item.superAdmin || hasSuperAdminPermission)
@@ -100,14 +101,14 @@ const MainLayout: FC = () => {
         {
             key: 'profile',
             icon: <UserOutlined />,
-            label: t('个人设置'),
+            label: t(mainLayoutI18n.profile),
             onClick: () => navigate('/settings'),
         },
         { type: 'divider' as const },
         {
             key: 'logout',
             icon: <LogoutOutlined />,
-            label: t('退出登录'),
+            label: t(mainLayoutI18n.logout),
             danger: true,
             onClick: handleLogout,
         },
@@ -146,7 +147,7 @@ const MainLayout: FC = () => {
                         {!collapsed && (
                             <Space orientation="vertical" size={0}>
                                 <Text strong style={{ fontSize: 16, color: shellPalette.sidebarText, letterSpacing: 0.2 }}>{APP_NAME}</Text>
-                                <Text style={{ fontSize: 12, color: shellPalette.sidebarMuted }}>{t('control plane')}</Text>
+                                <Text style={{ fontSize: 12, color: shellPalette.sidebarMuted }}>{t(mainLayoutI18n.controlPlane)}</Text>
                             </Space>
                         )}
                     </Space>
@@ -155,7 +156,7 @@ const MainLayout: FC = () => {
                 <div style={{ padding: collapsed ? '12px 8px 20px' : '14px 10px 20px' }}>
                     {!collapsed ? (
                         <Text style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase', color: shellPalette.muted, paddingInline: 10, marginBottom: 8 }}>
-                            {t('Navigation')}
+                            {t(mainLayoutI18n.navigation)}
                         </Text>
                     ) : null}
                     <Menu
@@ -175,13 +176,13 @@ const MainLayout: FC = () => {
                     <Space size={12} align="center">
                         <Button
                             type="text"
-                            aria-label={collapsed ? t('展开侧边栏') : t('收起侧边栏')}
+                            aria-label={collapsed ? t(mainLayoutI18n.expandSidebar) : t(mainLayoutI18n.collapseSidebar)}
                             onClick={() => setCollapsed(!collapsed)}
                             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                             style={{ fontSize: 16, color: shellPalette.inkSoft }}
                         />
                         <div style={shellHeaderContextStyle}>
-                            <div style={shellHeaderLabelStyle}>{t('Admin workspace')}</div>
+                            <div style={shellHeaderLabelStyle}>{t(mainLayoutI18n.adminWorkspace)}</div>
                         </div>
                     </Space>
 
@@ -194,9 +195,9 @@ const MainLayout: FC = () => {
                                 </Avatar>
                                 <div style={{ lineHeight: 1.15 }}>
                                     <div style={{ color: shellPalette.ink }}>{displayName}</div>
-                                    <Text style={{ fontSize: 12, color: shellPalette.muted }}>{hasSuperAdminPermission ? t('Super admin') : t('Admin')}</Text>
+                                    <Text style={{ fontSize: 12, color: shellPalette.muted }}>{hasSuperAdminPermission ? t(mainLayoutI18n.superAdmin) : t(mainLayoutI18n.admin)}</Text>
                                 </div>
-                                {mustChangePassword ? <Tag color="warning" style={{ marginInlineStart: 0 }}>{t('需先改密')}</Tag> : null}
+                                {mustChangePassword ? <Tag color="warning" style={{ marginInlineStart: 0 }}>{t(mainLayoutI18n.passwordResetRequired)}</Tag> : null}
                             </Space>
                         </Dropdown>
                     </Space>

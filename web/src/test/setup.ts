@@ -9,6 +9,7 @@ const noop = () => {};
 const reactActWarningPatterns = [
   /inside a test was not wrapped in act\(\.\.\.\)/,
   /The current testing environment is not configured to support act\(\.\.\.\)/,
+  /Could not parse CSS stylesheet/,
 ];
 const originalConsoleError = console.error.bind(console);
 

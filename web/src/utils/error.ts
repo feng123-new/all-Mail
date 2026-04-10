@@ -1,40 +1,45 @@
-export function getErrorMessage(error: unknown, fallback: string): string {
+import { i18n } from '../i18n/instance';
+import {
+    isMessageDescriptor,
+    normalizeLanguage,
+    type TranslationInput,
+} from '../i18n/messages';
+
+function localizeFallback(fallback: TranslationInput): string {
+    const language = normalizeLanguage(i18n.resolvedLanguage || i18n.language);
+    if (isMessageDescriptor(fallback)) {
+        return i18n.t(fallback.key, {
+            lng: language,
+            defaultValue: fallback.messages[language],
+        });
+    }
+
+    return fallback;
+}
+
+function resolveErrorText(code: string, fallback: TranslationInput): string {
+    const translationKey = `api.error.${code}`;
+    if (i18n.exists(translationKey)) {
+        return i18n.t(translationKey);
+    }
+
+    return localizeFallback(fallback);
+}
+
+export function getErrorMessage(error: unknown, fallback: TranslationInput): string {
     if (!error || typeof error !== 'object') {
-        return fallback;
+        return localizeFallback(fallback);
     }
 
     const payload = error as {
         code?: unknown;
-        message?: unknown;
         details?: unknown;
         requestId?: unknown;
     };
-    const message = typeof payload.message === 'string' ? payload.message.trim() : '';
     const code = payload.code;
     const codeText = typeof code === 'string' || typeof code === 'number' ? String(code) : '';
 
-    const detailText = Array.isArray(payload.details)
-        ? payload.details
-            .slice(0, 3)
-            .map((detail) => {
-                if (!detail || typeof detail !== 'object') {
-                    return '';
-                }
-                const item = detail as { path?: unknown; message?: unknown };
-                const path = Array.isArray(item.path) ? item.path.map(String).join('.') : '';
-                const detailMessage = typeof item.message === 'string' ? item.message : '';
-                if (path && detailMessage) {
-                    return `${path}: ${detailMessage}`;
-                }
-                return detailMessage || path;
-            })
-            .filter(Boolean)
-            .join('; ')
-        : '';
-
-    const finalMessage = detailText
-        ? `${message || fallback}: ${detailText}`
-        : (message || fallback);
+    const finalMessage = codeText ? resolveErrorText(codeText, fallback) : localizeFallback(fallback);
     const requestId = typeof payload.requestId === 'string' ? payload.requestId : '';
     const hasRequestIdText = finalMessage.includes('requestId:');
     const withRequestId = requestId && !hasRequestIdText ? `${finalMessage} (requestId: ${requestId})` : finalMessage;

@@ -1,5 +1,6 @@
 import type { FC, ReactNode } from 'react';
 import { Card, Space, Tag, Typography } from 'antd';
+import { authSplitLayoutI18n } from '../i18n/catalog/shell';
 import { useI18n } from '../i18n';
 import { shellPalette } from '../theme';
 import {
@@ -14,25 +15,27 @@ const { Paragraph, Text, Title } = Typography;
 
 interface AuthTag {
   color: string;
-  label: string;
+  key: string;
+  label: ReactNode;
 }
 
 interface AuthFeature {
-  description: string;
+  description: ReactNode;
   icon: ReactNode;
-  title: string;
+  key: string;
+  title: ReactNode;
 }
 
 interface AuthSplitLayoutProps {
   children: ReactNode;
   features: AuthFeature[];
   footer?: ReactNode;
-  formDescription: string;
-  formTitle: string;
+  formDescription: ReactNode;
+  formTitle: ReactNode;
   notice?: ReactNode;
   tags: AuthTag[];
-  title: string;
-  subtitle: string;
+  title: ReactNode;
+  subtitle: ReactNode;
 }
 
 const AuthSplitLayout: FC<AuthSplitLayoutProps> = ({
@@ -47,8 +50,6 @@ const AuthSplitLayout: FC<AuthSplitLayoutProps> = ({
   subtitle,
 }) => {
   const { t } = useI18n();
-  const translatedNotice = typeof notice === 'string' ? t(notice) : notice;
-  const translatedFooter = typeof footer === 'string' ? t(footer) : footer;
 
   return (
     <div style={authBackdropStyle}>
@@ -61,7 +62,7 @@ const AuthSplitLayout: FC<AuthSplitLayoutProps> = ({
               <Space wrap size={8}>
                 {tags.map((tag) => (
                   <Tag
-                    key={tag.label}
+                    key={tag.key}
                     variant="filled"
                     style={{
                       marginInlineEnd: 0,
@@ -75,24 +76,24 @@ const AuthSplitLayout: FC<AuthSplitLayoutProps> = ({
                       fontWeight: 600,
                     }}
                   >
-                    {t(tag.label)}
+                    {tag.label}
                   </Tag>
                 ))}
               </Space>
 
               <div>
                 <Text style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', color: shellPalette.muted, marginBottom: 10 }}>
-                  {t('Operator access')}
+                  {t(authSplitLayoutI18n.operatorAccess)}
                 </Text>
-               <Title level={1} style={{ margin: 0, fontSize: 38, lineHeight: 1.02, letterSpacing: -1 }}>{t(title)}</Title>
+               <Title level={1} style={{ margin: 0, fontSize: 38, lineHeight: 1.02, letterSpacing: -1 }}>{title}</Title>
                 <Paragraph style={{ margin: '12px 0 0', color: shellPalette.inkSoft, fontSize: 15, maxWidth: 560, lineHeight: 1.75 }}>
-                  {t(subtitle)}
+                  {subtitle}
                 </Paragraph>
               </div>
 
             <div className="auth-split-feature-grid">
               {features.map((item) => (
-                <div key={item.title} style={authFeatureCardStyle}>
+                <div key={item.key} style={authFeatureCardStyle}>
                   <Space align="start" size={14} style={{ width: '100%' }}>
                     <div
                       style={{
@@ -111,9 +112,9 @@ const AuthSplitLayout: FC<AuthSplitLayoutProps> = ({
                       {item.icon}
                     </div>
                     <div style={{ flex: 1 }}>
-                      <Text strong style={{ color: shellPalette.ink, fontSize: 14 }}>{t(item.title)}</Text>
+                      <Text strong style={{ color: shellPalette.ink, fontSize: 14 }}>{item.title}</Text>
                       <div style={{ marginTop: 4 }}>
-                        <Text type="secondary" style={{ lineHeight: 1.65 }}>{t(item.description)}</Text>
+                        <Text type="secondary" style={{ lineHeight: 1.65 }}>{item.description}</Text>
                       </div>
                     </div>
                   </Space>
@@ -121,9 +122,9 @@ const AuthSplitLayout: FC<AuthSplitLayoutProps> = ({
               ))}
             </div>
 
-            {translatedNotice ? (
+            {notice ? (
               <div style={{ border: `1px solid ${shellPalette.border}`, borderRadius: 16, padding: '13px 14px', background: shellPalette.surfaceMuted }}>
-                <Text type="secondary">{translatedNotice}</Text>
+                <Text type="secondary">{notice}</Text>
               </div>
             ) : null}
           </Space>
@@ -138,13 +139,13 @@ const AuthSplitLayout: FC<AuthSplitLayoutProps> = ({
           <Space orientation="vertical" size={20} style={{ width: '100%' }}>
             <div>
               <Text style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase', color: shellPalette.muted, marginBottom: 8 }}>
-                {t('Access point')}
+                {t(authSplitLayoutI18n.accessPoint)}
               </Text>
-              <Title level={3} style={{ marginBottom: 8, fontSize: 28, lineHeight: 1.12 }}>{t(formTitle)}</Title>
-              <Text type="secondary" style={{ lineHeight: 1.7, color: shellPalette.inkSoft }}>{t(formDescription)}</Text>
+              <Title level={3} style={{ marginBottom: 8, fontSize: 28, lineHeight: 1.12 }}>{formTitle}</Title>
+              <Text type="secondary" style={{ lineHeight: 1.7, color: shellPalette.inkSoft }}>{formDescription}</Text>
             </div>
             {children}
-            {translatedFooter ? <div style={{ paddingTop: 4 }}>{translatedFooter}</div> : null}
+            {footer ? <div style={{ paddingTop: 4 }}>{footer}</div> : null}
           </Space>
         </Card>
       </div>

@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import MainLayout from '../layouts/MainLayout';
@@ -39,7 +40,7 @@ describe('MainLayout navigation', () => {
 
     expect(await screen.findByText('all-Mail')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.queryByText('管理员')).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: '管理员' })).not.toBeInTheDocument();
     });
   });
 
@@ -55,7 +56,7 @@ describe('MainLayout navigation', () => {
 
     renderMainLayout();
 
-    expect(await screen.findByText('管理员')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: '管理员' })).toBeInTheDocument();
     expect(await screen.findByText('转发任务')).toBeInTheDocument();
   });
 
@@ -74,5 +75,27 @@ describe('MainLayout navigation', () => {
     expect(await screen.findByText('Overview')).toBeInTheDocument();
     expect(await screen.findByText('Navigation')).toBeInTheDocument();
     expect(await screen.findByText('Admins')).toBeInTheDocument();
+  });
+
+  it('keeps shared layout copy clean when switching from Chinese to English', async () => {
+    useAuthStore.setState({
+      admin: {
+        id: 1,
+        username: 'root',
+        role: 'SUPER_ADMIN',
+      },
+      isAuthenticated: true,
+    });
+
+    renderMainLayout('zh-CN');
+
+    expect(await screen.findByText('导航')).toBeInTheDocument();
+    await userEvent.click(await screen.findByText('English'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Navigation')).toBeInTheDocument();
+      expect(screen.getByText('Super admin')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('超级管理员')).not.toBeInTheDocument();
   });
 });
