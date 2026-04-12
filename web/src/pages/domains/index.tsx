@@ -1,11 +1,15 @@
-import { DeleteOutlined, PlusOutlined, SettingOutlined } from "@ant-design/icons";
+import {
+	DeleteOutlined,
+	PlusOutlined,
+	SettingOutlined,
+} from "@ant-design/icons";
 import {
 	Alert,
 	Button,
 	Form,
 	Input,
-	message,
 	Modal,
+	message,
 	Popconfirm,
 	Select,
 	Space,
@@ -155,7 +159,11 @@ const domainsI18n = {
 		"业务域名",
 		"Business domain",
 	),
-	canReceive: defineMessage("domains.canReceive", "允许收件", "Allow inbound mail"),
+	canReceive: defineMessage(
+		"domains.canReceive",
+		"允许收件",
+		"Allow inbound mail",
+	),
 	canSend: defineMessage("domains.canSend", "允许发件", "Allow outbound mail"),
 	sendHint: defineMessage(
 		"domains.sendHint",
@@ -450,10 +458,7 @@ const DomainsPage: FC = () => {
 						<Input placeholder={t(domainsI18n.formDisplayNamePlaceholder)} />
 					</Form.Item>
 					{editingDomain ? (
-						<Form.Item
-							name="status"
-							label={t(domainsI18n.columnStatus)}
-						>
+						<Form.Item name="status" label={t(domainsI18n.columnStatus)}>
 							<Select
 								options={[
 									{ value: "PENDING", label: t(domainsI18n.pending) },
@@ -478,9 +483,7 @@ const DomainsPage: FC = () => {
 					>
 						<Switch />
 					</Form.Item>
-					<div style={domainStyles.sendHint}>
-						{t(domainsI18n.sendHint)}
-					</div>
+					<div style={domainStyles.sendHint}>{t(domainsI18n.sendHint)}</div>
 				</Form>
 			</Modal>
 			<DomainConfigModal

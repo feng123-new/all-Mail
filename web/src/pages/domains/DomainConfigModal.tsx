@@ -81,6 +81,16 @@ const domainConfigModalI18n = {
 		"删除 Alias 失败",
 		"Failed to delete the alias",
 	),
+	saveCloudflareConfigFailed: defineMessage(
+		"domainConfigModal.saveCloudflareConfigFailed",
+		"保存 Cloudflare 校验配置失败",
+		"Failed to save the Cloudflare validation configuration",
+	),
+	validateCloudflareFailed: defineMessage(
+		"domainConfigModal.validateCloudflareFailed",
+		"校验 Cloudflare 挂载失败",
+		"Failed to validate the Cloudflare setup",
+	),
 	tokenRegenerated: defineMessage(
 		"domainConfigModal.tokenRegenerated",
 		"已重新生成验证 Token",
@@ -120,6 +130,81 @@ const domainConfigModalI18n = {
 		"domainConfigModal.aliasDeleted",
 		"Alias 已删除",
 		"Alias deleted",
+	),
+	cloudflareConfigSaved: defineMessage(
+		"domainConfigModal.cloudflareConfigSaved",
+		"Cloudflare 校验配置已保存",
+		"Cloudflare validation configuration saved",
+	),
+	cloudflareTokenCleared: defineMessage(
+		"domainConfigModal.cloudflareTokenCleared",
+		"已清除保存的 Cloudflare Token",
+		"Saved Cloudflare token cleared",
+	),
+	cloudflareValidationCompleted: defineMessage(
+		"domainConfigModal.cloudflareValidationCompleted",
+		"Cloudflare 挂载校验已完成",
+		"Cloudflare validation completed",
+	),
+	cloudflareValidationPassed: defineMessage(
+		"domainConfigModal.cloudflareValidationPassed",
+		"校验通过",
+		"Passed",
+	),
+	cloudflareValidationWarn: defineMessage(
+		"domainConfigModal.cloudflareValidationWarn",
+		"需关注",
+		"Needs attention",
+	),
+	cloudflareValidationFailed: defineMessage(
+		"domainConfigModal.cloudflareValidationFailed",
+		"校验失败",
+		"Failed",
+	),
+	cloudflareValidationInfo: defineMessage(
+		"domainConfigModal.cloudflareValidationInfo",
+		"信息",
+		"Info",
+	),
+	cloudflareSummaryPassTitle: defineMessage(
+		"domainConfigModal.cloudflareSummaryPassTitle",
+		"Cloudflare 校验已通过",
+		"Cloudflare validation passed",
+	),
+	cloudflareSummaryWarnTitle: defineMessage(
+		"domainConfigModal.cloudflareSummaryWarnTitle",
+		"Cloudflare 校验有待处理项",
+		"Cloudflare validation needs attention",
+	),
+	cloudflareSummaryFailTitle: defineMessage(
+		"domainConfigModal.cloudflareSummaryFailTitle",
+		"Cloudflare 校验未通过",
+		"Cloudflare validation failed",
+	),
+	cloudflareChecklistHeading: defineMessage(
+		"domainConfigModal.cloudflareChecklistHeading",
+		"检查清单",
+		"Checklist",
+	),
+	cloudflareNextActionsHeading: defineMessage(
+		"domainConfigModal.cloudflareNextActionsHeading",
+		"下一步动作",
+		"Next actions",
+	),
+	cloudflareNoManualActions: defineMessage(
+		"domainConfigModal.cloudflareNoManualActions",
+		"当前没有额外的人工步骤，Cloudflare 侧已经与本地域名配置对齐。",
+		"No additional manual action is required right now. Cloudflare is aligned with the local domain configuration.",
+	),
+	cloudflareStatusBreakdown: defineMessage(
+		"domainConfigModal.cloudflareStatusBreakdown",
+		"通过 {passCount} 项 · 关注 {warnCount} 项 · 失败 {failCount} 项",
+		"{passCount} passed · {warnCount} warnings · {failCount} failed",
+	),
+	cloudflareValidatedAt: defineMessage(
+		"domainConfigModal.cloudflareValidatedAt",
+		"最近校验时间：{time}",
+		"Last checked: {time}",
 	),
 	active: defineMessage("domainConfigModal.active", "启用", "Active"),
 	disabledText: defineMessage(
@@ -175,6 +260,33 @@ interface DomainDetailRecord {
 		provider?: string;
 		expectedMxConfigured?: boolean;
 		expectedIngressConfigured?: boolean;
+		cloudflare?: {
+			tokenHint?: string | null;
+			zoneId?: string | null;
+			lastValidatedAt?: string | null;
+		} | null;
+	} | null;
+	cloudflareValidation?: {
+		hasSavedToken: boolean;
+		tokenHint?: string | null;
+		zoneId?: string | null;
+		lastValidatedAt?: string | null;
+		lastValidation?: {
+			status: "pass" | "warn" | "fail";
+			zoneId?: string | null;
+			zoneName?: string | null;
+			zoneStatus?: string | null;
+			emailRoutingStatus?: string | null;
+			lastValidatedAt: string;
+			checks: Array<{
+				key: string;
+				label: string;
+				status: "pass" | "warn" | "fail" | "info";
+				message: string;
+				details?: string[];
+			}>;
+			manualActions: string[];
+		} | null;
 	} | null;
 	resendDomainId?: string | null;
 	createdAt: string;
@@ -203,6 +315,11 @@ interface DomainAliasRecord {
 
 interface VerificationFormValues {
 	verificationToken?: string;
+}
+
+interface CloudflareConfigFormValues {
+	apiToken?: string;
+	zoneId?: string;
 }
 
 interface CatchAllFormValues {
@@ -246,6 +363,46 @@ const domainConfigStyles = {
 		justifyContent: "space-between",
 		width: "100%",
 	},
+	checklistPanel: {
+		display: "grid",
+		gap: 12,
+	},
+	checklistItem: {
+		display: "grid",
+		gridTemplateColumns: "32px minmax(0, 1fr)",
+		gap: 12,
+		padding: 16,
+		border: "1px solid rgba(15, 23, 42, 0.08)",
+		borderRadius: 12,
+		background: "#ffffff",
+	},
+	checklistIndex: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+		width: 32,
+		height: 32,
+		borderRadius: 999,
+		background: "rgba(29, 78, 216, 0.08)",
+		color: "#1d4ed8",
+		fontWeight: 600,
+	},
+	checklistBody: {
+		display: "grid",
+		gap: 6,
+	},
+	checklistRow: {
+		display: "flex",
+		alignItems: "center",
+		gap: 8,
+		flexWrap: "wrap" as const,
+	},
+	manualList: {
+		margin: "8px 0 0 20px",
+		padding: 0,
+		display: "grid",
+		gap: 8,
+	},
 } as const;
 
 function formatBooleanTag(
@@ -276,6 +433,54 @@ function getAliasStatusMessage(status: DomainAliasRecord["status"]) {
 	}
 }
 
+function getValidationTagColor(status: "pass" | "warn" | "fail" | "info") {
+	switch (status) {
+		case "pass":
+			return "success";
+		case "warn":
+			return "warning";
+		case "fail":
+			return "error";
+		default:
+			return "default";
+	}
+}
+
+function getValidationAlertType(status: "pass" | "warn" | "fail") {
+	switch (status) {
+		case "pass":
+			return "success" as const;
+		case "warn":
+			return "warning" as const;
+		default:
+			return "error" as const;
+	}
+}
+
+function getValidationStatusMessage(status: "pass" | "warn" | "fail" | "info") {
+	switch (status) {
+		case "pass":
+			return domainConfigModalI18n.cloudflareValidationPassed;
+		case "warn":
+			return domainConfigModalI18n.cloudflareValidationWarn;
+		case "fail":
+			return domainConfigModalI18n.cloudflareValidationFailed;
+		default:
+			return domainConfigModalI18n.cloudflareValidationInfo;
+	}
+}
+
+function getValidationSummaryTitle(status: "pass" | "warn" | "fail") {
+	switch (status) {
+		case "pass":
+			return domainConfigModalI18n.cloudflareSummaryPassTitle;
+		case "warn":
+			return domainConfigModalI18n.cloudflareSummaryWarnTitle;
+		default:
+			return domainConfigModalI18n.cloudflareSummaryFailTitle;
+	}
+}
+
 function getDomainStatusMessage(status: DomainDetailRecord["status"]) {
 	switch (status) {
 		case "ACTIVE":
@@ -302,12 +507,16 @@ export default function DomainConfigModal({
 	const [aliases, setAliases] = useState<DomainAliasRecord[]>([]);
 	const [aliasModalVisible, setAliasModalVisible] = useState(false);
 	const [savingVerification, setSavingVerification] = useState(false);
+	const [savingCloudflareConfig, setSavingCloudflareConfig] = useState(false);
+	const [runningCloudflareValidation, setRunningCloudflareValidation] =
+		useState(false);
 	const [savingCatchAll, setSavingCatchAll] = useState(false);
 	const [savingSendingConfig, setSavingSendingConfig] = useState(false);
 	const [savingAlias, setSavingAlias] = useState(false);
 	const [togglingAliasId, setTogglingAliasId] = useState<number | null>(null);
 	const [deletingAliasId, setDeletingAliasId] = useState<number | null>(null);
 	const [verificationForm] = Form.useForm<VerificationFormValues>();
+	const [cloudflareConfigForm] = Form.useForm<CloudflareConfigFormValues>();
 	const [catchAllForm] = Form.useForm<CatchAllFormValues>();
 	const [sendingConfigForm] = Form.useForm<SendingConfigFormValues>();
 	const [aliasForm] = Form.useForm<AliasFormValues>();
@@ -334,6 +543,10 @@ export default function DomainConfigModal({
 			verificationForm.setFieldsValue({
 				verificationToken: detailResult.verificationToken ?? undefined,
 			});
+			cloudflareConfigForm.setFieldsValue({
+				zoneId: detailResult.cloudflareValidation?.zoneId ?? undefined,
+				apiToken: undefined,
+			});
 			catchAllForm.setFieldsValue({
 				isCatchAllEnabled: detailResult.isCatchAllEnabled,
 				catchAllTargetMailboxId:
@@ -349,7 +562,13 @@ export default function DomainConfigModal({
 
 		setAliases(aliasResult || []);
 		setLoading(false);
-	}, [catchAllForm, domainId, sendingConfigForm, verificationForm]);
+	}, [
+		catchAllForm,
+		cloudflareConfigForm,
+		domainId,
+		sendingConfigForm,
+		verificationForm,
+	]);
 
 	useEffect(() => {
 		if (open && domainId) {
@@ -369,6 +588,27 @@ export default function DomainConfigModal({
 		() => getPrimarySendingConfig(detail),
 		[detail],
 	);
+	const latestCloudflareValidation =
+		detail?.cloudflareValidation?.lastValidation ?? null;
+	const cloudflareValidationCounts = useMemo(() => {
+		if (!latestCloudflareValidation) {
+			return { passCount: 0, warnCount: 0, failCount: 0 };
+		}
+
+		return latestCloudflareValidation.checks.reduce(
+			(accumulator, check) => {
+				if (check.status === "pass") {
+					accumulator.passCount += 1;
+				} else if (check.status === "warn") {
+					accumulator.warnCount += 1;
+				} else if (check.status === "fail") {
+					accumulator.failCount += 1;
+				}
+				return accumulator;
+			},
+			{ passCount: 0, warnCount: 0, failCount: 0 },
+		);
+	}, [latestCloudflareValidation]);
 	const mailboxOptions = useMemo(
 		() =>
 			detail?.mailboxes.map((mailbox) => ({
@@ -430,6 +670,95 @@ export default function DomainConfigModal({
 		},
 		[domainId, refreshAfterMutation, t],
 	);
+
+	const handleSaveCloudflareConfig = useCallback(
+		async (
+			values: CloudflareConfigFormValues,
+			options?: { clearSavedToken?: boolean; silentSuccess?: boolean },
+		) => {
+			if (!domainId) {
+				return false;
+			}
+
+			setSavingCloudflareConfig(true);
+			const apiToken = values.apiToken?.trim();
+			const zoneId = values.zoneId?.trim();
+			const result = await requestData(
+				() =>
+					domainsContract.saveCloudflareConfig(domainId, {
+						apiToken: options?.clearSavedToken ? undefined : apiToken || undefined,
+						zoneId: zoneId || null,
+						clearSavedToken: options?.clearSavedToken,
+					}),
+				domainConfigModalI18n.saveCloudflareConfigFailed,
+			);
+			if (result) {
+				if (!options?.silentSuccess) {
+					message.success(
+						t(
+							options?.clearSavedToken
+								? domainConfigModalI18n.cloudflareTokenCleared
+								: domainConfigModalI18n.cloudflareConfigSaved,
+						),
+					);
+				}
+				cloudflareConfigForm.setFieldsValue({ apiToken: undefined });
+				await refreshAfterMutation();
+				setSavingCloudflareConfig(false);
+				return true;
+			}
+			setSavingCloudflareConfig(false);
+			return false;
+		},
+		[cloudflareConfigForm, domainId, refreshAfterMutation, t],
+	);
+
+	const handleRunCloudflareValidation = useCallback(async () => {
+		if (!domainId) {
+			return;
+		}
+
+		const values = cloudflareConfigForm.getFieldsValue();
+		const apiToken = values.apiToken?.trim();
+		const zoneId = values.zoneId?.trim() || null;
+		const currentZoneId = detail?.cloudflareValidation?.zoneId || null;
+		const hasSavedToken = Boolean(detail?.cloudflareValidation?.hasSavedToken);
+		const needsSave = Boolean(apiToken) || zoneId !== currentZoneId;
+
+		if (needsSave) {
+			const saved = await handleSaveCloudflareConfig(values, {
+				silentSuccess: true,
+			});
+			if (!saved) {
+				return;
+			}
+		}
+
+		if (!apiToken && !hasSavedToken) {
+			message.error(t(domainConfigModalI18n.saveCloudflareConfigFailed));
+			return;
+		}
+
+		setRunningCloudflareValidation(true);
+		const result = await requestData(
+			() => domainsContract.validateCloudflare(domainId),
+			domainConfigModalI18n.validateCloudflareFailed,
+		);
+		if (result) {
+			message.success(t(domainConfigModalI18n.cloudflareValidationCompleted));
+			cloudflareConfigForm.setFieldsValue({ apiToken: undefined });
+			await refreshAfterMutation();
+		}
+		setRunningCloudflareValidation(false);
+	}, [
+		cloudflareConfigForm,
+		detail?.cloudflareValidation?.hasSavedToken,
+		detail?.cloudflareValidation?.zoneId,
+		domainId,
+		handleSaveCloudflareConfig,
+		refreshAfterMutation,
+		t,
+	]);
 
 	const handleSaveCatchAll = useCallback(
 		async (values: CatchAllFormValues) => {
@@ -903,6 +1232,245 @@ export default function DomainConfigModal({
 								)}
 							</Descriptions.Item>
 						</Descriptions>
+
+						<div>
+							<Space align="center" style={domainConfigStyles.sectionActions}>
+								<Text strong>
+									{t(
+										defineMessage(
+											"domainConfigModal.cloudflareValidationHeading",
+											"Cloudflare 挂载校验",
+											"Cloudflare validation",
+										),
+									)}
+								</Text>
+								<Button
+									icon={<ReloadOutlined />}
+									onClick={() => void handleRunCloudflareValidation()}
+									loading={runningCloudflareValidation}
+								>
+									{t(
+										defineMessage(
+											"domainConfigModal.runCloudflareValidation",
+											"校验 Cloudflare 挂载",
+											"Validate Cloudflare setup",
+										),
+									)}
+								</Button>
+							</Space>
+							<div style={marginBottom16Style} />
+							<Alert
+								showIcon
+								type="info"
+								description={t(
+									defineMessage(
+										"domainConfigModal.cloudflareValidationDescription",
+										"保存 Cloudflare Token 后，可在这里一键检查 Zone 状态、Email Routing、MX/SPF、Worker 绑定，以及 Catch-all 与本地域名配置是否一致。第一版只做校验，不会自动修改 Cloudflare。",
+										"After saving a Cloudflare token, you can validate zone status, Email Routing, MX/SPF, worker binding, and catch-all alignment here. Version 1 is read-only and will not modify Cloudflare automatically.",
+									),
+								)}
+								style={marginBottom16Style}
+							/>
+							<Form
+								form={cloudflareConfigForm}
+								layout="vertical"
+								onFinish={(values) => void handleSaveCloudflareConfig(values)}
+							>
+								<Form.Item
+									name="zoneId"
+									label={t(
+										defineMessage(
+											"domainConfigModal.cloudflareZoneIdLabel",
+											"Cloudflare Zone ID（可选）",
+											"Cloudflare zone ID (optional)",
+										),
+									)}
+								>
+									<Input
+										placeholder={t(
+											defineMessage(
+												"domainConfigModal.cloudflareZoneIdPlaceholder",
+												"留空时根据域名自动匹配 Zone",
+												"Leave blank to resolve the zone from the domain automatically",
+											),
+										)}
+									/>
+								</Form.Item>
+								<Form.Item
+									name="apiToken"
+									label={t(
+										defineMessage(
+											"domainConfigModal.cloudflareTokenLabel",
+											"Cloudflare API Token",
+											"Cloudflare API token",
+										),
+									)}
+								>
+									<Input.Password
+										placeholder={t(
+											defineMessage(
+												"domainConfigModal.cloudflareTokenPlaceholder",
+												"输入后将加密保存，后续可直接复检",
+												"Enter a token to encrypt and save for future validations",
+											),
+										)}
+									/>
+								</Form.Item>
+								<div style={domainConfigStyles.hint}>
+									{detail.cloudflareValidation?.hasSavedToken
+										? t(
+												defineMessage(
+													"domainConfigModal.cloudflareSavedTokenHint",
+													"已保存：{tokenHint}。验证需要 Zone Read、Zone Settings Read、DNS Read 与 Email Routing Rules Read 权限。",
+													"Saved: {tokenHint}. Validation requires Zone Read, Zone Settings Read, DNS Read, and Email Routing Rules Read permissions.",
+												),
+												{
+													tokenHint:
+														detail.cloudflareValidation?.tokenHint ||
+														t(
+															defineMessage(
+																"domainConfigModal.cloudflareSavedTokenGeneric",
+																"已保存 Token",
+																"saved token",
+															),
+														),
+												},
+										)
+										: t(
+												defineMessage(
+													"domainConfigModal.cloudflareNoSavedTokenHint",
+													"当前没有保存的 Cloudflare Token。先保存一次，后续就能直接一键复检。",
+													"No Cloudflare token is saved yet. Save one once and you can re-run validation with a single click later.",
+												),
+										)}
+								</div>
+								<Space wrap>
+									<Button
+										type="primary"
+										loading={savingCloudflareConfig}
+										htmlType="submit"
+									>
+										{t(
+											defineMessage(
+												"domainConfigModal.saveCloudflareConfig",
+												"保存 Cloudflare 凭证",
+												"Save Cloudflare credentials",
+											),
+										)}
+									</Button>
+									<Button
+										loading={savingCloudflareConfig}
+										onClick={() =>
+											void handleSaveCloudflareConfig(
+												cloudflareConfigForm.getFieldsValue(),
+												{ clearSavedToken: true },
+											)
+										}
+										disabled={!detail.cloudflareValidation?.hasSavedToken}
+									>
+										{t(
+											defineMessage(
+												"domainConfigModal.clearCloudflareToken",
+												"清除已保存 Token",
+												"Clear saved token",
+											),
+										)}
+									</Button>
+								</Space>
+							</Form>
+
+							{latestCloudflareValidation ? (
+								<>
+									<div style={marginBottom16Style} />
+									<Alert
+										showIcon
+										type={getValidationAlertType(
+											latestCloudflareValidation.status,
+										)}
+										title={t(
+											getValidationSummaryTitle(
+												latestCloudflareValidation.status,
+											),
+										)}
+										description={
+											<div>
+												<div style={domainConfigStyles.checklistBody}>
+													<span>
+														{t(
+															defineMessage(
+																"domainConfigModal.cloudflareZoneContext",
+																"Zone {zoneName} · Email Routing {emailRoutingStatus}",
+																"Zone {zoneName} · Email Routing {emailRoutingStatus}",
+															),
+															{
+																zoneName:
+																	latestCloudflareValidation.zoneName || detail.name,
+																emailRoutingStatus:
+																	latestCloudflareValidation.emailRoutingStatus ||
+																	t(
+																		defineMessage(
+																			"domainConfigModal.cloudflareUnknownStatus",
+																			"未知",
+																			"unknown",
+																		),
+																	),
+															},
+														)}
+													</span>
+													<span>
+														{t(domainConfigModalI18n.cloudflareStatusBreakdown, cloudflareValidationCounts)}
+													</span>
+													<span>
+														{t(domainConfigModalI18n.cloudflareValidatedAt, {
+															time: latestCloudflareValidation.lastValidatedAt,
+														})}
+													</span>
+												</div>
+											</div>
+										}
+									/>
+									<div style={marginBottom16Style} />
+									<Text strong>{t(domainConfigModalI18n.cloudflareChecklistHeading)}</Text>
+									<div style={marginBottom16Style} />
+									<ol style={domainConfigStyles.checklistPanel}>
+										{latestCloudflareValidation.checks.map((check, index) => (
+											<li key={check.key} style={domainConfigStyles.checklistItem}>
+												<div style={domainConfigStyles.checklistIndex}>{index + 1}</div>
+												<div style={domainConfigStyles.checklistBody}>
+													<div style={domainConfigStyles.checklistRow}>
+														<Text strong>{check.label}</Text>
+														<Tag color={getValidationTagColor(check.status)}>
+															{t(getValidationStatusMessage(check.status))}
+														</Tag>
+													</div>
+													<span>{check.message}</span>
+													{check.details?.length ? (
+														<ul style={domainConfigStyles.manualList}>
+															{check.details.map((detailItem) => (
+																<li key={detailItem}>{detailItem}</li>
+															))}
+														</ul>
+													) : null}
+												</div>
+											</li>
+										))}
+									</ol>
+									<div style={marginBottom16Style} />
+									<Text strong>{t(domainConfigModalI18n.cloudflareNextActionsHeading)}</Text>
+									{latestCloudflareValidation.manualActions.length ? (
+										<ol style={domainConfigStyles.manualList}>
+											{latestCloudflareValidation.manualActions.map((action) => (
+												<li key={action}>{action}</li>
+											))}
+										</ol>
+									) : (
+										<div style={domainConfigStyles.hint}>
+											{t(domainConfigModalI18n.cloudflareNoManualActions)}
+										</div>
+									)}
+								</>
+							) : null}
+						</div>
 
 						<div>
 							<Space align="center" style={domainConfigStyles.sectionActions}>
