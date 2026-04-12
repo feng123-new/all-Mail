@@ -467,6 +467,9 @@ vi.mock("antd", async () => {
 			Title: ({ children }: { children?: unknown }) => (
 				<h2>{children as never}</h2>
 			),
+			Link: ({ children, href }: { children?: unknown; href?: string }) => (
+				<a href={href}>{children as never}</a>
+			),
 			Text: ({ children }: { children?: unknown }) => (
 				<span>{children as never}</span>
 			),
@@ -511,7 +514,7 @@ async function clickAndFlush(name: string | RegExp) {
 }
 
 async function openConfigModal() {
-	await clickAndFlush(/配置/);
+	await clickAndFlush(/^配置$/);
 	await waitFor(() => {
 		expect(domainsContract.getById).toHaveBeenCalledWith(1);
 	});

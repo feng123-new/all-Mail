@@ -17,6 +17,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { domainsContract } from "../../contracts/admin/domains";
 import { useI18n } from "../../i18n";
 import { defineMessage } from "../../i18n/messages";
@@ -24,6 +25,14 @@ import { fullWidthStyle, marginBottom16Style } from "../../styles/common";
 import { requestData } from "../../utils/request";
 
 const { Text } = Typography;
+
+const RESEND_DOCS = {
+	domains: "https://resend.com/docs/dashboard/domains/introduction",
+	cloudflareDns: "https://resend.com/docs/knowledge-base/cloudflare",
+	apiKeys: "https://resend.com/docs/dashboard/api-keys/introduction",
+	verifyTroubleshooting:
+		"https://resend.com/docs/knowledge-base/what-if-my-domain-is-not-verifying",
+} as const;
 
 const domainConfigModalI18n = {
 	loadDomainFailed: defineMessage(
@@ -205,6 +214,66 @@ const domainConfigModalI18n = {
 		"domainConfigModal.cloudflareValidatedAt",
 		"最近校验时间：{time}",
 		"Last checked: {time}",
+	),
+	onboardingTitle: defineMessage(
+		"domainConfigModal.onboardingTitle",
+		"建议顺序",
+		"Recommended flow",
+	),
+	onboardingBody: defineMessage(
+		"domainConfigModal.onboardingBody",
+		"先完成 Cloudflare 校验，再创建第一个域名邮箱；如果需要统一收件，再启用 Catch-all；最后再补 Resend 配置并发送测试邮件。",
+		"Complete Cloudflare validation first, then create the first domain mailbox. If you need consolidated inbound handling, enable catch-all next. Finish the Resend configuration and send a test email last.",
+	),
+	createFirstMailbox: defineMessage(
+		"domainConfigModal.createFirstMailbox",
+		"创建第一个域名邮箱",
+		"Create the first mailbox",
+	),
+	openMailboxPage: defineMessage(
+		"domainConfigModal.openMailboxPage",
+		"打开域名邮箱页",
+		"Open domain mailboxes",
+	),
+	openSendingConfigs: defineMessage(
+		"domainConfigModal.openSendingConfigs",
+		"打开发信配置页",
+		"Open sending configs",
+	),
+	noMailboxForCatchAll: defineMessage(
+		"domainConfigModal.noMailboxForCatchAll",
+		"当前还没有可用于 Catch-all 的域名邮箱。先创建至少一个邮箱，再回来选择目标邮箱。",
+		"There is no domain mailbox available for catch-all yet. Create at least one mailbox first, then return to choose the target mailbox.",
+	),
+	resendGuideTitle: defineMessage(
+		"domainConfigModal.resendGuideTitle",
+		"Resend 配置提示",
+		"Resend setup guidance",
+	),
+	resendGuideBody: defineMessage(
+		"domainConfigModal.resendGuideBody",
+		"Cloudflare 校验通过后，先在 Resend 中添加并验证当前域名，确认 DNS 记录生效，再创建发送专用 API Key 并回到这里保存。",
+		"After Cloudflare validation passes, add and verify this domain in Resend, wait for DNS verification to complete, then create a sending API key and save it here.",
+	),
+	resendDocDomains: defineMessage(
+		"domainConfigModal.resendDocDomains",
+		"Resend 域名管理",
+		"Resend domain management",
+	),
+	resendDocCloudflare: defineMessage(
+		"domainConfigModal.resendDocCloudflare",
+		"Resend × Cloudflare DNS 指南",
+		"Resend × Cloudflare DNS guide",
+	),
+	resendDocApiKeys: defineMessage(
+		"domainConfigModal.resendDocApiKeys",
+		"Resend API Keys",
+		"Resend API keys",
+	),
+	resendDocTroubleshooting: defineMessage(
+		"domainConfigModal.resendDocTroubleshooting",
+		"Resend 域名验证排障",
+		"Resend domain verification troubleshooting",
 	),
 	active: defineMessage("domainConfigModal.active", "启用", "Active"),
 	disabledText: defineMessage(
@@ -502,6 +571,7 @@ export default function DomainConfigModal({
 	onUpdated,
 }: DomainConfigModalProps) {
 	const { t } = useI18n();
+	const navigate = useNavigate();
 	const [loading, setLoading] = useState(false);
 	const [detail, setDetail] = useState<DomainDetailRecord | null>(null);
 	const [aliases, setAliases] = useState<DomainAliasRecord[]>([]);
@@ -1061,6 +1131,39 @@ export default function DomainConfigModal({
 							)}
 						/>
 
+						<Alert
+							showIcon
+							type="info"
+							title={t(domainConfigModalI18n.onboardingTitle)}
+							description={
+								<Space wrap>
+									<span>{t(domainConfigModalI18n.onboardingBody)}</span>
+									<Button
+										onClick={() => {
+											handleClose();
+											navigate(`/domain-mailboxes?domainId=${detail.id}&intent=create`);
+										}}
+									>
+										{t(
+											detail.mailboxes.length === 0
+												? domainConfigModalI18n.createFirstMailbox
+												: domainConfigModalI18n.openMailboxPage,
+										)}
+									</Button>
+									{detail.canSend ? (
+										<Button
+											onClick={() => {
+												handleClose();
+												navigate("/sending-configs");
+											}}
+										>
+											{t(domainConfigModalI18n.openSendingConfigs)}
+										</Button>
+									) : null}
+								</Space>
+							}
+						/>
+
 						<Descriptions bordered size="small" column={2}>
 							<Descriptions.Item
 								label={t(
@@ -1583,6 +1686,26 @@ export default function DomainConfigModal({
 								)}
 							</Text>
 							<div style={marginBottom16Style} />
+							{activeMailboxOptions.length === 0 ? (
+								<Alert
+									showIcon
+									type="warning"
+									style={marginBottom16Style}
+									description={
+										<Space wrap>
+											<span>{t(domainConfigModalI18n.noMailboxForCatchAll)}</span>
+											<Button
+												onClick={() => {
+													handleClose();
+													navigate(`/domain-mailboxes?domainId=${detail.id}&intent=create`);
+												}}
+											>
+												{t(domainConfigModalI18n.createFirstMailbox)}
+											</Button>
+										</Space>
+									}
+								/>
+							) : null}
 							<Form
 								form={catchAllForm}
 								layout="vertical"
@@ -1699,6 +1822,31 @@ export default function DomainConfigModal({
 									)}
 								/>
 							) : null}
+							<Alert
+								showIcon
+								type="info"
+								style={marginBottom16Style}
+								title={t(domainConfigModalI18n.resendGuideTitle)}
+								description={
+									<Space orientation="vertical" size={8}>
+										<span>{t(domainConfigModalI18n.resendGuideBody)}</span>
+										<Space wrap>
+											<a href={RESEND_DOCS.domains} target="_blank" rel="noreferrer">
+												{t(domainConfigModalI18n.resendDocDomains)}
+											</a>
+											<a href={RESEND_DOCS.cloudflareDns} target="_blank" rel="noreferrer">
+												{t(domainConfigModalI18n.resendDocCloudflare)}
+											</a>
+											<a href={RESEND_DOCS.apiKeys} target="_blank" rel="noreferrer">
+												{t(domainConfigModalI18n.resendDocApiKeys)}
+											</a>
+											<a href={RESEND_DOCS.verifyTroubleshooting} target="_blank" rel="noreferrer">
+												{t(domainConfigModalI18n.resendDocTroubleshooting)}
+											</a>
+										</Space>
+									</Space>
+								}
+							/>
 							<Form
 								form={sendingConfigForm}
 								layout="vertical"
