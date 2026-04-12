@@ -1,49 +1,21 @@
-# all-Mail Provenance
+# all-Mail Repository Note
 
-`all-Mail` is the current personal open-source email operations project maintained in this repository.
+`all-Mail` is maintained here as an independent project with its own product scope, runtime contract, operator workflow, and public-facing documentation.
 
-## Positioning
+## Why this file still exists
 
-This project is presented as an independent repository with its own product scope, documentation, deployment flow, and operator decisions.
+This file is no longer a named-upstream acknowledgement page.
 
-Its current focus is:
+Its purpose is simply to record the repository posture:
 
-- unified management of external mailbox providers
-- domain mailbox operations and portal access
-- ingress, sending, and operational tooling around the same control plane
+- public docs should describe the current `all-Mail` product, not historical experiments
+- release reviews should focus on whether the code and assets in this repository are publishable as they exist today
+- maintainer-only rewrite notes, planning artifacts, and internal history belong under `docs/internal/`
 
-## Acknowledgements
+## Practical rule
 
-Several earlier open-source projects informed the evolution of this repository.
+When updating GitHub-facing materials:
 
-### `wjn6/GongXi-Mail`
-
-This project provided early reference material for:
-
-- Outlook mailbox pool management patterns
-- Fastify + Prisma + React based control-plane structure
-- external mailbox API surfaces and admin workflows
-
-### `idinging/freemail`
-
-This project provided early reference material for:
-
-- Cloudflare Email Routing / Worker based mail ingress ideas
-- temporary and domain-mail product patterns
-- edge-oriented deployment thinking
-
-## What all-Mail adds today
-
-Compared with those earlier references, the current repository has moved toward a broader unified control plane that includes:
-
-- Outlook / Gmail / QQ multi-provider mailbox management
-- provider-aware OAuth and app-password flows
-- domain mailboxes, mailbox users, portal login, and message browsing
-- signed ingress integration for Cloudflare worker delivery
-- outbound sending and operational documentation for real deployments
-
-## Repository policy
-
-These earlier public repositories are acknowledged here so the main product documentation can stay focused on the current repository itself.
-
-The main README, package metadata, helper scripts, and operator docs use `all-Mail` as the primary project identity.
+- use `all-Mail` as the primary identity
+- keep setup, deployment, and operator docs centered on the current repository
+- avoid reintroducing stale lineage language into README-level documentation unless a concrete legal or release requirement makes it necessary

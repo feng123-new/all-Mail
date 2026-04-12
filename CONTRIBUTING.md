@@ -18,7 +18,7 @@ Please keep contributions aligned with the current product scope:
 
 1. Read `README.md` for project positioning and the canonical doc map.
 2. Read `docs/DEPLOY.md`, `docs/ENVIRONMENT.md`, and `docs/RUNBOOK.md` if your change affects setup, runtime behavior, or operator workflows.
-3. Read `PROVENANCE.md` for source acknowledgement rules.
+3. Read `PROVENANCE.md` only if your change touches repository-identity or release-governance wording.
 4. Prefer `all-Mail` terminology in product-facing text, docs, and helper scripts.
 5. Do not reintroduce historical upstream branding into the main README or current operator flows.
 6. Follow `CODE_OF_CONDUCT.md` in all project interactions.
@@ -73,12 +73,12 @@ Notes:
 - Add rollback and migration notes when deploy/runtime behavior is affected.
 - Avoid mixing refactors, feature work, and operational cleanups in one PR when possible.
 
-## Branding and provenance rules
+## Branding and repository identity rules
 
 - Use `all-Mail` as the primary project name.
 - Use `all-Mail Cloud` only when referring to the Cloudflare-oriented edge branch or deployment shape.
 - Use `allmail-edge` only for the worker/runtime identifier.
-- Keep upstream acknowledgements in `PROVENANCE.md` rather than scattering them through core docs.
+- Keep repository-identity notes in `PROVENANCE.md` rather than scattering historical context through core docs.
 
 ## Secrets and local runtime files
 
