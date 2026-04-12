@@ -154,7 +154,7 @@ Only the files listed below should be treated as the public onboarding and opera
 | Secondary npm/CLI source runtime | [`docs/advanced-runtime.md`](docs/advanced-runtime.md) |
 | Public docs index inside `docs/` | [`docs/README.md`](docs/README.md) |
 | Contribution workflow | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
-| Provenance / release-governance context | [`PROVENANCE.md`](PROVENANCE.md), [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md) |
+| Release-governance context | [`PROVENANCE.md`](PROVENANCE.md), [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md) |
 
 ### Guided reading by job-to-be-done
 
@@ -198,7 +198,6 @@ See [`docs/advanced-runtime.md`](docs/advanced-runtime.md) for that path.
 - [`SECURITY.md`](SECURITY.md)
 - [`SUPPORT.md`](SUPPORT.md)
 - [`CHANGELOG.md`](CHANGELOG.md)
-- [`PROVENANCE.md`](PROVENANCE.md)
 - [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md)
 
 ## License

@@ -2,11 +2,11 @@
 
 This checklist is the publish-readiness closure loop for turning the repository from private to public.
 
-## P0 — legal / provenance gate
+## P0 — legal / publishability gate
 
-- [ ] Confirm all upstream-derived code is legally redistributable
-- [ ] Re-check `PROVENANCE.md` against actual inherited modules and docs
-- [ ] If any upstream has no explicit license, obtain permission or remove / rewrite the affected implementation before publishing
+- [ ] Confirm the current code, docs, and assets in this repository are legally publishable
+- [ ] Re-check `PROVENANCE.md` and `docs/internal/` for wording drift that no longer matches the repository posture
+- [ ] Remove or rewrite any tracked material whose publishing basis is unclear before the repo is promoted publicly
 
 ## P1 — secrets / security gate
 
@@ -51,4 +51,4 @@ This checklist is the publish-readiness closure loop for turning the repository 
 2. Which providers and mail flows are stable today
 3. What remains intentionally out of scope
 4. How to self-host quickly
-5. Provenance and license posture
+5. Repository identity and license posture

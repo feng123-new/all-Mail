@@ -57,7 +57,7 @@ Historical upstream or legacy worker names may appear only when they are:
 
 - part of a migration record
 - needed to explain old infrastructure state
-- explicitly acknowledged in `PROVENANCE.md`
+- explicitly relevant to repository-identity notes or a migration record
 
 Avoid using historical names in current product positioning.
 
