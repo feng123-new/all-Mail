@@ -71,6 +71,8 @@ void test('admin sending config routes are mounted behind auth', async () => {
 
 void test('domain verification and catch-all routes are mounted behind auth', async () => {
     await expectErrorRoute({ method: 'POST', url: '/admin/domains/1/verify', payload: {}, expectedCode: 'UNAUTHORIZED', expectedStatusCode: 401 });
+    await expectErrorRoute({ method: 'POST', url: '/admin/domains/1/cloudflare-config', payload: {}, expectedCode: 'UNAUTHORIZED', expectedStatusCode: 401 });
+    await expectErrorRoute({ method: 'POST', url: '/admin/domains/1/cloudflare-validate', payload: {}, expectedCode: 'UNAUTHORIZED', expectedStatusCode: 401 });
     await expectErrorRoute({
         method: 'POST',
         url: '/admin/domains/1/catch-all',

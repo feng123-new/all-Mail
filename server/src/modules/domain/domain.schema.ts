@@ -29,6 +29,12 @@ export const configureDomainVerificationSchema = z.object({
     verificationToken: z.string().trim().min(8).optional(),
 });
 
+export const saveCloudflareValidationConfigSchema = z.object({
+    apiToken: z.string().trim().min(20).nullable().optional(),
+    zoneId: z.string().trim().min(8).nullable().optional(),
+    clearSavedToken: z.boolean().optional(),
+});
+
 export const saveDomainSendingConfigSchema = z.object({
     provider: z.enum(['RESEND']).default('RESEND'),
     fromNameDefault: z.string().trim().max(255).nullable().optional(),
@@ -58,6 +64,7 @@ export type ListDomainInput = z.infer<typeof listDomainSchema>;
 export type CreateDomainInput = z.infer<typeof createDomainSchema>;
 export type UpdateDomainInput = z.infer<typeof updateDomainSchema>;
 export type ConfigureDomainVerificationInput = z.infer<typeof configureDomainVerificationSchema>;
+export type SaveCloudflareValidationConfigInput = z.infer<typeof saveCloudflareValidationConfigSchema>;
 export type SaveDomainSendingConfigInput = z.infer<typeof saveDomainSendingConfigSchema>;
 export type ConfigureCatchAllInput = z.infer<typeof configureCatchAllSchema>;
 export type ListMailboxAliasInput = z.infer<typeof listMailboxAliasSchema>;
