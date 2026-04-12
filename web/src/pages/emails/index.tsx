@@ -67,6 +67,26 @@ import {
 	type SecondaryProtocol,
 } from "../../constants/providers";
 import { emailsContract } from "../../contracts/admin/emails";
+import { useI18n } from "../../i18n";
+import { adminI18n } from "../../i18n/catalog/admin";
+import { providerSetupI18n } from "../../i18n/catalog/providerSetup";
+import {
+	getAuthTypeLabelMessage,
+	getProviderEmailPlaceholderMessage,
+	getProviderLabelMessage,
+	getProviderProfileDescriptionMessage,
+	getProviderProfileLabelMessage,
+	getProviderProfileSecretHelpTextMessage,
+	getProviderProfileSecretLabelMessage,
+	getProviderProfileSecretPlaceholderMessage,
+	getProviderProfileServerConfigHelpTextMessage,
+	getProviderProfileSummaryHintMessage,
+	getRepresentativeProtocolConnectionLabelMessage,
+	getRepresentativeProtocolDescriptionMessage,
+	getRepresentativeProtocolLabelMessage,
+	getSecondaryProtocolLabelMessage,
+} from "../../i18n/catalog/providers";
+import { defineMessage, type TranslationInput } from "../../i18n/messages";
 import { useAuthStore } from "../../stores/authStore";
 import {
 	displayBlockMarginBottom4Style,
@@ -96,26 +116,6 @@ import {
 	renderPlainTextWithLinks,
 	renderSanitizedEmailHtml,
 } from "../../utils/mailContent";
-import { adminI18n } from "../../i18n/catalog/admin";
-import {
-	getAuthTypeLabelMessage,
-	getProviderEmailPlaceholderMessage,
-	getProviderLabelMessage,
-	getProviderProfileDescriptionMessage,
-	getProviderProfileLabelMessage,
-	getProviderProfileSecretHelpTextMessage,
-	getProviderProfileSecretLabelMessage,
-	getProviderProfileSecretPlaceholderMessage,
-	getProviderProfileServerConfigHelpTextMessage,
-	getProviderProfileSummaryHintMessage,
-	getRepresentativeProtocolConnectionLabelMessage,
-	getRepresentativeProtocolDescriptionMessage,
-	getRepresentativeProtocolLabelMessage,
-	getSecondaryProtocolLabelMessage,
-} from "../../i18n/catalog/providers";
-import { providerSetupI18n } from "../../i18n/catalog/providerSetup";
-import { useI18n } from "../../i18n";
-import { defineMessage, type TranslationInput } from "../../i18n/messages";
 import { requestData } from "../../utils/request";
 import { emailsInlineI18n } from "./inlineMessages";
 
@@ -212,11 +212,7 @@ const emailsPageI18n = {
 		"Forwarding",
 		"Forwarding",
 	),
-	capabilitySearch: defineMessage(
-		"emails.capability.search",
-		"搜索",
-		"Search",
-	),
+	capabilitySearch: defineMessage("emails.capability.search", "搜索", "Search"),
 	capabilityRefreshToken: defineMessage(
 		"emails.capability.refreshToken",
 		"Refresh Token",
@@ -232,11 +228,7 @@ const emailsPageI18n = {
 		"Alias",
 		"Alias",
 	),
-	capabilityModes: defineMessage(
-		"emails.capability.modes",
-		"Modes",
-		"Modes",
-	),
+	capabilityModes: defineMessage("emails.capability.modes", "Modes", "Modes"),
 	capabilitySupported: defineMessage(
 		"emails.capability.supported",
 		"支持",
@@ -247,11 +239,7 @@ const emailsPageI18n = {
 		"否",
 		"No",
 	),
-	capabilityNoModes: defineMessage(
-		"emails.capability.noModes",
-		"无",
-		"None",
-	),
+	capabilityNoModes: defineMessage("emails.capability.noModes", "无", "None"),
 	providerProfileHeading: defineMessage(
 		"emails.providerProfile.heading",
 		"Provider Profile",
@@ -323,13 +311,256 @@ const emailsPageI18n = {
 		"请输入有效的邮箱地址",
 		"Enter a valid email address",
 	),
+	fetchGroupsFailed: defineMessage(
+		"emails.fetchGroupsFailed",
+		"获取分组失败",
+		"Failed to load mailbox groups",
+	),
+	fetchOAuthConfigStatusFailed: defineMessage(
+		"emails.fetchOAuthConfigStatusFailed",
+		"获取 OAuth 配置状态失败",
+		"Failed to load OAuth configuration status",
+	),
+	fetchMailboxListFailed: defineMessage(
+		"emails.fetchMailboxListFailed",
+		"获取数据失败",
+		"Failed to load mailboxes",
+	),
+	fetchGoogleOAuthStatusFailed: defineMessage(
+		"emails.fetchGoogleOAuthStatusFailed",
+		"获取 Google 授权状态失败",
+		"Failed to load Google authorization status",
+	),
+	fetchMicrosoftOAuthStatusFailed: defineMessage(
+		"emails.fetchMicrosoftOAuthStatusFailed",
+		"获取 Microsoft 授权状态失败",
+		"Failed to load Microsoft authorization status",
+	),
+	emailOptionalViaOAuthHint: defineMessage(
+		"emails.emailOptionalViaOAuthHint",
+		"如果准备走上方的 {authProviderLabel} OAuth 授权，这里可以先留空。授权完成后，系统会自动识别邮箱地址；如果改用底部“{manualSaveLabel}”，这里仍需手动填写。",
+		"You can leave this blank when using the {authProviderLabel} OAuth flow above. all-Mail fills the mailbox address automatically after authorization. If you choose “{manualSaveLabel}”, you still need to enter it here.",
+	),
+	outlookConnectionSummary: defineMessage(
+		"emails.outlookConnectionSummary",
+		"Outlook / Microsoft 365 建议优先走 Microsoft OAuth。界面会把它归到 OAuth API 主分类，默认用 Graph 处理读信、清空和发信；如果遇到兼容性问题，底层仍可能借助 IMAP 补充读取或删除。",
+		"Use Microsoft OAuth to connect Outlook / Microsoft 365. The UI presents it under the OAuth API family and uses Graph by default for reading, clearing, and sending. IMAP can still assist with compatibility fallback when needed.",
+	),
+	oauthConfiguredStatus: defineMessage(
+		"emails.oauthConfiguredStatus",
+		"{providerLabel} 已配置",
+		"{providerLabel} configured",
+	),
+	oauthNotConfiguredStatus: defineMessage(
+		"emails.oauthNotConfiguredStatus",
+		"{providerLabel} 未配置",
+		"{providerLabel} not configured",
+	),
+	oauthConfigSource: defineMessage(
+		"emails.oauthConfigSource",
+		"来源：{sourceLabel}",
+		"Source: {sourceLabel}",
+	),
+	oauthSourceDatabase: defineMessage(
+		"emails.oauthSource.database",
+		"数据库",
+		"Database",
+	),
+	oauthSourceEnvironment: defineMessage(
+		"emails.oauthSource.environment",
+		"环境变量",
+		"Environment",
+	),
+	oauthSourceNone: defineMessage(
+		"emails.oauthSource.none",
+		"未配置",
+		"Not configured",
+	),
+	clientSecretStored: defineMessage(
+		"emails.clientSecretStored",
+		"已存储 Client Secret",
+		"Client secret saved",
+	),
+	clientSecretMissing: defineMessage(
+		"emails.clientSecretMissing",
+		"未存储 Client Secret",
+		"Client secret missing",
+	),
+	outlookOAuthFieldsSummary: defineMessage(
+		"emails.outlookOAuthFieldsSummary",
+		"Microsoft OAuth 的回调地址、Client ID、Client Secret、Tenant 和 Scopes 都统一在这里维护。系统会保存配置、生成授权链接，并在你完成 Microsoft 登录和授权后自动回调写回邮箱。",
+		"Maintain the Microsoft OAuth callback URL, client ID, client secret, tenant, and scopes here. The system saves the configuration, generates the authorization link, and writes the mailbox back automatically after Microsoft authorization completes.",
+	),
+	googleConnectionSummary: defineMessage(
+		"emails.googleConnectionSummary",
+		"Gmail 目前支持两种接入 profile：Google OAuth 会归到 OAuth API 主分类，应用专用密码会归到 IMAP / SMTP 主分类。如果希望能力更完整，优先使用 Google OAuth。",
+		"Gmail supports two profiles: Google OAuth stays under the OAuth API family, while app passwords move it into IMAP / SMTP. Prefer Google OAuth when you need the richer capability set.",
+	),
+	googleOAuthFieldsSummary: defineMessage(
+		"emails.googleOAuthFieldsSummary",
+		"回调地址、Google client_secret JSON、Client ID、Client Secret 和 Scopes 都集中在这里配置。完成授权后，all-Mail 会自动接收回调，并把邮箱写回系统。",
+		"Configure the callback URL, Google client_secret JSON, client ID, client secret, and scopes here. After authorization, all-Mail receives the callback automatically and writes the mailbox record back.",
+	),
+	revealStoredSecretTitle: defineMessage(
+		"emails.revealStoredSecretTitle",
+		"受控查看已存储的 {label}",
+		"Controlled access to saved {label}",
+	),
+	revealStoredSecretVerify: defineMessage(
+		"emails.revealStoredSecretVerify",
+		"验证后查看",
+		"Verify to view",
+	),
+	revealStoredSecretReverify: defineMessage(
+		"emails.revealStoredSecretReverify",
+		"重新验证查看",
+		"Re-verify to view",
+	),
+	revealStoredSecretDescription: defineMessage(
+		"emails.revealStoredSecretDescription",
+		"编辑表单默认不会回填已存储内容；如果要查看或补录账号登录密码，必须先完成一次 2FA 验证。",
+		"Stored secrets are not filled back into the form by default. Viewing or updating the mailbox login password requires a 2FA verification step first.",
+	),
+	revealStoredSecretEnable2faFirst: defineMessage(
+		"emails.revealStoredSecretEnable2faFirst",
+		"当前管理员尚未启用 2FA，请先到“设置”页开启后再查看。",
+		"This admin account has not enabled 2FA yet. Enable it on the Settings page before viewing the saved secret.",
+	),
+	revealUnsupportedLoginPassword: defineMessage(
+		"emails.revealUnsupportedLoginPassword",
+		"当前邮箱鉴权方式不支持直接查看登录密码",
+		"The current mailbox authentication method does not support revealing the login password directly.",
+	),
+	revealUnsupportedSecret: defineMessage(
+		"emails.revealUnsupportedSecret",
+		"当前邮箱鉴权方式不支持查看该密钥",
+		"The current mailbox authentication method does not support revealing this secret.",
+	),
+	noStoredAccountLoginPassword: defineMessage(
+		"emails.noStoredAccountLoginPassword",
+		"当前账号未存储账号登录密码",
+		"This mailbox record does not have a saved account login password.",
+	),
+	noStoredConnectionSecret: defineMessage(
+		"emails.noStoredConnectionSecret",
+		"当前账号未存储连接密码/授权码",
+		"This mailbox record does not have a saved connection password or authorization code.",
+	),
+	outlookLoginPasswordDescription: defineMessage(
+		"emails.outlookLoginPasswordDescription",
+		"这里填写的是邮箱账号本身的登录密码，不是 OAuth Refresh Token。编辑已有账号时，必须先完成 2FA 验证，才能补录或更新。",
+		"This is the mailbox account login password, not the OAuth refresh token. Editing an existing mailbox requires 2FA verification before saving or updating it.",
+	),
+	outlookLoginPasswordPlaceholder: defineMessage(
+		"emails.outlookLoginPasswordPlaceholder",
+		"例如邮箱网页登录密码（可选）",
+		"For example, the mailbox web-login password (optional)",
+	),
+	googleLoginPasswordDescription: defineMessage(
+		"emails.googleLoginPasswordDescription",
+		"这是 Gmail 账号本身的登录密码，不是 Refresh Token。编辑已有账号时需先完成 2FA 验证后才能补录或更新。",
+		"This is the Gmail account login password, not the refresh token. Editing an existing mailbox requires 2FA verification before saving or updating it.",
+	),
+	googleLoginPasswordPlaceholder: defineMessage(
+		"emails.googleLoginPasswordPlaceholder",
+		"例如 Gmail 账号登录密码（可选）",
+		"For example, the Gmail account login password (optional)",
+	),
+	appPasswordLoginDescription: defineMessage(
+		"emails.appPasswordLoginDescription",
+		"如果你还想保存账号本身的网页登录密码，请先完成 2FA 验证后再补录。",
+		"If you also want to save the mailbox web-login password, complete 2FA verification first and then fill it in.",
+	),
+	appPasswordLoginPlaceholder: defineMessage(
+		"emails.appPasswordLoginPlaceholder",
+		"例如 Gmail 账号网页登录密码（可选）",
+		"For example, the Gmail web-login password (optional)",
+	),
+	imapLoginPasswordDescription: defineMessage(
+		"emails.imapLoginPasswordDescription",
+		"如果你还想保存邮箱账号本身的登录密码，请先完成 2FA 验证后再补录。",
+		"If you also want to save the mailbox account login password, complete 2FA verification first and then fill it in.",
+	),
+	imapLoginPasswordPlaceholder: defineMessage(
+		"emails.imapLoginPasswordPlaceholder",
+		"例如邮箱网页登录密码（可选）",
+		"For example, the mailbox web-login password (optional)",
+	),
+	imapServerConfigHelp: defineMessage(
+		"emails.imapServerConfigHelp",
+		"大多数 IMAP / SMTP provider 已预填服务器设置；如你的服务商要求不同主机、端口或文件夹名称，可以在这里覆盖。",
+		"Most IMAP / SMTP providers already have prefilled server settings. Override them here if your provider requires different hosts, ports, or folder names.",
+	),
+	fetchMailFailed: defineMessage(
+		"emails.fetchMailFailed",
+		"获取邮件失败",
+		"Failed to load messages",
+	),
+	selectedMailboxScope: defineMessage(
+		"emails.batch.selectedMailboxScope",
+		"选中的 {count} 个邮箱",
+		"the {count} selected mailboxes",
+	),
+	filteredMailboxScope: defineMessage(
+		"emails.batch.filteredMailboxScope",
+		"当前筛选结果中的邮箱",
+		"the mailboxes in the current filter result",
+	),
+	batchCheckFailed: defineMessage(
+		"emails.batchCheck.failed",
+		"一键检查邮箱失败",
+		"Failed to check mailbox connectivity in bulk",
+	),
+	batchCheckCompletedPartial: defineMessage(
+		"emails.batchCheck.completedPartial",
+		"一键检查已完成：{scopeLabel}中成功 {successCount} 个，部分成功 {partialCount} 个，失败 {errorCount} 个，跳过 {skippedCount} 个。",
+		"Mailbox check finished: {scopeLabel} produced {successCount} successes, {partialCount} partial successes, {errorCount} failures, and {skippedCount} skipped mailboxes.",
+	),
+	batchCheckCompletedSuccess: defineMessage(
+		"emails.batchCheck.completedSuccess",
+		"一键检查已完成：{scopeLabel}的检查结果已刷新{skipSuffix}",
+		"Mailbox check finished: {scopeLabel} has refreshed status results{skipSuffix}.",
+	),
+	batchSkipSuffix: defineMessage(
+		"emails.batch.skipSuffix",
+		"，跳过 {count} 个邮箱",
+		", skipping {count} mailboxes",
+	),
+	singleMailboxCheckFailed: defineMessage(
+		"emails.batchCheck.singleFailed",
+		"检查邮箱 {email} 失败",
+		"Failed to check mailbox {email}",
+	),
+	singleMailboxCheckCompletedPartial: defineMessage(
+		"emails.batchCheck.singleCompletedPartial",
+		"邮箱 {email} 检查已完成：成功 {successCount} 个，部分成功 {partialCount} 个，失败 {errorCount} 个，跳过 {skippedCount} 个邮箱夹。",
+		"Mailbox check for {email} finished: {successCount} successes, {partialCount} partial successes, {errorCount} failures, and {skippedCount} skipped folders.",
+	),
+	batchClearFailed: defineMessage(
+		"emails.batchClear.failed",
+		"批量清空邮箱失败",
+		"Failed to clear mailboxes in bulk",
+	),
+	batchClearCompletedPartial: defineMessage(
+		"emails.batchClear.completedPartial",
+		"批量清空已完成：共删除 {deletedCount} 封，成功 {successCount} 个，失败 {errorCount} 个，跳过 {skippedCount} 个。",
+		"Bulk clear finished: removed {deletedCount} messages with {successCount} successes, {errorCount} failures, and {skippedCount} skipped mailboxes.",
+	),
+	batchClearCompletedSuccess: defineMessage(
+		"emails.batchClear.completedSuccess",
+		"批量清空已完成：共删除 {deletedCount} 封邮件{skipSuffix}",
+		"Bulk clear finished: removed {deletedCount} messages{skipSuffix}.",
+	),
 } as const;
 
 const { Text } = Typography;
 const { TextArea } = Input;
 const { Dragger } = Upload;
 const MAIL_FETCH_STRATEGY_OPTIONS = [
-	{ value: "GRAPH_FIRST", label: emailsPageI18n.fetchStrategyGraphFirstVerbose },
+	{
+		value: "GRAPH_FIRST",
+		label: emailsPageI18n.fetchStrategyGraphFirstVerbose,
+	},
 	{ value: "IMAP_FIRST", label: emailsPageI18n.fetchStrategyImapFirstVerbose },
 	{ value: "GRAPH_ONLY", label: emailsPageI18n.fetchStrategyGraphOnly },
 	{ value: "IMAP_ONLY", label: emailsPageI18n.fetchStrategyImapOnly },
@@ -337,12 +568,13 @@ const MAIL_FETCH_STRATEGY_OPTIONS = [
 
 type MailFetchStrategy = (typeof MAIL_FETCH_STRATEGY_OPTIONS)[number]["value"];
 
-const MAIL_FETCH_STRATEGY_LABELS: Record<MailFetchStrategy, TranslationInput> = {
-	GRAPH_FIRST: emailsPageI18n.fetchStrategyGraphFirstShort,
-	IMAP_FIRST: emailsPageI18n.fetchStrategyImapFirstShort,
-	GRAPH_ONLY: emailsPageI18n.fetchStrategyGraphOnly,
-	IMAP_ONLY: emailsPageI18n.fetchStrategyImapOnly,
-};
+const MAIL_FETCH_STRATEGY_LABELS: Record<MailFetchStrategy, TranslationInput> =
+	{
+		GRAPH_FIRST: emailsPageI18n.fetchStrategyGraphFirstShort,
+		IMAP_FIRST: emailsPageI18n.fetchStrategyImapFirstShort,
+		GRAPH_ONLY: emailsPageI18n.fetchStrategyGraphOnly,
+		IMAP_ONLY: emailsPageI18n.fetchStrategyImapOnly,
+	};
 
 type EmailAccountStatus = EmailAccount["status"];
 
@@ -449,7 +681,10 @@ const emailStyles = {
 
 function getEmailStatusMeta(
 	status: EmailAccountStatus,
-	t: (source: TranslationInput, params?: Record<string, number | string>) => string,
+	t: (
+		source: TranslationInput,
+		params?: Record<string, number | string>,
+	) => string,
 ) {
 	const colors: Record<EmailAccountStatus, string> = {
 		ACTIVE: "green",
@@ -462,6 +697,23 @@ function getEmailStatusMeta(
 		DISABLED: t(adminI18n.common.disabled),
 	};
 	return { color: colors[status], label: labels[status] };
+}
+
+function getOAuthSourceLabel(
+	source: OAuthProviderStatus["source"],
+	t: (
+		source: TranslationInput,
+		params?: Record<string, number | string>,
+	) => string,
+) {
+	switch (source) {
+		case "database":
+			return t(emailsPageI18n.oauthSourceDatabase);
+		case "environment":
+			return t(emailsPageI18n.oauthSourceEnvironment);
+		default:
+			return t(emailsPageI18n.oauthSourceNone);
+	}
 }
 
 interface GroupPayload {
@@ -602,7 +854,10 @@ const CAPABILITY_GROUPS: Array<{
 	},
 ];
 
-const CAPABILITY_LABELS: Record<keyof ProviderProfileCapabilities, TranslationInput> = {
+const CAPABILITY_LABELS: Record<
+	keyof ProviderProfileCapabilities,
+	TranslationInput
+> = {
 	readInbox: emailsPageI18n.capabilityReadInbox,
 	readJunk: emailsPageI18n.capabilityReadJunk,
 	readSent: emailsPageI18n.capabilityReadSent,
@@ -621,7 +876,10 @@ const CAPABILITY_LABELS: Record<keyof ProviderProfileCapabilities, TranslationIn
 
 const renderCapabilityMatrix = (
 	capabilitySummary: ProviderProfileCapabilities,
-	t: (source: TranslationInput, params?: Record<string, number | string>) => string,
+	t: (
+		source: TranslationInput,
+		params?: Record<string, number | string>,
+	) => string,
 	compact = false,
 ) => (
 	<Space orientation="vertical" size={compact ? 8 : 12} style={fullWidthStyle}>
@@ -636,7 +894,10 @@ const renderCapabilityMatrix = (
 							key={key}
 							color={capabilitySummary[key] ? "success" : "default"}
 						>
-							{t(CAPABILITY_LABELS[key])}：{capabilitySummary[key] ? t(emailsPageI18n.capabilitySupported) : t(emailsPageI18n.capabilityUnsupported)}
+							{t(CAPABILITY_LABELS[key])}：
+							{capabilitySummary[key]
+								? t(emailsPageI18n.capabilitySupported)
+								: t(emailsPageI18n.capabilityUnsupported)}
 						</Tag>
 					))}
 				</Space>
@@ -748,7 +1009,10 @@ interface EmailDetailsResult extends EmailAccount {
 	accountLoginPassword?: string | null;
 }
 
-type RevealableEmailSecretField = "password" | "refreshToken" | "accountLoginPassword";
+type RevealableEmailSecretField =
+	| "password"
+	| "refreshToken"
+	| "accountLoginPassword";
 
 interface RevealSecretsResult {
 	secrets: Partial<Record<RevealableEmailSecretField, string | null>>;
@@ -838,8 +1102,7 @@ const getOutlookOAuthFormDefaults = (status: OAuthProviderStatus) => ({
 const EmailsPage: FC = () => {
 	const { t } = useI18n();
 	const getOAuthProviderLabel = useCallback(
-		(provider: "GMAIL" | "OUTLOOK") =>
-			t(getProviderLabelMessage(provider)),
+		(provider: "GMAIL" | "OUTLOOK") => t(getProviderLabelMessage(provider)),
 		[t],
 	);
 	const getOAuthActionLabel = useCallback(
@@ -920,18 +1183,18 @@ const EmailsPage: FC = () => {
 	const [revealLoading, setRevealLoading] = useState(false);
 	const [revealOtp, setRevealOtp] = useState("");
 	const [revealGrantToken, setRevealGrantToken] = useState<string | null>(null);
-	const [revealGrantExpiresAt, setRevealGrantExpiresAt] = useState<number | null>(
-		null,
-	);
+	const [revealGrantExpiresAt, setRevealGrantExpiresAt] = useState<
+		number | null
+	>(null);
 	const [revealTargetEmailId, setRevealTargetEmailId] = useState<number | null>(
 		null,
 	);
 	const [revealTargetSource, setRevealTargetSource] = useState<
 		"edit" | "row" | null
 	>(null);
-	const [revealTargetEmailLabel, setRevealTargetEmailLabel] = useState<string | null>(
-		null,
-	);
+	const [revealTargetEmailLabel, setRevealTargetEmailLabel] = useState<
+		string | null
+	>(null);
 	const [revealTargetField, setRevealTargetField] =
 		useState<RevealableEmailSecretField | null>(null);
 	const [revealedSecrets, setRevealedSecrets] = useState<
@@ -939,10 +1202,11 @@ const EmailsPage: FC = () => {
 	>({});
 	const [revealExpiresAt, setRevealExpiresAt] = useState<number | null>(null);
 	const [rowRevealVisible, setRowRevealVisible] = useState(false);
-	const [rowRevealedAccountLoginPassword, setRowRevealedAccountLoginPassword] = useState<string | null>(
+	const [rowRevealedAccountLoginPassword, setRowRevealedAccountLoginPassword] =
+		useState<string | null>(null);
+	const [rowRevealExpiresAt, setRowRevealExpiresAt] = useState<number | null>(
 		null,
 	);
-	const [rowRevealExpiresAt, setRowRevealExpiresAt] = useState<number | null>(null);
 	const [oauthProviderStatuses, setOauthProviderStatuses] = useState<
 		Record<"GMAIL" | "OUTLOOK", OAuthProviderStatus>
 	>({
@@ -1041,7 +1305,9 @@ const EmailsPage: FC = () => {
 		selectedProfileDefinition.representativeProtocol;
 	const isTwoFactorEnabled = Boolean(admin?.twoFactorEnabled);
 	const hasActiveRevealGrant = Boolean(
-		revealGrantToken && revealGrantExpiresAt && revealGrantExpiresAt > Date.now(),
+		revealGrantToken &&
+			revealGrantExpiresAt &&
+			revealGrantExpiresAt > Date.now(),
 	);
 	const revealedSecretValue = revealTargetField
 		? revealedSecrets[revealTargetField]
@@ -1050,18 +1316,20 @@ const EmailsPage: FC = () => {
 		revealTargetSource === "row"
 			? t(emailsInlineI18n["emails.reveal.loginPasswordLabel"])
 			: revealTargetField === "accountLoginPassword"
-			? t(emailsInlineI18n["emails.reveal.accountLoginPasswordLabel"])
-			: revealTargetField === "refreshToken"
-			? t(emailsInlineI18n["emails.reveal.refreshTokenLabel"])
-			: t(
-				getProviderProfileSecretLabelMessage(selectedProfileDefinition.key) ||
-					defineMessage(
-						"emails.imap.genericCredentialLabel",
-						"{providerLabel} 授权码 / 应用专用密码",
-						"{providerLabel} authorization code / app password",
-					),
-				{ providerLabel: t(getProviderLabelMessage(selectedProvider)) },
-			);
+				? t(emailsInlineI18n["emails.reveal.accountLoginPasswordLabel"])
+				: revealTargetField === "refreshToken"
+					? t(emailsInlineI18n["emails.reveal.refreshTokenLabel"])
+					: t(
+							getProviderProfileSecretLabelMessage(
+								selectedProfileDefinition.key,
+							) ||
+								defineMessage(
+									"emails.imap.genericCredentialLabel",
+									"{providerLabel} 授权码 / 应用专用密码",
+									"{providerLabel} authorization code / app password",
+								),
+							{ providerLabel: t(getProviderLabelMessage(selectedProvider)) },
+						);
 	const availableProfileDefinitions = useMemo(
 		() =>
 			getProviderProfilesByRepresentativeProtocol(
@@ -1324,24 +1592,28 @@ const EmailsPage: FC = () => {
 	const fetchGroups = useCallback(async () => {
 		const result = await requestData<EmailGroup[]>(
 			() => emailsContract.getGroups(),
-			"获取分组失败",
+			t(emailsPageI18n.fetchGroupsFailed),
 			{ silent: true },
 		);
 		if (result) {
 			setGroups(result);
 		}
-	}, []);
+	}, [t]);
 
 	const fetchOAuthProviderStatuses = useCallback(async () => {
 		const result = await requestData<
 			Record<"GMAIL" | "OUTLOOK", OAuthProviderStatus>
-		>(() => emailsContract.getProviderStatuses(), "获取 OAuth 配置状态失败", {
-			silent: true,
-		});
+		>(
+			() => emailsContract.getProviderStatuses(),
+			t(emailsPageI18n.fetchOAuthConfigStatusFailed),
+			{
+				silent: true,
+			},
+		);
 		if (result) {
 			setOauthProviderStatuses(result);
 		}
-	}, []);
+	}, [t]);
 
 	const fetchData = useCallback(async () => {
 		const currentRequestId = ++latestListRequestIdRef.current;
@@ -1363,7 +1635,7 @@ const EmailsPage: FC = () => {
 
 		const result = await requestData<EmailListResult>(
 			() => emailsContract.getList(params),
-			"获取数据失败",
+			t(emailsPageI18n.fetchMailboxListFailed),
 		);
 		if (currentRequestId !== latestListRequestIdRef.current) {
 			return;
@@ -1388,6 +1660,7 @@ const EmailsPage: FC = () => {
 		filterStatus,
 		page,
 		pageSize,
+		t,
 	]);
 
 	useEffect(() => {
@@ -1421,23 +1694,28 @@ const EmailsPage: FC = () => {
 			const providerLabel = getOAuthProviderLabel(result.provider);
 			const actionLabel = getOAuthActionLabel(result.action);
 			const messageKey = `result.${result.code}`;
-		const toastMessage = t(messageKey, {
-			providerLabel,
-			actionLabel,
-			defaultValue:
-				result.status === "success"
-					? t(providerSetupI18n["emails.oauth.resultAuthorizedSuccess"], {
-						providerLabel,
-						actionLabel,
-					})
-					: result.status === "warning"
-						? t(providerSetupI18n["emails.oauth.resultAuthorizedVerifyFailed"], {
-							providerLabel,
-						})
-						: t(providerSetupI18n["emails.oauth.resultProviderAuthFailed"], {
-							providerLabel,
-						}),
-		});
+			const toastMessage = t(messageKey, {
+				providerLabel,
+				actionLabel,
+				defaultValue:
+					result.status === "success"
+						? t(providerSetupI18n["emails.oauth.resultAuthorizedSuccess"], {
+								providerLabel,
+								actionLabel,
+							})
+						: result.status === "warning"
+							? t(
+									providerSetupI18n[
+										"emails.oauth.resultAuthorizedVerifyFailed"
+									],
+									{
+										providerLabel,
+									},
+								)
+							: t(providerSetupI18n["emails.oauth.resultProviderAuthFailed"], {
+									providerLabel,
+								}),
+			});
 
 			if (result.status === "success") {
 				message.success(toastMessage);
@@ -1537,7 +1815,7 @@ const EmailsPage: FC = () => {
 						"GMAIL",
 						googleOAuthPendingState,
 					),
-				"获取 Google 授权状态失败",
+				t(emailsPageI18n.fetchGoogleOAuthStatusFailed),
 				{ silent: true },
 			);
 			if (!result || cancelled) {
@@ -1591,7 +1869,7 @@ const EmailsPage: FC = () => {
 						"OUTLOOK",
 						outlookOAuthPendingState,
 					),
-				"获取 Microsoft 授权状态失败",
+				t(emailsPageI18n.fetchMicrosoftOAuthStatusFailed),
 				{ silent: true },
 			);
 			if (!result || cancelled) {
@@ -1600,7 +1878,9 @@ const EmailsPage: FC = () => {
 
 			if (result.status === "expired") {
 				resetOutlookOAuthFlow();
-				message.warning(t(providerSetupI18n["emails.oauth.microsoftLinkExpired"]));
+				message.warning(
+					t(providerSetupI18n["emails.oauth.microsoftLinkExpired"]),
+				);
 				return;
 			}
 
@@ -1737,9 +2017,7 @@ const EmailsPage: FC = () => {
 			form.resetFields();
 			setModalVisible(true);
 			try {
-				const res = await emailsContract.getById<EmailDetailsResult>(
-					record.id,
-				);
+				const res = await emailsContract.getById<EmailDetailsResult>(record.id);
 				if (res.code === 200) {
 					const details = res.data;
 					setRevealTargetEmailId(record.id);
@@ -1849,7 +2127,9 @@ const EmailsPage: FC = () => {
 					);
 					setRowRevealVisible(true);
 					setRowRevealExpiresAt(Date.now() + 60_000);
-					message.success(t(emailsInlineI18n["emails.reveal.loginPasswordShown"]));
+					message.success(
+						t(emailsInlineI18n["emails.reveal.loginPasswordShown"]),
+					);
 					return;
 				}
 
@@ -1857,12 +2137,14 @@ const EmailsPage: FC = () => {
 				setRevealExpiresAt(Date.now() + 60_000);
 				message.success(t(emailsInlineI18n["emails.reveal.secretShown"]));
 			} catch (err: unknown) {
-				const errCode = String((err as { code?: unknown })?.code || "").toUpperCase();
+				const errCode = String(
+					(err as { code?: unknown })?.code || "",
+				).toUpperCase();
 				if (errCode === "SECRET_REVEAL_NOT_ALLOWED") {
 					message.info(
 						targetField === "password"
-							? "当前邮箱鉴权方式不支持直接查看登录密码"
-							: "当前邮箱鉴权方式不支持查看该密钥",
+							? t(emailsPageI18n.revealUnsupportedLoginPassword)
+							: t(emailsPageI18n.revealUnsupportedSecret),
 					);
 					return;
 				}
@@ -1876,8 +2158,8 @@ const EmailsPage: FC = () => {
 					}
 					message.info(
 						targetField === "accountLoginPassword"
-							? "当前账号未存储账号登录密码"
-							: "当前账号未存储连接密码/授权码",
+							? t(emailsPageI18n.noStoredAccountLoginPassword)
+							: t(emailsPageI18n.noStoredConnectionSecret),
 					);
 					return;
 				}
@@ -1899,7 +2181,9 @@ const EmailsPage: FC = () => {
 					navigate("/settings");
 					return;
 				}
-				message.error(getErrorMessage(err, t(emailsInlineI18n["emails.reveal.failed"])));
+				message.error(
+					getErrorMessage(err, t(emailsInlineI18n["emails.reveal.failed"])),
+				);
 			}
 		},
 		[navigate, openRevealModalForTarget, t],
@@ -1938,7 +2222,9 @@ const EmailsPage: FC = () => {
 	const handleRowPasswordReveal = useCallback(
 		async (record: EmailAccount) => {
 			if (!record.hasStoredAccountLoginPassword) {
-				message.info(t(emailsInlineI18n["emails.reveal.noStoredAccountLoginPassword"]));
+				message.info(
+					t(emailsInlineI18n["emails.reveal.noStoredAccountLoginPassword"]),
+				);
 				return;
 			}
 
@@ -2015,7 +2301,9 @@ const EmailsPage: FC = () => {
 				);
 			}
 		} catch (err: unknown) {
-			const errCode = String((err as { code?: unknown })?.code || "").toUpperCase();
+			const errCode = String(
+				(err as { code?: unknown })?.code || "",
+			).toUpperCase();
 			if (errCode === "INVALID_OTP") {
 				message.error(t(emailsInlineI18n["emails.reveal.invalidOtp"]));
 				return;
@@ -2026,7 +2314,9 @@ const EmailsPage: FC = () => {
 				navigate("/settings");
 				return;
 			}
-			message.error(getErrorMessage(err, t(emailsInlineI18n["emails.reveal.failed"])));
+			message.error(
+				getErrorMessage(err, t(emailsInlineI18n["emails.reveal.failed"])),
+			);
 		} finally {
 			setRevealLoading(false);
 		}
@@ -2069,14 +2359,20 @@ const EmailsPage: FC = () => {
 
 	const handleBatchDelete = async () => {
 		if (selectedRowKeys.length === 0) {
-			message.warning(t(emailsInlineI18n["emails.common.selectMailboxToDelete"]));
+			message.warning(
+				t(emailsInlineI18n["emails.common.selectMailboxToDelete"]),
+			);
 			return;
 		}
 
 		try {
 			const res = await emailsContract.batchDelete(selectedRowKeys as number[]);
 			if (res.code === 200) {
-				message.success(t(emailsInlineI18n["emails.common.deletedMailboxCount"], { count: res.data.deleted }));
+				message.success(
+					t(emailsInlineI18n["emails.common.deletedMailboxCount"], {
+						count: res.data.deleted,
+					}),
+				);
 				setSelectedRowKeys([]);
 				fetchData();
 				fetchGroups();
@@ -2139,7 +2435,11 @@ const EmailsPage: FC = () => {
 						form.getFieldValue("gmailOAuthScopes") ||
 						DEFAULT_GOOGLE_OAUTH_SCOPES,
 				});
-				message.success(t(providerSetupI18n["emails.google.importedClientSecret"], { fileName }));
+				message.success(
+					t(providerSetupI18n["emails.google.importedClientSecret"], {
+						fileName,
+					}),
+				);
 			}
 			setGoogleParseLoading(false);
 		},
@@ -2151,13 +2451,17 @@ const EmailsPage: FC = () => {
 		reader.onload = (event) => {
 			const fileContent = event.target?.result;
 			if (typeof fileContent !== "string" || !fileContent.trim()) {
-				message.error(t(providerSetupI18n["emails.google.readClientSecretFailed"]));
+				message.error(
+					t(providerSetupI18n["emails.google.readClientSecretFailed"]),
+				);
 				return;
 			}
 			void applyGoogleJsonImport(fileContent, file.name);
 		};
 		reader.onerror = () => {
-			message.error(t(providerSetupI18n["emails.google.readClientSecretFailed"]));
+			message.error(
+				t(providerSetupI18n["emails.google.readClientSecretFailed"]),
+			);
 		};
 		reader.readAsText(file);
 		return false;
@@ -2192,7 +2496,12 @@ const EmailsPage: FC = () => {
 				if (showSuccessMessage) {
 					message.success(
 						result.projectId
-							? t(providerSetupI18n["emails.google.parseClientSecretSuccessWithProject"], { projectId: result.projectId })
+							? t(
+									providerSetupI18n[
+										"emails.google.parseClientSecretSuccessWithProject"
+									],
+									{ projectId: result.projectId },
+								)
 							: t(providerSetupI18n["emails.google.parseClientSecretSuccess"]),
 					);
 				}
@@ -2303,7 +2612,12 @@ const EmailsPage: FC = () => {
 				message.success(t(providerSetupI18n["emails.google.authUrlGenerated"]));
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, t(providerSetupI18n["emails.google.generateAuthUrlFailed"])));
+			message.error(
+				getErrorMessage(
+					err,
+					t(providerSetupI18n["emails.google.generateAuthUrlFailed"]),
+				),
+			);
 		} finally {
 			setGoogleAuthUrlLoading(false);
 		}
@@ -2331,10 +2645,17 @@ const EmailsPage: FC = () => {
 				setOutlookOAuthPendingState(result.state);
 				setOutlookOAuthPollStatus("pending");
 				setOutlookOAuthStatusExpiresAt(result.expiresAt);
-				message.success(t(providerSetupI18n["emails.microsoft.authUrlGenerated"]));
+				message.success(
+					t(providerSetupI18n["emails.microsoft.authUrlGenerated"]),
+				);
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, t(providerSetupI18n["emails.microsoft.generateAuthUrlFailed"])));
+			message.error(
+				getErrorMessage(
+					err,
+					t(providerSetupI18n["emails.microsoft.generateAuthUrlFailed"]),
+				),
+			);
 		} finally {
 			setOutlookAuthUrlLoading(false);
 		}
@@ -2349,7 +2670,9 @@ const EmailsPage: FC = () => {
 		}
 		try {
 			await navigator.clipboard.writeText(url);
-			message.success(t(providerSetupI18n["emails.oauth.authUrlCopied"], { providerLabel }));
+			message.success(
+				t(providerSetupI18n["emails.oauth.authUrlCopied"], { providerLabel }),
+			);
 		} catch {
 			message.error(t(providerSetupI18n["emails.oauth.copyAuthUrlFailed"]));
 		}
@@ -2383,11 +2706,11 @@ const EmailsPage: FC = () => {
 					(provider === "OUTLOOK" && authType === "MICROSOFT_OAUTH"))
 			) {
 				message.warning(
-				t(providerSetupI18n["emails.oauth.useAuthorizationFlowHint"], {
-				        providerName: provider === "GMAIL" ? "Gmail" : "Outlook",
-                         authProviderLabel: provider === "GMAIL" ? "Google" : "Microsoft",
-                     }),
-                 );
+					t(providerSetupI18n["emails.oauth.useAuthorizationFlowHint"], {
+						providerName: provider === "GMAIL" ? "Gmail" : "Outlook",
+						authProviderLabel: provider === "GMAIL" ? "Google" : "Microsoft",
+					}),
+				);
 				return;
 			}
 
@@ -2431,7 +2754,9 @@ const EmailsPage: FC = () => {
 					normalizedPayload.accountLoginPassword &&
 					!normalizedPayload.accountPasswordGrantToken
 				) {
-					message.warning(t(emailsInlineI18n["emails.accountPassword.requireStepUp"]));
+					message.warning(
+						t(emailsInlineI18n["emails.accountPassword.requireStepUp"]),
+					);
 					return;
 				}
 				const res = await emailsContract.update(editingId, normalizedPayload);
@@ -2481,7 +2806,9 @@ const EmailsPage: FC = () => {
 				showIcon
 				type={isTwoFactorEnabled ? "info" : "warning"}
 				style={marginBottom12Style}
-				title={`受控查看已存储的 ${revealTargetLabel}`}
+				title={t(emailsPageI18n.revealStoredSecretTitle, {
+					label: revealTargetLabel,
+				})}
 				action={
 					<Button
 						type="primary"
@@ -2490,18 +2817,20 @@ const EmailsPage: FC = () => {
 						disabled={!isTwoFactorEnabled}
 						onClick={() => void handleOpenRevealModal()}
 					>
-						{revealedSecretValue !== undefined ? "重新验证查看" : "验证后查看"}
+						{revealedSecretValue !== undefined
+							? t(emailsPageI18n.revealStoredSecretReverify)
+							: t(emailsPageI18n.revealStoredSecretVerify)}
 					</Button>
 				}
-					description={
-						<Space orientation="vertical" size="small" style={fullWidthStyle}>
-							<Text type="secondary">
-							编辑表单默认不会回填已存储内容；需要查看或补录账号登录密码时，必须先经过 2FA 验证。
+				description={
+					<Space orientation="vertical" size="small" style={fullWidthStyle}>
+						<Text type="secondary">
+							{t(emailsPageI18n.revealStoredSecretDescription)}
 						</Text>
-							{!isTwoFactorEnabled ? (
-								<Text type="warning">
-									当前管理员未启用 2FA，请先到“设置”页开启后再查看。
-								</Text>
+						{!isTwoFactorEnabled ? (
+							<Text type="warning">
+								{t(emailsPageI18n.revealStoredSecretEnable2faFirst)}
+							</Text>
 						) : null}
 						{revealedSecretValue !== undefined ? (
 							revealedSecretValue ? (
@@ -2511,20 +2840,27 @@ const EmailsPage: FC = () => {
 									readOnly
 								/>
 							) : (
-								<Text type="secondary">{t(emailsInlineI18n["emails.reveal.noStoredSecret"])}</Text>
+								<Text type="secondary">
+									{t(emailsInlineI18n["emails.reveal.noStoredSecret"])}
+								</Text>
 							)
 						) : null}
 						{revealExpiresAt ? (
 							<Text type="secondary">
-								{t(emailsInlineI18n["emails.reveal.secretAutoHideAt"], { time: dayjs(revealExpiresAt).format("HH:mm:ss") })}
+								{t(emailsInlineI18n["emails.reveal.secretAutoHideAt"], {
+									time: dayjs(revealExpiresAt).format("HH:mm:ss"),
+								})}
 							</Text>
 						) : null}
 						{revealGrantExpiresAt ? (
 							<Text type="secondary">
-								{t(emailsInlineI18n["emails.reveal.grantValidUntil"], { time: dayjs(revealGrantExpiresAt).format("HH:mm:ss") })}
+								{t(emailsInlineI18n["emails.reveal.grantValidUntil"], {
+									time: dayjs(revealGrantExpiresAt).format("HH:mm:ss"),
+								})}
 							</Text>
 						) : null}
-						{revealTargetField === "accountLoginPassword" && hasActiveRevealGrant ? (
+						{revealTargetField === "accountLoginPassword" &&
+						hasActiveRevealGrant ? (
 							<Text type="success">
 								{t(emailsInlineI18n["emails.accountPassword.verifiedCanSave"])}
 							</Text>
@@ -2576,7 +2912,7 @@ const EmailsPage: FC = () => {
 					showIcon
 					type={isTwoFactorEnabled ? "info" : "warning"}
 					style={marginBottom12Style}
-						title={t(emailsInlineI18n["emails.accountPassword.alertTitle"])}
+					title={t(emailsInlineI18n["emails.accountPassword.alertTitle"])}
 					action={
 						<Button
 							type="primary"
@@ -2585,7 +2921,13 @@ const EmailsPage: FC = () => {
 							disabled={!isTwoFactorEnabled}
 							onClick={() => void handleOpenAccountLoginPasswordAccess()}
 						>
-							{hasActiveRevealGrant ? t(emailsInlineI18n["emails.accountPassword.reverifyOrContinue"]) : t(emailsInlineI18n["emails.accountPassword.verifyThenEdit"])}
+							{hasActiveRevealGrant
+								? t(
+										emailsInlineI18n[
+											"emails.accountPassword.reverifyOrContinue"
+										],
+									)
+								: t(emailsInlineI18n["emails.accountPassword.verifyThenEdit"])}
 						</Button>
 					}
 					description={
@@ -2600,7 +2942,9 @@ const EmailsPage: FC = () => {
 									/>
 								) : (
 									<Text type="secondary">
-										{t(emailsInlineI18n["emails.accountPassword.noneStoredYet"])}
+										{t(
+											emailsInlineI18n["emails.accountPassword.noneStoredYet"],
+										)}
 									</Text>
 								)
 							) : null}
@@ -2658,7 +3002,11 @@ const EmailsPage: FC = () => {
 						`${t(emailsInlineI18n["emails.import.partialPrefix"], { successCount, failedCount })}${firstErrors.length ? `；${firstErrors.join("；")}` : ""}`,
 					);
 				} else {
-					message.success(t(emailsInlineI18n["emails.import.successCount"], { count: successCount }));
+					message.success(
+						t(emailsInlineI18n["emails.import.successCount"], {
+							count: successCount,
+						}),
+					);
 				}
 				setImportModalVisible(false);
 				setImportContent("");
@@ -2669,7 +3017,9 @@ const EmailsPage: FC = () => {
 				message.error(t(emailsInlineI18n["emails.import.failed"]));
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, t(emailsInlineI18n["emails.import.failed"])));
+			message.error(
+				getErrorMessage(err, t(emailsInlineI18n["emails.import.failed"])),
+			);
 		}
 	};
 
@@ -2695,7 +3045,9 @@ const EmailsPage: FC = () => {
 
 			message.success(t(emailsInlineI18n["emails.export.success"]));
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, t(emailsInlineI18n["emails.export.failed"])));
+			message.error(
+				getErrorMessage(err, t(emailsInlineI18n["emails.export.failed"])),
+			);
 		}
 	};
 
@@ -2709,7 +3061,7 @@ const EmailsPage: FC = () => {
 			setMailLoading(true);
 			const result = await requestData<{ messages: MailItem[] }>(
 				() => emailsContract.viewMails(emailId, mailbox, markAsSeen),
-				"获取邮件失败",
+				t(emailsPageI18n.fetchMailFailed),
 			);
 			if (result) {
 				const messages = result.messages || [];
@@ -2767,7 +3119,11 @@ const EmailsPage: FC = () => {
 				currentMailbox,
 			);
 			if (res.code === 200) {
-				message.success(t(emailsInlineI18n["emails.mailbox.clearedCount"], { count: res.data?.deletedCount || 0 }));
+				message.success(
+					t(emailsInlineI18n["emails.mailbox.clearedCount"], {
+						count: res.data?.deletedCount || 0,
+					}),
+				);
 				setSelectedMailIds([]);
 				setMailList([]);
 				const now = new Date().toISOString();
@@ -2783,13 +3139,17 @@ const EmailsPage: FC = () => {
 				message.error(t(emailsInlineI18n["emails.mailbox.clearFailed"]));
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, t(emailsInlineI18n["emails.mailbox.clearFailed"])));
+			message.error(
+				getErrorMessage(err, t(emailsInlineI18n["emails.mailbox.clearFailed"])),
+			);
 		}
 	};
 
 	const handleDeleteSelectedMails = async () => {
 		if (!currentEmailId || selectedMailIds.length === 0) {
-			message.warning(t(emailsInlineI18n["emails.mailbox.selectMessagesToDelete"]));
+			message.warning(
+				t(emailsInlineI18n["emails.mailbox.selectMessagesToDelete"]),
+			);
 			return;
 		}
 
@@ -2806,7 +3166,11 @@ const EmailsPage: FC = () => {
 				const messages = res.data?.messages || [];
 				const latestMessage = messages[0];
 				const now = new Date().toISOString();
-				message.success(t(emailsInlineI18n["emails.mailbox.deletedMessageCount"], { count: res.data?.deletedCount || 0 }));
+				message.success(
+					t(emailsInlineI18n["emails.mailbox.deletedMessageCount"], {
+						count: res.data?.deletedCount || 0,
+					}),
+				);
 				setSelectedMailIds([]);
 				setMailList(messages);
 				patchMailboxStatusForEmail(currentEmailId, currentMailbox, {
@@ -2818,10 +3182,17 @@ const EmailsPage: FC = () => {
 					lastViewedAt: now,
 				});
 			} else {
-				message.error(t(emailsInlineI18n["emails.mailbox.deleteSelectedFailed"]));
+				message.error(
+					t(emailsInlineI18n["emails.mailbox.deleteSelectedFailed"]),
+				);
 			}
 		} catch (err: unknown) {
-			message.error(getErrorMessage(err, t(emailsInlineI18n["emails.mailbox.deleteSelectedFailed"])));
+			message.error(
+				getErrorMessage(
+					err,
+					t(emailsInlineI18n["emails.mailbox.deleteSelectedFailed"]),
+				),
+			);
 		} finally {
 			setDeletingSelectedMails(false);
 		}
@@ -2830,8 +3201,10 @@ const EmailsPage: FC = () => {
 	const handleBatchFetchMailboxes = useCallback(async () => {
 		const scopeLabel =
 			selectedRowKeys.length > 0
-				? `选中的 ${selectedRowKeys.length} 个邮箱`
-				: "当前筛选结果中的邮箱";
+				? t(emailsPageI18n.selectedMailboxScope, {
+						count: selectedRowKeys.length,
+					})
+				: t(emailsPageI18n.filteredMailboxScope);
 		setBatchFetchLoading(true);
 		const result = await requestData<BatchFetchMailboxResult>(
 			() =>
@@ -2839,18 +3212,32 @@ const EmailsPage: FC = () => {
 					...buildBatchActionPayload(),
 					mailboxes: ["INBOX", "SENT", "Junk"],
 				}),
-			"一键检查邮箱失败",
+			t(emailsPageI18n.batchCheckFailed),
 		);
 		if (result) {
 			if (result.targeted === 0) {
 				message.warning(t(emailsInlineI18n["emails.batchCheck.noneAvailable"]));
 			} else if (result.errorCount > 0 || result.partialCount > 0) {
 				message.warning(
-					`一键检查完成：${scopeLabel}中成功 ${result.successCount} 个，部分成功 ${result.partialCount} 个，失败 ${result.errorCount} 个，跳过 ${result.skippedCount} 个`,
+					t(emailsPageI18n.batchCheckCompletedPartial, {
+						scopeLabel,
+						successCount: result.successCount,
+						partialCount: result.partialCount,
+						errorCount: result.errorCount,
+						skippedCount: result.skippedCount,
+					}),
 				);
 			} else {
 				message.success(
-					`一键检查完成：${scopeLabel}已刷新检查结果${result.skippedCount > 0 ? `，跳过 ${result.skippedCount} 个邮箱` : ""}`,
+					t(emailsPageI18n.batchCheckCompletedSuccess, {
+						scopeLabel,
+						skipSuffix:
+							result.skippedCount > 0
+								? t(emailsPageI18n.batchSkipSuffix, {
+										count: result.skippedCount,
+									})
+								: "",
+					}),
 				);
 			}
 			await fetchData();
@@ -2869,18 +3256,32 @@ const EmailsPage: FC = () => {
 						ids: [record.id],
 						mailboxes: ["INBOX", "SENT", "Junk"],
 					}),
-				`检查邮箱 ${record.email} 失败`,
+				t(emailsPageI18n.singleMailboxCheckFailed, { email: record.email }),
 			);
 
 			if (result) {
 				if (result.targeted === 0) {
-					message.warning(t(emailsInlineI18n["emails.batchCheck.mailboxUnavailable"], { email: record.email }));
+					message.warning(
+						t(emailsInlineI18n["emails.batchCheck.mailboxUnavailable"], {
+							email: record.email,
+						}),
+					);
 				} else if (result.errorCount > 0 || result.partialCount > 0) {
 					message.warning(
-						`检查 ${record.email} 完成：成功 ${result.successCount} 个，部分成功 ${result.partialCount} 个，失败 ${result.errorCount} 个，跳过 ${result.skippedCount} 个邮箱夹`,
+						t(emailsPageI18n.singleMailboxCheckCompletedPartial, {
+							email: record.email,
+							successCount: result.successCount,
+							partialCount: result.partialCount,
+							errorCount: result.errorCount,
+							skippedCount: result.skippedCount,
+						}),
 					);
 				} else {
-					message.success(t(emailsInlineI18n["emails.batchCheck.mailboxUpdated"], { email: record.email }));
+					message.success(
+						t(emailsInlineI18n["emails.batchCheck.mailboxUpdated"], {
+							email: record.email,
+						}),
+					);
 				}
 				await fetchData();
 			}
@@ -2904,18 +3305,31 @@ const EmailsPage: FC = () => {
 					...buildBatchActionPayload(),
 					mailbox: batchClearMailbox,
 				}),
-			"批量清空邮箱失败",
+			t(emailsPageI18n.batchClearFailed),
 		);
 		if (result) {
 			if (result.targeted === 0) {
 				message.warning(t(emailsInlineI18n["emails.batchClear.noneAvailable"]));
 			} else if (result.errorCount > 0) {
 				message.warning(
-					`批量清空完成：共删除 ${result.deletedCount} 封，成功 ${result.successCount} 个，失败 ${result.errorCount} 个，跳过 ${result.skippedCount} 个`,
+					t(emailsPageI18n.batchClearCompletedPartial, {
+						deletedCount: result.deletedCount,
+						successCount: result.successCount,
+						errorCount: result.errorCount,
+						skippedCount: result.skippedCount,
+					}),
 				);
 			} else {
 				message.success(
-					`批量清空完成：共删除 ${result.deletedCount} 封邮件${result.skippedCount > 0 ? `，跳过 ${result.skippedCount} 个邮箱` : ""}`,
+					t(emailsPageI18n.batchClearCompletedSuccess, {
+						deletedCount: result.deletedCount,
+						skipSuffix:
+							result.skippedCount > 0
+								? t(emailsPageI18n.batchSkipSuffix, {
+										count: result.skippedCount,
+									})
+								: "",
+					}),
 				);
 			}
 			setBatchClearModalVisible(false);
@@ -2941,9 +3355,7 @@ const EmailsPage: FC = () => {
 				.filter(Boolean);
 
 			if (recipients.length === 0) {
-				message.error(
-					t(emailsInlineI18n["emails.compose.recipientRequired"]),
-				);
+				message.error(t(emailsInlineI18n["emails.compose.recipientRequired"]));
 				return;
 			}
 
@@ -2957,25 +3369,18 @@ const EmailsPage: FC = () => {
 			setComposeSending(false);
 
 			if (result.code !== 200) {
-				message.error(
-					t(emailsInlineI18n["emails.compose.sendFailed"]),
-				);
+				message.error(t(emailsInlineI18n["emails.compose.sendFailed"]));
 				return;
 			}
 
-			message.success(
-				t(emailsInlineI18n["emails.compose.sendSuccess"]),
-			);
+			message.success(t(emailsInlineI18n["emails.compose.sendSuccess"]));
 			setComposeModalVisible(false);
 			composeForm.resetFields();
 			await handleMailboxTabChange("SENT");
 		} catch (err: unknown) {
 			setComposeSending(false);
 			message.error(
-				getErrorMessage(
-					err,
-					t(emailsInlineI18n["emails.compose.sendFailed"]),
-				),
+				getErrorMessage(err, t(emailsInlineI18n["emails.compose.sendFailed"])),
 			);
 		}
 	};
@@ -3008,19 +3413,12 @@ const EmailsPage: FC = () => {
 			try {
 				const res = await emailsContract.deleteGroup(id);
 				if (res.code === 200) {
-					message.success(
-						t(emailsInlineI18n["emails.group.deleted"]),
-					);
+					message.success(t(emailsInlineI18n["emails.group.deleted"]));
 					fetchGroups();
 					fetchData();
 				}
 			} catch (err: unknown) {
-				message.error(
-					getErrorMessage(
-						err,
-						t(adminI18n.common.deleteFailed),
-					),
-				);
+				message.error(getErrorMessage(err, t(adminI18n.common.deleteFailed)));
 			}
 		},
 		[fetchData, fetchGroups, t],
@@ -3032,28 +3430,21 @@ const EmailsPage: FC = () => {
 			if (editingGroupId) {
 				const res = await emailsContract.updateGroup(editingGroupId, values);
 				if (res.code === 200) {
-					message.success(
-						t(emailsInlineI18n["emails.group.updated"]),
-					);
+					message.success(t(emailsInlineI18n["emails.group.updated"]));
 					setGroupModalVisible(false);
 					fetchGroups();
 				}
 			} else {
 				const res = await emailsContract.createGroup(values);
 				if (res.code === 200) {
-					message.success(
-						t(emailsInlineI18n["emails.group.created"]),
-					);
+					message.success(t(emailsInlineI18n["emails.group.created"]));
 					setGroupModalVisible(false);
 					fetchGroups();
 				}
 			}
 		} catch (err: unknown) {
 			message.error(
-				getErrorMessage(
-					err,
-					t(emailsInlineI18n["emails.group.saveFailed"]),
-				),
+				getErrorMessage(err, t(emailsInlineI18n["emails.group.saveFailed"])),
 			);
 		}
 	};
@@ -3066,9 +3457,7 @@ const EmailsPage: FC = () => {
 			return;
 		}
 		if (!assignTargetGroupId) {
-			message.warning(
-				t(emailsInlineI18n["emails.group.selectTargetGroup"]),
-			);
+			message.warning(t(emailsInlineI18n["emails.group.selectTargetGroup"]));
 			return;
 		}
 		try {
@@ -3078,7 +3467,9 @@ const EmailsPage: FC = () => {
 			);
 			if (res.code === 200) {
 				message.success(
-					t(emailsInlineI18n["emails.group.assignedCount"], { count: res.data.count }),
+					t(emailsInlineI18n["emails.group.assignedCount"], {
+						count: res.data.count,
+					}),
 				);
 				setAssignGroupModalVisible(false);
 				setAssignTargetGroupId(undefined);
@@ -3088,10 +3479,7 @@ const EmailsPage: FC = () => {
 			}
 		} catch (err: unknown) {
 			message.error(
-				getErrorMessage(
-					err,
-					t(emailsInlineI18n["emails.group.assignFailed"]),
-				),
+				getErrorMessage(err, t(emailsInlineI18n["emails.group.assignFailed"])),
 			);
 		}
 	};
@@ -3120,18 +3508,13 @@ const EmailsPage: FC = () => {
 					.map((e: EmailAccount) => e.id);
 				await emailsContract.removeEmails(gid, emailIds);
 			}
-			message.success(
-				t(emailsInlineI18n["emails.group.removedFromGroups"]),
-			);
+			message.success(t(emailsInlineI18n["emails.group.removedFromGroups"]));
 			setSelectedRowKeys([]);
 			fetchData();
 			fetchGroups();
 		} catch (err: unknown) {
 			message.error(
-				getErrorMessage(
-					err,
-					t(emailsInlineI18n["emails.group.removeFailed"]),
-				),
+				getErrorMessage(err, t(emailsInlineI18n["emails.group.removeFailed"])),
 			);
 		}
 	};
@@ -3146,69 +3529,103 @@ const EmailsPage: FC = () => {
 				dataIndex: "email",
 				key: "email",
 				width: 300,
-					render: (_: string, record: EmailAccount) => {
-						const profileDefinition = record.providerProfile
-							? getProviderProfileDefinitionByKey(record.providerProfile as ProviderProfileKey)
-							: getProviderProfileDefinition(record.provider, record.authType);
-						return (
-							<div style={emailStyles.addressCell}>
-								<Text style={emailStyles.addressText}>{record.email}</Text>
-								<div style={emailStyles.metaText}>{t(getProviderProfileSummaryHintMessage(profileDefinition.key))}</div>
-								{record.errorMessage ? <div style={emailStyles.errorText}>{t(emailsInlineI18n["emails.row.errorMessage"], { message: record.errorMessage })}</div> : null}
+				render: (_: string, record: EmailAccount) => {
+					const profileDefinition = record.providerProfile
+						? getProviderProfileDefinitionByKey(
+								record.providerProfile as ProviderProfileKey,
+							)
+						: getProviderProfileDefinition(record.provider, record.authType);
+					return (
+						<div style={emailStyles.addressCell}>
+							<Text style={emailStyles.addressText}>{record.email}</Text>
+							<div style={emailStyles.metaText}>
+								{t(getProviderProfileSummaryHintMessage(profileDefinition.key))}
 							</div>
-						);
-					},
+							{record.errorMessage ? (
+								<div style={emailStyles.errorText}>
+									{t(emailsInlineI18n["emails.row.errorMessage"], {
+										message: record.errorMessage,
+									})}
+								</div>
+							) : null}
+						</div>
+					);
+				},
 			},
 			{
 				title: t(adminI18n.emails.connectionContract),
 				key: "connection",
-					render: (_: unknown, record: EmailAccount) => {
-						const profileDefinition = record.providerProfile
-							? getProviderProfileDefinitionByKey(record.providerProfile as ProviderProfileKey)
-							: getProviderProfileDefinition(record.provider, record.authType);
-						const representativeProtocol = record.representativeProtocol || profileDefinition.representativeProtocol;
-						return (
-							<div style={emailStyles.contractCell}>
-								<Space wrap>
-									<Tag color={getProviderDefinition(record.provider).tagColor}>{t(getProviderLabelMessage(record.provider))}</Tag>
-									<Tag color={getRepresentativeProtocolTagColor(representativeProtocol)}>{t(getRepresentativeProtocolLabelMessage(representativeProtocol))}</Tag>
-									<Tag>{t(getAuthTypeLabelMessage(record.authType))}</Tag>
-								</Space>
-								<div style={emailStyles.metaText}>{t(getProviderProfileSummaryHintMessage(profileDefinition.key))}</div>
+				render: (_: unknown, record: EmailAccount) => {
+					const profileDefinition = record.providerProfile
+						? getProviderProfileDefinitionByKey(
+								record.providerProfile as ProviderProfileKey,
+							)
+						: getProviderProfileDefinition(record.provider, record.authType);
+					const representativeProtocol =
+						record.representativeProtocol ||
+						profileDefinition.representativeProtocol;
+					return (
+						<div style={emailStyles.contractCell}>
+							<Space wrap>
+								<Tag color={getProviderDefinition(record.provider).tagColor}>
+									{t(getProviderLabelMessage(record.provider))}
+								</Tag>
+								<Tag
+									color={getRepresentativeProtocolTagColor(
+										representativeProtocol,
+									)}
+								>
+									{t(
+										getRepresentativeProtocolLabelMessage(
+											representativeProtocol,
+										),
+									)}
+								</Tag>
+								<Tag>{t(getAuthTypeLabelMessage(record.authType))}</Tag>
+							</Space>
+							<div style={emailStyles.metaText}>
+								{t(getProviderProfileSummaryHintMessage(profileDefinition.key))}
 							</div>
-						);
-					},
+						</div>
+					);
+				},
 			},
 			{
 				title: t(adminI18n.emails.group),
 				key: "group",
-				render: (_: unknown, record: EmailAccount) => (
-					record.group ? <Tag color="blue">{record.group.name}</Tag> : <Tag>{t(adminI18n.emails.ungrouped)}</Tag>
-				),
+				render: (_: unknown, record: EmailAccount) =>
+					record.group ? (
+						<Tag color="blue">{record.group.name}</Tag>
+					) : (
+						<Tag>{t(adminI18n.emails.ungrouped)}</Tag>
+					),
 			},
 			{
 				title: t(adminI18n.common.clientId),
 				dataIndex: "clientId",
 				key: "clientId",
 				width: 180,
-				render: (value: string | null) => <div style={emailStyles.clientIdText}>{value || "-"}</div>,
+				render: (value: string | null) => (
+					<div style={emailStyles.clientIdText}>{value || "-"}</div>
+				),
 			},
 			{
 				title: t(adminI18n.common.status),
 				dataIndex: "status",
 				key: "status",
 				width: 100,
-					render: (value: EmailAccountStatus) => {
-						const statusMeta = getEmailStatusMeta(value, t);
-						return <Tag color={statusMeta.color}>{statusMeta.label}</Tag>;
-					},
+				render: (value: EmailAccountStatus) => {
+					const statusMeta = getEmailStatusMeta(value, t);
+					return <Tag color={statusMeta.color}>{statusMeta.label}</Tag>;
+				},
 			},
 			{
 				title: t(adminI18n.common.lastChecked),
 				dataIndex: "lastCheckAt",
 				key: "lastCheckAt",
 				width: 168,
-				render: (value: string | null) => value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "-",
+				render: (value: string | null) =>
+					value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "-",
 			},
 			{
 				title: t(adminI18n.common.createdAt),
@@ -3226,7 +3643,9 @@ const EmailsPage: FC = () => {
 						<Space wrap>
 							<Button
 								size="small"
-								type={hasNewMailboxMessages(record, "INBOX") ? "primary" : "default"}
+								type={
+									hasNewMailboxMessages(record, "INBOX") ? "primary" : "default"
+								}
 								onClick={() => handleViewMails(record, "INBOX")}
 							>
 								{t(adminI18n.emails.inbox)}
@@ -3242,7 +3661,11 @@ const EmailsPage: FC = () => {
 									canRevealStoredAccountLoginPassword(record)
 										? t(emailsInlineI18n["emails.row.viewStoredLoginPassword"])
 										: record.hasStoredAccountLoginPassword
-											? t(emailsInlineI18n["emails.row.loginPasswordStoredWith2fa"])
+											? t(
+													emailsInlineI18n[
+														"emails.row.loginPasswordStoredWith2fa"
+													],
+												)
 											: t(emailsInlineI18n["emails.row.noStoredLoginPassword"])
 								}
 							>
@@ -3253,7 +3676,9 @@ const EmailsPage: FC = () => {
 											? "primary"
 											: "default"
 									}
-									aria-label={t(emailsInlineI18n["emails.row.loginPasswordAriaLabel"])}
+									aria-label={t(
+										emailsInlineI18n["emails.row.loginPasswordAriaLabel"],
+									)}
 									onClick={() => void handleRowPasswordReveal(record)}
 								>
 									{t(emailsInlineI18n["emails.row.loginPasswordButton"])}
@@ -3265,10 +3690,7 @@ const EmailsPage: FC = () => {
 							>
 								{t(adminI18n.emails.checkConnection)}
 							</Button>
-							<Button
-								size="small"
-								onClick={() => handleEdit(record)}
-							>
+							<Button size="small" onClick={() => handleEdit(record)}>
 								{t(adminI18n.common.edit)}
 							</Button>
 							<Popconfirm
@@ -3337,14 +3759,16 @@ const EmailsPage: FC = () => {
 		[groups],
 	);
 
-	const createActionItems = EXTERNAL_REPRESENTATIVE_PROTOCOLS.map((protocol) => {
-		return {
-			key: protocol,
-			icon: <PlusOutlined />,
-			label: t(getRepresentativeProtocolConnectionLabelMessage(protocol)),
-			onClick: () => handleCreate(protocol),
-		};
-	});
+	const createActionItems = EXTERNAL_REPRESENTATIVE_PROTOCOLS.map(
+		(protocol) => {
+			return {
+				key: protocol,
+				icon: <PlusOutlined />,
+				label: t(getRepresentativeProtocolConnectionLabelMessage(protocol)),
+				onClick: () => handleCreate(protocol),
+			};
+		},
+	);
 
 	const toolActionItems = [
 		{
@@ -3364,7 +3788,9 @@ const EmailsPage: FC = () => {
 			icon: <ReloadOutlined />,
 			label:
 				selectedRowKeys.length > 0
-					? t(emailsInlineI18n["emails.tools.batchCheckSelected"], { count: selectedRowKeys.length })
+					? t(emailsInlineI18n["emails.tools.batchCheckSelected"], {
+							count: selectedRowKeys.length,
+						})
 					: t(emailsInlineI18n["emails.tools.batchCheckFiltered"]),
 			disabled: batchFetchLoading,
 			onClick: () => {
@@ -3376,7 +3802,9 @@ const EmailsPage: FC = () => {
 			icon: <DeleteOutlined />,
 			label:
 				selectedRowKeys.length > 0
-					? t(emailsInlineI18n["emails.tools.batchClearSelected"], { count: selectedRowKeys.length })
+					? t(emailsInlineI18n["emails.tools.batchClearSelected"], {
+							count: selectedRowKeys.length,
+						})
 					: t(emailsInlineI18n["emails.tools.batchClearFiltered"]),
 			danger: true,
 			onClick: () => setBatchClearModalVisible(true),
@@ -3405,9 +3833,9 @@ const EmailsPage: FC = () => {
 				dataIndex: "fetchStrategy",
 				key: "fetchStrategy",
 				width: 190,
-					render: (value: MailFetchStrategy) => (
-						<Tag color="purple">{t(MAIL_FETCH_STRATEGY_LABELS[value])}</Tag>
-					),
+				render: (value: MailFetchStrategy) => (
+					<Tag color="purple">{t(MAIL_FETCH_STRATEGY_LABELS[value])}</Tag>
+				),
 			},
 			{
 				title: t(emailsInlineI18n["emails.group.columnEmailCount"]),
@@ -3434,8 +3862,8 @@ const EmailsPage: FC = () => {
 							onClick={() => handleEditGroup(record)}
 						/>
 						<Popconfirm
-								title={t(emailsInlineI18n["emails.group.deleteConfirm"])}
-								onConfirm={() => handleDeleteGroup(record.id)}
+							title={t(emailsInlineI18n["emails.group.deleteConfirm"])}
+							onConfirm={() => handleDeleteGroup(record.id)}
 						>
 							<Button type="text" danger icon={<DeleteOutlined />} />
 						</Popconfirm>
@@ -3457,10 +3885,14 @@ const EmailsPage: FC = () => {
 				extra={
 					<Space wrap>
 						<Dropdown menu={{ items: toolActionItems }}>
-							<Button icon={<MoreOutlined />}>{t(adminI18n.emails.tools)}</Button>
+							<Button icon={<MoreOutlined />}>
+								{t(adminI18n.emails.tools)}
+							</Button>
 						</Dropdown>
 						<Dropdown menu={{ items: createActionItems }}>
-							<Button type="primary" icon={<PlusOutlined />}>{t(adminI18n.emails.addMailbox)}</Button>
+							<Button type="primary" icon={<PlusOutlined />}>
+								{t(adminI18n.emails.addMailbox)}
+							</Button>
 						</Dropdown>
 					</Space>
 				}
@@ -3478,7 +3910,7 @@ const EmailsPage: FC = () => {
 								<div style={emailStyles.filterToolbar}>
 									<Space wrap>
 										<Input
-										placeholder={t(adminI18n.emails.searchMailboxes)}
+											placeholder={t(adminI18n.emails.searchMailboxes)}
 											prefix={<SearchOutlined />}
 											value={keyword}
 											onChange={(e) => setKeyword(e.target.value)}
@@ -3486,14 +3918,16 @@ const EmailsPage: FC = () => {
 											allowClear
 										/>
 										<Select
-										placeholder={t(adminI18n.emails.filterByProtocol)}
+											placeholder={t(adminI18n.emails.filterByProtocol)}
 											allowClear
 											style={width170Style}
 											value={filterRepresentativeProtocol}
 											options={EXTERNAL_REPRESENTATIVE_PROTOCOLS.map(
 												(protocol) => ({
 													value: protocol,
-													label: t(getRepresentativeProtocolLabelMessage(protocol)),
+													label: t(
+														getRepresentativeProtocolLabelMessage(protocol),
+													),
 												}),
 											)}
 											onChange={(value: RepresentativeProtocol | undefined) => {
@@ -3502,7 +3936,7 @@ const EmailsPage: FC = () => {
 											}}
 										/>
 										<Select
-										placeholder={t(adminI18n.emails.filterByProvider)}
+											placeholder={t(adminI18n.emails.filterByProvider)}
 											allowClear
 											style={width150Style}
 											value={filterProvider}
@@ -3513,18 +3947,18 @@ const EmailsPage: FC = () => {
 											}}
 										/>
 										<Select
-										placeholder={t(adminI18n.emails.filterByStatus)}
+											placeholder={t(adminI18n.emails.filterByStatus)}
 											allowClear
 											style={width140Style}
 											value={filterStatus}
-										options={emailStatusFilterOptions}
+											options={emailStatusFilterOptions}
 											onChange={(value: EmailAccountStatus | undefined) => {
 												setFilterStatus(value);
 												setPage(1);
 											}}
 										/>
 										<Select
-										placeholder={t(adminI18n.emails.filterByGroup)}
+											placeholder={t(adminI18n.emails.filterByGroup)}
 											allowClear
 											style={width160Style}
 											value={filterGroupId}
@@ -3538,23 +3972,51 @@ const EmailsPage: FC = () => {
 								</div>
 
 								{selectedRowKeys.length > 0 ? (
-									<SurfaceCard tone="muted" style={emailStyles.selectionBar} bodyStyle={{ padding: '12px 16px' }}>
-									<Space wrap style={{ width: '100%', justifyContent: 'space-between', gap: 12 }}>
-										<Text type="secondary">{t(emailsInlineI18n["emails.selection.banner"], { count: selectedRowKeys.length })}</Text>
-										<Space wrap>
-											<Button type="text" icon={<GroupOutlined />} onClick={() => setAssignGroupModalVisible(true)}>
-												{t(emailsInlineI18n["emails.selection.assignGroup"])}
-											</Button>
-											<Button type="text" onClick={handleBatchRemoveGroup}>
-												{t(emailsInlineI18n["emails.selection.removeGroup"])}
-											</Button>
-											<Popconfirm
-												title={t(emailsInlineI18n["emails.selection.deleteSelectedConfirm"], { count: selectedRowKeys.length })}
-												onConfirm={handleBatchDelete}
-											>
-												<Button danger>{t(emailsInlineI18n["emails.selection.batchDelete"])}</Button>
-											</Popconfirm>
-										</Space>
+									<SurfaceCard
+										tone="muted"
+										style={emailStyles.selectionBar}
+										bodyStyle={{ padding: "12px 16px" }}
+									>
+										<Space
+											wrap
+											style={{
+												width: "100%",
+												justifyContent: "space-between",
+												gap: 12,
+											}}
+										>
+											<Text type="secondary">
+												{t(emailsInlineI18n["emails.selection.banner"], {
+													count: selectedRowKeys.length,
+												})}
+											</Text>
+											<Space wrap>
+												<Button
+													type="text"
+													icon={<GroupOutlined />}
+													onClick={() => setAssignGroupModalVisible(true)}
+												>
+													{t(emailsInlineI18n["emails.selection.assignGroup"])}
+												</Button>
+												<Button type="text" onClick={handleBatchRemoveGroup}>
+													{t(emailsInlineI18n["emails.selection.removeGroup"])}
+												</Button>
+												<Popconfirm
+													title={t(
+														emailsInlineI18n[
+															"emails.selection.deleteSelectedConfirm"
+														],
+														{ count: selectedRowKeys.length },
+													)}
+													onConfirm={handleBatchDelete}
+												>
+													<Button danger>
+														{t(
+															emailsInlineI18n["emails.selection.batchDelete"],
+														)}
+													</Button>
+												</Popconfirm>
+											</Space>
 										</Space>
 									</SurfaceCard>
 								) : null}
@@ -3564,16 +4026,23 @@ const EmailsPage: FC = () => {
 										type={focusedEmailRecord ? "error" : "warning"}
 										showIcon
 										style={marginBottom16Style}
-						title={
+										title={
 											focusedEmailRecord
-												? t(emailsInlineI18n["emails.errorFilter.focusedTitle"], { email: focusedEmailRecord.email })
+												? t(
+														emailsInlineI18n["emails.errorFilter.focusedTitle"],
+														{ email: focusedEmailRecord.email },
+													)
 												: t(emailsInlineI18n["emails.errorFilter.listTitle"])
-									}
-									description={
-										focusedEmailRecord
-											? `${focusedEmailRecord.errorMessage || t(emailsInlineI18n["emails.errorFilter.defaultReason"])}${focusedEmailRecord.lastCheckAt ? ` ${t(emailsInlineI18n["emails.errorFilter.lastChecked"], { time: dayjs(focusedEmailRecord.lastCheckAt).format("YYYY-MM-DD HH:mm:ss") })}` : ""}`
-											: t(emailsInlineI18n["emails.errorFilter.listDescription"])
-									}
+										}
+										description={
+											focusedEmailRecord
+												? `${focusedEmailRecord.errorMessage || t(emailsInlineI18n["emails.errorFilter.defaultReason"])}${focusedEmailRecord.lastCheckAt ? ` ${t(emailsInlineI18n["emails.errorFilter.lastChecked"], { time: dayjs(focusedEmailRecord.lastCheckAt).format("YYYY-MM-DD HH:mm:ss") })}` : ""}`
+												: t(
+														emailsInlineI18n[
+															"emails.errorFilter.listDescription"
+														],
+													)
+										}
 										action={
 											<Space wrap>
 												{focusedEmailRecord ? (
@@ -3587,7 +4056,7 @@ const EmailsPage: FC = () => {
 															void handleCheckSingleMailbox(focusedEmailRecord)
 														}
 													>
-												{t(emailsInlineI18n["emails.errorFilter.recheck"])}
+														{t(emailsInlineI18n["emails.errorFilter.recheck"])}
 													</Button>
 												) : null}
 												{focusedEmailRecord ? (
@@ -3595,7 +4064,9 @@ const EmailsPage: FC = () => {
 														size="small"
 														onClick={() => void handleEdit(focusedEmailRecord)}
 													>
-												{t(emailsInlineI18n["emails.errorFilter.viewConfig"])}
+														{t(
+															emailsInlineI18n["emails.errorFilter.viewConfig"],
+														)}
 													</Button>
 												) : null}
 												<Button
@@ -3605,23 +4076,23 @@ const EmailsPage: FC = () => {
 														navigate("/emails", { replace: true });
 													}}
 												>
-												{t(emailsInlineI18n["emails.errorFilter.clearFocus"])}
+													{t(emailsInlineI18n["emails.errorFilter.clearFocus"])}
 												</Button>
 											</Space>
 										}
 									/>
 								) : null}
 
-									<Table
-										columns={columns}
-										dataSource={data}
-										rowKey="id"
-										loading={loading}
-					rowSelection={rowSelection}
-					pagination={tablePagination}
-					size="small"
-					scroll={{ y: 560 }}
-					/>
+								<Table
+									columns={columns}
+									dataSource={data}
+									rowKey="id"
+									loading={loading}
+									rowSelection={rowSelection}
+									pagination={tablePagination}
+									size="small"
+									scroll={{ y: 560 }}
+								/>
 							</>
 						),
 					},
@@ -3630,14 +4101,14 @@ const EmailsPage: FC = () => {
 						label: t(adminI18n.emails.mailboxGroups),
 						children: (
 							<>
-							<div style={emailStyles.listTopActions}>
-								<Button
-									type="primary"
-									icon={<PlusOutlined />}
-									onClick={handleCreateGroup}
-								>
-									{t(emailsInlineI18n["emails.group.createButton"])}
-								</Button>
+								<div style={emailStyles.listTopActions}>
+									<Button
+										type="primary"
+										icon={<PlusOutlined />}
+										onClick={handleCreateGroup}
+									>
+										{t(emailsInlineI18n["emails.group.createButton"])}
+									</Button>
 								</div>
 								<Table
 									columns={groupColumns}
@@ -3657,10 +4128,10 @@ const EmailsPage: FC = () => {
 					editingId
 						? t(emailsPageI18n.editMailboxTitle)
 						: t(
-							getRepresentativeProtocolConnectionLabelMessage(
-								selectedRepresentativeProtocol,
-							),
-						)
+								getRepresentativeProtocolConnectionLabelMessage(
+									selectedRepresentativeProtocol,
+								),
+							)
 				}
 				open={modalVisible}
 				onOk={handleSubmit}
@@ -3697,7 +4168,11 @@ const EmailsPage: FC = () => {
 											<div style={emailStyles.modalSectionHeading}>
 												{t(getRepresentativeProtocolLabelMessage(protocol))}
 											</div>
-											<Text type="secondary">{t(getRepresentativeProtocolDescriptionMessage(protocol))}</Text>
+											<Text type="secondary">
+												{t(
+													getRepresentativeProtocolDescriptionMessage(protocol),
+												)}
+											</Text>
 											<div style={marginTop8Style}>
 												<Space wrap>
 													{protocolProfiles.map((profile) => (
@@ -3746,14 +4221,14 @@ const EmailsPage: FC = () => {
 								type="info"
 								showIcon
 								style={marginBottom12Style}
-							title={t(emailsPageI18n.selectedProtocolAlertTitle, {
-								protocol: t(
-									getRepresentativeProtocolLabelMessage(
-										selectedRepresentativeProtocol,
+								title={t(emailsPageI18n.selectedProtocolAlertTitle, {
+									protocol: t(
+										getRepresentativeProtocolLabelMessage(
+											selectedRepresentativeProtocol,
+										),
 									),
-								),
-							})}
-							description={`${t(getRepresentativeProtocolDescriptionMessage(selectedRepresentativeProtocol))} ${t(emailsPageI18n.currentProfileInline, { profile: t(getProviderProfileLabelMessage(selectedProfileDefinition.key)) })}。${t(getProviderProfileSummaryHintMessage(selectedProfileDefinition.key))}`}
+								})}
+								description={`${t(getRepresentativeProtocolDescriptionMessage(selectedRepresentativeProtocol))} ${t(emailsPageI18n.currentProfileInline, { profile: t(getProviderProfileLabelMessage(selectedProfileDefinition.key)) })}。${t(getProviderProfileSummaryHintMessage(selectedProfileDefinition.key))}`}
 							/>
 						)}
 
@@ -3774,7 +4249,9 @@ const EmailsPage: FC = () => {
 							<Tag color={selectedProviderDefinition.tagColor}>
 								{t(emailsPageI18n.profileInline, {
 									profile: t(
-										getProviderProfileLabelMessage(selectedProfileDefinition.key),
+										getProviderProfileLabelMessage(
+											selectedProfileDefinition.key,
+										),
 									),
 								})}
 							</Tag>
@@ -3790,12 +4267,16 @@ const EmailsPage: FC = () => {
 						</Space>
 
 						<Text type="secondary" style={emailStyles.secondaryBlock}>
-							{t(getProviderProfileDescriptionMessage(selectedProfileDefinition.key))}{" "}
+							{t(
+								getProviderProfileDescriptionMessage(
+									selectedProfileDefinition.key,
+								),
+							)}{" "}
 							{t(emailsPageI18n.connectionPathHint)}
 						</Text>
 
 						<div style={emailStyles.capabilityBox}>
-						<Space orientation="vertical" size={12} style={fullWidthStyle}>
+							<Space orientation="vertical" size={12} style={fullWidthStyle}>
 								<div>
 									<Text strong style={displayBlockMarginBottom4Style}>
 										{t(emailsPageI18n.capabilityMatrixHeading)}
@@ -3813,7 +4294,10 @@ const EmailsPage: FC = () => {
 							label={t(emailsPageI18n.emailAddressLabel)}
 							extra={
 								(isGmailOAuth || isOutlookProvider) && !editingId
-									? `使用上方 ${isGmailOAuth ? "Google" : "Microsoft"} OAuth 授权链接时可先留空，授权完成后系统会自动识别邮箱地址；若点击底部“手动保存（高级）”，这里仍需填写。`
+									? t(emailsPageI18n.emailOptionalViaOAuthHint, {
+											authProviderLabel: isGmailOAuth ? "Google" : "Microsoft",
+											manualSaveLabel: t(emailsPageI18n.manualSaveAdvanced),
+										})
 									: undefined
 							}
 							rules={[
@@ -3822,26 +4306,28 @@ const EmailsPage: FC = () => {
 										const normalizedValue =
 											typeof value === "string" ? value.trim() : "";
 										if (!normalizedValue) {
-										if ((isGmailOAuth || isOutlookProvider) && !editingId) {
-											return Promise.resolve();
+											if ((isGmailOAuth || isOutlookProvider) && !editingId) {
+												return Promise.resolve();
+											}
+											return Promise.reject(
+												new Error(t(emailsPageI18n.emailAddressRequired)),
+											);
 										}
-										return Promise.reject(
-											new Error(t(emailsPageI18n.emailAddressRequired)),
-										);
-									}
-									const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-									if (!emailPattern.test(normalizedValue)) {
-										return Promise.reject(
-											new Error(t(emailsPageI18n.validEmailRequired)),
-										);
-									}
+										const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+										if (!emailPattern.test(normalizedValue)) {
+											return Promise.reject(
+												new Error(t(emailsPageI18n.validEmailRequired)),
+											);
+										}
 										return Promise.resolve();
 									},
 								},
 							]}
 						>
 							<Input
-								placeholder={t(getProviderEmailPlaceholderMessage(selectedProvider))}
+								placeholder={t(
+									getProviderEmailPlaceholderMessage(selectedProvider),
+								)}
 							/>
 						</Form.Item>
 
@@ -3850,14 +4336,16 @@ const EmailsPage: FC = () => {
 								<Form.Item name="authType" hidden>
 									<Input />
 								</Form.Item>
-							<Form.Item label={t(emailsInlineI18n["emails.form.authTypeLabel"])}>
-								<Input value={t(getAuthTypeLabelMessage("MICROSOFT_OAUTH"))} disabled />
-							</Form.Item>
+								<Form.Item
+									label={t(emailsInlineI18n["emails.form.authTypeLabel"])}
+								>
+									<Input
+										value={t(getAuthTypeLabelMessage("MICROSOFT_OAUTH"))}
+										disabled
+									/>
+								</Form.Item>
 								<Text type="secondary" style={emailStyles.secondaryBlock}>
-									使用 Microsoft OAuth 接入 Outlook / Microsoft 365。产品层按
-									OAuth API 主分类展示，默认用 Graph
-									完成读信、清空和发信；若遇到兼容性问题，底层仍可能借助 IMAP
-									辅助读取或删除。
+									{t(emailsPageI18n.outlookConnectionSummary)}
 								</Text>
 								<Space
 									orientation="vertical"
@@ -3869,8 +4357,12 @@ const EmailsPage: FC = () => {
 											color={isOutlookOAuthConfigured ? "success" : "default"}
 										>
 											{isOutlookOAuthConfigured
-												? "Microsoft OAuth 已配置"
-												: "Microsoft OAuth 未配置"}
+												? t(emailsPageI18n.oauthConfiguredStatus, {
+														providerLabel: "Microsoft OAuth",
+													})
+												: t(emailsPageI18n.oauthNotConfiguredStatus, {
+														providerLabel: "Microsoft OAuth",
+													})}
 										</Tag>
 										<Tag
 											color={
@@ -3882,7 +4374,12 @@ const EmailsPage: FC = () => {
 														: "default"
 											}
 										>
-											来源：{oauthProviderStatuses.OUTLOOK.source}
+											{t(emailsPageI18n.oauthConfigSource, {
+												sourceLabel: getOAuthSourceLabel(
+													oauthProviderStatuses.OUTLOOK.source,
+													t,
+												),
+											})}
 										</Tag>
 										<Tag
 											color={
@@ -3892,53 +4389,82 @@ const EmailsPage: FC = () => {
 											}
 										>
 											{oauthProviderStatuses.OUTLOOK.hasClientSecret
-												? "已存储 client secret"
-												: "未存储 client secret"}
+												? t(emailsPageI18n.clientSecretStored)
+												: t(emailsPageI18n.clientSecretMissing)}
 										</Tag>
 									</div>
 									<Text type="secondary">
-										Microsoft OAuth 的回调地址、Client ID、Client
-										Secret、Tenant、Scopes
-										现在也统一放在这里配置。系统会自动保存配置、生成授权链接，并在你完成
-										Microsoft 登录与授权后自动回调写回邮箱。
+										{t(emailsPageI18n.outlookOAuthFieldsSummary)}
 									</Text>
 								</Space>
 								<Form.Item
 									name="outlookOAuthCallbackUri"
-								label={t(providerSetupI18n["emails.outlook.callbackLabel"])}
-								rules={[
-									{ required: true, message: t(providerSetupI18n["emails.outlook.callbackRequired"]) },
-								]}
-							>
-								<Input placeholder={t(providerSetupI18n["emails.outlook.callbackPlaceholder"])} />
-							</Form.Item>
+									label={t(providerSetupI18n["emails.outlook.callbackLabel"])}
+									rules={[
+										{
+											required: true,
+											message: t(
+												providerSetupI18n["emails.outlook.callbackRequired"],
+											),
+										},
+									]}
+								>
+									<Input
+										placeholder={t(
+											providerSetupI18n["emails.outlook.callbackPlaceholder"],
+										)}
+									/>
+								</Form.Item>
 								<Form.Item
 									name="outlookOAuthClientId"
-								label={t(providerSetupI18n["emails.outlook.clientIdLabel"])}
-								rules={[
-									{
-										required: true,
-										message: t(providerSetupI18n["emails.outlook.clientIdRequired"]),
-									},
-								]}
-							>
-								<Input placeholder={t(providerSetupI18n["emails.outlook.clientIdPlaceholder"])} />
-							</Form.Item>
+									label={t(providerSetupI18n["emails.outlook.clientIdLabel"])}
+									rules={[
+										{
+											required: true,
+											message: t(
+												providerSetupI18n["emails.outlook.clientIdRequired"],
+											),
+										},
+									]}
+								>
+									<Input
+										placeholder={t(
+											providerSetupI18n["emails.outlook.clientIdPlaceholder"],
+										)}
+									/>
+								</Form.Item>
 								<Form.Item
 									name="outlookOAuthClientSecret"
-								label={t(providerSetupI18n["emails.outlook.clientSecretLabel"])}
-								extra={t(providerSetupI18n["emails.outlook.clientSecretExtra"])}
-							>
-								<Input.Password placeholder={t(providerSetupI18n["emails.outlook.clientSecretPlaceholder"])} />
-							</Form.Item>
-							<Form.Item name="outlookOAuthTenant" label={t(providerSetupI18n["emails.outlook.tenantLabel"])}>
-								<Input placeholder={t(providerSetupI18n["emails.outlook.tenantPlaceholder"])} />
-							</Form.Item>
+									label={t(
+										providerSetupI18n["emails.outlook.clientSecretLabel"],
+									)}
+									extra={t(
+										providerSetupI18n["emails.outlook.clientSecretExtra"],
+									)}
+								>
+									<Input.Password
+										placeholder={t(
+											providerSetupI18n[
+												"emails.outlook.clientSecretPlaceholder"
+											],
+										)}
+									/>
+								</Form.Item>
+								<Form.Item
+									name="outlookOAuthTenant"
+									label={t(providerSetupI18n["emails.outlook.tenantLabel"])}
+								>
+									<Input
+										placeholder={t(
+											providerSetupI18n["emails.outlook.tenantPlaceholder"],
+										)}
+									/>
+								</Form.Item>
 								<Form.Item
 									name="outlookOAuthScopes"
-								label={t(providerSetupI18n["emails.outlook.scopesLabel"])}
-								extra={t(providerSetupI18n["emails.outlook.scopesExtra"])}
-							>
+									label={t(providerSetupI18n["emails.outlook.scopesLabel"])}
+									extra={t(providerSetupI18n["emails.outlook.scopesExtra"])}
+								>
 									<TextArea
 										rows={3}
 										placeholder={DEFAULT_OUTLOOK_OAUTH_SCOPES}
@@ -3950,13 +4476,13 @@ const EmailsPage: FC = () => {
 										loading={outlookAuthUrlLoading}
 										onClick={() => void handleGenerateOutlookAuthUrl()}
 									>
-									{t(providerSetupI18n["emails.outlook.generateLinkButton"])}
+										{t(providerSetupI18n["emails.outlook.generateLinkButton"])}
 									</Button>
 									<Button
 										onClick={() => void saveOutlookOAuthConfig()}
 										loading={outlookSaveLoading}
 									>
-									{t(providerSetupI18n["emails.outlook.saveConfigButton"])}
+										{t(providerSetupI18n["emails.outlook.saveConfigButton"])}
 									</Button>
 									{generatedOutlookAuthUrl ? (
 										<Button
@@ -3999,20 +4525,43 @@ const EmailsPage: FC = () => {
 										showIcon
 										type="info"
 										style={marginBottom12Style}
-							title={
+										title={
 											outlookOAuthPollStatus === "processing"
-												? t(providerSetupI18n["emails.outlook.pending.processingTitle"])
-												: t(providerSetupI18n["emails.outlook.pending.waitingTitle"])
+												? t(
+														providerSetupI18n[
+															"emails.outlook.pending.processingTitle"
+														],
+													)
+												: t(
+														providerSetupI18n[
+															"emails.outlook.pending.waitingTitle"
+														],
+													)
 										}
-							description={
-								outlookOAuthStatusExpiresAt
-									? t(providerSetupI18n["emails.oauth.pending.recheckBefore"], { time: dayjs(outlookOAuthStatusExpiresAt).format("HH:mm:ss") })
-									: t(providerSetupI18n["emails.oauth.pending.genericDescription"])
-								}
-							/>
-						) : null}
+										description={
+											outlookOAuthStatusExpiresAt
+												? t(
+														providerSetupI18n[
+															"emails.oauth.pending.recheckBefore"
+														],
+														{
+															time: dayjs(outlookOAuthStatusExpiresAt).format(
+																"HH:mm:ss",
+															),
+														},
+													)
+												: t(
+														providerSetupI18n[
+															"emails.oauth.pending.genericDescription"
+														],
+													)
+										}
+									/>
+								) : null}
 								{generatedOutlookAuthUrl ? (
-									<Form.Item label={t(providerSetupI18n["emails.outlook.authUrlLabel"])}>
+									<Form.Item
+										label={t(providerSetupI18n["emails.outlook.authUrlLabel"])}
+									>
 										<TextArea
 											rows={5}
 											value={generatedOutlookAuthUrl}
@@ -4020,49 +4569,81 @@ const EmailsPage: FC = () => {
 										/>
 									</Form.Item>
 								) : null}
-						<Text type="secondary" style={emailStyles.secondaryBlock}>
-							{t(providerSetupI18n["emails.microsoft.authUrlHelp"])}
-						</Text>
+								<Text type="secondary" style={emailStyles.secondaryBlock}>
+									{t(providerSetupI18n["emails.microsoft.authUrlHelp"])}
+								</Text>
 								{editingId && revealTargetField === "refreshToken"
 									? renderStoredSecretRevealPanel()
 									: null}
 								<Form.Item
 									name="clientId"
-									label={t(providerSetupI18n["emails.outlook.recordClientIdLabel"])}
+									label={t(
+										providerSetupI18n["emails.outlook.recordClientIdLabel"],
+									)}
 									rules={[
 										{
 											required: !editingId,
-										message: t(providerSetupI18n["emails.outlook.recordClientIdRequired"]),
+											message: t(
+												providerSetupI18n[
+													"emails.outlook.recordClientIdRequired"
+												],
+											),
 										},
 									]}
 								>
-									<Input placeholder={t(providerSetupI18n["emails.outlook.recordClientIdPlaceholder"])} />
+									<Input
+										placeholder={t(
+											providerSetupI18n[
+												"emails.outlook.recordClientIdPlaceholder"
+											],
+										)}
+									/>
 								</Form.Item>
 								<Form.Item
 									name="refreshToken"
-									label={t(providerSetupI18n["emails.outlook.recordRefreshTokenLabel"])}
+									label={t(
+										providerSetupI18n["emails.outlook.recordRefreshTokenLabel"],
+									)}
 									rules={[
 										{
 											required: !editingId,
-										message: t(providerSetupI18n["emails.outlook.recordRefreshTokenRequired"]),
+											message: t(
+												providerSetupI18n[
+													"emails.outlook.recordRefreshTokenRequired"
+												],
+											),
 										},
 									]}
 								>
 									<TextArea
 										rows={4}
-										placeholder={t(providerSetupI18n["emails.outlook.recordRefreshTokenPlaceholder"])}
+										placeholder={t(
+											providerSetupI18n[
+												"emails.outlook.recordRefreshTokenPlaceholder"
+											],
+										)}
 									/>
 								</Form.Item>
 								<Form.Item
 									name="clientSecret"
-									label={t(providerSetupI18n["emails.outlook.recordClientSecretLabel"])}
-									extra={t(providerSetupI18n["emails.outlook.recordClientSecretExtra"])}
+									label={t(
+										providerSetupI18n["emails.outlook.recordClientSecretLabel"],
+									)}
+									extra={t(
+										providerSetupI18n["emails.outlook.recordClientSecretExtra"],
+									)}
 								>
-									<Input.Password placeholder={t(providerSetupI18n["emails.outlook.recordClientSecretPlaceholder"])} />
+									<Input.Password
+										placeholder={t(
+											providerSetupI18n[
+												"emails.outlook.recordClientSecretPlaceholder"
+											],
+										)}
+									/>
 								</Form.Item>
 								{renderAccountLoginPasswordField(
-									"这是邮箱账号本身的登录密码，不是 OAuth Refresh Token。编辑已有账号时需先完成 2FA 验证后才能补录或更新。",
-									"例如邮箱网页登录密码（可选）",
+									t(emailsPageI18n.outlookLoginPasswordDescription),
+									t(emailsPageI18n.outlookLoginPasswordPlaceholder),
 								)}
 							</>
 						)}
@@ -4071,33 +4652,45 @@ const EmailsPage: FC = () => {
 							<>
 								<Form.Item
 									name="authType"
-								label={t(emailsInlineI18n["emails.form.authTypeLabel"])}
-								rules={[{ required: true, message: t(providerSetupI18n["emails.gmail.authTypeRequired"]) }]}
-							>
-								<Select
-									options={EMAIL_AUTH_TYPE_OPTIONS.GMAIL.map((option) => ({ ...option, label: t(getAuthTypeLabelMessage(option.value)) }))}
-									onChange={handleAuthTypeChange}
-								/>
-							</Form.Item>
+									label={t(emailsInlineI18n["emails.form.authTypeLabel"])}
+									rules={[
+										{
+											required: true,
+											message: t(
+												providerSetupI18n["emails.gmail.authTypeRequired"],
+											),
+										},
+									]}
+								>
+									<Select
+										options={EMAIL_AUTH_TYPE_OPTIONS.GMAIL.map((option) => ({
+											...option,
+											label: t(getAuthTypeLabelMessage(option.value)),
+										}))}
+										onChange={handleAuthTypeChange}
+									/>
+								</Form.Item>
 								<Text type="secondary" style={emailStyles.secondaryBlock}>
-									Gmail 支持两种 profile：Google OAuth 归入 OAuth API
-									主分类，应用专用密码归入 IMAP / SMTP
-									主分类；如需更完整能力，优先使用 Google OAuth。
+									{t(emailsPageI18n.googleConnectionSummary)}
 								</Text>
 								{isGmailOAuth && (
 									<>
-									<Space
-										orientation="vertical"
-										style={emailStyles.secondaryColumnBlock}
-										size="small"
+										<Space
+											orientation="vertical"
+											style={emailStyles.secondaryColumnBlock}
+											size="small"
 										>
 											<div>
 												<Tag
 													color={isGmailOAuthConfigured ? "success" : "default"}
 												>
 													{isGmailOAuthConfigured
-														? "Google OAuth 已配置"
-														: "Google OAuth 未配置"}
+														? t(emailsPageI18n.oauthConfiguredStatus, {
+																providerLabel: "Google OAuth",
+															})
+														: t(emailsPageI18n.oauthNotConfiguredStatus, {
+																providerLabel: "Google OAuth",
+															})}
 												</Tag>
 												<Tag
 													color={
@@ -4109,7 +4702,12 @@ const EmailsPage: FC = () => {
 																: "default"
 													}
 												>
-													来源：{oauthProviderStatuses.GMAIL.source}
+													{t(emailsPageI18n.oauthConfigSource, {
+														sourceLabel: getOAuthSourceLabel(
+															oauthProviderStatuses.GMAIL.source,
+															t,
+														),
+													})}
 												</Tag>
 												<Tag
 													color={
@@ -4119,27 +4717,38 @@ const EmailsPage: FC = () => {
 													}
 												>
 													{oauthProviderStatuses.GMAIL.hasClientSecret
-														? "已存储 client secret"
-														: "未存储 client secret"}
+														? t(emailsPageI18n.clientSecretStored)
+														: t(emailsPageI18n.clientSecretMissing)}
 												</Tag>
 											</div>
 											<Text type="secondary">
-												回调地址在这里手工输入，Google client_secret JSON
-												也在这里直接导入或粘贴。当前 profile 对用户按 OAuth
-												API（Gmail
-												API）主分类展示；若个别邮箱夹需要兼容处理，底层仍可能补充
-												IMAP 路径。
+												{t(emailsPageI18n.googleOAuthFieldsSummary)}
 											</Text>
 										</Space>
 										<Form.Item
 											name="gmailOAuthCallbackUri"
-											label={t(providerSetupI18n["emails.google.callbackLabel"])}
+											label={t(
+												providerSetupI18n["emails.google.callbackLabel"],
+											)}
 											rules={[
-												{ required: true, message: t(providerSetupI18n["emails.google.callbackRequired"]) },
+												{
+													required: true,
+													message: t(
+														providerSetupI18n["emails.google.callbackRequired"],
+													),
+												},
 											]}
-											extra={t(providerSetupI18n["emails.google.callbackExtra"])}
+											extra={t(
+												providerSetupI18n["emails.google.callbackExtra"],
+											)}
 										>
-											<Input placeholder={t(providerSetupI18n["emails.google.callbackPlaceholder"])} />
+											<Input
+												placeholder={t(
+													providerSetupI18n[
+														"emails.google.callbackPlaceholder"
+													],
+												)}
+											/>
 										</Form.Item>
 										<Space wrap style={marginBottom8Style}>
 											<Upload
@@ -4149,7 +4758,9 @@ const EmailsPage: FC = () => {
 												accept=".json"
 											>
 												<Button icon={<UploadOutlined />}>
-													{t(providerSetupI18n["emails.google.importJsonButton"])}
+													{t(
+														providerSetupI18n["emails.google.importJsonButton"],
+													)}
 												</Button>
 											</Upload>
 											<Button
@@ -4161,7 +4772,9 @@ const EmailsPage: FC = () => {
 										</Space>
 										<Form.Item
 											name="gmailOAuthJsonText"
-											label={t(providerSetupI18n["emails.google.jsonTextLabel"])}
+											label={t(
+												providerSetupI18n["emails.google.jsonTextLabel"],
+											)}
 										>
 											<TextArea
 												rows={4}
@@ -4170,22 +4783,42 @@ const EmailsPage: FC = () => {
 										</Form.Item>
 										<Form.Item
 											name="gmailOAuthClientId"
-											label={t(providerSetupI18n["emails.google.clientIdLabel"])}
+											label={t(
+												providerSetupI18n["emails.google.clientIdLabel"],
+											)}
 											rules={[
 												{
 													required: true,
-													message: t(providerSetupI18n["emails.google.clientIdRequired"]),
+													message: t(
+														providerSetupI18n["emails.google.clientIdRequired"],
+													),
 												},
 											]}
 										>
-											<Input placeholder={t(providerSetupI18n["emails.google.clientIdPlaceholder"])} />
+											<Input
+												placeholder={t(
+													providerSetupI18n[
+														"emails.google.clientIdPlaceholder"
+													],
+												)}
+											/>
 										</Form.Item>
 										<Form.Item
 											name="gmailOAuthClientSecret"
-											label={t(providerSetupI18n["emails.google.clientSecretLabel"])}
-											extra={t(providerSetupI18n["emails.google.clientSecretExtra"])}
+											label={t(
+												providerSetupI18n["emails.google.clientSecretLabel"],
+											)}
+											extra={t(
+												providerSetupI18n["emails.google.clientSecretExtra"],
+											)}
 										>
-											<Input.Password placeholder={t(providerSetupI18n["emails.google.clientSecretPlaceholder"])} />
+											<Input.Password
+												placeholder={t(
+													providerSetupI18n[
+														"emails.google.clientSecretPlaceholder"
+													],
+												)}
+											/>
 										</Form.Item>
 										<Form.Item
 											name="gmailOAuthScopes"
@@ -4202,7 +4835,9 @@ const EmailsPage: FC = () => {
 												loading={googleAuthUrlLoading}
 												onClick={() => void handleGenerateGoogleAuthUrl()}
 											>
-												{t(providerSetupI18n["emails.google.generateLinkButton"])}
+												{t(
+													providerSetupI18n["emails.google.generateLinkButton"],
+												)}
 											</Button>
 											<Button
 												onClick={() => void saveGoogleOAuthConfig()}
@@ -4215,11 +4850,15 @@ const EmailsPage: FC = () => {
 													onClick={() =>
 														void handleCopyGeneratedAuthUrl(
 															generatedGoogleAuthUrl,
-													t(getProviderLabelMessage("GMAIL")),
-												)
+															t(getProviderLabelMessage("GMAIL")),
+														)
 													}
 												>
-													复制授权链接
+													{t(
+														providerSetupI18n[
+															"emails.oauth.copyAuthLinkButton"
+														],
+													)}
 												</Button>
 											) : null}
 											{generatedGoogleAuthUrl ? (
@@ -4232,7 +4871,11 @@ const EmailsPage: FC = () => {
 														)
 													}
 												>
-													当前浏览器打开
+													{t(
+														providerSetupI18n[
+															"emails.oauth.openCurrentBrowser"
+														],
+													)}
 												</Button>
 											) : null}
 											{generatedGoogleAuthUrl ? (
@@ -4242,7 +4885,9 @@ const EmailsPage: FC = () => {
 														void fetchGroups();
 													}}
 												>
-													授权完成后刷新列表
+													{t(
+														providerSetupI18n["emails.oauth.refreshAfterAuth"],
+													)}
 												</Button>
 											) : null}
 										</Space>
@@ -4251,20 +4896,45 @@ const EmailsPage: FC = () => {
 												showIcon
 												type="info"
 												style={marginBottom12Style}
-							title={
+												title={
 													googleOAuthPollStatus === "processing"
-												? t(providerSetupI18n["emails.google.pending.processingTitle"])
-												: t(providerSetupI18n["emails.google.pending.waitingTitle"])
-										}
-										description={
-											googleOAuthStatusExpiresAt
-												? t(providerSetupI18n["emails.oauth.pending.recheckBefore"], { time: dayjs(googleOAuthStatusExpiresAt).format("HH:mm:ss") })
-												: t(providerSetupI18n["emails.oauth.pending.genericDescription"])
-										}
-									/>
+														? t(
+																providerSetupI18n[
+																	"emails.google.pending.processingTitle"
+																],
+															)
+														: t(
+																providerSetupI18n[
+																	"emails.google.pending.waitingTitle"
+																],
+															)
+												}
+												description={
+													googleOAuthStatusExpiresAt
+														? t(
+																providerSetupI18n[
+																	"emails.oauth.pending.recheckBefore"
+																],
+																{
+																	time: dayjs(
+																		googleOAuthStatusExpiresAt,
+																	).format("HH:mm:ss"),
+																},
+															)
+														: t(
+																providerSetupI18n[
+																	"emails.oauth.pending.genericDescription"
+																],
+															)
+												}
+											/>
 										) : null}
 										{generatedGoogleAuthUrl ? (
-									<Form.Item label={t(providerSetupI18n["emails.google.authUrlLabel"])}>
+											<Form.Item
+												label={t(
+													providerSetupI18n["emails.google.authUrlLabel"],
+												)}
+											>
 												<TextArea
 													rows={5}
 													value={generatedGoogleAuthUrl}
@@ -4272,76 +4942,128 @@ const EmailsPage: FC = () => {
 												/>
 											</Form.Item>
 										) : null}
-					<Text type="secondary" style={emailStyles.secondaryBlock}>
-						{t(providerSetupI18n["emails.google.authUrlHelp"])}
-					</Text>
-									{editingId && revealTargetField === "refreshToken"
-										? renderStoredSecretRevealPanel()
-										: null}
-									<Form.Item
-										name="clientId"
-										label={t(providerSetupI18n["emails.google.recordClientIdLabel"])}
+										<Text type="secondary" style={emailStyles.secondaryBlock}>
+											{t(providerSetupI18n["emails.google.authUrlHelp"])}
+										</Text>
+										{editingId && revealTargetField === "refreshToken"
+											? renderStoredSecretRevealPanel()
+											: null}
+										<Form.Item
+											name="clientId"
+											label={t(
+												providerSetupI18n["emails.google.recordClientIdLabel"],
+											)}
 											rules={[
 												{
 													required: !editingId,
-												message: t(providerSetupI18n["emails.google.recordClientIdRequired"]),
+													message: t(
+														providerSetupI18n[
+															"emails.google.recordClientIdRequired"
+														],
+													),
 												},
 											]}
 										>
-											<Input placeholder={t(providerSetupI18n["emails.google.recordClientIdPlaceholder"])} />
+											<Input
+												placeholder={t(
+													providerSetupI18n[
+														"emails.google.recordClientIdPlaceholder"
+													],
+												)}
+											/>
 										</Form.Item>
 										<Form.Item
 											name="refreshToken"
-											label={t(providerSetupI18n["emails.google.recordRefreshTokenLabel"])}
+											label={t(
+												providerSetupI18n[
+													"emails.google.recordRefreshTokenLabel"
+												],
+											)}
 											rules={[
 												{
 													required: !editingId,
-												message: t(providerSetupI18n["emails.google.recordRefreshTokenRequired"]),
+													message: t(
+														providerSetupI18n[
+															"emails.google.recordRefreshTokenRequired"
+														],
+													),
 												},
 											]}
 										>
 											<TextArea
 												rows={4}
-												placeholder={t(providerSetupI18n["emails.google.recordRefreshTokenPlaceholder"])}
+												placeholder={t(
+													providerSetupI18n[
+														"emails.google.recordRefreshTokenPlaceholder"
+													],
+												)}
 											/>
 										</Form.Item>
-									<Form.Item
-										name="clientSecret"
-										label={t(providerSetupI18n["emails.google.recordClientSecretLabel"])}
-										extra={t(providerSetupI18n["emails.google.recordClientSecretExtra"])}
-									>
-										<Input.Password placeholder={t(providerSetupI18n["emails.google.recordClientSecretPlaceholder"])} />
-									</Form.Item>
-									{renderAccountLoginPasswordField(
-										"这是 Gmail 账号本身的登录密码，不是 Refresh Token。编辑已有账号时需先完成 2FA 验证后才能补录或更新。",
-										"例如 Gmail 账号登录密码（可选）",
-									)}
-								</>
-							)}
-							{isGmailAppPassword && (
-								<>
-									<Form.Item
-										name="password"
-										label={t(providerSetupI18n["emails.gmail.appPasswordLabel"])}
-										rules={[
-											{
-												required: !editingId,
-												message: t(providerSetupI18n["emails.gmail.appPasswordRequired"]),
-											},
-										]}
-										extra={t(providerSetupI18n["emails.gmail.appPasswordExtra"])}
-									>
-										<Input.Password placeholder={t(providerSetupI18n["emails.gmail.appPasswordPlaceholder"])} />
-									</Form.Item>
-									{editingId && revealTargetField === "password"
-										? renderStoredSecretRevealPanel()
-										: null}
-									{renderAccountLoginPasswordField(
-										"如果你还想保存账号本身的网页登录密码，请先完成 2FA 验证后再补录。",
-										"例如 Gmail 账号网页登录密码（可选）",
-									)}
-								</>
-							)}
+										<Form.Item
+											name="clientSecret"
+											label={t(
+												providerSetupI18n[
+													"emails.google.recordClientSecretLabel"
+												],
+											)}
+											extra={t(
+												providerSetupI18n[
+													"emails.google.recordClientSecretExtra"
+												],
+											)}
+										>
+											<Input.Password
+												placeholder={t(
+													providerSetupI18n[
+														"emails.google.recordClientSecretPlaceholder"
+													],
+												)}
+											/>
+										</Form.Item>
+										{renderAccountLoginPasswordField(
+											t(emailsPageI18n.googleLoginPasswordDescription),
+											t(emailsPageI18n.googleLoginPasswordPlaceholder),
+										)}
+									</>
+								)}
+								{isGmailAppPassword && (
+									<>
+										<Form.Item
+											name="password"
+											label={t(
+												providerSetupI18n["emails.gmail.appPasswordLabel"],
+											)}
+											rules={[
+												{
+													required: !editingId,
+													message: t(
+														providerSetupI18n[
+															"emails.gmail.appPasswordRequired"
+														],
+													),
+												},
+											]}
+											extra={t(
+												providerSetupI18n["emails.gmail.appPasswordExtra"],
+											)}
+										>
+											<Input.Password
+												placeholder={t(
+													providerSetupI18n[
+														"emails.gmail.appPasswordPlaceholder"
+													],
+												)}
+											/>
+										</Form.Item>
+										{editingId && revealTargetField === "password"
+											? renderStoredSecretRevealPanel()
+											: null}
+										{renderAccountLoginPasswordField(
+											t(emailsPageI18n.appPasswordLoginDescription),
+											t(emailsPageI18n.appPasswordLoginPlaceholder),
+										)}
+									</>
+								)}
 							</>
 						)}
 
@@ -4350,90 +5072,120 @@ const EmailsPage: FC = () => {
 								<Form.Item name="authType" hidden>
 									<Input />
 								</Form.Item>
-							<Form.Item label={t(emailsInlineI18n["emails.form.authTypeLabel"])}>
-								<Input value={t(providerSetupI18n["emails.imap.authTypeValue"])} disabled />
-							</Form.Item>
-							<Text type="secondary" style={emailStyles.secondaryBlock}>
-								{t(providerSetupI18n["emails.imap.profileDescription"], { profileDescription: t(getProviderProfileDescriptionMessage(selectedProfileDefinition.key)) })}
-							</Text>
+								<Form.Item
+									label={t(emailsInlineI18n["emails.form.authTypeLabel"])}
+								>
+									<Input
+										value={t(providerSetupI18n["emails.imap.authTypeValue"])}
+										disabled
+									/>
+								</Form.Item>
+								<Text type="secondary" style={emailStyles.secondaryBlock}>
+									{t(providerSetupI18n["emails.imap.profileDescription"], {
+										profileDescription: t(
+											getProviderProfileDescriptionMessage(
+												selectedProfileDefinition.key,
+											),
+										),
+									})}
+								</Text>
 								<Form.Item
 									name="password"
-									label={
-										t(
-											getProviderProfileSecretLabelMessage(
-												selectedProfileDefinition.key,
-											) ||
+									label={t(
+										getProviderProfileSecretLabelMessage(
+											selectedProfileDefinition.key,
+										) ||
 											defineMessage(
 												"emails.imap.genericCredentialLabel",
 												"{providerLabel} 授权码 / 应用专用密码",
 												"{providerLabel} authorization code / app password",
 											),
-											{ providerLabel: t(getProviderLabelMessage(selectedProvider)) },
-										)
-									}
+										{
+											providerLabel: t(
+												getProviderLabelMessage(selectedProvider),
+											),
+										},
+									)}
 									rules={[
 										{
 											required: !editingId,
-											message: t(providerSetupI18n["emails.imap.genericCredentialRequired"], {
+											message: t(
+												providerSetupI18n[
+													"emails.imap.genericCredentialRequired"
+												],
+												{
 													label: t(
 														getProviderProfileSecretLabelMessage(
 															selectedProfileDefinition.key,
 														) || getProviderLabelMessage(selectedProvider),
 													),
-												}),
+												},
+											),
 										},
 									]}
 									extra={`${t(getProviderProfileSecretHelpTextMessage(selectedProfileDefinition.key) || defineMessage("emails.imap.genericCredentialHelp", "", ""))}${editingId ? ` ${t(providerSetupI18n["emails.imap.blankKeepsStoredValue"])}` : ""}`.trim()}
-									>
-										<Input.Password
-										placeholder={
-											t(
-												getProviderProfileSecretPlaceholderMessage(
-													selectedProfileDefinition.key,
-												) ||
+								>
+									<Input.Password
+										placeholder={t(
+											getProviderProfileSecretPlaceholderMessage(
+												selectedProfileDefinition.key,
+											) ||
 												defineMessage(
 													"emails.imap.genericCredentialLabel",
 													"{providerLabel} 授权码 / 应用专用密码",
 													"{providerLabel} authorization code / app password",
 												),
-												{ providerLabel: t(getProviderLabelMessage(selectedProvider)) },
-											)
-										}
-										/>
-									</Form.Item>
+											{
+												providerLabel: t(
+													getProviderLabelMessage(selectedProvider),
+												),
+											},
+										)}
+									/>
+								</Form.Item>
 								{editingId && revealTargetField === "password"
 									? renderStoredSecretRevealPanel()
 									: null}
 								{renderAccountLoginPasswordField(
-									"如果你还想保存邮箱账号本身的登录密码，请先完成 2FA 验证后再补录。",
-									"例如邮箱网页登录密码（可选）",
+									t(emailsPageI18n.imapLoginPasswordDescription),
+									t(emailsPageI18n.imapLoginPasswordPlaceholder),
 								)}
 
 								<div style={emailStyles.capabilityBox}>
-						<Space orientation="vertical" size={12} style={fullWidthStyle}>
+									<Space
+										orientation="vertical"
+										size={12}
+										style={fullWidthStyle}
+									>
 										<div>
-										<Text strong style={displayBlockMarginBottom4Style}>
-											{t(providerSetupI18n["emails.imap.serverConfigHeading"])}
-										</Text>
-										<Text type="secondary">
-											{t(
-												getProviderProfileServerConfigHelpTextMessage(
-													selectedProfileDefinition.key,
-												) ||
-												defineMessage(
-													"emails.imap.serverConfigHelp",
-													"大多数 IMAP / SMTP provider 已预填服务器设置；如你的服务商要求不同主机、端口或文件夹名称，可以在这里覆盖。",
-													"Most IMAP / SMTP providers already have prefilled server settings. Override them here if your provider requires different hosts, ports, or folder names.",
-												),
-											)}
-										</Text>
+											<Text strong style={displayBlockMarginBottom4Style}>
+												{t(
+													providerSetupI18n["emails.imap.serverConfigHeading"],
+												)}
+											</Text>
+											<Text type="secondary">
+												{t(
+													getProviderProfileServerConfigHelpTextMessage(
+														selectedProfileDefinition.key,
+													) || emailsPageI18n.imapServerConfigHelp,
+												)}
+											</Text>
 										</div>
 										<Form.Item
 											name={["providerConfig", "imapHost"]}
-										label={t(providerSetupI18n["emails.imap.imapHostLabel"])}
+											label={t(providerSetupI18n["emails.imap.imapHostLabel"])}
 											rules={
 												selectedProfileDefinition.requiresManualServerConfig
-											? [{ required: true, message: t(providerSetupI18n["emails.imap.imapHostRequired"]) }]
+													? [
+															{
+																required: true,
+																message: t(
+																	providerSetupI18n[
+																		"emails.imap.imapHostRequired"
+																	],
+																),
+															},
+														]
 													: undefined
 											}
 										>
@@ -4446,7 +5198,7 @@ const EmailsPage: FC = () => {
 										</Form.Item>
 										<Form.Item
 											name={["providerConfig", "imapPort"]}
-										label={t(providerSetupI18n["emails.imap.imapPortLabel"])}
+											label={t(providerSetupI18n["emails.imap.imapPortLabel"])}
 										>
 											<Input
 												type="number"
@@ -4459,15 +5211,26 @@ const EmailsPage: FC = () => {
 											name={["providerConfig", "imapTls"]}
 											valuePropName="checked"
 											label={t(providerSetupI18n["emails.imap.imapTlsLabel"])}
-									>
-										<Checkbox>{t(providerSetupI18n["emails.imap.useSslTls"])}</Checkbox>
-									</Form.Item>
+										>
+											<Checkbox>
+												{t(providerSetupI18n["emails.imap.useSslTls"])}
+											</Checkbox>
+										</Form.Item>
 										<Form.Item
 											name={["providerConfig", "smtpHost"]}
-										label={t(providerSetupI18n["emails.imap.smtpHostLabel"])}
+											label={t(providerSetupI18n["emails.imap.smtpHostLabel"])}
 											rules={
 												selectedProfileDefinition.requiresManualServerConfig
-											? [{ required: true, message: t(providerSetupI18n["emails.imap.smtpHostRequired"]) }]
+													? [
+															{
+																required: true,
+																message: t(
+																	providerSetupI18n[
+																		"emails.imap.smtpHostRequired"
+																	],
+																),
+															},
+														]
 													: undefined
 											}
 										>
@@ -4480,7 +5243,7 @@ const EmailsPage: FC = () => {
 										</Form.Item>
 										<Form.Item
 											name={["providerConfig", "smtpPort"]}
-										label={t(providerSetupI18n["emails.imap.smtpPortLabel"])}
+											label={t(providerSetupI18n["emails.imap.smtpPortLabel"])}
 										>
 											<Input
 												type="number"
@@ -4492,7 +5255,9 @@ const EmailsPage: FC = () => {
 										<Form.Item
 											name={["providerConfig", "smtpSecure"]}
 											valuePropName="checked"
-											label={t(providerSetupI18n["emails.imap.smtpSecureLabel"])}
+											label={t(
+												providerSetupI18n["emails.imap.smtpSecureLabel"],
+											)}
 										>
 											<Checkbox>
 												{t(providerSetupI18n["emails.imap.useSslCheckbox"])}
@@ -4501,20 +5266,38 @@ const EmailsPage: FC = () => {
 										<Alert
 											type={isCustomImapSmtpProvider ? "warning" : "info"}
 											showIcon
-							title={
+											title={
 												isCustomImapSmtpProvider
-												? t(providerSetupI18n["emails.imap.customServerWarningTitle"])
-												: t(providerSetupI18n["emails.imap.overrideFolderNamesTitle"])
+													? t(
+															providerSetupI18n[
+																"emails.imap.customServerWarningTitle"
+															],
+														)
+													: t(
+															providerSetupI18n[
+																"emails.imap.overrideFolderNamesTitle"
+															],
+														)
 											}
 											description={
 												isCustomImapSmtpProvider
-												? t(providerSetupI18n["emails.imap.customServerWarningDescription"])
-												: t(providerSetupI18n["emails.imap.overrideFolderNamesDescription"])
+													? t(
+															providerSetupI18n[
+																"emails.imap.customServerWarningDescription"
+															],
+														)
+													: t(
+															providerSetupI18n[
+																"emails.imap.overrideFolderNamesDescription"
+															],
+														)
 											}
 										/>
 										<Form.Item
 											name={["providerConfig", "folders", "inbox"]}
-										label={t(providerSetupI18n["emails.imap.inboxFolderLabel"])}
+											label={t(
+												providerSetupI18n["emails.imap.inboxFolderLabel"],
+											)}
 										>
 											<Input
 												placeholder={
@@ -4525,7 +5308,9 @@ const EmailsPage: FC = () => {
 										</Form.Item>
 										<Form.Item
 											name={["providerConfig", "folders", "junk"]}
-										label={t(providerSetupI18n["emails.imap.junkFolderLabel"])}
+											label={t(
+												providerSetupI18n["emails.imap.junkFolderLabel"],
+											)}
 										>
 											<Input
 												placeholder={
@@ -4535,7 +5320,9 @@ const EmailsPage: FC = () => {
 										</Form.Item>
 										<Form.Item
 											name={["providerConfig", "folders", "sent"]}
-										label={t(providerSetupI18n["emails.imap.sentFolderLabel"])}
+											label={t(
+												providerSetupI18n["emails.imap.sentFolderLabel"],
+											)}
 										>
 											<Input
 												placeholder={
@@ -4548,17 +5335,30 @@ const EmailsPage: FC = () => {
 							</>
 						)}
 
-						<Form.Item name="groupId" label={t(emailsInlineI18n["emails.form.groupLabel"])}>
+						<Form.Item
+							name="groupId"
+							label={t(emailsInlineI18n["emails.form.groupLabel"])}
+						>
 							<Select
-								placeholder={t(emailsInlineI18n["emails.form.groupPlaceholder"])}
+								placeholder={t(
+									emailsInlineI18n["emails.form.groupPlaceholder"],
+								)}
 								allowClear
 								options={groupOptions}
 							/>
 						</Form.Item>
-						<Form.Item name="status" label={t(adminI18n.common.status)} initialValue="ACTIVE">
+						<Form.Item
+							name="status"
+							label={t(adminI18n.common.status)}
+							initialValue="ACTIVE"
+						>
 							<Select>
-								<Select.Option value="ACTIVE">{t(adminI18n.common.healthy)}</Select.Option>
-								<Select.Option value="DISABLED">{t(adminI18n.common.disabled)}</Select.Option>
+								<Select.Option value="ACTIVE">
+									{t(adminI18n.common.healthy)}
+								</Select.Option>
+								<Select.Option value="DISABLED">
+									{t(adminI18n.common.disabled)}
+								</Select.Option>
 							</Select>
 						</Form.Item>
 					</Form>
@@ -4568,7 +5368,11 @@ const EmailsPage: FC = () => {
 			<Modal
 				title={
 					revealTargetSource === "row"
-						? t(emailsInlineI18n["emails.reveal.modalTitleWithMailbox"], { email: revealTargetEmailLabel || t(emailsInlineI18n["emails.reveal.thisMailbox"]) })
+						? t(emailsInlineI18n["emails.reveal.modalTitleWithMailbox"], {
+								email:
+									revealTargetEmailLabel ||
+									t(emailsInlineI18n["emails.reveal.thisMailbox"]),
+							})
 						: t(emailsInlineI18n["emails.reveal.modalTitle"])
 				}
 				open={revealModalVisible}
@@ -4584,10 +5388,18 @@ const EmailsPage: FC = () => {
 			>
 				<Space orientation="vertical" style={fullWidthStyle} size="middle">
 					<Text type="secondary">
-						{t(emailsInlineI18n["emails.reveal.modalDescription"], { targetLabel: revealTargetLabel || t(emailsInlineI18n["emails.reveal.secretLabelFallback"]) })}
+						{t(emailsInlineI18n["emails.reveal.modalDescription"], {
+							targetLabel:
+								revealTargetLabel ||
+								t(emailsInlineI18n["emails.reveal.secretLabelFallback"]),
+						})}
 					</Text>
 					{revealTargetSource === "row" && revealTargetEmailLabel ? (
-						<Text type="secondary">{t(emailsInlineI18n["emails.reveal.targetMailbox"], { email: revealTargetEmailLabel })}</Text>
+						<Text type="secondary">
+							{t(emailsInlineI18n["emails.reveal.targetMailbox"], {
+								email: revealTargetEmailLabel,
+							})}
+						</Text>
 					) : null}
 					<Input
 						value={revealOtp}
@@ -4602,11 +5414,19 @@ const EmailsPage: FC = () => {
 			</Modal>
 
 			<Modal
-					title={t(emailsInlineI18n["emails.reveal.rowTitle"], { label: revealTargetEmailLabel || t(emailsInlineI18n["emails.reveal.mailboxFallback"]) })}
+				title={t(emailsInlineI18n["emails.reveal.rowTitle"], {
+					label:
+						revealTargetEmailLabel ||
+						t(emailsInlineI18n["emails.reveal.mailboxFallback"]),
+				})}
 				open={rowRevealVisible}
 				onCancel={resetRowRevealState}
 				footer={[
-					<Button key="copy" type="primary" onClick={() => void handleCopyRowRevealedPassword()}>
+					<Button
+						key="copy"
+						type="primary"
+						onClick={() => void handleCopyRowRevealedPassword()}
+					>
 						{t(emailsInlineI18n["emails.reveal.copyPassword"])}
 					</Button>,
 					<Button key="close" onClick={resetRowRevealState}>
@@ -4619,10 +5439,16 @@ const EmailsPage: FC = () => {
 					<Text type="secondary">
 						{t(emailsInlineI18n["emails.reveal.rowDescription"])}
 					</Text>
-					<TextArea rows={2} value={rowRevealedAccountLoginPassword || ""} readOnly />
+					<TextArea
+						rows={2}
+						value={rowRevealedAccountLoginPassword || ""}
+						readOnly
+					/>
 					{rowRevealExpiresAt ? (
 						<Text type="secondary">
-							{t(emailsInlineI18n["emails.reveal.rowAutoHideAt"], { time: dayjs(rowRevealExpiresAt).format("HH:mm:ss") })}
+							{t(emailsInlineI18n["emails.reveal.rowAutoHideAt"], {
+								time: dayjs(rowRevealExpiresAt).format("HH:mm:ss"),
+							})}
 						</Text>
 					) : null}
 				</Space>
@@ -4645,7 +5471,9 @@ const EmailsPage: FC = () => {
 							{recommendedImportTemplates.map((template, index) => (
 								<span key={template}>
 									{template}
-									{index < recommendedImportTemplates.length - 1 ? <br /> : null}
+									{index < recommendedImportTemplates.length - 1 ? (
+										<br />
+									) : null}
 								</span>
 							))}
 							<br />
@@ -4692,7 +5520,9 @@ const EmailsPage: FC = () => {
 										.filter((line: string) => line.trim());
 									setImportContent(normalizedContent);
 									message.success(
-										t(emailsInlineI18n["emails.import.fileParsed"], { count: lines.length }),
+										t(emailsInlineI18n["emails.import.fileParsed"], {
+											count: lines.length,
+										}),
 									);
 								}
 							};
@@ -4706,8 +5536,12 @@ const EmailsPage: FC = () => {
 						<p className="ant-upload-drag-icon">
 							<InboxOutlined />
 						</p>
-						<p className="ant-upload-text">{t(emailsInlineI18n["emails.import.draggerText"])}</p>
-						<p className="ant-upload-hint">{t(emailsInlineI18n["emails.import.draggerHint"])}</p>
+						<p className="ant-upload-text">
+							{t(emailsInlineI18n["emails.import.draggerText"])}
+						</p>
+						<p className="ant-upload-hint">
+							{t(emailsInlineI18n["emails.import.draggerHint"])}
+						</p>
 					</Dragger>
 					<TextArea
 						rows={12}
@@ -4721,7 +5555,10 @@ const EmailsPage: FC = () => {
 			{/* 邮件列表 Modal */}
 			{mailModalVisible && (
 				<Modal
-					title={t(emailsInlineI18n["emails.mailbox.modalTitle"], { email: currentEmail, mailbox: t(MAILBOX_LABELS[currentMailbox]) })}
+					title={t(emailsInlineI18n["emails.mailbox.modalTitle"], {
+						email: currentEmail,
+						mailbox: t(MAILBOX_LABELS[currentMailbox]),
+					})}
 					open={mailModalVisible}
 					onCancel={() => {
 						setSelectedMailIds([]);
@@ -4768,7 +5605,10 @@ const EmailsPage: FC = () => {
 							{t(emailsInlineI18n["emails.mailbox.selectAllCurrentList"])}
 						</Checkbox>
 						<Popconfirm
-							title={t(emailsInlineI18n["emails.mailbox.deleteSelectedConfirm"], { count: selectedMailIds.length })}
+							title={t(
+								emailsInlineI18n["emails.mailbox.deleteSelectedConfirm"],
+								{ count: selectedMailIds.length },
+							)}
 							onConfirm={() => void handleDeleteSelectedMails()}
 							disabled={selectedMailIds.length === 0}
 						>
@@ -4777,11 +5617,15 @@ const EmailsPage: FC = () => {
 								loading={deletingSelectedMails}
 								disabled={selectedMailIds.length === 0}
 							>
-								{t(emailsInlineI18n["emails.mailbox.deleteSelectedButton"], { count: selectedMailIds.length })}
+								{t(emailsInlineI18n["emails.mailbox.deleteSelectedButton"], {
+									count: selectedMailIds.length,
+								})}
 							</Button>
 						</Popconfirm>
 						<Popconfirm
-							title={t(emailsInlineI18n["emails.mailbox.clearAllConfirm"], { mailbox: t(MAILBOX_LABELS[currentMailbox]) })}
+							title={t(emailsInlineI18n["emails.mailbox.clearAllConfirm"], {
+								mailbox: t(MAILBOX_LABELS[currentMailbox]),
+							})}
 							onConfirm={handleClearMailbox}
 							disabled={clearMailboxDisabled || currentMailbox === "SENT"}
 						>
@@ -4798,7 +5642,9 @@ const EmailsPage: FC = () => {
 							</span>
 						)}
 						<span style={emailStyles.mailSummaryCount}>
-							{t(emailsInlineI18n["emails.mailbox.messageCount"], { count: mailList.length })}
+							{t(emailsInlineI18n["emails.mailbox.messageCount"], {
+								count: mailList.length,
+							})}
 						</span>
 					</Space>
 					<Alert
@@ -4806,15 +5652,33 @@ const EmailsPage: FC = () => {
 						showIcon
 						style={marginBottom12Style}
 						title={t(emailsInlineI18n["emails.mailbox.bulkDeleteHintTitle"])}
-						description={t(emailsInlineI18n["emails.mailbox.bulkDeleteHintDescription"])}
+						description={t(
+							emailsInlineI18n["emails.mailbox.bulkDeleteHintDescription"],
+						)}
 					/>
-					<Space orientation="vertical" size={12} style={emailStyles.selectedMailList}>
+					<Space
+						orientation="vertical"
+						size={12}
+						style={emailStyles.selectedMailList}
+					>
 						{paginatedMailList.map((item: MailItem) => (
-							<div key={item.id} style={{ border: "1px solid #f0f0f0", borderRadius: 8, padding: 12, background: "#fff" }}>
+							<div
+								key={item.id}
+								style={{
+									border: "1px solid #f0f0f0",
+									borderRadius: 8,
+									padding: 12,
+									background: "#fff",
+								}}
+							>
 								<Space orientation="vertical" size={10} style={fullWidthStyle}>
 									<Space wrap style={flexBetweenFullWidthStyle}>
-										<Typography.Text ellipsis style={emailStyles.messagePreviewText}>
-											{item.subject || t(emailsInlineI18n["emails.mailbox.noSubject"])}
+										<Typography.Text
+											ellipsis
+											style={emailStyles.messagePreviewText}
+										>
+											{item.subject ||
+												t(emailsInlineI18n["emails.mailbox.noSubject"])}
 										</Typography.Text>
 										<Space wrap>
 											<Checkbox
@@ -4825,7 +5689,11 @@ const EmailsPage: FC = () => {
 											>
 												{t(emailsInlineI18n["emails.mailbox.selectMessage"])}
 											</Checkbox>
-											<Button type="primary" size="small" onClick={() => handleViewEmailDetail(item)}>
+											<Button
+												type="primary"
+												size="small"
+												onClick={() => handleViewEmailDetail(item)}
+											>
 												{t(emailsInlineI18n["emails.mailbox.viewMessage"])}
 											</Button>
 										</Space>
@@ -4833,14 +5701,18 @@ const EmailsPage: FC = () => {
 									<Space size="large" wrap>
 										<span style={emailStyles.primaryMailSummaryLink}>
 											{currentMailbox === "SENT"
-												? item.to || t(emailsInlineI18n["emails.mailbox.unknownRecipient"])
-												: item.from || t(emailsInlineI18n["emails.mailbox.unknownSender"])}
+												? item.to ||
+													t(emailsInlineI18n["emails.mailbox.unknownRecipient"])
+												: item.from ||
+													t(emailsInlineI18n["emails.mailbox.unknownSender"])}
 										</span>
 										<span style={emailStyles.mailSummaryLink}>
-											{item.date ? dayjs(item.date).format("YYYY-MM-DD HH:mm") : "-"}
+											{item.date
+												? dayjs(item.date).format("YYYY-MM-DD HH:mm")
+												: "-"}
 										</span>
 									</Space>
-									</Space>
+								</Space>
 							</div>
 						))}
 						{mailList.length > 0 ? (
@@ -4867,7 +5739,10 @@ const EmailsPage: FC = () => {
 			{/* 邮件详情 Modal */}
 			{emailDetailVisible && (
 				<Modal
-					title={selectedMailDetail?.subject || t(emailsInlineI18n["emails.mailDetail.noSubject"])}
+					title={
+						selectedMailDetail?.subject ||
+						t(emailsInlineI18n["emails.mailDetail.noSubject"])
+					}
 					open={emailDetailVisible}
 					onCancel={() => setEmailDetailVisible(false)}
 					footer={null}
@@ -4884,7 +5759,10 @@ const EmailsPage: FC = () => {
 						</Text>
 						<Text>
 							<strong>
-								{currentMailbox === "SENT" ? t(emailsInlineI18n["emails.mailDetail.recipient"]) : t(emailsInlineI18n["emails.mailDetail.recipientAddress"])}：
+								{currentMailbox === "SENT"
+									? t(emailsInlineI18n["emails.mailDetail.recipient"])
+									: t(emailsInlineI18n["emails.mailDetail.recipientAddress"])}
+								：
 							</strong>
 							{selectedMailDetail?.to || "-"}
 						</Text>
@@ -4905,7 +5783,9 @@ const EmailsPage: FC = () => {
 			<Modal
 				title={
 					currentEmail
-						? t(emailsInlineI18n["emails.compose.modalTitleWithMailbox"], { email: currentEmail })
+						? t(emailsInlineI18n["emails.compose.modalTitleWithMailbox"], {
+								email: currentEmail,
+							})
 						: t(emailsInlineI18n["emails.compose.modalTitle"])
 				}
 				open={composeModalVisible}
@@ -4930,14 +5810,16 @@ const EmailsPage: FC = () => {
 							? t(emailsInlineI18n["emails.compose.outlookScopeHint"])
 							: currentEmailRecord
 								? t(
-									getProviderProfileSummaryHintMessage(
-										(currentEmailRecord.providerProfile as ProviderProfileKey | undefined) ||
-											getProviderProfileDefinition(
-												currentEmailRecord.provider,
-												currentEmailRecord.authType,
-											).key,
-									),
-								)
+										getProviderProfileSummaryHintMessage(
+											(currentEmailRecord.providerProfile as
+												| ProviderProfileKey
+												| undefined) ||
+												getProviderProfileDefinition(
+													currentEmailRecord.provider,
+													currentEmailRecord.authType,
+												).key,
+										),
+									)
 								: undefined
 					}
 				/>
@@ -4946,35 +5828,68 @@ const EmailsPage: FC = () => {
 					layout="vertical"
 					initialValues={{ fromName: "", to: "", subject: "", text: "" }}
 				>
-					<Form.Item label={t(emailsInlineI18n["emails.compose.fromNameLabel"])} name="fromName">
-						<Input placeholder={t(emailsInlineI18n["emails.compose.fromNamePlaceholder"])} />
+					<Form.Item
+						label={t(emailsInlineI18n["emails.compose.fromNameLabel"])}
+						name="fromName"
+					>
+						<Input
+							placeholder={t(
+								emailsInlineI18n["emails.compose.fromNamePlaceholder"],
+							)}
+						/>
 					</Form.Item>
 					<Form.Item
 						label={t(emailsInlineI18n["emails.compose.recipientLabel"])}
 						name="to"
-						rules={[{ required: true, message: t(emailsInlineI18n["emails.compose.recipientRequired"]) }]}
+						rules={[
+							{
+								required: true,
+								message: t(
+									emailsInlineI18n["emails.compose.recipientRequired"],
+								),
+							},
+						]}
 						extra={t(emailsInlineI18n["emails.compose.recipientExtra"])}
 					>
 						<TextArea
 							rows={3}
-							placeholder={t(emailsInlineI18n["emails.compose.recipientPlaceholder"])}
+							placeholder={t(
+								emailsInlineI18n["emails.compose.recipientPlaceholder"],
+							)}
 						/>
 					</Form.Item>
 					<Form.Item
 						label={t(emailsInlineI18n["emails.compose.subjectLabel"])}
 						name="subject"
-						rules={[{ required: true, message: t(emailsInlineI18n["emails.compose.subjectRequired"]) }]}
+						rules={[
+							{
+								required: true,
+								message: t(emailsInlineI18n["emails.compose.subjectRequired"]),
+							},
+						]}
 					>
-						<Input maxLength={500} placeholder={t(emailsInlineI18n["emails.compose.subjectPlaceholder"])} />
+						<Input
+							maxLength={500}
+							placeholder={t(
+								emailsInlineI18n["emails.compose.subjectPlaceholder"],
+							)}
+						/>
 					</Form.Item>
 					<Form.Item
 						label={t(emailsInlineI18n["emails.compose.bodyLabel"])}
 						name="text"
-						rules={[{ required: true, message: t(emailsInlineI18n["emails.compose.bodyRequired"]) }]}
+						rules={[
+							{
+								required: true,
+								message: t(emailsInlineI18n["emails.compose.bodyRequired"]),
+							},
+						]}
 					>
 						<TextArea
 							rows={10}
-							placeholder={t(emailsInlineI18n["emails.compose.bodyPlaceholder"])}
+							placeholder={t(
+								emailsInlineI18n["emails.compose.bodyPlaceholder"],
+							)}
 						/>
 					</Form.Item>
 				</Form>
@@ -4993,11 +5908,19 @@ const EmailsPage: FC = () => {
 					<Alert
 						type="warning"
 						showIcon
-					title={selectedRowKeys.length > 0 ? t(emailsInlineI18n["emails.batchClear.selectionTitle"], { count: selectedRowKeys.length }) : t(emailsInlineI18n["emails.batchClear.filteredTitle"])}
-					description={t(emailsInlineI18n["emails.batchClear.description"])}
+						title={
+							selectedRowKeys.length > 0
+								? t(emailsInlineI18n["emails.batchClear.selectionTitle"], {
+										count: selectedRowKeys.length,
+									})
+								: t(emailsInlineI18n["emails.batchClear.filteredTitle"])
+						}
+						description={t(emailsInlineI18n["emails.batchClear.description"])}
 					/>
 					<div>
-						<Text strong>{t(emailsInlineI18n["emails.batchClear.targetMailbox"])}</Text>
+						<Text strong>
+							{t(emailsInlineI18n["emails.batchClear.targetMailbox"])}
+						</Text>
 						<Select
 							value={batchClearMailbox}
 							style={widthFullMarginTop8Style}
@@ -5015,7 +5938,11 @@ const EmailsPage: FC = () => {
 
 			{/* 创建/编辑分组 Modal */}
 			<Modal
-				title={editingGroupId ? t(emailsInlineI18n["emails.group.editTitle"]) : t(emailsInlineI18n["emails.group.createTitle"])}
+				title={
+					editingGroupId
+						? t(emailsInlineI18n["emails.group.editTitle"])
+						: t(emailsInlineI18n["emails.group.createTitle"])
+				}
 				open={groupModalVisible}
 				onOk={handleGroupSubmit}
 				onCancel={() => setGroupModalVisible(false)}
@@ -5026,17 +5953,38 @@ const EmailsPage: FC = () => {
 					<Form.Item
 						name="name"
 						label={t(emailsInlineI18n["emails.group.nameLabel"])}
-						rules={[{ required: true, message: t(emailsInlineI18n["emails.group.nameRequired"]) }]}
+						rules={[
+							{
+								required: true,
+								message: t(emailsInlineI18n["emails.group.nameRequired"]),
+							},
+						]}
 					>
-						<Input placeholder={t(emailsInlineI18n["emails.group.namePlaceholder"])} />
+						<Input
+							placeholder={t(emailsInlineI18n["emails.group.namePlaceholder"])}
+						/>
 					</Form.Item>
-					<Form.Item name="description" label={t(emailsInlineI18n["emails.group.descriptionLabel"])}>
-						<Input placeholder={t(emailsInlineI18n["emails.group.descriptionPlaceholder"])} />
+					<Form.Item
+						name="description"
+						label={t(emailsInlineI18n["emails.group.descriptionLabel"])}
+					>
+						<Input
+							placeholder={t(
+								emailsInlineI18n["emails.group.descriptionPlaceholder"],
+							)}
+						/>
 					</Form.Item>
 					<Form.Item
 						name="fetchStrategy"
 						label={t(emailsInlineI18n["emails.group.fetchStrategyLabel"])}
-						rules={[{ required: true, message: t(emailsInlineI18n["emails.group.fetchStrategyRequired"]) }]}
+						rules={[
+							{
+								required: true,
+								message: t(
+									emailsInlineI18n["emails.group.fetchStrategyRequired"],
+								),
+							},
+						]}
 					>
 						<Select options={mailFetchStrategyOptions} />
 					</Form.Item>
@@ -5052,7 +6000,11 @@ const EmailsPage: FC = () => {
 				destroyOnHidden
 				width={400}
 			>
-				<p>{t(emailsInlineI18n["emails.group.assignSelectedCount"], { count: selectedRowKeys.length })}</p>
+				<p>
+					{t(emailsInlineI18n["emails.group.assignSelectedCount"], {
+						count: selectedRowKeys.length,
+					})}
+				</p>
 				<Select
 					placeholder={t(emailsInlineI18n["emails.group.assignPlaceholder"])}
 					style={fullWidthStyle}
