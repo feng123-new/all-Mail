@@ -1,6 +1,6 @@
-# GongXi-Mail Rewrite Boundary Checklist
+# Rewrite Boundary Checklist
 
-This document maps which areas of `all-Mail` are most likely to retain structural similarity to the earlier `GongXi-Mail` reference shape, and which areas already look more independent.
+This document maps which areas of `all-Mail` are most likely to retain structural similarity to an earlier reference shape, and which areas already look more independent.
 
 The goal is not cosmetic distancing. If upstream redistribution rights remain unresolved, the practical priority is:
 
@@ -214,7 +214,7 @@ These areas already look meaningfully broader than a generic mailbox-pool projec
 
 ## Rewrite order recommendation
 
-If you want to reduce GongXi-Mail-adjacent derivative risk before public release, rewrite in this order:
+If you want to reduce legacy derivative risk before public release, rewrite in this order:
 
 1. `server/src/modules/mail/*`
 2. `server/src/modules/email/*` + `web/src/pages/emails/index.tsx`
@@ -241,7 +241,7 @@ If you want to reduce GongXi-Mail-adjacent derivative risk before public release
 
 ## Short answer
 
-If you **fully rewrite the GongXi-Mail-adjacent service layer**, **rename the public API and product model**, and **change the frontend information architecture + visual style**, the repository will become meaningfully more independent in practice.
+If you **fully rewrite the legacy-adjacent service layer**, **rename the public API and product model**, and **change the frontend information architecture + visual style**, the repository will become meaningfully more independent in practice.
 
 If you only change the frontend style, it will still read like the same product with a different skin.
 
