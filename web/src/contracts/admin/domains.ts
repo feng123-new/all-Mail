@@ -6,6 +6,8 @@ export const domainsContract = {
   create: domainApi.create,
   update: domainApi.update,
   verify: domainApi.verify,
+  saveCloudflareConfig: domainApi.saveCloudflareConfig,
+  validateCloudflare: domainApi.validateCloudflare,
   saveCatchAll: domainApi.saveCatchAll,
   saveSendingConfig: domainApi.saveSendingConfig,
   getAliases: domainApi.getAliases,

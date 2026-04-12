@@ -73,6 +73,34 @@ export const domainApi = {
 			},
 		),
 
+	saveCloudflareConfig: (
+		id: number,
+		data: {
+			apiToken?: string | null;
+			zoneId?: string | null;
+			clearSavedToken?: boolean;
+		},
+	) =>
+		requestPost<
+			Record<string, unknown>,
+			{
+				apiToken?: string | null;
+				zoneId?: string | null;
+				clearSavedToken?: boolean;
+			}
+		>(`/admin/domains/${id}/cloudflare-config`, data, {
+			invalidatePrefixes: ['/admin/domains', `/admin/domains/${id}`],
+		}),
+
+	validateCloudflare: (id: number) =>
+		requestPost<Record<string, unknown>>(
+			`/admin/domains/${id}/cloudflare-validate`,
+			undefined,
+			{
+				invalidatePrefixes: ['/admin/domains', `/admin/domains/${id}`],
+			},
+		),
+
 	saveCatchAll: (
 		id: number,
 		data: {
