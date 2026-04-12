@@ -19,6 +19,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { type FC, useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { PageHeader, SurfaceCard } from "../../components";
 import { domainsContract } from "../../contracts/admin/domains";
 import { useI18n } from "../../i18n";
@@ -128,6 +129,26 @@ const domainsI18n = {
 		"删除域名失败",
 		"Failed to delete the domain",
 	),
+	onboardingTitle: defineMessage(
+		"domains.onboardingTitle",
+		"推荐接入顺序",
+		"Recommended onboarding order",
+	),
+	onboardingBody: defineMessage(
+		"domains.onboardingBody",
+		"先创建域名，再进入“配置”完成 Cloudflare 校验；确认通过后创建第一个域名邮箱；如需收件汇总，回到配置页启用 Catch-all；如需发件，再补 Resend 配置。",
+		"Create the domain first, then open Configure and complete Cloudflare validation. After that, create the first domain mailbox. If you need inbound aggregation, return to Configure and enable catch-all. If you need outbound mail, finish the Resend setup last.",
+	),
+	createMailbox: defineMessage(
+		"domains.createMailbox",
+		"新增邮箱",
+		"Add mailbox",
+	),
+	openSendingConfigs: defineMessage(
+		"domains.openSendingConfigs",
+		"发信配置",
+		"Sending config",
+	),
 	editDomainTitle: defineMessage(
 		"domains.editDomainTitle",
 		"编辑域名",
@@ -191,6 +212,7 @@ function getDomainStatusMessage(status: DomainRecord["status"]) {
 
 const DomainsPage: FC = () => {
 	const { t } = useI18n();
+	const navigate = useNavigate();
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [domains, setDomains] = useState<DomainRecord[]>([]);
@@ -365,6 +387,18 @@ const DomainsPage: FC = () => {
 					>
 						{t(domainsI18n.configure)}
 					</Button>
+					<Button
+						onClick={() =>
+							navigate(`/domain-mailboxes?domainId=${record.id}&intent=create`)
+						}
+					>
+						{t(domainsI18n.createMailbox)}
+					</Button>
+					{record.canSend ? (
+						<Button onClick={() => navigate("/sending-configs")}>
+							{t(domainsI18n.openSendingConfigs)}
+						</Button>
+					) : null}
 					{record.status !== "ACTIVE" ? (
 						<Button
 							type="primary"
@@ -379,6 +413,13 @@ const DomainsPage: FC = () => {
 					)}
 					<Popconfirm
 						title={t(domainsI18n.deleteConfirm, { domain: record.name })}
+						description={t(
+							defineMessage(
+								"domains.deleteDescription",
+								"如果域名仍有关联邮箱或域名消息，请先去“域名邮箱”与“域名消息”页面清理后再删除。",
+								"If the domain still has linked mailboxes or domain messages, clear them from the Domain Mailboxes and Domain Messages pages before deleting it.",
+							),
+						)}
 						onConfirm={() => void handleDelete(record)}
 					>
 						<Button
@@ -414,6 +455,13 @@ const DomainsPage: FC = () => {
 				type="info"
 				style={marginBottom16Style}
 				title={t(domainsI18n.sendEnabledDomainsHint)}
+			/>
+			<Alert
+				showIcon
+				type="info"
+				style={marginBottom16Style}
+				title={t(domainsI18n.onboardingTitle)}
+				description={t(domainsI18n.onboardingBody)}
 			/>
 			<SurfaceCard>
 				<Table
