@@ -3,272 +3,25 @@ import {
 	ReloadOutlined,
 	SendOutlined,
 } from "@ant-design/icons";
-import {
-	Alert,
-	Button,
-	Form,
-	Input,
-	Modal,
-	message,
-	Popconfirm,
-	Select,
-	Space,
-	Table,
-	Typography,
-} from "antd";
-import type { ColumnsType } from "antd/es/table";
-import { type Key, useCallback, useEffect, useState } from "react";
+import { Button, Form, message, Popconfirm, Space, Table } from "antd";
+import { type Key, useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader, SurfaceCard } from "../../components";
 import { sendingContract } from "../../contracts/admin/sending";
 import { useI18n } from "../../i18n";
 import { adminI18n } from "../../i18n/catalog/admin";
-import { defineMessage } from "../../i18n/messages";
 import { fullWidthStyle } from "../../styles/common";
 import { requestData } from "../../utils/request";
-import { hasOnlyValidRecipients, parseRecipientInput } from "./recipientInput";
-
-interface DomainOption {
-	id: number;
-	name: string;
-	canSend?: boolean;
-}
-
-interface MailboxOption {
-	id: number;
-	address: string;
-	domain?: { id: number; name: string; canSend?: boolean };
-}
-
-interface SendConfigRecord {
-	id: number;
-	provider: string;
-	fromNameDefault?: string | null;
-	replyToDefault?: string | null;
-	status: string;
-	domain?: { id: number; name: string; canSend?: boolean };
-}
-
-const { Link, Text } = Typography;
-
-const RESEND_DOCS = {
-	domains: "https://resend.com/docs/dashboard/domains/introduction",
-	cloudflareDns: "https://resend.com/docs/knowledge-base/cloudflare",
-	apiKeys: "https://resend.com/docs/dashboard/api-keys/introduction",
-	sendEmail: "https://resend.com/docs/api-reference/emails/send-email",
-	verifyTroubleshooting:
-		"https://resend.com/docs/knowledge-base/what-if-my-domain-is-not-verifying",
-} as const;
-
-const sendingConfigsI18n = {
-	fetchConfigsFailed: defineMessage(
-		"sendingConfigs.fetchConfigsFailed",
-		"获取发信配置失败",
-		"Failed to load sending configs",
-	),
-	fetchHistoryFailed: defineMessage(
-		"sendingConfigs.fetchHistoryFailed",
-		"获取发件历史失败",
-		"Failed to load sent history",
-	),
-	fetchDomainsFailed: defineMessage(
-		"sendingConfigs.fetchDomainsFailed",
-		"获取域名失败",
-		"Failed to load domains",
-	),
-	fetchMailboxesFailed: defineMessage(
-		"sendingConfigs.fetchMailboxesFailed",
-		"获取邮箱失败",
-		"Failed to load mailboxes",
-	),
-	sendTestFailed: defineMessage(
-		"sendingConfigs.sendTestFailed",
-		"发送测试邮件失败",
-		"Failed to send the test email",
-	),
-	deleteConfigFailed: defineMessage(
-		"sendingConfigs.deleteConfigFailed",
-		"删除发信配置失败",
-		"Failed to delete the sending config",
-	),
-	deletedConfig: defineMessage(
-		"sendingConfigs.deletedConfig",
-		"已删除 {domain} 的发信配置",
-		"Deleted the sending config for {domain}",
-	),
-	currentDomain: defineMessage(
-		"sendingConfigs.currentDomain",
-		"该域名",
-		"that domain",
-	),
-	deleteHistoryFailed: defineMessage(
-		"sendingConfigs.deleteHistoryFailed",
-		"删除发件历史失败",
-		"Failed to delete the sent-history entry",
-	),
-	clearedHistory: defineMessage(
-		"sendingConfigs.clearedHistory",
-		"已清理 {count} 条发件历史",
-		"Cleared {count} sent-history entries",
-	),
-	selectHistoryBeforeDelete: defineMessage(
-		"sendingConfigs.selectHistoryBeforeDelete",
-		"请先选择要清理的发件历史",
-		"Select the sent-history entries to clear first",
-	),
-	batchDeleteHistoryFailed: defineMessage(
-		"sendingConfigs.batchDeleteHistoryFailed",
-		"批量清理发件历史失败",
-		"Failed to clear the selected sent-history entries",
-	),
-	deleteConfigConfirm: defineMessage(
-		"sendingConfigs.deleteConfigConfirm",
-		"确定要删除这条发信配置吗？",
-		"Delete this sending config?",
-	),
-	deleteConfigDescription: defineMessage(
-		"sendingConfigs.deleteConfigDescription",
-		"删除后该域名将无法继续从 all-Mail 直接发信。",
-		"After deletion, that domain can no longer send directly from all-Mail.",
-	),
-	senderDomain: defineMessage(
-		"sendingConfigs.senderDomain",
-		"发件域名",
-		"Sending domain",
-	),
-	senderAddress: defineMessage(
-		"sendingConfigs.senderAddress",
-		"发件地址",
-		"From address",
-	),
-	time: defineMessage("sendingConfigs.time", "时间", "Time"),
-	deleteHistoryConfirm: defineMessage(
-		"sendingConfigs.deleteHistoryConfirm",
-		"确定要清理这条发件历史吗？",
-		"Clear this sent-history entry?",
-	),
-	deleteHistoryDescription: defineMessage(
-		"sendingConfigs.deleteHistoryDescription",
-		"这只会删除历史记录，不会撤回已经发出的邮件。",
-		"This only deletes the history record; it does not recall mail that was already sent.",
-	),
-	batchDeleteHistoryConfirm: defineMessage(
-		"sendingConfigs.batchDeleteHistoryConfirm",
-		"确定要清理选中的 {count} 条发件历史吗？",
-		"Clear the selected {count} sent-history entries?",
-	),
-	batchDeleteHistoryDescription: defineMessage(
-		"sendingConfigs.batchDeleteHistoryDescription",
-		"仅清理历史记录，不会影响真实发件结果。",
-		"Only history records are cleared; real send results are not affected.",
-	),
-	noSubject: defineMessage(
-		"sendingConfigs.noSubject",
-		"(无主题)",
-		"(No subject)",
-	),
-	selectDomainRequired: defineMessage(
-		"sendingConfigs.selectDomainRequired",
-		"请选择域名",
-		"Select a domain",
-	),
-	senderMailbox: defineMessage(
-		"sendingConfigs.senderMailbox",
-		"发件邮箱",
-		"Sender mailbox",
-	),
-	senderAddressRequired: defineMessage(
-		"sendingConfigs.senderAddressRequired",
-		"请输入发件地址",
-		"Enter the sender address",
-	),
-	validEmailRequired: defineMessage(
-		"sendingConfigs.validEmailRequired",
-		"请输入有效邮箱地址",
-		"Enter a valid email address",
-	),
-	recipients: defineMessage(
-		"sendingConfigs.recipients",
-		"收件人（逗号分隔）",
-		"Recipients (comma-separated)",
-	),
-	recipientsRequired: defineMessage(
-		"sendingConfigs.recipientsRequired",
-		"请输入收件人",
-		"Enter at least one recipient",
-	),
-	recipientsInvalid: defineMessage(
-		"sendingConfigs.recipientsInvalid",
-		"请检查收件人邮箱格式，支持逗号、分号或换行分隔多个地址",
-		"Check the recipient email format. You can separate multiple addresses with commas, semicolons, or new lines.",
-	),
-	recipientsExtra: defineMessage(
-		"sendingConfigs.recipientsExtra",
-		"支持使用逗号、分号或换行分隔多个收件人地址。",
-		"You can separate multiple recipient addresses with commas, semicolons, or new lines.",
-	),
-	recipientsPlaceholder: defineMessage(
-		"sendingConfigs.recipientsPlaceholder",
-		"例如：alice@example.com, bob@example.com",
-		"For example: alice@example.com, bob@example.com",
-	),
-	subjectRequired: defineMessage(
-		"sendingConfigs.subjectRequired",
-		"请输入主题",
-		"Enter a subject",
-	),
-	textBody: defineMessage(
-		"sendingConfigs.textBody",
-		"纯文本内容",
-		"Plain-text body",
-	),
-	htmlBody: defineMessage("sendingConfigs.htmlBody", "HTML 内容", "HTML body"),
-	setupGuideTitle: defineMessage(
-		"sendingConfigs.setupGuideTitle",
-		"Resend 配置指引",
-		"Resend setup guide",
-	),
-	setupGuideBody: defineMessage(
-		"sendingConfigs.setupGuideBody",
-		"推荐顺序：先在域名页完成 Cloudflare 挂载校验，再在 Resend 中添加并验证发送域名，确认 DNS 通过后创建发送专用 API Key，最后回到 all-Mail 保存发信配置并发送测试邮件。",
-		"Recommended order: complete Cloudflare validation on the Domains page first, then add and verify the sending domain in Resend. After DNS verification passes, create a sending API key and return to all-Mail to save the sending configuration and send a test email.",
-	),
-	docsDomain: defineMessage(
-		"sendingConfigs.docsDomain",
-		"Resend 域名管理",
-		"Resend domain management",
-	),
-	docsCloudflare: defineMessage(
-		"sendingConfigs.docsCloudflare",
-		"Resend × Cloudflare DNS 指南",
-		"Resend × Cloudflare DNS guide",
-	),
-	docsApiKeys: defineMessage(
-		"sendingConfigs.docsApiKeys",
-		"Resend API Keys",
-		"Resend API keys",
-	),
-	docsSendEmail: defineMessage(
-		"sendingConfigs.docsSendEmail",
-		"Resend Send Email API",
-		"Resend Send Email API",
-	),
-	docsVerification: defineMessage(
-		"sendingConfigs.docsVerification",
-		"Resend 域名验证排障",
-		"Resend domain verification troubleshooting",
-	),
-} as const;
-
-interface OutboundMessageRecord {
-	id: string;
-	providerMessageId?: string | null;
-	fromAddress: string;
-	subject?: string | null;
-	status: string;
-	lastError?: string | null;
-	createdAt: string;
-	domain?: { id: number; name: string } | null;
-}
+import { createSendingConfigColumns } from "./columns";
+import { ResendSetupGuide } from "./guide";
+import { parseRecipientInput } from "./recipientInput";
+import { SendTestMailModal } from "./send-modal";
+import {
+	type DomainOption,
+	type MailboxOption,
+	type OutboundMessageRecord,
+	type SendConfigRecord,
+	sendingConfigsI18n,
+} from "./shared";
 
 const SendingConfigsPage: React.FC = () => {
 	const { t } = useI18n();
@@ -423,118 +176,23 @@ const SendingConfigsPage: React.FC = () => {
 		setBatchDeletingMessages(false);
 	}, [loadData, selectedMessageIds, t]);
 
-	const configColumns: ColumnsType<SendConfigRecord> = [
-		{
-			title: t(adminI18n.sendingConfigs.domain),
-			key: "domain",
-			render: (_value, record) => record.domain?.name || "-",
-		},
-		{
-			title: t(adminI18n.sendingConfigs.provider),
-			dataIndex: "provider",
-			key: "provider",
-			render: (value) => t(value),
-		},
-		{
-			title: t(adminI18n.sendingConfigs.defaultSender),
-			dataIndex: "fromNameDefault",
-			key: "fromNameDefault",
-			render: (value) => value || "-",
-		},
-		{
-			title: t(adminI18n.sendingConfigs.replyTo),
-			dataIndex: "replyToDefault",
-			key: "replyToDefault",
-			render: (value) => value || "-",
-		},
-		{
-			title: t(adminI18n.common.status),
-			dataIndex: "status",
-			key: "status",
-			render: (value) => t(value),
-		},
-		{
-			title: t(adminI18n.common.actions),
-			key: "actions",
-			width: 96,
-			render: (_value, record) => (
-				<Popconfirm
-					title={t(sendingConfigsI18n.deleteConfigConfirm)}
-					description={t(sendingConfigsI18n.deleteConfigDescription)}
-					onConfirm={() => void handleDeleteConfig(record)}
-				>
-					<Button
-						type="text"
-						danger
-						icon={<DeleteOutlined />}
-						loading={deletingConfigId === record.id}
-					/>
-				</Popconfirm>
-			),
-		},
-	];
-
-	const messageColumns: ColumnsType<OutboundMessageRecord> = [
-		{
-			title: t(sendingConfigsI18n.senderDomain),
-			key: "domain",
-			render: (_value, record) => record.domain?.name || "-",
-		},
-		{
-			title: t(sendingConfigsI18n.senderAddress),
-			dataIndex: "fromAddress",
-			key: "fromAddress",
-		},
-		{
-			title: t(adminI18n.sendingConfigs.subject),
-			dataIndex: "subject",
-			key: "subject",
-			render: (value) => value || t(sendingConfigsI18n.noSubject),
-		},
-		{
-			title: t(adminI18n.common.status),
-			dataIndex: "status",
-			key: "status",
-			render: (value) => t(value),
-		},
-		{
-			title: t(adminI18n.sendingConfigs.providerId),
-			dataIndex: "providerMessageId",
-			key: "providerMessageId",
-			render: (value) => value || "-",
-		},
-		{
-			title: t(adminI18n.sendingConfigs.failureReason),
-			dataIndex: "lastError",
-			key: "lastError",
-			render: (value) => value || "-",
-		},
-		{
-			title: t(sendingConfigsI18n.time),
-			dataIndex: "createdAt",
-			key: "createdAt",
-			render: (value) => new Date(value).toLocaleString(),
-		},
-		{
-			title: t(adminI18n.common.actions),
-			key: "actions",
-			width: 96,
-			render: (_value, record) => (
-				<Popconfirm
-					title={t(sendingConfigsI18n.deleteHistoryConfirm)}
-					description={t(sendingConfigsI18n.deleteHistoryDescription)}
-					onConfirm={() => void handleDeleteMessage(record)}
-				>
-					<Button
-						type="text"
-						danger
-						icon={<DeleteOutlined />}
-						loading={deletingMessageId === record.id}
-					/>
-				</Popconfirm>
-			),
-		},
-	];
+	const { configColumns, messageColumns } = useMemo(
+		() =>
+			createSendingConfigColumns({
+				t,
+				deletingConfigId,
+				deletingMessageId,
+				handleDeleteConfig,
+				handleDeleteMessage,
+			}),
+		[
+			deletingConfigId,
+			deletingMessageId,
+			handleDeleteConfig,
+			handleDeleteMessage,
+			t,
+		],
+	);
 
 	return (
 		<div>
@@ -557,53 +215,7 @@ const SendingConfigsPage: React.FC = () => {
 				}
 			/>
 			<Space orientation="vertical" size="large" style={fullWidthStyle}>
-				<Alert
-					type="info"
-					showIcon
-					title={t(sendingConfigsI18n.setupGuideTitle)}
-					description={
-						<Space orientation="vertical" size={8}>
-							<span>{t(sendingConfigsI18n.setupGuideBody)}</span>
-							<Space wrap>
-								<Link
-									href={RESEND_DOCS.domains}
-									target="_blank"
-									rel="noreferrer"
-								>
-									{t(sendingConfigsI18n.docsDomain)}
-								</Link>
-								<Link
-									href={RESEND_DOCS.cloudflareDns}
-									target="_blank"
-									rel="noreferrer"
-								>
-									{t(sendingConfigsI18n.docsCloudflare)}
-								</Link>
-								<Link
-									href={RESEND_DOCS.apiKeys}
-									target="_blank"
-									rel="noreferrer"
-								>
-									{t(sendingConfigsI18n.docsApiKeys)}
-								</Link>
-								<Link
-									href={RESEND_DOCS.sendEmail}
-									target="_blank"
-									rel="noreferrer"
-								>
-									{t(sendingConfigsI18n.docsSendEmail)}
-								</Link>
-								<Link
-									href={RESEND_DOCS.verifyTroubleshooting}
-									target="_blank"
-									rel="noreferrer"
-								>
-									{t(sendingConfigsI18n.docsVerification)}
-								</Link>
-							</Space>
-						</Space>
-					}
-				/>
+				<ResendSetupGuide />
 				{selectedMessageIds.length > 0 ? (
 					<SurfaceCard tone="muted">
 						<Space
@@ -666,114 +278,16 @@ const SendingConfigsPage: React.FC = () => {
 					/>
 				</SurfaceCard>
 			</Space>
-			<Modal
-				title={t(adminI18n.sendingConfigs.sendTestMail)}
+			<SendTestMailModal
 				open={sendVisible}
+				loading={sendLoading}
+				form={form}
+				domains={domains}
+				mailboxes={mailboxes}
 				onCancel={() => setSendVisible(false)}
-				onOk={() => form.submit()}
-				confirmLoading={sendLoading}
-				destroyOnHidden
-				width={720}
-			>
-				<Form form={form} layout="vertical" onFinish={handleSend}>
-					<Form.Item
-						name="domainId"
-						label={t(adminI18n.sendingConfigs.domain)}
-						rules={[
-							{
-								required: true,
-								message: t(sendingConfigsI18n.selectDomainRequired),
-							},
-						]}
-					>
-						<Select
-							options={domains.map((item) => ({
-								value: item.id,
-								label: item.name,
-							}))}
-						/>
-					</Form.Item>
-					<Form.Item
-						name="mailboxId"
-						label={t(sendingConfigsI18n.senderMailbox)}
-					>
-						<Select
-							allowClear
-							options={mailboxes.map((item) => ({
-								value: item.id,
-								label: item.address,
-							}))}
-						/>
-					</Form.Item>
-					<Form.Item
-						name="from"
-						label={t(sendingConfigsI18n.senderAddress)}
-						rules={[
-							{
-								required: true,
-								message: t(sendingConfigsI18n.senderAddressRequired),
-							},
-							{
-								type: "email",
-								message: t(sendingConfigsI18n.validEmailRequired),
-							},
-						]}
-					>
-						<Input placeholder="noreply@example.com" />
-					</Form.Item>
-					<Form.Item
-						name="to"
-						label={t(sendingConfigsI18n.recipients)}
-						extra={t(sendingConfigsI18n.recipientsExtra)}
-						rules={[
-							{
-								required: true,
-								message: t(sendingConfigsI18n.recipientsRequired),
-							},
-							{
-								validator: (_, value) => {
-									const normalizedValue =
-										typeof value === "string" ? value.trim() : "";
-									if (!normalizedValue) {
-										return Promise.reject(
-											new Error(t(sendingConfigsI18n.recipientsRequired)),
-										);
-									}
-									if (!hasOnlyValidRecipients(normalizedValue)) {
-										return Promise.reject(
-											new Error(t(sendingConfigsI18n.recipientsInvalid)),
-										);
-									}
-									return Promise.resolve();
-								},
-							},
-						]}
-					>
-						<Input.TextArea
-							rows={3}
-							placeholder={t(sendingConfigsI18n.recipientsPlaceholder)}
-						/>
-					</Form.Item>
-					<Form.Item
-						name="subject"
-						label={t(adminI18n.sendingConfigs.subject)}
-						rules={[
-							{
-								required: true,
-								message: t(sendingConfigsI18n.subjectRequired),
-							},
-						]}
-					>
-						<Input />
-					</Form.Item>
-					<Form.Item name="text" label={t(sendingConfigsI18n.textBody)}>
-						<Input.TextArea rows={4} />
-					</Form.Item>
-					<Form.Item name="html" label={t(sendingConfigsI18n.htmlBody)}>
-						<Input.TextArea rows={4} />
-					</Form.Item>
-				</Form>
-			</Modal>
+				onConfirm={() => form.submit()}
+				onFinish={handleSend}
+			/>
 		</div>
 	);
 };
