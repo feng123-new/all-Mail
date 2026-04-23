@@ -21,7 +21,7 @@ import { getHostedInternalProfileByProvisioningMode } from "../../constants/prov
 import { domainMailboxesContract } from "../../contracts/admin/domainMailboxes";
 import { useI18n } from "../../i18n";
 import { adminI18n } from "../../i18n/catalog/admin";
-import { width140Style, width170Style } from "../../styles/common";
+import { width140Style, width170Style, width180Style } from "../../styles/common";
 import { getErrorMessage } from "../../utils/error";
 import { requestData } from "../../utils/request";
 import { createMailboxColumns } from "./columns";
@@ -44,6 +44,8 @@ import {
 	type MailboxRecord,
 	type UserRecord,
 } from "./shared";
+
+type ProvisioningOption = { value: "MANUAL" | "API_POOL"; label: string };
 
 const DomainMailboxesPage = () => {
 	const { t } = useI18n();
@@ -83,7 +85,7 @@ const DomainMailboxesPage = () => {
 	const [batchAssignForm] = Form.useForm();
 	const presetDomainId = Number(searchParams.get("domainId") || 0) || undefined;
 	const createIntent = searchParams.get("intent");
-	const provisioningOptions = useMemo(
+	const provisioningOptions = useMemo<ProvisioningOption[]>(
 		() => [
 			{ value: "MANUAL", label: t(adminI18n.domainMailboxes.manualMode) },
 			{ value: "API_POOL", label: t(adminI18n.domainMailboxes.apiPoolMode) },

@@ -3,7 +3,7 @@ import {
 	ReloadOutlined,
 	SendOutlined,
 } from "@ant-design/icons";
-import { Button, Form, message, Popconfirm, Space, Table } from "antd";
+import { Button, Form, message, Popconfirm, Space, Table, Typography } from "antd";
 import { type Key, useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader, SurfaceCard } from "../../components";
 import { sendingContract } from "../../contracts/admin/sending";
@@ -22,6 +22,8 @@ import {
 	type SendConfigRecord,
 	sendingConfigsI18n,
 } from "./shared";
+
+const { Text } = Typography;
 
 const SendingConfigsPage: React.FC = () => {
 	const { t } = useI18n();
