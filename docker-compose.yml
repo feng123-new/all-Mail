@@ -134,7 +134,7 @@ services:
       retries: 5
       start_period: 75s
 
-  legacy-jobs:
+  jobs:
     build:
       context: .
       dockerfile: Dockerfile.legacy
