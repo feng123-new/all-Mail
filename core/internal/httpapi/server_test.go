@@ -89,12 +89,12 @@ func TestReadinessRejectsMissingBridgeDependencies(t *testing.T) {
 
 func TestReadinessUsesInjectedProtocolProbes(t *testing.T) {
 	cfg := config.APIConfig{
-		Mode:          config.APIModeBridge,
-		StaticDir:     t.TempDir(),
-		DatabaseURL:   "postgresql://user:pass@postgres/database",
-		RedisURL:      "redis://redis:6379/0",
-		LegacyAPIURL:  "http://legacy-api:3100",
-		ReadyTimeout:  time.Second,
+		Mode:            config.APIModeBridge,
+		StaticDir:       t.TempDir(),
+		DatabaseURL:     "postgresql://user:pass@postgres/database",
+		RedisURL:        "redis://redis:6379/0",
+		LegacyAPIURL:    "http://legacy-api:3100",
+		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
 	}
 	server, err := newWithProber(cfg, discardLogger(), readiness.Prober{
