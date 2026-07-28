@@ -17,20 +17,22 @@ RUN test -z "$(gofmt -l .)" \
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update -y \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata postgresql-client \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 allmail \
     && useradd --system --uid 10001 --gid allmail --home-dir /var/lib/all-mail --shell /usr/sbin/nologin allmail \
-    && mkdir -p /app/public /var/lib/all-mail \
+    && mkdir -p /app/public /app/migrations /var/lib/all-mail \
     && chown -R allmail:allmail /app /var/lib/all-mail
 
 ENV ALL_MAIL_ENV=production \
     ALL_MAIL_STATIC_DIR=/app/public \
     ALL_MAIL_STATE_DIR=/var/lib/all-mail \
+    ALL_MAIL_MIGRATION_DIR=/app/migrations \
     PORT=3000
 
 COPY --from=go-builder /out/allmail /usr/local/bin/allmail
 COPY --from=web-builder /src/web/dist /app/public
+COPY core/migrations /app/migrations
 
 USER allmail:allmail
 EXPOSE 3000
