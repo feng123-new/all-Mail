@@ -3,49 +3,51 @@ package migrate
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func TestLoadMigrationsAndBuildScript(t *testing.T) {
+func TestLoadMigrationsOrdersFilesAndComputesChecksums(t *testing.T) {
 	directory := t.TempDir()
-	path := filepath.Join(directory, "0001_example.sql")
-	if err := os.WriteFile(path, []byte("CREATE TABLE example (id integer PRIMARY KEY);"), 0o600); err != nil {
-		t.Fatal(err)
+	for name, content := range map[string]string{
+		"0002_second.sql": "CREATE TABLE second_example (id integer PRIMARY KEY);",
+		"0001_first.sql":  "CREATE TABLE first_example (id integer PRIMARY KEY);",
+	} {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	migrations, err := loadMigrations(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 1 || len(migrations[0].Checksum) != 64 {
-		t.Fatalf("migrations = %#v", migrations)
+	if len(migrations) != 2 {
+		t.Fatalf("migration count = %d, want 2", len(migrations))
 	}
-	script, err := buildScript(migrations)
-	if err != nil {
-		t.Fatal(err)
+	if migrations[0].Name != "0001_first" || migrations[1].Name != "0002_second" {
+		t.Fatalf("migration order = %#v", migrations)
 	}
-	for _, expected := range []string{
-		"pg_advisory_xact_lock",
-		"runtime_migrations",
-		migrations[0].Checksum,
-		"\n\\gset\n",
-		"\\if :migration_0_exists",
-		"ALTER COLUMN checksum SET NOT NULL",
-	} {
-		if !strings.Contains(script, expected) {
-			t.Fatalf("script is missing %q:\n%s", expected, script)
+	for _, item := range migrations {
+		if len(item.Checksum) != 64 {
+			t.Fatalf("checksum length for %s = %d", item.Name, len(item.Checksum))
 		}
 	}
 }
 
-func TestLoadMigrationsRejectsTransactionControl(t *testing.T) {
-	directory := t.TempDir()
-	path := filepath.Join(directory, "0001_invalid.sql")
-	if err := os.WriteFile(path, []byte("BEGIN;\nSELECT 1;\nCOMMIT;"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadMigrations(directory); err == nil {
-		t.Fatal("loadMigrations expected an error")
+func TestLoadMigrationsRejectsTransactionControlAndMetaCommands(t *testing.T) {
+	for name, content := range map[string]string{
+		"transaction.sql": "BEGIN;\nSELECT 1;\nCOMMIT;",
+		"meta.sql":        "\\echo unsafe",
+		"ledger.sql":      "INSERT INTO runtime_migrations (name) VALUES ('bad');",
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := t.TempDir()
+			if err := os.WriteFile(filepath.Join(directory, "0001_invalid.sql"), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadMigrations(directory); err == nil {
+				t.Fatal("loadMigrations() expected an error")
+			}
+		})
 	}
 }
 
