@@ -22,7 +22,20 @@ jobs:
           node-version: 20
 
       - name: Test runtime scripts
-        run: ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs
+        shell: bash
+        run: |
+          set +e
+          ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs 2>&1 | tee "$RUNNER_TEMP/runtime-tests.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Upload runtime test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-test-log
+          path: ${{ runner.temp }}/runtime-tests.log
+          if-no-files-found: error
 
   go:
     name: go-core
@@ -210,7 +223,20 @@ jobs:
         run: ../scripts/sanitize-runtime-env.sh npm ci
 
       - name: Lint
-        run: ../scripts/sanitize-runtime-env.sh npm run lint
+        shell: bash
+        run: |
+          set +e
+          ../scripts/sanitize-runtime-env.sh npm run lint 2>&1 | tee "$RUNNER_TEMP/server-lint.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Upload server lint log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-lint-log
+          path: ${{ runner.temp }}/server-lint.log
+          if-no-files-found: error
 
       - name: Test
         run: ../scripts/sanitize-runtime-env.sh npm run test
