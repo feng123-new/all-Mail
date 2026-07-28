@@ -14,9 +14,6 @@ case "$runtime_role" in
     api)
         runtime_entry="dist/index.js"
         ;;
-    jobs)
-        runtime_entry="dist/worker.js"
-        ;;
     *)
         exec "$runtime_role" "$@"
         ;;
@@ -68,9 +65,6 @@ prepare_runtime_state() {
 }
 
 prepare_runtime_state
-if [ "$runtime_role" = "jobs" ]; then
-    rm -f "$ALL_MAIL_STATE_DIR/jobs-heartbeat.txt"
-fi
 
 eval "$(run_as_allmail "$sanitize_runtime_env" node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR" --format shell)"
 
