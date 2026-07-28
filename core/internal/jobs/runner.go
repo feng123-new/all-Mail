@@ -16,8 +16,12 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/provider"
 )
 
-type workerHeartbeat struct {
-	Enabled             bool       `json:"enabled"`
+const (
+	WorkerForwarding = "forwarding"
+	WorkerRetention  = "retention"
+)
+
+type workerSnapshot struct {
 	Running             bool       `json:"running"`
 	StartedAt           *time.Time `json:"startedAt,omitempty"`
 	LastRunAt           *time.Time `json:"lastRunAt,omitempty"`
@@ -29,373 +33,321 @@ type workerHeartbeat struct {
 }
 
 type heartbeat struct {
-	Runtime   string                     `json:"runtime"`
-	PID       int                        `json:"pid"`
-	UpdatedAt time.Time                  `json:"updatedAt"`
-	Workers   map[string]workerHeartbeat `json:"workers"`
+	Runtime   string         `json:"runtime"`
+	Worker    string         `json:"worker"`
+	PID       int            `json:"pid"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+	State     workerSnapshot `json:"state"`
 }
 
-type runtimeState struct {
-	mu         sync.RWMutex
-	retention  workerHeartbeat
-	forwarding workerHeartbeat
+type workerState struct {
+	mu       sync.RWMutex
+	snapshot workerSnapshot
 }
 
-type forwardingRunner interface {
-	runOnce(context.Context, time.Time) error
+type runOutcome struct {
+	deleted int64
+	err     error
+}
+
+type runtimeConfig struct {
+	name              string
+	stateDir          string
+	interval          time.Duration
+	retry             time.Duration
+	runTimeout        time.Duration
+	heartbeatInterval time.Duration
+	shutdownTimeout   time.Duration
+	healthTimeout     time.Duration
+	runOnce           func(context.Context, time.Time) (int64, error)
+	healthCheck       func(context.Context) error
 }
 
 var errForwardingOwnerLockLost = errors.New("forwarding owner lock connection lost")
 
-func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	var cleaner RetentionCleaner
-	if cfg.LogRetentionOwner == config.RuntimeOwnerGo {
-		var err error
-		cleaner, err = newRetentionCleaner(cfg)
-		if err != nil {
-			return err
-		}
+func RunForwarding(ctx context.Context, cfg config.ForwardingConfig, logger *slog.Logger) error {
+	ownerLock, err := acquireForwardingOwner(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
 	}
+	defer ownerLock.Close(context.Background())
 
-	var forwarder forwardingRunner
-	var checkForwardingOwner func(context.Context) error
-	var ownerLock *forwardingOwnerLock
-	var forwardingStore *postgresForwardingStore
-	if cfg.ForwardingWorkerOwner == config.RuntimeOwnerGo {
-		var err error
-		ownerLock, err = acquireForwardingOwner(ctx, cfg.DatabaseURL)
-		if err != nil {
-			return err
-		}
-		forwardingStore, err = newPostgresForwardingStore(ctx, cfg.DatabaseURL)
-		if err != nil {
-			ownerLock.Close(context.Background())
-			return err
-		}
-		forwarder = newForwardingWorker(
-			forwardingStore,
-			provider.NewResendClient(cfg.ResendAPIBaseURL, nil),
-			func(envelope string) (string, error) {
-				return legacycrypto.Decrypt(cfg.EncryptionKey, envelope)
-			},
-			logger,
-			cfg.ForwardingBatchSize,
-		)
-		checkForwardingOwner = ownerLock.Ping
-		defer forwardingStore.Close()
-		defer ownerLock.Close(context.Background())
+	store, err := newPostgresForwardingStore(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
 	}
+	defer store.Close()
 
-	return runSupervisor(ctx, cfg, logger, cleaner, forwarder, checkForwardingOwner)
-}
-
-func run(ctx context.Context, cfg config.Config, logger *slog.Logger, cleaner RetentionCleaner) error {
-	return runSupervisor(ctx, cfg, logger, cleaner, nil, nil)
-}
-
-func runSupervisor(
-	ctx context.Context,
-	cfg config.Config,
-	logger *slog.Logger,
-	cleaner RetentionCleaner,
-	forwarder forwardingRunner,
-	checkForwardingOwner func(context.Context) error,
-) error {
-	if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
-		return fmt.Errorf("create state directory: %w", err)
-	}
-	workerCtx, cancelWorkers := context.WithCancel(ctx)
-	defer cancelWorkers()
-
-	state := &runtimeState{}
-	state.retention.Enabled = cleaner != nil
-	state.forwarding.Enabled = forwarder != nil
-	logger.Info(
-		"Go jobs runtime started",
-		"heartbeat_interval", cfg.JobsHeartbeatInterval,
-		"api_log_retention_owner", cfg.LogRetentionOwner,
-		"forwarding_owner", cfg.ForwardingWorkerOwner,
-		"forwarding_run_timeout", cfg.ForwardingRunTimeout,
+	worker := newForwardingWorker(
+		store,
+		provider.NewResendClient(cfg.ResendAPIBaseURL, nil),
+		func(envelope string) (string, error) {
+			return legacycrypto.Decrypt(cfg.EncryptionKey, envelope)
+		},
+		logger,
+		cfg.BatchSize,
 	)
-	if err := writeHeartbeat(cfg.StateDir, state.snapshot()); err != nil {
-		return err
-	}
-	ownerCheckTimeout := cfg.ReadyTimeout
-	if ownerCheckTimeout <= 0 {
-		ownerCheckTimeout = 5 * time.Second
-	}
-	checkOwner := func() error {
-		if checkForwardingOwner == nil {
+
+	return runWorker(ctx, runtimeConfig{
+		name:              WorkerForwarding,
+		stateDir:          cfg.StateDir,
+		interval:          cfg.Interval,
+		retry:             cfg.Interval,
+		runTimeout:        cfg.RunTimeout,
+		heartbeatInterval: cfg.HeartbeatInterval,
+		shutdownTimeout:   cfg.ShutdownTimeout,
+		healthTimeout:     cfg.ReadyTimeout,
+		runOnce: func(runCtx context.Context, now time.Time) (int64, error) {
+			return 0, worker.runOnce(runCtx, now)
+		},
+		healthCheck: func(checkCtx context.Context) error {
+			if err := ownerLock.Ping(checkCtx); err != nil {
+				return fmt.Errorf("%w: %v", errForwardingOwnerLockLost, err)
+			}
 			return nil
-		}
-		checkCtx, cancel := context.WithTimeout(workerCtx, ownerCheckTimeout)
-		defer cancel()
-		if err := checkForwardingOwner(checkCtx); err != nil {
-			return fmt.Errorf("%w: %v", errForwardingOwnerLockLost, err)
-		}
-		return nil
-	}
-	if err := checkOwner(); err != nil {
-		state.markForwardingFailed(time.Now().UTC(), err)
-		_ = writeHeartbeat(cfg.StateDir, state.snapshot())
+		},
+	}, logger)
+}
+
+func RunRetention(ctx context.Context, cfg config.RetentionConfig, logger *slog.Logger) error {
+	cleaner, err := newRetentionCleaner(cfg)
+	if err != nil {
 		return err
 	}
+	return runWorker(ctx, runtimeConfig{
+		name:              WorkerRetention,
+		stateDir:          cfg.StateDir,
+		interval:          cfg.Interval,
+		retry:             cfg.Retry,
+		runTimeout:        cfg.RunTimeout,
+		heartbeatInterval: cfg.HeartbeatInterval,
+		shutdownTimeout:   cfg.ShutdownTimeout,
+		healthTimeout:     cfg.RunTimeout,
+		runOnce: func(runCtx context.Context, _ time.Time) (int64, error) {
+			return cleaner.Cleanup(runCtx)
+		},
+	}, logger)
+}
 
-	retentionDone := make(chan struct{})
-	if cleaner != nil {
-		go func() {
-			defer close(retentionDone)
-			runRetentionLoop(workerCtx, cfg, logger, cleaner, state)
-		}()
-	} else {
-		close(retentionDone)
+func runWorker(ctx context.Context, cfg runtimeConfig, logger *slog.Logger) error {
+	if err := os.MkdirAll(cfg.stateDir, 0o700); err != nil {
+		return fmt.Errorf("create worker state directory: %w", err)
+	}
+	if cfg.interval <= 0 || cfg.retry <= 0 || cfg.runTimeout <= 0 || cfg.heartbeatInterval <= 0 || cfg.shutdownTimeout <= 0 {
+		return fmt.Errorf("worker %s has invalid non-positive runtime duration", cfg.name)
+	}
+	if cfg.healthTimeout <= 0 {
+		cfg.healthTimeout = 5 * time.Second
 	}
 
-	heartbeatTicker := time.NewTicker(cfg.JobsHeartbeatInterval)
+	state := &workerState{}
+	if err := writeHeartbeat(cfg.stateDir, cfg.name, state.current()); err != nil {
+		return err
+	}
+	logger.Info(
+		"Go worker runtime started",
+		"worker", cfg.name,
+		"interval", cfg.interval,
+		"run_timeout", cfg.runTimeout,
+		"heartbeat_interval", cfg.heartbeatInterval,
+	)
+
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	heartbeatTicker := time.NewTicker(cfg.heartbeatInterval)
 	defer heartbeatTicker.Stop()
-	var forwardingTicker *time.Ticker
-	var forwardingTicks <-chan time.Time
-	if forwarder != nil {
-		forwardingTicker = time.NewTicker(cfg.ForwardingInterval)
-		forwardingTicks = forwardingTicker.C
-		defer forwardingTicker.Stop()
-	}
-	var ownerCheckTicker *time.Ticker
-	var ownerCheckTicks <-chan time.Time
-	if checkForwardingOwner != nil {
-		ownerCheckTicker = time.NewTicker(cfg.JobsHeartbeatInterval)
-		ownerCheckTicks = ownerCheckTicker.C
-		defer ownerCheckTicker.Stop()
+
+	var healthTicker *time.Ticker
+	var healthTicks <-chan time.Time
+	if cfg.healthCheck != nil {
+		healthTicker = time.NewTicker(cfg.heartbeatInterval)
+		healthTicks = healthTicker.C
+		defer healthTicker.Stop()
 	}
 
-	forwardingResults := make(chan error, 1)
-	forwardingRunning := false
-	startForwarding := func() {
-		if forwarder == nil || forwardingRunning {
+	results := make(chan runOutcome, 1)
+	var activeCancel context.CancelFunc
+	running := false
+
+	startRun := func() {
+		if running {
 			return
 		}
 		now := time.Now().UTC()
-		forwardingRunning = true
-		state.markForwardingStarted(now)
-		runTimeout := cfg.ForwardingRunTimeout
-		if runTimeout <= 0 {
-			runTimeout = 2 * time.Minute
+		running = true
+		state.markStarted(now)
+		if err := writeHeartbeat(cfg.stateDir, cfg.name, state.current()); err != nil {
+			logger.Error("failed to publish worker start heartbeat", "worker", cfg.name, "error", err)
 		}
-		runCtx, cancelRun := context.WithTimeout(workerCtx, runTimeout)
-		go func() {
-			defer cancelRun()
-			forwardingResults <- forwarder.runOnce(runCtx, now)
-		}()
+		runCtx, cancel := context.WithTimeout(ctx, cfg.runTimeout)
+		activeCancel = cancel
+		go func(startedAt time.Time) {
+			deleted, err := cfg.runOnce(runCtx, startedAt)
+			results <- runOutcome{deleted: deleted, err: err}
+		}(now)
 	}
-	startForwarding()
 
-	waitForWorkers := func() error {
-		cancelWorkers()
-		if forwardingRunning {
-			shutdownTimeout := cfg.ShutdownTimeout
-			if shutdownTimeout <= 0 {
-				shutdownTimeout = 10 * time.Second
-			}
+	resetTimer := func(delay time.Duration) {
+		if delay <= 0 {
+			delay = time.Second
+		}
+		if !timer.Stop() {
 			select {
-			case <-forwardingResults:
-			case <-time.After(shutdownTimeout):
-				return fmt.Errorf("timed out waiting for forwarding run to stop")
+			case <-timer.C:
+			default:
 			}
 		}
-		<-retentionDone
-		return nil
+		timer.Reset(delay)
+	}
+
+	waitForActive := func() error {
+		if !running {
+			return nil
+		}
+		if activeCancel != nil {
+			activeCancel()
+		}
+		select {
+		case <-results:
+			running = false
+			return nil
+		case <-time.After(cfg.shutdownTimeout):
+			return fmt.Errorf("timed out waiting for %s worker run to stop", cfg.name)
+		}
+	}
+
+	checkHealth := func() error {
+		if cfg.healthCheck == nil {
+			return nil
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, cfg.healthTimeout)
+		defer cancel()
+		return cfg.healthCheck(checkCtx)
+	}
+
+	if err := checkHealth(); err != nil {
+		state.markFailed(time.Now().UTC(), err)
+		_ = writeHeartbeat(cfg.stateDir, cfg.name, state.current())
+		return err
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			if err := waitForWorkers(); err != nil {
+			if err := waitForActive(); err != nil {
 				return err
 			}
-			logger.Info("Go jobs runtime stopped")
+			logger.Info("Go worker runtime stopped", "worker", cfg.name)
 			return nil
-		case <-forwardingTicks:
-			startForwarding()
-		case <-ownerCheckTicks:
-			if err := checkOwner(); err != nil {
-				state.markForwardingFailed(time.Now().UTC(), err)
-				_ = writeHeartbeat(cfg.StateDir, state.snapshot())
-				if shutdownErr := waitForWorkers(); shutdownErr != nil {
+		case <-timer.C:
+			startRun()
+		case <-healthTicks:
+			if err := checkHealth(); err != nil {
+				state.markFailed(time.Now().UTC(), err)
+				_ = writeHeartbeat(cfg.stateDir, cfg.name, state.current())
+				if shutdownErr := waitForActive(); shutdownErr != nil {
 					return errors.Join(err, shutdownErr)
 				}
 				return err
 			}
-		case err := <-forwardingResults:
-			forwardingRunning = false
-			finishedAt := time.Now().UTC()
-			if err != nil && !errors.Is(err, context.Canceled) {
-				state.markForwardingFailed(finishedAt, err)
-				logger.Error("Go forwarding run failed", "error", err)
-			} else {
-				state.markForwardingSucceeded(finishedAt)
+		case outcome := <-results:
+			if activeCancel != nil {
+				activeCancel()
+				activeCancel = nil
 			}
-			if err := writeHeartbeat(cfg.StateDir, state.snapshot()); err != nil {
-				logger.Error("failed to write jobs heartbeat", "error", err)
+			running = false
+			finishedAt := time.Now().UTC()
+			if outcome.err != nil && !(ctx.Err() != nil && errors.Is(outcome.err, context.Canceled)) {
+				state.markFailed(finishedAt, outcome.err)
+				logger.Error("Go worker run failed", "worker", cfg.name, "error", outcome.err, "retry_after", cfg.retry)
+				resetTimer(cfg.retry)
+			} else {
+				state.markSucceeded(finishedAt, outcome.deleted)
+				logger.Info("Go worker run completed", "worker", cfg.name, "deleted", outcome.deleted)
+				resetTimer(cfg.interval)
+			}
+			if err := writeHeartbeat(cfg.stateDir, cfg.name, state.current()); err != nil {
+				logger.Error("failed to write worker heartbeat", "worker", cfg.name, "error", err)
 			}
 		case <-heartbeatTicker.C:
-			if err := writeHeartbeat(cfg.StateDir, state.snapshot()); err != nil {
-				logger.Error("failed to write jobs heartbeat", "error", err)
+			if err := writeHeartbeat(cfg.stateDir, cfg.name, state.current()); err != nil {
+				logger.Error("failed to write worker heartbeat", "worker", cfg.name, "error", err)
 			}
 		}
 	}
 }
 
-func runRetentionLoop(
-	ctx context.Context,
-	cfg config.Config,
-	logger *slog.Logger,
-	cleaner RetentionCleaner,
-	state *runtimeState,
-) {
-	delay := time.Duration(0)
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-			startedAt := time.Now().UTC()
-			state.markRetentionStarted(startedAt)
-
-			cleanupCtx, cancel := context.WithTimeout(ctx, cfg.APILogCleanupTimeout)
-			deleted, err := cleaner.Cleanup(cleanupCtx)
-			cancel()
-			finishedAt := time.Now().UTC()
-
-			if err != nil {
-				if ctx.Err() != nil && errors.Is(err, context.Canceled) {
-					return
-				}
-				state.markRetentionFailed(finishedAt, err)
-				logger.Error("Go API log retention cleanup failed", "error", err, "retry_after", cfg.APILogCleanupRetry)
-				delay = cfg.APILogCleanupRetry
-			} else {
-				state.markRetentionSucceeded(finishedAt, deleted)
-				logger.Info(
-					"Go API log retention cleanup completed",
-					"deleted", deleted,
-					"retention_days", cfg.APILogRetentionDays,
-					"batch_size", cfg.APILogCleanupBatch,
-				)
-				delay = cfg.APILogCleanupInterval
-			}
-
-			if delay <= 0 {
-				delay = time.Second
-			}
-			timer.Reset(delay)
-		}
-	}
-}
-
-func (state *runtimeState) markRetentionStarted(at time.Time) {
+func (state *workerState) markStarted(at time.Time) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	state.retention.Running = true
-	state.retention.StartedAt = &at
-	state.retention.LastRunAt = &at
+	state.snapshot.Running = true
+	state.snapshot.StartedAt = &at
+	state.snapshot.LastRunAt = &at
 }
 
-func (state *runtimeState) markRetentionSucceeded(at time.Time, deleted int64) {
+func (state *workerState) markSucceeded(at time.Time, deleted int64) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	state.retention.Running = false
-	state.retention.StartedAt = nil
-	state.retention.LastCompletedAt = &at
-	state.retention.LastSuccessAt = &at
-	state.retention.LastDeleted = deleted
-	state.retention.ConsecutiveFailures = 0
-	state.retention.LastError = ""
+	state.snapshot.Running = false
+	state.snapshot.StartedAt = nil
+	state.snapshot.LastCompletedAt = &at
+	state.snapshot.LastSuccessAt = &at
+	state.snapshot.LastDeleted = deleted
+	state.snapshot.ConsecutiveFailures = 0
+	state.snapshot.LastError = ""
 }
 
-func (state *runtimeState) markRetentionFailed(at time.Time, err error) {
+func (state *workerState) markFailed(at time.Time, err error) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	state.retention.Running = false
-	state.retention.StartedAt = nil
-	state.retention.LastCompletedAt = &at
-	state.retention.LastRunAt = &at
-	state.retention.ConsecutiveFailures++
-	state.retention.LastError = err.Error()
+	state.snapshot.Running = false
+	state.snapshot.StartedAt = nil
+	state.snapshot.LastCompletedAt = &at
+	state.snapshot.ConsecutiveFailures++
+	state.snapshot.LastError = err.Error()
 }
 
-func (state *runtimeState) markForwardingStarted(at time.Time) {
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	state.forwarding.Running = true
-	state.forwarding.StartedAt = &at
-	state.forwarding.LastRunAt = &at
-}
-
-func (state *runtimeState) markForwardingSucceeded(at time.Time) {
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	state.forwarding.Running = false
-	state.forwarding.StartedAt = nil
-	state.forwarding.LastCompletedAt = &at
-	state.forwarding.LastRunAt = &at
-	state.forwarding.LastSuccessAt = &at
-	state.forwarding.ConsecutiveFailures = 0
-	state.forwarding.LastError = ""
-}
-
-func (state *runtimeState) markForwardingFailed(at time.Time, err error) {
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	state.forwarding.Running = false
-	state.forwarding.StartedAt = nil
-	state.forwarding.LastCompletedAt = &at
-	state.forwarding.LastRunAt = &at
-	state.forwarding.ConsecutiveFailures++
-	state.forwarding.LastError = err.Error()
-}
-
-func (state *runtimeState) snapshot() map[string]workerHeartbeat {
+func (state *workerState) current() workerSnapshot {
 	state.mu.RLock()
 	defer state.mu.RUnlock()
-	return map[string]workerHeartbeat{
-		"apiLogRetention": state.retention,
-		"forwarding":      state.forwarding,
-	}
+	return state.snapshot
 }
 
-func HeartbeatPath(stateDir string) string {
-	return filepath.Join(stateDir, "go-jobs-heartbeat.json")
+func HeartbeatPath(stateDir, worker string) string {
+	return filepath.Join(stateDir, "worker-"+worker+"-heartbeat.json")
 }
 
-func writeHeartbeat(stateDir string, workers map[string]workerHeartbeat) error {
+func writeHeartbeat(stateDir, worker string, state workerSnapshot) error {
 	payload, err := json.Marshal(heartbeat{
-		Runtime:   "go-jobs-runtime",
+		Runtime:   "allmail-worker-" + worker,
+		Worker:    worker,
 		PID:       os.Getpid(),
 		UpdatedAt: time.Now().UTC(),
-		Workers:   workers,
+		State:     state,
 	})
 	if err != nil {
 		return err
 	}
-	target := HeartbeatPath(stateDir)
-	temporary, err := os.CreateTemp(stateDir, ".go-jobs-heartbeat-*.tmp")
+	target := HeartbeatPath(stateDir, worker)
+	temporary, err := os.CreateTemp(stateDir, ".worker-"+worker+"-heartbeat-*.tmp")
 	if err != nil {
-		return fmt.Errorf("write heartbeat: %w", err)
+		return fmt.Errorf("write %s heartbeat: %w", worker, err)
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return fmt.Errorf("secure %s heartbeat: %w", worker, err)
+	}
 	if _, err := temporary.Write(payload); err != nil {
 		temporary.Close()
-		return fmt.Errorf("write heartbeat: %w", err)
+		return fmt.Errorf("write %s heartbeat: %w", worker, err)
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close heartbeat: %w", err)
+		return fmt.Errorf("close %s heartbeat: %w", worker, err)
 	}
 	if err := os.Rename(temporaryPath, target); err != nil {
-		return fmt.Errorf("publish heartbeat: %w", err)
+		return fmt.Errorf("publish %s heartbeat: %w", worker, err)
 	}
 	return nil
 }
