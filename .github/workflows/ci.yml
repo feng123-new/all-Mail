@@ -8,6 +8,9 @@ on:
   merge_group:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   runtime:
     name: runtime-tests
@@ -71,7 +74,7 @@ jobs:
             core/go.mod
             core/go.sum
 
-      - name: Install PostgreSQL client
+      - name: Install PostgreSQL client for migration tests
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
 
       - name: Check formatting
@@ -309,10 +312,9 @@ jobs:
       - name: Check
         run: ../../../scripts/sanitize-runtime-env.sh npm run check
 
-  release-gate:
-    name: release-gate
+  dependency-audit:
+    name: production-dependency-audit
     runs-on: ubuntu-latest
-    needs: [runtime, go, web, server, worker]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -321,9 +323,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Prepare default env file
-        run: cp .env.example .env
 
       - name: Audit production dependencies
         shell: bash
@@ -341,17 +340,40 @@ jobs:
           path: ${{ runner.temp }}/production-audit.log
           if-no-files-found: error
 
+  docker-smoke:
+    name: docker-smoke
+    runs-on: ubuntu-latest
+    needs: [runtime, go, web, server, worker]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare default env file
+        run: cp .env.example .env
+
+      - name: Validate Compose model
+        run: docker compose config --quiet
+
       - name: Start Docker stack
         run: docker compose up -d --build --wait --wait-timeout 240
+
+      - name: Verify consolidated service ownership
+        shell: bash
+        run: |
+          docker compose ps -a
+          test "$(docker compose exec -T legacy-api id -u)" = "10001"
+          if docker compose ps --services | grep -qx legacy-jobs; then
+            echo "legacy-jobs must not run in the default profile"
+            exit 1
+          fi
+          docker compose exec -T legacy-api sh -lc "test -r /var/lib/all-mail/bootstrap-secrets.env"
+          docker compose exec -T go-jobs sh -lc "test -r /var/lib/all-mail/encryption-key"
 
       - name: Verify Go and legacy readiness
         run: |
           curl --fail --silent --show-error http://127.0.0.1:3002/health
           curl --fail --silent --show-error http://127.0.0.1:3002/readyz
           docker compose exec -T legacy-api node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
-
-      - name: Verify Go jobs runtime
-        run: docker compose exec -T go-jobs allmail doctor jobs
 
       - name: Check runtime doctors
         run: |
@@ -361,3 +383,17 @@ jobs:
       - name: Stop Docker stack
         if: always()
         run: docker compose down -v
+
+  release-gate:
+    name: release-gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [dependency-audit, docker-smoke]
+    steps:
+      - name: Require audit and Docker smoke success
+        env:
+          AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+          DOCKER_RESULT: ${{ needs.docker-smoke.result }}
+        run: |
+          test "$AUDIT_RESULT" = "success"
+          test "$DOCKER_RESULT" = "success"
