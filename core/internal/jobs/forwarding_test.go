@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"testing"
 	"time"
 
@@ -124,5 +125,32 @@ func TestForwardingWorkerSchedulesRetryableFailure(t *testing.T) {
 	}
 	if store.lastError != "temporary upstream 503" {
 		t.Fatalf("lastError = %q", store.lastError)
+	}
+}
+
+func TestForwardingWorkerRetriesTypedTransientProviderFailure(t *testing.T) {
+	store := &fakeForwardingStore{job: testForwardingJob()}
+	providerErr := &provider.HTTPError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded", Message: "slow down"}
+	worker := newForwardingWorker(store, &fakeSender{err: providerErr}, func(string) (string, error) { return "re_secret", nil }, discardLogger(), 10)
+	now := time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC)
+
+	if err := worker.runOnce(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	if !store.failed || store.retryAt == nil {
+		t.Fatalf("failed=%v retryAt=%v", store.failed, store.retryAt)
+	}
+}
+
+func TestForwardingWorkerDoesNotRetryTypedPermanentProviderFailure(t *testing.T) {
+	store := &fakeForwardingStore{job: testForwardingJob()}
+	providerErr := &provider.HTTPError{StatusCode: http.StatusBadRequest, Code: "validation_error", Message: "bad recipient"}
+	worker := newForwardingWorker(store, &fakeSender{err: providerErr}, func(string) (string, error) { return "re_secret", nil }, discardLogger(), 10)
+
+	if err := worker.runOnce(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if !store.failed || store.retryAt != nil {
+		t.Fatalf("failed=%v retryAt=%v", store.failed, store.retryAt)
 	}
 }
