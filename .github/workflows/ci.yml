@@ -103,7 +103,20 @@ jobs:
           if-no-files-found: warn
 
       - name: Test with race detector
-        run: go test -race ./...
+        shell: bash
+        run: |
+          set +e
+          go test -race ./... 2>&1 | tee "$RUNNER_TEMP/go-race-tests.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Upload Go race-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-race-test-log
+          path: ${{ runner.temp }}/go-race-tests.log
+          if-no-files-found: error
 
       - name: Vet
         run: go vet ./...
