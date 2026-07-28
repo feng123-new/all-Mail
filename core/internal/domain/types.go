@@ -21,16 +21,16 @@ const (
 type ProviderErrorKind string
 
 const (
-	ProviderAuthReauth        ProviderErrorKind = "AUTH_REAUTH"
+	ProviderAuthReauth       ProviderErrorKind = "AUTH_REAUTH"
 	ProviderPermissionDenied ProviderErrorKind = "PERMISSION_DENIED"
-	ProviderThrottled         ProviderErrorKind = "THROTTLED"
-	ProviderTransientNetwork  ProviderErrorKind = "TRANSIENT_NETWORK"
-	ProviderRemoteError       ProviderErrorKind = "PROVIDER_ERROR"
-	ProviderCursorInvalid     ProviderErrorKind = "CURSOR_INVALID"
-	ProviderFolderNotFound    ProviderErrorKind = "FOLDER_NOT_FOUND"
-	ProviderTLSCertificate    ProviderErrorKind = "TLS_CERTIFICATE"
-	ProviderMessageParse      ProviderErrorKind = "MESSAGE_PARSE"
-	ProviderPermanentConfig   ProviderErrorKind = "PERMANENT_CONFIG"
+	ProviderThrottled        ProviderErrorKind = "THROTTLED"
+	ProviderTransientNetwork ProviderErrorKind = "TRANSIENT_NETWORK"
+	ProviderRemoteError      ProviderErrorKind = "PROVIDER_ERROR"
+	ProviderCursorInvalid    ProviderErrorKind = "CURSOR_INVALID"
+	ProviderFolderNotFound   ProviderErrorKind = "FOLDER_NOT_FOUND"
+	ProviderTLSCertificate   ProviderErrorKind = "TLS_CERTIFICATE"
+	ProviderMessageParse     ProviderErrorKind = "MESSAGE_PARSE"
+	ProviderPermanentConfig  ProviderErrorKind = "PERMANENT_CONFIG"
 )
 
 type ProviderError struct {
