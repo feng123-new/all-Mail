@@ -2,14 +2,9 @@ import type { FastifyInstance } from 'fastify';
 
 import { buildApp } from '../app.js';
 import { env } from '../config/env.js';
-import { startApiLogRetentionJob } from '../jobs/api-log-retention.js';
-import { startForwardingWorker } from '../jobs/forwarding.worker.js';
 import { logger } from '../lib/logger.js';
 import prisma from '../lib/prisma.js';
 import { authService } from '../modules/auth/auth.service.js';
-import { startJobsHeartbeat } from './jobsHealth.js';
-
-type StopFn = () => void | Promise<void>;
 
 interface RuntimeLogger {
     info: (...args: unknown[]) => void;
@@ -31,30 +26,12 @@ interface ApiRuntimeDeps {
     prisma: PrismaRuntimeClient;
 }
 
-interface JobsRuntimeDeps {
-    logger: RuntimeLogger;
-    prisma: PrismaRuntimeClient;
-    forwardingWorkerOwner: 'legacy' | 'go' | 'disabled';
-    startApiLogRetentionJob: () => StopFn;
-    startForwardingWorker: () => Promise<StopFn>;
-    startJobsHeartbeat: () => StopFn;
-}
-
 const defaultApiRuntimeDeps: ApiRuntimeDeps = {
     authService,
     buildApp,
     logger,
     port: env.PORT,
     prisma,
-};
-
-const defaultJobsRuntimeDeps: JobsRuntimeDeps = {
-    logger,
-    prisma,
-    forwardingWorkerOwner: env.FORWARDING_WORKER_OWNER,
-    startApiLogRetentionJob,
-    startForwardingWorker,
-    startJobsHeartbeat: () => startJobsHeartbeat(env.FORWARDING_WORKER_INTERVAL_SECONDS),
 };
 
 export function createApiRuntime(deps: ApiRuntimeDeps = defaultApiRuntimeDeps) {
@@ -95,48 +72,6 @@ export function createApiRuntime(deps: ApiRuntimeDeps = defaultApiRuntimeDeps) {
             if (app) {
                 await app.close();
             }
-            await deps.prisma.$disconnect();
-        },
-    };
-}
-
-export function createJobsRuntime(deps: JobsRuntimeDeps = defaultJobsRuntimeDeps) {
-    let stopApiLogRetentionJob: StopFn = () => undefined;
-    let stopForwardingJob: StopFn = () => undefined;
-    let stopJobsHeartbeat: StopFn = () => undefined;
-    let started = false;
-
-    return {
-        async start(): Promise<void> {
-            try {
-                await deps.prisma.$connect();
-                deps.logger.info('Database connected');
-
-                stopJobsHeartbeat = deps.startJobsHeartbeat();
-                stopApiLogRetentionJob = deps.startApiLogRetentionJob();
-                if (deps.forwardingWorkerOwner === 'legacy') {
-                    stopForwardingJob = await deps.startForwardingWorker();
-                }
-                deps.logger.info({ forwardingOwner: deps.forwardingWorkerOwner }, 'Background jobs runtime started');
-                started = true;
-            } catch (error) {
-                await Promise.resolve(stopApiLogRetentionJob());
-                await Promise.resolve(stopForwardingJob());
-                await Promise.resolve(stopJobsHeartbeat());
-                await deps.prisma.$disconnect();
-                throw error;
-            }
-        },
-        async stop(): Promise<void> {
-            if (!started) {
-                await deps.prisma.$disconnect();
-                return;
-            }
-
-            deps.logger.info('Shutting down background jobs runtime...');
-            await Promise.resolve(stopApiLogRetentionJob());
-            await Promise.resolve(stopForwardingJob());
-            await Promise.resolve(stopJobsHeartbeat());
             await deps.prisma.$disconnect();
         },
     };
