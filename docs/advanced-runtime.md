@@ -1,53 +1,63 @@
-# Advanced Runtime Guide
+# Advanced source runtime guide
 
 ## Boundary
 
-This document covers the **secondary** runtime paths for `all-Mail`.
+This document covers the secondary Node source-runtime path.
 
-- Use [`docs/DEPLOY.md`](./DEPLOY.md) for the canonical Docker-first deployment path.
-- Use [`docs/ENVIRONMENT.md`](./ENVIRONMENT.md) for variable meaning and template ownership.
-- Use [`docs/RUNBOOK.md`](./RUNBOOK.md) for troubleshooting and recovery.
-- Use this file only when you intentionally run the compiled app outside the main Docker app container.
+It starts:
 
-## When to use this guide
+- the compiled Fastify API;
+- the compiled Node jobs process;
+- optional Dockerized PostgreSQL and Redis dependencies.
 
-Use this guide only when you need one of these advanced modes:
+It does **not** start or validate:
 
-- run the app itself outside Docker
-- keep PostgreSQL / Redis in Docker but run the app from source
-- use the repository-level `all-mail` CLI for source-based startup
+- the Go public listener;
+- Go readiness;
+- Go forwarding;
+- Go API-log retention;
+- the canonical one-shot `legacy-init -> go-migrate` sequence.
 
-If you just want the supported default path, go back to the root `README.md` and use Docker Compose.
+Use [`DEPLOY.md`](./DEPLOY.md) for the supported production topology.
 
-## Runtime prerequisites
+## Appropriate uses
 
-Direct npm/CLI runtime still expects external infrastructure:
+Use this path for:
 
-| Dependency | Required | Why |
+- Fastify business API development;
+- debugging legacy provider/OAuth behavior;
+- compatibility testing against an existing PostgreSQL database;
+- running the API outside Docker while iterating locally.
+
+Do not use source-runtime success as release evidence for the Go migration bridge.
+
+## Prerequisites
+
+| Dependency | Required | Notes |
 | --- | --- | --- |
-| PostgreSQL | Yes | `DATABASE_URL` is mandatory in `server/src/config/env.ts`, and startup exits if Prisma cannot connect |
-| Redis | Recommended | `REDIS_URL` is optional, but degraded Redis affects caching, OAuth state, and rate-limit behavior |
+| Node.js 20+ | Yes | Builds/runs Fastify, React and compatibility jobs |
+| PostgreSQL | Yes | `DATABASE_URL` is required |
+| Redis | Strongly recommended | Missing/degraded Redis changes OAuth, replay and rate-limit behavior |
+| Env file | Yes | `server/.env` or root `.env` |
 
-You also need a real env file.
+Env resolution order:
 
-Env resolution order for `scripts/start-all-mail.mjs` and `bin/all-mail.mjs` is:
+1. `ALL_MAIL_ENV_FILE`;
+2. `server/.env`;
+3. root `.env`.
 
-1. `ALL_MAIL_ENV_FILE`
-2. `server/.env`
-3. repo-root `.env`
+Derivations:
 
-Important derivations:
+- `APP_PORT` can populate `PORT`;
+- `POSTGRES_*` can populate `DATABASE_URL`;
+- `REDIS_*` can populate `REDIS_URL`;
+- login output resolves `PUBLIC_BASE_URL`, then `ALL_MAIL_PUBLIC_BASE_URL`, then the first `CORS_ORIGIN`, then localhost.
 
-- `APP_PORT` can populate `PORT` when `PORT` is absent.
-- `POSTGRES_*` can be used to derive `DATABASE_URL`.
-- `REDIS_*` can be used to derive `REDIS_URL`.
-- Login URL output resolves `PUBLIC_BASE_URL` -> `ALL_MAIL_PUBLIC_BASE_URL` -> first `CORS_ORIGIN` entry -> localhost fallback.
+`ALL_MAIL_STATE_DIR` may be set in the selected env file or parent environment. It controls the initial bootstrap-secret path as well as child runtime state.
 
-## Source-runtime options
+## Hybrid mode
 
-### 1. Hybrid mode
-
-Keep PostgreSQL + Redis in Docker, but run the app from source:
+Keep PostgreSQL and Redis in Docker while running the Node application from source:
 
 ```bash
 docker compose up -d postgres redis
@@ -56,11 +66,9 @@ docker compose up -d postgres redis
 ./bin/all-mail start
 ```
 
-This is the simplest non-default path when you want app logs and source control outside the app container while still using Compose for dependencies.
+The startup script prints an explicit warning that this is not the canonical Go topology.
 
-### 2. Direct source runtime with your own services
-
-If PostgreSQL and Redis already exist outside Docker:
+## External infrastructure mode
 
 ```bash
 cp server/.env.example server/.env
@@ -69,17 +77,9 @@ cp server/.env.example server/.env
 ./bin/all-mail start
 ```
 
-If you keep the default `PORT=3000`, the callback URI defaults in `server/.env.example` already match that source-runtime port. If you change `PORT`, update the provider OAuth callback URIs in the same file as well.
+Update OAuth callback URIs when changing `PORT`.
 
-### 3. Global CLI runtime
-
-You can install the repository as a source-based global CLI from a local clone:
-
-```bash
-npm install -g /path/to/all-Mail
-```
-
-Common commands:
+## CLI commands
 
 ```bash
 all-mail setup
@@ -93,60 +93,51 @@ all-mail deploy --env-file /path/to/.env --port 3102
 all-mail check
 ```
 
-### 4. Near one-click hybrid startup
+`all-mail up --docker-deps` starts only PostgreSQL and Redis through Compose, then runs the Node source topology.
 
-If you want the app outside Docker, but still want PostgreSQL + Redis prepared automatically:
-
-```bash
-all-mail up --docker-deps --env-file /path/to/.env --port 3102
-```
-
-That command:
-
-1. runs `docker compose up -d postgres redis`
-2. installs/builds the app only if required artifacts are missing
-3. starts `all-Mail` through the same source-runtime path
-
-## Verification and health checks
-
-Source-runtime-specific readiness check:
+## Source-runtime verification
 
 ```bash
 all-mail doctor --env-file /path/to/.env
-```
-
-Repo-root verification entrypoints remain the canonical release contract when you are working from the repository:
-
-```bash
-./bin/all-mail doctor
-./bin/all-mail check
-```
-
-- `./bin/all-mail doctor` checks env resolution, PostgreSQL reachability, Redis reachability, and required build artifacts.
-- `./bin/all-mail check` runs the full local release gate, including production dependency audits.
-- If your shell exports `NODE_USE_ENV_PROXY` or `HTTP[S]_PROXY`, these `./bin/all-mail ...` entrypoints avoid noisy `UNDICI-EHPA` startup warnings by sanitizing the env before Node/npm bootstraps.
-
-Basic HTTP health probe after startup:
-
-```bash
 curl http://127.0.0.1:3000/health
 ```
 
-If you changed `PORT`, replace `3000` accordingly.
+This doctor checks source env resolution, TCP reachability and build artifacts. It does not call the Go `allmail doctor api|jobs` commands.
 
-## Root scripts reference
+For full repository verification:
 
-- `./bin/all-mail install` → installs nested `server`, `web`, and worker dependencies through the sanitized CLI wrapper
-- `./bin/all-mail build` → builds `server`, builds `web`, and copies `web/dist` into repo-root `public/`
-- `./bin/all-mail start` → starts the compiled server and reuses the same Prisma migration fallback logic as the Docker entrypoint
-- `./bin/all-mail deploy` → convenience wrapper for `build + start`
+```bash
+./bin/all-mail check
+```
 
-## Migration and bootstrap notes
+CI remains the preferred proof for the canonical Docker stack.
 
-- `scripts/start-all-mail.mjs` follows the same Prisma migration/deploy fallback behavior as `docker/entrypoint.sh`.
-- Bootstrap-generated secrets default to `.all-mail-runtime/bootstrap-secrets.env` for the source runtime. Export `ALL_MAIL_STATE_DIR` before launch if you need the bootstrap-secret file written elsewhere; setting it only inside the env file affects later child runtimes but not the initial bootstrap-secret write.
-- `P3009` is not auto-recovered. Treat it as a manual recovery event and use [`docs/RUNBOOK.md`](./RUNBOOK.md).
+## Migration safety
 
-## Important caveat
+The source runtime runs Prisma migrations before starting Fastify and Node jobs.
 
-This is still a **source-based runtime**, not a zero-dependency desktop-style package. You are responsible for env configuration and for keeping PostgreSQL / Redis reachable outside the `all-Mail` process.
+Prisma P3005 no longer automatically triggers `db push`. After reviewing and backing up the database, enable the compatibility path for one intentional run only:
+
+```bash
+ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true ./bin/all-mail start
+```
+
+Do not persist that flag as a normal production setting.
+
+P3009 requires manual recovery.
+
+## Bootstrap secrets
+
+Source-generated secrets default to:
+
+```text
+.all-mail-runtime/bootstrap-secrets.env
+```
+
+Override with `ALL_MAIL_STATE_DIR` in the active env file or parent environment.
+
+The password stays out of stdout unless `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` is explicitly set.
+
+## Deprecation direction
+
+The source runtime exists because Fastify business routes are not yet ported. After business API migration and Node jobs deletion, this path should be reduced to development-only Fastify execution or removed entirely. The deletion gates are documented in [`internal/rewrite/runtime-consolidation-plan.md`](./internal/rewrite/runtime-consolidation-plan.md).
