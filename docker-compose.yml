@@ -1,16 +1,14 @@
 name: ${COMPOSE_PROJECT_NAME:-all-mail}
 
-x-allmail-environment: &allmail-environment
-  ALL_MAIL_ENV: production
+x-legacy-environment: &legacy-environment
   NODE_ENV: production
-  APP_PORT: ${APP_PORT:-3002}
   PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
-  ALL_MAIL_STATIC_DIR: /app/public
   ALL_MAIL_STATE_DIR: /var/lib/all-mail
+  ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD: ${ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD:-false}
   DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
   REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}
+  ALLOW_LOCAL_RATE_LIMIT_FALLBACK: ${ALLOW_LOCAL_RATE_LIMIT_FALLBACK:-false}
   CORS_ORIGIN: ${CORS_ORIGIN:-}
-  TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
   JWT_SECRET: ${JWT_SECRET:-}
   JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-2h}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
@@ -58,11 +56,16 @@ services:
     ports:
       - "${APP_PUBLISH_HOST:-127.0.0.1}:${APP_PORT:-3002}:${APP_INTERNAL_PORT:-3000}"
     environment:
-      <<: *allmail-environment
+      ALL_MAIL_ENV: production
+      GO_API_MODE: ${GO_API_MODE:-bridge}
       PORT: ${APP_INTERNAL_PORT:-3000}
+      ALL_MAIL_STATIC_DIR: /app/public
+      ALL_MAIL_MIGRATION_DIR: /app/migrations
       LEGACY_API_URL: http://legacy-api:${LEGACY_API_INTERNAL_PORT:-3100}
-      GO_JOBS_HEARTBEAT_SECONDS: ${GO_JOBS_HEARTBEAT_SECONDS:-15}
-      GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS: ${GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS:-90}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
+      REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}
+      READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
+      SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
       legacy-api:
         condition: service_healthy
@@ -71,8 +74,6 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
-    volumes:
-      - app_runtime_data:/var/lib/all-mail
     networks:
       - app-network
     healthcheck:
@@ -84,23 +85,19 @@ services:
     <<: *allmail-hardening
 
   go-jobs:
+    profiles: ["go-migration"]
     build:
       context: .
       dockerfile: Dockerfile
     command: ["jobs"]
     environment:
-      <<: *allmail-environment
-      PORT: ${APP_INTERNAL_PORT:-3000}
+      ALL_MAIL_ENV: production
+      ALL_MAIL_STATE_DIR: /var/lib/all-mail
       GO_JOBS_HEARTBEAT_SECONDS: ${GO_JOBS_HEARTBEAT_SECONDS:-15}
       GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS: ${GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS:-90}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     restart: unless-stopped
     volumes:
-      - app_runtime_data:/var/lib/all-mail
+      - go_runtime_data:/var/lib/all-mail
     networks:
       - app-network
     healthcheck:
@@ -117,7 +114,7 @@ services:
       dockerfile: Dockerfile.legacy
     command: ["api"]
     environment:
-      <<: *allmail-environment
+      <<: *legacy-environment
       PORT: ${LEGACY_API_INTERNAL_PORT:-3100}
       ALL_MAIL_RUN_MIGRATIONS: "1"
     depends_on:
@@ -127,33 +124,35 @@ services:
         condition: service_healthy
     restart: unless-stopped
     volumes:
-      - app_runtime_data:/var/lib/all-mail
+      - legacy_runtime_data:/var/lib/all-mail
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "/app/scripts/sanitize-runtime-env.sh", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/health').then((r)=>process.exit(r.ok ? 0 : 1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "/app/scripts/sanitize-runtime-env.sh", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then((r)=>process.exit(r.ok ? 0 : 1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 75s
 
-  jobs:
+  legacy-jobs:
     build:
       context: .
       dockerfile: Dockerfile.legacy
     command: ["jobs"]
     environment:
-      <<: *allmail-environment
+      <<: *legacy-environment
       PORT: ${LEGACY_API_INTERNAL_PORT:-3100}
       ALL_MAIL_RUN_MIGRATIONS: "0"
     depends_on:
+      legacy-api:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
     volumes:
-      - app_runtime_data:/var/lib/all-mail
+      - legacy_runtime_data:/var/lib/all-mail
     networks:
       - app-network
     healthcheck:
@@ -205,6 +204,7 @@ networks:
     driver: bridge
 
 volumes:
-  app_runtime_data:
+  legacy_runtime_data:
+  go_runtime_data:
   redis_data:
   postgres_data:
