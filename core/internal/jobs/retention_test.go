@@ -22,10 +22,10 @@ func TestRetentionDeleteSQLIsBoundedAndClaimSafe(t *testing.T) {
 }
 
 func TestNewRetentionCleanerUsesTypedConfiguration(t *testing.T) {
-	cleaner, err := newRetentionCleaner(config.Config{
-		DatabaseURL:         "postgresql://example.invalid/allmail",
-		APILogRetentionDays: 30,
-		APILogCleanupBatch:  5000,
+	cleaner, err := newRetentionCleaner(config.RetentionConfig{
+		DatabaseURL:   "postgresql://example.invalid/allmail",
+		RetentionDays: 30,
+		BatchSize:     5000,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +40,7 @@ func TestNewRetentionCleanerUsesTypedConfiguration(t *testing.T) {
 }
 
 func TestNewRetentionCleanerRequiresDatabaseURL(t *testing.T) {
-	if _, err := newRetentionCleaner(config.Config{}); err == nil {
+	if _, err := newRetentionCleaner(config.RetentionConfig{}); err == nil {
 		t.Fatal("newRetentionCleaner expected an error")
 	}
 }
