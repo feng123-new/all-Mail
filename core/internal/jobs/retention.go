@@ -37,14 +37,14 @@ type pgxRetentionCleaner struct {
 	batchSize   int
 }
 
-func newRetentionCleaner(cfg config.Config) (RetentionCleaner, error) {
+func newRetentionCleaner(cfg config.RetentionConfig) (RetentionCleaner, error) {
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required for Go API log retention")
 	}
 	return pgxRetentionCleaner{
 		databaseURL: cfg.DatabaseURL,
-		retention:   cfg.APILogRetentionDays,
-		batchSize:   cfg.APILogCleanupBatch,
+		retention:   cfg.RetentionDays,
+		batchSize:   cfg.BatchSize,
 	}, nil
 }
 
