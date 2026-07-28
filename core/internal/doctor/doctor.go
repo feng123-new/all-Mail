@@ -56,16 +56,25 @@ func Jobs(cfg config.Config) error {
 		return fmt.Errorf("read Go jobs heartbeat: %w", err)
 	}
 	var payload struct {
+		Runtime   string    `json:"runtime"`
+		PID       int       `json:"pid"`
 		UpdatedAt time.Time `json:"updatedAt"`
 		Workers   map[string]struct {
-			Enabled       bool       `json:"enabled"`
-			LastRunAt     *time.Time `json:"lastRunAt"`
-			LastSuccessAt *time.Time `json:"lastSuccessAt"`
-			LastError     string     `json:"lastError"`
+			Enabled             bool       `json:"enabled"`
+			Running             bool       `json:"running"`
+			StartedAt           *time.Time `json:"startedAt"`
+			LastRunAt           *time.Time `json:"lastRunAt"`
+			LastCompletedAt     *time.Time `json:"lastCompletedAt"`
+			LastSuccessAt       *time.Time `json:"lastSuccessAt"`
+			ConsecutiveFailures int        `json:"consecutiveFailures"`
+			LastError           string     `json:"lastError"`
 		} `json:"workers"`
 	}
 	if err := json.Unmarshal(content, &payload); err != nil {
 		return fmt.Errorf("decode Go jobs heartbeat: %w", err)
+	}
+	if payload.Runtime != "go-jobs-runtime" || payload.PID <= 0 {
+		return fmt.Errorf("Go jobs heartbeat has invalid runtime identity")
 	}
 	if payload.UpdatedAt.IsZero() {
 		return fmt.Errorf("Go jobs heartbeat has no timestamp")
@@ -73,8 +82,28 @@ func Jobs(cfg config.Config) error {
 	if age := time.Since(payload.UpdatedAt); age > cfg.JobsHeartbeatMaxAge {
 		return fmt.Errorf("Go jobs heartbeat is stale: %s", age.Round(time.Second))
 	}
+	if len(payload.Workers) == 0 {
+		return fmt.Errorf("Go jobs heartbeat has no worker state")
+	}
+
 	for name, worker := range payload.Workers {
-		if !worker.Enabled || worker.LastError == "" {
+		if !worker.Enabled {
+			continue
+		}
+		if worker.Running {
+			if worker.StartedAt == nil {
+				return fmt.Errorf("Go jobs worker %s is running without a start timestamp", name)
+			}
+			limit := workerRunLimit(name, cfg)
+			if limit > 0 && time.Since(*worker.StartedAt) > limit {
+				return fmt.Errorf(
+					"Go jobs worker %s has exceeded its run limit: %s",
+					name,
+					time.Since(*worker.StartedAt).Round(time.Second),
+				)
+			}
+		}
+		if worker.LastError == "" {
 			continue
 		}
 		if worker.LastSuccessAt == nil || (worker.LastRunAt != nil && worker.LastRunAt.After(*worker.LastSuccessAt)) {
@@ -82,4 +111,15 @@ func Jobs(cfg config.Config) error {
 		}
 	}
 	return nil
+}
+
+func workerRunLimit(name string, cfg config.Config) time.Duration {
+	switch name {
+	case "forwarding":
+		return cfg.ForwardingRunTimeout
+	case "apiLogRetention":
+		return cfg.APILogCleanupTimeout
+	default:
+		return 0
+	}
 }
