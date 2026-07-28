@@ -1,45 +1,54 @@
 # all-Mail Go core
 
-This directory contains the Go migration control plane for all-Mail.
+This directory contains the Go public runtime, independent background workers and additive migration runner for all-Mail.
 
-It is introduced as a **strangler bridge** rather than pretending that every existing Fastify route has already been rewritten:
+The migration remains a strangler architecture rather than claiming that every Fastify route has moved:
 
-- Go owns the public HTTP listener, SPA delivery, health/readiness and request IDs.
-- Existing API paths are proxied to `LEGACY_API_URL` until each module is moved.
-- Go owns API-log retention through the `go-jobs` runtime.
-- Go owns forwarding execution through the same `go-jobs` runtime by default.
-- Go defines the durable synchronization, delivery, attempt and outbox tables for subsequent ports.
+- Go owns the public HTTP listener, React SPA, health/readiness, metrics and request IDs.
+- Unported API paths are proxied to `LEGACY_API_URL`.
+- `worker-forwarding` owns forwarding claim/send/retry/terminal transitions.
+- `worker-retention` owns API-log cleanup.
+- Go defines durable synchronization, delivery, attempt and outbox contracts for later vertical ports.
 
-## Commands
+## Verification
 
 ```bash
 test -z "$(gofmt -l .)"
 go test -race ./...
 go vet ./...
 go build -trimpath -o ./allmail ./cmd/allmail
+```
 
+## Commands
+
+```bash
 ./allmail api
-./allmail jobs
+./allmail worker forwarding
+./allmail worker retention
 ./allmail migrate
+
 ./allmail doctor api
-./allmail doctor jobs
+./allmail doctor worker forwarding
+./allmail doctor worker retention
 ```
 
-## Runtime ownership
+Each command loads only its own configuration surface. There is no combined jobs process and no runtime-owner switch.
 
-`API_LOG_RETENTION_OWNER` is the explicit single-writer switch for API-log cleanup:
+## Worker state
+
+The workers publish independent atomic heartbeat files under their own service state volumes:
 
 ```text
-API_LOG_RETENTION_OWNER=go      # Go cleaner enabled, legacy cleaner disabled
-API_LOG_RETENTION_OWNER=legacy  # rollback to the Node cleaner
+worker-forwarding-heartbeat.json
+worker-retention-heartbeat.json
 ```
 
-`FORWARDING_WORKER_OWNER` independently controls forwarding claims:
+Each doctor validates process identity, heartbeat freshness, active-run duration and the latest completion result.
 
-```text
-FORWARDING_WORKER_OWNER=go        # Go claims and sends forwarding jobs
-FORWARDING_WORKER_OWNER=legacy    # rollback to the Node forwarding worker
-FORWARDING_WORKER_OWNER=disabled  # pause forwarding claims
-```
+## Migration rules
 
-Read `docs/GO-MIGRATION.md` before changing service ownership or editing an applied migration.
+The migration runner uses a direct `pgx` connection and one transaction with an advisory lock and SHA-256 checksums. It does not require the `psql` executable.
+
+Never edit an applied numbered migration. Add a new migration and preserve the existing checksum history.
+
+Read [`../docs/GO-MIGRATION.md`](../docs/GO-MIGRATION.md) before changing route ownership, worker state machines or applied migrations.
