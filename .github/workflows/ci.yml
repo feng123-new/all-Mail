@@ -284,7 +284,20 @@ jobs:
         run: cp .env.example .env
 
       - name: Audit production dependencies
-        run: ./scripts/sanitize-runtime-env.sh npm run audit:prod
+        shell: bash
+        run: |
+          set +e
+          ./scripts/sanitize-runtime-env.sh npm run audit:prod 2>&1 | tee "$RUNNER_TEMP/production-audit.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Upload production audit log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-audit-log
+          path: ${{ runner.temp }}/production-audit.log
+          if-no-files-found: error
 
       - name: Start Docker stack
         run: docker compose up -d --build --wait --wait-timeout 240
