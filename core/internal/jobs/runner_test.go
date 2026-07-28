@@ -102,7 +102,7 @@ func TestRetentionRetriesAfterFailureAndRecovers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsAll(string(content), `"lastDeleted":3`, `"lastSuccessAt"`, `"consecutiveFailures":0`) || strings.Contains(string(content), `"lastError"`) {
+	if !containsAll(string(content), `"lastDeleted":3`, `"lastSuccessAt"`) || strings.Contains(string(content), `"lastError"`) || strings.Contains(string(content), `"consecutiveFailures"`) {
 		t.Fatalf("heartbeat = %s", content)
 	}
 }
