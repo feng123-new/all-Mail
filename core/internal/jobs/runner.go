@@ -7,24 +7,69 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
 )
 
+type workerHeartbeat struct {
+	Enabled       bool       `json:"enabled"`
+	LastRunAt     *time.Time `json:"lastRunAt,omitempty"`
+	LastSuccessAt *time.Time `json:"lastSuccessAt,omitempty"`
+	LastDeleted   int64      `json:"lastDeleted,omitempty"`
+	LastError     string     `json:"lastError,omitempty"`
+}
+
 type heartbeat struct {
-	Runtime   string    `json:"runtime"`
-	PID       int       `json:"pid"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Runtime   string                     `json:"runtime"`
+	PID       int                        `json:"pid"`
+	UpdatedAt time.Time                  `json:"updatedAt"`
+	Workers   map[string]workerHeartbeat `json:"workers"`
+}
+
+type runtimeState struct {
+	mu        sync.RWMutex
+	retention workerHeartbeat
 }
 
 func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
+	var cleaner RetentionCleaner
+	if cfg.LogRetentionOwner == config.RuntimeOwnerGo {
+		var err error
+		cleaner, err = newRetentionCleaner(cfg)
+		if err != nil {
+			return err
+		}
+	}
+	return run(ctx, cfg, logger, cleaner)
+}
+
+func run(ctx context.Context, cfg config.Config, logger *slog.Logger, cleaner RetentionCleaner) error {
 	if err := os.MkdirAll(cfg.StateDir, 0o700); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
 	}
-	logger.Info("Go jobs supervisor started", "heartbeat_interval", cfg.JobsHeartbeatInterval)
-	if err := writeHeartbeat(cfg.StateDir); err != nil {
+	state := &runtimeState{}
+	state.retention.Enabled = cleaner != nil
+
+	logger.Info(
+		"Go jobs runtime started",
+		"heartbeat_interval", cfg.JobsHeartbeatInterval,
+		"api_log_retention_owner", cfg.LogRetentionOwner,
+		"api_log_cleanup_interval", cfg.APILogCleanupInterval,
+	)
+	if err := writeHeartbeat(cfg.StateDir, state.snapshot()); err != nil {
 		return err
+	}
+
+	workerDone := make(chan struct{})
+	if cleaner != nil {
+		go func() {
+			defer close(workerDone)
+			runRetentionLoop(ctx, cfg, logger, cleaner, state)
+		}()
+	} else {
+		close(workerDone)
 	}
 
 	ticker := time.NewTicker(cfg.JobsHeartbeatInterval)
@@ -32,13 +77,82 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("Go jobs supervisor stopped")
+			<-workerDone
+			logger.Info("Go jobs runtime stopped")
 			return nil
 		case <-ticker.C:
-			if err := writeHeartbeat(cfg.StateDir); err != nil {
+			if err := writeHeartbeat(cfg.StateDir, state.snapshot()); err != nil {
 				logger.Error("failed to write jobs heartbeat", "error", err)
 			}
 		}
+	}
+}
+
+func runRetentionLoop(
+	ctx context.Context,
+	cfg config.Config,
+	logger *slog.Logger,
+	cleaner RetentionCleaner,
+	state *runtimeState,
+) {
+	runOnce := func() {
+		startedAt := time.Now().UTC()
+		state.markRetentionStarted(startedAt)
+		deleted, err := cleaner.Cleanup(ctx)
+		finishedAt := time.Now().UTC()
+		if err != nil {
+			state.markRetentionFailed(finishedAt, err)
+			logger.Error("Go API log retention cleanup failed", "error", err)
+			return
+		}
+		state.markRetentionSucceeded(finishedAt, deleted)
+		logger.Info(
+			"Go API log retention cleanup completed",
+			"deleted", deleted,
+			"retention_days", cfg.APILogRetentionDays,
+			"batch_size", cfg.APILogCleanupBatch,
+		)
+	}
+
+	runOnce()
+	ticker := time.NewTicker(cfg.APILogCleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runOnce()
+		}
+	}
+}
+
+func (state *runtimeState) markRetentionStarted(at time.Time) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.retention.LastRunAt = &at
+}
+
+func (state *runtimeState) markRetentionSucceeded(at time.Time, deleted int64) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.retention.LastSuccessAt = &at
+	state.retention.LastDeleted = deleted
+	state.retention.LastError = ""
+}
+
+func (state *runtimeState) markRetentionFailed(at time.Time, err error) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.retention.LastRunAt = &at
+	state.retention.LastError = err.Error()
+}
+
+func (state *runtimeState) snapshot() map[string]workerHeartbeat {
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	return map[string]workerHeartbeat{
+		"apiLogRetention": state.retention,
 	}
 }
 
@@ -46,8 +160,13 @@ func HeartbeatPath(stateDir string) string {
 	return filepath.Join(stateDir, "go-jobs-heartbeat.json")
 }
 
-func writeHeartbeat(stateDir string) error {
-	payload, err := json.Marshal(heartbeat{Runtime: "go-jobs-supervisor", PID: os.Getpid(), UpdatedAt: time.Now().UTC()})
+func writeHeartbeat(stateDir string, workers map[string]workerHeartbeat) error {
+	payload, err := json.Marshal(heartbeat{
+		Runtime:   "go-jobs-runtime",
+		PID:       os.Getpid(),
+		UpdatedAt: time.Now().UTC(),
+		Workers:   workers,
+	})
 	if err != nil {
 		return err
 	}
