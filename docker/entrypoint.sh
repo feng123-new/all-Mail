@@ -29,6 +29,12 @@ if [ "$runtime_role" = "jobs" ]; then
 fi
 sanitize_runtime_env=/app/scripts/sanitize-runtime-env.sh
 eval "$("$sanitize_runtime_env" node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR" --format shell)"
+if [ -n "${ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE:-}" ] && [ -n "${ENCRYPTION_KEY:-}" ]; then
+    mkdir -p "$(dirname "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE")"
+    printf '%s\n' "$ENCRYPTION_KEY" > "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"
+    chown 10001:10001 "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"
+    chmod 600 "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"
+fi
 
 if [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
     printf '%s\n' "Generated bootstrap secrets in ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE}"

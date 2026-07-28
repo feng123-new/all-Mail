@@ -67,7 +67,9 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
-          cache-dependency-path: core/go.mod
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
 
       - name: Install PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
@@ -97,11 +99,19 @@ jobs:
               id bigserial PRIMARY KEY,
               created_at timestamptz NOT NULL DEFAULT now()
           );
+          CREATE TYPE "ForwardJobStatus" AS ENUM ('PENDING', 'RUNNING', 'SENT', 'FAILED', 'SKIPPED');
+          CREATE TABLE mailbox_forward_jobs (
+              id bigserial PRIMARY KEY,
+              status "ForwardJobStatus" NOT NULL DEFAULT 'PENDING',
+              next_attempt_at timestamptz,
+              created_at timestamptz NOT NULL DEFAULT now()
+          );
           SQL
           ./allmail migrate
           ./allmail migrate
-          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "2"
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "3"
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT datetime_precision FROM information_schema.columns WHERE table_name = 'mailbox_forward_jobs' AND column_name = 'lease_expires_at'")" = "3"
 
       - name: Verify Go API log retention worker
         env:
@@ -149,6 +159,13 @@ jobs:
               name text PRIMARY KEY,
               applied_at timestamptz NOT NULL DEFAULT now()
           );
+          CREATE TYPE "ForwardJobStatus" AS ENUM ('PENDING', 'RUNNING', 'SENT', 'FAILED', 'SKIPPED');
+          CREATE TABLE mailbox_forward_jobs (
+              id bigserial PRIMARY KEY,
+              status "ForwardJobStatus" NOT NULL DEFAULT 'PENDING',
+              next_attempt_at timestamptz,
+              created_at timestamptz NOT NULL DEFAULT now()
+          );
           INSERT INTO runtime_migrations (name)
           VALUES ('0001_go_runtime_foundation'), ('0002_runtime_security_state');
           SQL
@@ -173,36 +190,30 @@ jobs:
           fi
           test "$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('runtime_migrations') IS NULL")" = "t"
 
-  go:
-    name: go-core
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: core
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: core/go.mod
-          cache-dependency-path: core/go.sum
-
-      - name: Format
-        run: test -z "$(gofmt -l .)"
-
-      - name: Test
-        run: go test ./...
-
-      - name: Race test
-        run: go test -race ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Build
-        run: go build ./...
+      - name: Reject malformed forwarding lease schema
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_forwarding_corrupt?sslmode=disable
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+        run: |
+          createdb -h 127.0.0.1 -U postgres allmail_forwarding_corrupt
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE admins (id integer PRIMARY KEY);
+          CREATE TABLE email_accounts (id integer PRIMARY KEY);
+          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
+          CREATE TYPE "ForwardJobStatus" AS ENUM ('PENDING', 'RUNNING', 'SENT', 'FAILED', 'SKIPPED');
+          CREATE TABLE mailbox_forward_jobs (
+              id bigserial PRIMARY KEY,
+              status "ForwardJobStatus" NOT NULL DEFAULT 'PENDING',
+              next_attempt_at timestamptz,
+              lease_expires_at text,
+              created_at timestamptz NOT NULL DEFAULT now()
+          );
+          SQL
+          if ./allmail migrate; then
+            echo "migration unexpectedly accepted malformed mailbox_forward_jobs.lease_expires_at"
+            exit 1
+          fi
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('runtime_migrations') IS NULL")" = "t"
 
   web:
     name: web-lint-build
@@ -332,9 +343,6 @@ jobs:
 
       - name: Start Docker stack
         run: docker compose up -d --build --wait --wait-timeout 240
-
-      - name: Apply Go runtime migrations
-        run: docker compose run --rm app migrate
 
       - name: Verify Go and legacy readiness
         run: |

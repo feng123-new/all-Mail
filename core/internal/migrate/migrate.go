@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
-	"github.com/jackc/pgx/v5"
 )
 
 const migrationLockSQL = "SELECT pg_advisory_xact_lock(421337, 240728);"
@@ -32,9 +32,9 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if cfg.DatabaseURL == "" {
 		return fmt.Errorf("DATABASE_URL is required")
 	}
-	files, err := loadMigrations(cfg.MigrationDir)
+	psql, err := exec.LookPath("psql")
 	if err != nil {
-		return err
+		return fmt.Errorf("psql is required for migrations: %w", err)
 	}
 	migrations, err := loadMigrations(cfg.MigrationDir)
 	if err != nil {
@@ -86,19 +86,11 @@ func loadMigrations(directory string) ([]migration, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read migration directory: %w", err)
 	}
-	defer connection.Close(context.Background())
-
-	if _, err := connection.Exec(ctx, "SELECT pg_advisory_lock($1)", migrationLockKey); err != nil {
-		return fmt.Errorf("acquire migration lock: %w", err)
-	}
-	defer func() {
-		if _, unlockErr := connection.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", migrationLockKey); unlockErr != nil {
-			logger.Error("release migration lock", "error", unlockErr)
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			files = append(files, entry.Name())
 		}
-	}()
-
-	if err := ensureLedger(ctx, connection); err != nil {
-		return err
 	}
 	sort.Strings(files)
 	if len(files) == 0 {

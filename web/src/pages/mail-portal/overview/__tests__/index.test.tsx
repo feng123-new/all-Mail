@@ -32,10 +32,6 @@ describe('MailPortalOverviewPage proof scenario', () => {
     render(
       <MemoryRouter
         initialEntries={['/mail/overview?proof=unread-demo']}
-        future={{
-          v7_relativeSplatPath: true,
-          v7_startTransition: true,
-        }}
       >
         <MailPortalOverviewPage />
       </MemoryRouter>,

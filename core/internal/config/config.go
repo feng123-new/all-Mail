@@ -74,9 +74,30 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	forwardingSeconds, err := envInt("FORWARDING_WORKER_INTERVAL_SECONDS", 30)
+	if err != nil {
+		return Config{}, err
+	}
+	forwardingBatchSize, err := envInt("FORWARDING_WORKER_BATCH_SIZE", 10)
+	if err != nil {
+		return Config{}, err
+	}
 	retentionDays, err := envInt("API_LOG_RETENTION_DAYS", 30)
 	if err != nil {
 		return Config{}, err
+	}
+	stateDir := env("ALL_MAIL_STATE_DIR", "/var/lib/all-mail")
+	secretStateDir := env("ALL_MAIL_SECRET_STATE_DIR", stateDir)
+	encryptionKey := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY"))
+	if encryptionKey == "" {
+		if encryptionKeyFile := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY_FILE")); encryptionKeyFile != "" {
+			content, readErr := os.ReadFile(encryptionKeyFile)
+			if readErr == nil {
+				encryptionKey = strings.TrimSpace(string(content))
+			}
+		} else {
+			encryptionKey = managedSecret(secretStateDir, "ENCRYPTION_KEY")
+		}
 	}
 	cleanupMinutes, err := envInt("API_LOG_CLEANUP_INTERVAL_MINUTES", 60)
 	if err != nil {
@@ -131,6 +152,15 @@ func Load() (Config, error) {
 	if cfg.JobsHeartbeatInterval <= 0 || cfg.JobsHeartbeatMaxAge <= 0 {
 		return Config{}, errors.New("jobs heartbeat durations must be positive")
 	}
+	if cfg.ForwardingInterval <= 0 {
+		return Config{}, errors.New("FORWARDING_WORKER_INTERVAL_SECONDS must be positive")
+	}
+	if cfg.ForwardingBatchSize < 1 || cfg.ForwardingBatchSize > 100 {
+		return Config{}, errors.New("FORWARDING_WORKER_BATCH_SIZE must be between 1 and 100")
+	}
+	if cfg.ForwardingWorkerOwner != "legacy" && cfg.ForwardingWorkerOwner != "go" && cfg.ForwardingWorkerOwner != "disabled" {
+		return Config{}, fmt.Errorf("unsupported FORWARDING_WORKER_OWNER %q; use legacy, go or disabled", cfg.ForwardingWorkerOwner)
+	}
 	if cfg.APILogRetentionDays < 1 {
 		return Config{}, errors.New("API_LOG_RETENTION_DAYS must be positive")
 	}
@@ -156,6 +186,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if err := validateAbsoluteURL("REDIS_URL", cfg.RedisURL, "redis", "rediss"); err != nil {
+		return Config{}, err
+	}
+	if err := validateAbsoluteURL("RESEND_API_BASE_URL", cfg.ResendAPIBaseURL, "http", "https"); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
@@ -190,8 +223,11 @@ func (c Config) ValidateFor(command string) error {
 		if strings.TrimSpace(c.StateDir) == "" {
 			return errors.New("ALL_MAIL_STATE_DIR is required for jobs")
 		}
-		if c.LogRetentionOwner == RuntimeOwnerGo && c.DatabaseURL == "" {
-			return errors.New("DATABASE_URL is required when API_LOG_RETENTION_OWNER=go")
+		if (c.LogRetentionOwner == RuntimeOwnerGo || c.ForwardingWorkerOwner == "go") && c.DatabaseURL == "" {
+			return errors.New("DATABASE_URL is required when a Go jobs worker owns database work")
+		}
+		if c.ForwardingWorkerOwner == "go" && c.EncryptionKey == "" {
+			return errors.New("ENCRYPTION_KEY is required when FORWARDING_WORKER_OWNER=go")
 		}
 	case "migrate":
 		if c.DatabaseURL == "" {

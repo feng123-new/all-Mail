@@ -58,7 +58,9 @@ services:
       dockerfile: Dockerfile
     command: ["migrate"]
     environment:
-      <<: *allmail-environment
+      ALL_MAIL_ENV: production
+      ALL_MAIL_MIGRATION_DIR: /app/migrations
+      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
     depends_on:
       legacy-api:
         condition: service_healthy
@@ -95,6 +97,7 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    stop_grace_period: 30s
     networks:
       - app-network
     healthcheck:
@@ -113,16 +116,27 @@ services:
     environment:
       ALL_MAIL_ENV: production
       ALL_MAIL_STATE_DIR: /var/lib/all-mail
+      ENCRYPTION_KEY_FILE: /var/lib/all-mail/encryption-key
       DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       API_LOG_RETENTION_OWNER: ${API_LOG_RETENTION_OWNER:-go}
       API_LOG_RETENTION_DAYS: ${API_LOG_RETENTION_DAYS:-30}
       API_LOG_CLEANUP_INTERVAL_MINUTES: ${API_LOG_CLEANUP_INTERVAL_MINUTES:-60}
       API_LOG_CLEANUP_RETRY_SECONDS: ${API_LOG_CLEANUP_RETRY_SECONDS:-30}
       API_LOG_CLEANUP_TIMEOUT_SECONDS: ${API_LOG_CLEANUP_TIMEOUT_SECONDS:-60}
       API_LOG_CLEANUP_BATCH_SIZE: ${API_LOG_CLEANUP_BATCH_SIZE:-5000}
+      FORWARDING_WORKER_OWNER: ${FORWARDING_WORKER_OWNER:-go}
+      FORWARDING_WORKER_INTERVAL_SECONDS: ${FORWARDING_WORKER_INTERVAL_SECONDS:-30}
+      FORWARDING_WORKER_BATCH_SIZE: ${FORWARDING_WORKER_BATCH_SIZE:-10}
+      RESEND_API_BASE_URL: ${RESEND_API_BASE_URL:-https://api.resend.com}
       GO_JOBS_HEARTBEAT_SECONDS: ${GO_JOBS_HEARTBEAT_SECONDS:-15}
       GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS: ${GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS:-90}
+      SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
+      go-migrate:
+        condition: service_completed_successfully
+      jobs:
+        condition: service_healthy
       legacy-api:
         condition: service_healthy
       postgres:
@@ -150,6 +164,7 @@ services:
       <<: *legacy-environment
       PORT: ${LEGACY_API_INTERNAL_PORT:-3100}
       ALL_MAIL_RUN_MIGRATIONS: "1"
+      ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE: /var/lib/all-mail-go/encryption-key
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,6 +174,7 @@ services:
     stop_grace_period: 30s
     volumes:
       - legacy_runtime_data:/var/lib/all-mail
+      - go_runtime_data:/var/lib/all-mail-go
     networks:
       - app-network
     healthcheck:
@@ -174,10 +190,12 @@ services:
       dockerfile: Dockerfile.legacy
     command: ["jobs"]
     environment:
-      <<: *legacy-environment
+      <<: [*legacy-environment, *forwarding-environment]
       PORT: ${LEGACY_API_INTERNAL_PORT:-3100}
       ALL_MAIL_RUN_MIGRATIONS: "0"
     depends_on:
+      go-migrate:
+        condition: service_completed_successfully
       legacy-api:
         condition: service_healthy
       postgres:

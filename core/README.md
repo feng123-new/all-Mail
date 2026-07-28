@@ -7,7 +7,7 @@ It is introduced as a **strangler bridge** rather than pretending that every exi
 - Go owns the public HTTP listener, SPA delivery, health/readiness and request IDs.
 - Existing API paths are proxied to `LEGACY_API_URL` until each module is moved.
 - Go owns API-log retention through the `go-jobs` runtime.
-- The legacy Node `jobs` runtime continues to own forwarding.
+- Go owns forwarding execution through the same `go-jobs` runtime by default.
 - Go defines the durable synchronization, delivery, attempt and outbox tables for subsequent ports.
 
 ## Commands
@@ -32,6 +32,14 @@ go build -trimpath -o ./allmail ./cmd/allmail
 ```text
 API_LOG_RETENTION_OWNER=go      # Go cleaner enabled, legacy cleaner disabled
 API_LOG_RETENTION_OWNER=legacy  # rollback to the Node cleaner
+```
+
+`FORWARDING_WORKER_OWNER` independently controls forwarding claims:
+
+```text
+FORWARDING_WORKER_OWNER=go        # Go claims and sends forwarding jobs
+FORWARDING_WORKER_OWNER=legacy    # rollback to the Node forwarding worker
+FORWARDING_WORKER_OWNER=disabled  # pause forwarding claims
 ```
 
 Read `docs/GO-MIGRATION.md` before changing service ownership or editing an applied migration.

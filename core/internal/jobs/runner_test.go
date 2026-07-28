@@ -147,14 +147,8 @@ func TestHeartbeatOnlyModeDoesNotRunRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload struct {
-		Ready bool `json:"ready"`
-	}
-	if err := json.Unmarshal(content, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if !payload.Ready {
-		t.Fatal("heartbeat should report ready")
+	if !containsAll(string(content), `"apiLogRetention":{"enabled":false}`, `"forwarding":{"enabled":false}`) {
+		t.Fatalf("heartbeat = %s", content)
 	}
 }
 
@@ -179,6 +173,53 @@ func (blockingForwardingRunner) runOnce(ctx context.Context, _ time.Time) error 
 	return ctx.Err()
 }
 
+type signaledBlockingForwardingRunner struct {
+	started chan struct{}
+}
+
+func (runner signaledBlockingForwardingRunner) runOnce(ctx context.Context, _ time.Time) error {
+	close(runner.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+type countingForwardingRunner struct {
+	calls atomic.Int64
+}
+
+func (runner *countingForwardingRunner) runOnce(context.Context, time.Time) error {
+	runner.calls.Add(1)
+	return nil
+}
+
+func TestRunSupervisorRunsRetentionAndForwardingTogether(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := baseJobConfig(t)
+	cfg.ForwardingWorkerOwner = "go"
+	cfg.ForwardingInterval = time.Hour
+	cleaner := &fakeCleaner{deleted: 2}
+	forwarder := &countingForwardingRunner{}
+	done := make(chan error, 1)
+	go func() {
+		done <- runSupervisor(ctx, cfg, discardLogger(), cleaner, forwarder, func(context.Context) error { return nil })
+	}()
+
+	waitForCalls(t, &cleaner.calls, 1)
+	waitForCalls(t, &forwarder.calls, 1)
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAll(string(content), `"apiLogRetention"`, `"lastDeleted":2`, `"forwarding"`, `"lastSuccessAt"`) {
+		t.Fatalf("heartbeat = %s", content)
+	}
+}
+
 func TestRunSupervisorKeepsHeartbeatFreshDuringSlowForwarding(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cfg := config.Config{
@@ -189,7 +230,7 @@ func TestRunSupervisorKeepsHeartbeatFreshDuringSlowForwarding(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- runSupervisor(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), blockingForwardingRunner{}, func(context.Context) error { return nil })
+		done <- runSupervisor(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, blockingForwardingRunner{}, func(context.Context) error { return nil })
 	}()
 
 	time.Sleep(15 * time.Millisecond)
@@ -221,11 +262,48 @@ func TestRunSupervisorReturnsWhenForwardingOwnerConnectionIsLost(t *testing.T) {
 		ForwardingWorkerOwner: "go",
 	}
 
-	err := runSupervisor(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), blockingForwardingRunner{}, func(context.Context) error {
+	err := runSupervisor(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, blockingForwardingRunner{}, func(context.Context) error {
 		return errors.New("owner connection closed")
 	})
 	if err == nil || !strings.Contains(err.Error(), "forwarding owner lock connection lost") {
 		t.Fatalf("runSupervisor() error = %v, want owner lock loss", err)
+	}
+}
+
+func TestRunSupervisorCancelsActiveForwardingWhenOwnerConnectionIsLost(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cfg := config.Config{
+		StateDir:              t.TempDir(),
+		ReadyTimeout:          50 * time.Millisecond,
+		ShutdownTimeout:       100 * time.Millisecond,
+		JobsHeartbeatInterval: 10 * time.Millisecond,
+		ForwardingInterval:    time.Hour,
+		ForwardingWorkerOwner: "go",
+	}
+	started := make(chan struct{})
+	var checks atomic.Int64
+	done := make(chan error, 1)
+	go func() {
+		done <- runSupervisor(ctx, cfg, discardLogger(), nil, signaledBlockingForwardingRunner{started: started}, func(context.Context) error {
+			if checks.Add(1) == 1 {
+				return nil
+			}
+			return errors.New("owner connection closed")
+		})
+	}()
+
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("forwarding run did not start")
+	}
+	err := <-done
+	if err == nil || !strings.Contains(err.Error(), "forwarding owner lock connection lost") {
+		t.Fatalf("runSupervisor() error = %v, want owner lock loss", err)
+	}
+	if checks.Load() < 2 {
+		t.Fatalf("owner checks = %d, want initial and active-run checks", checks.Load())
 	}
 }
 

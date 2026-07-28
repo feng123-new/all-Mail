@@ -30,7 +30,7 @@
         "@fastify/rate-limit": "^10.2.0",
         "@fastify/static": "^10.1.2",
         "@fastify/swagger": "^9.4.2",
-        "@fastify/swagger-ui": "^5.2.6",
+        "@fastify/swagger-ui": "^6.1.0",
         "@prisma/client": "^6.19.2",
         "bcryptjs": "^2.4.3",
         "dotenv": "^16.4.7",
@@ -41,6 +41,7 @@
         "mailparser": "^3.9.14",
         "node-imap": "^0.9.6",
         "nodemailer": "^9.0.3",
+        "pg": "^8.16.3",
         "pino": "^9.6.0",
         "pino-pretty": "^13.0.0",
         "prisma": "^6.19.2",
@@ -66,9 +67,13 @@
         "node": ">=20.18.1"
     },
     "overrides": {
+        "@fastify/swagger-ui": {
+            "@fastify/static": "10.1.2"
+        },
         "brace-expansion": "5.0.8",
         "defu": "6.1.6",
         "effect": "3.21.0",
+        "fast-uri": "4.1.1",
         "yaml": "2.8.3",
         "utf7": {
             "semver": "5.7.2"

@@ -84,10 +84,6 @@ describe('MailPortalSettingsPage forwarding closure', () => {
   it('syncs the forwarding form to the selected mailbox and surfaces recent forwarding results', async () => {
     render(
       <MemoryRouter
-        future={{
-          v7_relativeSplatPath: true,
-          v7_startTransition: true,
-        }}
       >
         <MailPortalSettingsPage />
       </MemoryRouter>

@@ -16,20 +16,20 @@ Browser / automation / Cloudflare Worker
                  existing Fastify modules
 ```
 
-The Go process owns the public listener, SPA delivery, request IDs, security headers, liveness/readiness endpoints, metrics, the explicit Go migration command, API-log retention, and the new runtime table contracts. Existing Fastify modules remain the authoritative writers for other current application state.
+The Go process owns the public listener, SPA delivery, request IDs, security headers, liveness/readiness endpoints, metrics, the explicit Go migration command, API-log retention, forwarding execution, and the new runtime table contracts. Existing Fastify modules remain the authoritative writers for other current application state.
 
 ## Default service layout
 
 ```text
 app            Go public API and migration bridge
-go-jobs        Go API-log retention worker and runtime heartbeat
+go-jobs        Go API-log retention and forwarding workers
 legacy-api     Fastify/Prisma business API
-jobs           existing legacy forwarding worker
+jobs           legacy maintenance runtime and forwarding rollback owner
 postgres       shared application database
 redis          OAuth state, rate-limit, replay and cache backend
 ```
 
-`go-jobs` owns API-log retention and writes a health heartbeat. The legacy `jobs` service continues to own forwarding. `API_LOG_RETENTION_OWNER=go` is passed to both runtimes so only one process deletes expired API logs.
+`go-jobs` owns API-log retention and forwarding by default and writes one health heartbeat with per-worker state. The legacy `jobs` service remains running for maintenance and rollback. Separate owner switches keep both capabilities single-writer.
 
 ## Local workflow
 
@@ -37,18 +37,20 @@ redis          OAuth state, rate-limit, replay and cache backend
 git fetch origin
 git switch agent/go-core-rewrite
 cp .env.example .env
-docker compose up -d --build --wait
+docker compose up -d --build --wait --wait-timeout 240
 curl --fail http://127.0.0.1:3002/health
 curl --fail http://127.0.0.1:3002/readyz
 ```
 
-Apply the additive Go runtime migrations explicitly:
+The one-shot `go-migrate` service runs automatically after the legacy schema is healthy and before `app` or `go-jobs` starts. It can also be run explicitly:
 
 ```bash
 docker compose run --rm go-migrate
 ```
 
-The API never mutates the Go schema during startup.
+The API and long-running jobs runtimes never mutate the Go schema during startup.
+
+The secondary source-runtime path applies `202607281200_forwarding_claim_lease_v1` through Prisma so the legacy rollback worker has the same claim-token and lease columns even when the Go migration command is not part of that launch path.
 
 ## Readiness contract
 
@@ -88,7 +90,17 @@ API_LOG_CLEANUP_INTERVAL_MINUTES=60
 API_LOG_CLEANUP_BATCH_SIZE=5000
 ```
 
-The legacy forwarding loop remains active in the Node `jobs` service and is not claimed by Go in this PR.
+## Forwarding ownership
+
+- `FORWARDING_WORKER_OWNER=go` enables Go claim/send/update and disables the Node writer.
+- `FORWARDING_WORKER_OWNER=legacy` rolls claims back to Node.
+- `FORWARDING_WORKER_OWNER=disabled` pauses forwarding claims.
+- both implementations contend for the same PostgreSQL advisory lock;
+- claims carry a random token and lease, and every terminal update compares the token;
+- MOVE hides the inbound message in the same transaction that marks the job sent;
+- retries preserve `mailbox-forward/{jobId}/{inboundMessageId}` as the provider idempotency key.
+
+The legacy API exports only the bootstrap-managed `ENCRYPTION_KEY` into the isolated Go runtime volume with mode `0600`; the Go process does not mount the legacy bootstrap file containing other credentials.
 
 ## Migration guarantees
 
@@ -123,8 +135,7 @@ Docker validation:
 
 ```bash
 docker compose build app
-docker compose up -d --build --wait
-docker compose run --rm app migrate
+docker compose up -d --build --wait --wait-timeout 240
 docker compose exec -T app allmail doctor api
 docker compose exec -T go-jobs allmail doctor jobs
 curl --fail http://127.0.0.1:3002/readyz
@@ -143,7 +154,7 @@ GitHub Actions contains a dedicated `go-core` job that also verifies:
 | Capability | Current writer |
 | --- | --- |
 | Existing admin/domain/mailbox records | Fastify/Prisma |
-| Existing forwarding job state | `jobs` (legacy Node runtime) |
+| Forwarding claim/send/update | `go-jobs` by default; `jobs` for rollback |
 | API log retention | `go-jobs` |
 | Existing OAuth flows and API-key enforcement | Fastify/Redis |
 | Go sync cursor and job tables | reserved for future Go handlers |
@@ -156,25 +167,25 @@ Never let Go and TypeScript mutate the same state machine concurrently. Move one
 
 Recommended order:
 
-1. Port forwarding claim/send/update with provider idempotency and lease recovery.
-2. Implement outbound delivery jobs and attempt history.
-3. Implement Gmail History and Microsoft Graph delta synchronization.
-4. Implement IMAP UID/UIDVALIDITY synchronization.
-5. Port API-key external allocation/read endpoints.
-6. Port ingress replay protection and signed delivery.
-7. Port admin and mailbox portal authentication last.
+1. Implement outbound delivery jobs and attempt history.
+2. Implement Gmail History and Microsoft Graph delta synchronization.
+3. Implement IMAP UID/UIDVALIDITY synchronization.
+4. Port API-key external allocation/read endpoints.
+5. Port ingress replay protection and signed delivery.
+6. Port admin and mailbox portal authentication last.
 
 The `mailbox_sync_*`, `outbound_delivery_jobs`, `job_attempts`, `outbox_events`, OAuth-state, replay, rate-limit and login-attempt tables are currently contracts, not proof that those workers are already active.
 
 ## Rollback
 
-To move API-log retention back before a wider rollback:
+To move both migrated workers back before a wider rollback:
 
 ```text
 API_LOG_RETENTION_OWNER=legacy
+FORWARDING_WORKER_OWNER=legacy
 ```
 
-Then restart `go-jobs` and `jobs`; only the legacy process will run cleanup.
+Stop both `go-jobs` and `jobs`, wait for shutdown drain to return, then restart `jobs` before recreating the remaining stack. The shared forwarding lock prevents overlap during the switch.
 
 The Go runtime tables are additive. To roll back the public listener:
 

@@ -15,6 +15,13 @@ func resetJobEnv(t *testing.T) {
 		"API_LOG_CLEANUP_RETRY_SECONDS",
 		"API_LOG_CLEANUP_TIMEOUT_SECONDS",
 		"API_LOG_CLEANUP_BATCH_SIZE",
+		"FORWARDING_WORKER_OWNER",
+		"FORWARDING_WORKER_INTERVAL_SECONDS",
+		"FORWARDING_WORKER_BATCH_SIZE",
+		"RESEND_API_BASE_URL",
+		"ALL_MAIL_SECRET_STATE_DIR",
+		"ENCRYPTION_KEY",
+		"ENCRYPTION_KEY_FILE",
 	} {
 		t.Setenv(name, "")
 	}
@@ -39,6 +46,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.LogRetentionOwner != RuntimeOwnerLegacy {
 		t.Fatalf("LogRetentionOwner = %q, want legacy", cfg.LogRetentionOwner)
+	}
+	if cfg.ForwardingWorkerOwner != "legacy" {
+		t.Fatalf("ForwardingWorkerOwner = %q, want legacy", cfg.ForwardingWorkerOwner)
 	}
 	if cfg.APILogCleanupRetry.Seconds() != 30 {
 		t.Fatalf("APILogCleanupRetry = %s, want 30s", cfg.APILogCleanupRetry)
@@ -101,5 +111,66 @@ func TestLoadRejectsInvalidCleanupRetry(t *testing.T) {
 	t.Setenv("API_LOG_CLEANUP_RETRY_SECONDS", "0")
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() expected an error")
+	}
+}
+
+func TestLoadReadsManagedEncryptionKeyFromSeparateSecretState(t *testing.T) {
+	resetJobEnv(t)
+	secretStateDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(secretStateDir, "bootstrap-secrets.env"), []byte("ENCRYPTION_KEY=managed-encryption-key-12345678\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ALL_MAIL_SECRET_STATE_DIR", secretStateDir)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EncryptionKey != "managed-encryption-key-12345678" {
+		t.Fatalf("EncryptionKey = %q", cfg.EncryptionKey)
+	}
+}
+
+func TestLoadReadsExportedEncryptionKeyFile(t *testing.T) {
+	resetJobEnv(t)
+	keyFile := filepath.Join(t.TempDir(), "encryption-key")
+	if err := os.WriteFile(keyFile, []byte("exported-encryption-key-1234567\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ENCRYPTION_KEY_FILE", keyFile)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EncryptionKey != "exported-encryption-key-1234567" {
+		t.Fatalf("EncryptionKey = %q", cfg.EncryptionKey)
+	}
+}
+
+func TestLoadRejectsInvalidForwardingOwner(t *testing.T) {
+	resetJobEnv(t)
+	t.Setenv("FORWARDING_WORKER_OWNER", "both")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() expected an error")
+	}
+}
+
+func TestGoForwardingRequiresDatabaseAndEncryptionKey(t *testing.T) {
+	cfg := Config{
+		StateDir:              t.TempDir(),
+		LogRetentionOwner:     RuntimeOwnerLegacy,
+		ForwardingWorkerOwner: "go",
+	}
+	if err := cfg.ValidateFor("jobs"); err == nil {
+		t.Fatal("ValidateFor(jobs) expected a database error")
+	}
+	cfg.DatabaseURL = "postgresql://example.invalid/allmail"
+	if err := cfg.ValidateFor("jobs"); err == nil {
+		t.Fatal("ValidateFor(jobs) expected an encryption key error")
+	}
+	cfg.EncryptionKey = "test-encryption-key-1234567890ab"
+	if err := cfg.ValidateFor("jobs"); err != nil {
+		t.Fatalf("ValidateFor(jobs) error = %v", err)
 	}
 }

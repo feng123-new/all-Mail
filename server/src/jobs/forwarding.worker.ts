@@ -444,9 +444,9 @@ async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint, clai
 		currentForwardTo !== normalizeEmailAddress(job.forwardTo)
 	) {
 		await markForwardJobSkipped(
-				deps,
-				job.id,
-				claimToken,
+			deps,
+			job.id,
+			claimToken,
 			"Forwarding configuration changed after job creation",
 			processedAt,
 		);
@@ -630,20 +630,20 @@ export function createForwardingWorker(
 		activeRun = (async () => {
 			try {
 				const claimedJobs = await claimForwardJobIds(
-				deps,
-				env.FORWARDING_WORKER_BATCH_SIZE,
-				deps.now(),
+					deps,
+					env.FORWARDING_WORKER_BATCH_SIZE,
+					deps.now(),
 				);
 				if (claimedJobs.length > 0) {
 					deps.logger.info(
-					{
-						claimedCount: claimedJobs.length,
-						reclaimedCount: claimedJobs.filter(
-							(job) => job.previousStatus === "RUNNING",
-						).length,
-						claimedJobIds: claimedJobs.map((job) => job.id.toString()),
-					},
-					"Mailbox forwarding worker claimed jobs",
+						{
+							claimedCount: claimedJobs.length,
+							reclaimedCount: claimedJobs.filter(
+								(job) => job.previousStatus === "RUNNING",
+							).length,
+							claimedJobIds: claimedJobs.map((job) => job.id.toString()),
+						},
+						"Mailbox forwarding worker claimed jobs",
 					);
 				}
 				for (const job of claimedJobs) {

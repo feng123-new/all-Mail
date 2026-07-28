@@ -23,8 +23,6 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/readiness"
 )
 
-type readinessCheck func(context.Context, string) error
-
 type Server struct {
 	cfg       config.Config
 	logger    *slog.Logger

@@ -82,6 +82,8 @@ This repo documents bootstrap generation and persistence. It does not provide a 
 | `ALL_MAIL_PUBLIC_BASE_URL` | legacy fallback | runtime helper only | Consumed by `scripts/runtime-access.mjs` when `PUBLIC_BASE_URL` is unset; prefer `PUBLIC_BASE_URL` for new setups |
 | `CORS_ORIGIN` | optional | `.env.example`, `.env.basic.example`, `.env.cloudflare.example`, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Cross-origin allowance; when `PUBLIC_BASE_URL` and `ALL_MAIL_PUBLIC_BASE_URL` are unset, `scripts/runtime-access.mjs` uses the first listed origin as the login/base URL fallback |
 | `ALL_MAIL_STATE_DIR` | advanced runtime override | `docker-compose.yml`, `docker/entrypoint.sh`, `scripts/start-all-mail.mjs`, `server/src/runtime/jobsHealth.ts` | Controls the persisted runtime state directory; Docker defaults to `/var/lib/all-mail`; source-runtime child processes honor the merged env, but bootstrap-secret creation only sees the parent-shell value |
+| `ENCRYPTION_KEY_FILE` | internal Go jobs wiring | `docker-compose.yml`, `core/internal/config/config.go` | Reads the single bootstrap-managed encryption key exported into the isolated Go runtime volume |
+| `ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE` | internal legacy API wiring | `docker-compose.yml`, `docker/entrypoint.sh` | Writes only `ENCRYPTION_KEY` for Go forwarding after bootstrap; other legacy bootstrap credentials remain isolated |
 | `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD` | wrapper-only recovery flag | root templates, `docker-compose.yml`, `server/.env.example`, `docker/entrypoint.sh`, `scripts/start-all-mail.mjs` | Defaults to `false`; when `true`, startup wrappers echo `ADMIN_PASSWORD` to stdout instead of directing operators to the persisted secret source |
 
 ### Database and Redis
@@ -125,10 +127,15 @@ This repo documents bootstrap generation and persistence. It does not provide a 
 | `DOMAIN_BOOTSTRAP_ADMIN_PASSWORD` | feature-gated | `.env.cloudflare.example`, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Optional, minimum length 8 |
 | `SEND_ENABLED_DOMAINS` | feature-gated | `.env.cloudflare.example`, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Optional allowlist-style setting |
 | `API_LOG_RETENTION_DAYS` | optional | root templates, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Default `30` |
+| `API_LOG_RETENTION_OWNER` | required during migration | root templates, `docker-compose.yml`, Go and Node runtime config | `go` in Compose; set `legacy` to roll cleanup back to Node |
 | `API_LOG_CLEANUP_INTERVAL_MINUTES` | optional | root templates, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Default `60` |
+| `API_LOG_CLEANUP_RETRY_SECONDS` | optional | root templates, `docker-compose.yml`, Go runtime config | Default `30` |
+| `API_LOG_CLEANUP_TIMEOUT_SECONDS` | optional | root templates, `docker-compose.yml`, Go runtime config | Default `60` |
+| `API_LOG_CLEANUP_BATCH_SIZE` | optional | root templates, `docker-compose.yml`, Go runtime config | Default `5000` |
 | `FORWARDING_WORKER_OWNER` | required during migration | root templates, `server/.env.example`, `docker-compose.yml`, Go and Node runtime config | `go` in Compose; set `legacy` for rollback or `disabled` to pause claims |
 | `FORWARDING_WORKER_INTERVAL_SECONDS` | optional | root templates, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Default `30` |
 | `FORWARDING_WORKER_BATCH_SIZE` | optional | root templates, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Default `10` |
+| `RESEND_API_BASE_URL` | advanced/test override | `docker-compose.yml`, Go runtime config | Defaults to `https://api.resend.com`; override only for controlled provider endpoints or tests |
 
 ### Ingress and Cloudflare-related settings
 

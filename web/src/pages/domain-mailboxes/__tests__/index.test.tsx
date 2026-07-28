@@ -40,7 +40,6 @@ describe("DomainMailboxesPage localization skeleton", () => {
 		render(
 			<I18nProvider initialLanguage="en-US" persist={false}>
 				<MemoryRouter
-					future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
 				>
 					<DomainMailboxesPage />
 				</MemoryRouter>
@@ -78,7 +77,6 @@ describe("DomainMailboxesPage localization skeleton", () => {
 			<I18nProvider initialLanguage="en-US" persist={false}>
 				<MemoryRouter
 					initialEntries={["/domain-mailboxes?domainId=6&intent=create"]}
-					future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
 				>
 					<DomainMailboxesPage />
 				</MemoryRouter>
