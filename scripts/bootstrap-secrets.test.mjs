@@ -51,7 +51,7 @@ void test('bootstrap password notices default to retrieval instructions instead 
   assert.deepEqual(lines, [
     'Bootstrap admin password is stored in /var/lib/all-mail/bootstrap-secrets.env.',
     'Retrieve it from the runtime state file instead of startup logs.',
-    `Example: docker compose exec app sh -lc "grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-secrets.env | cut -d= -f2-"`,
+    `Example: docker compose exec legacy-api sh -lc "grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-secrets.env | cut -d= -f2-"`,
     'You must log in and change this temporary password immediately before using the rest of the application.',
   ]);
 });
