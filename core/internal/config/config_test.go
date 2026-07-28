@@ -8,6 +8,8 @@ func resetJobEnv(t *testing.T) {
 		"API_LOG_RETENTION_OWNER",
 		"API_LOG_RETENTION_DAYS",
 		"API_LOG_CLEANUP_INTERVAL_MINUTES",
+		"API_LOG_CLEANUP_RETRY_SECONDS",
+		"API_LOG_CLEANUP_TIMEOUT_SECONDS",
 		"API_LOG_CLEANUP_BATCH_SIZE",
 	} {
 		t.Setenv(name, "")
@@ -33,6 +35,12 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.LogRetentionOwner != RuntimeOwnerLegacy {
 		t.Fatalf("LogRetentionOwner = %q, want legacy", cfg.LogRetentionOwner)
+	}
+	if cfg.APILogCleanupRetry.Seconds() != 30 {
+		t.Fatalf("APILogCleanupRetry = %s, want 30s", cfg.APILogCleanupRetry)
+	}
+	if cfg.APILogCleanupTimeout.Seconds() != 60 {
+		t.Fatalf("APILogCleanupTimeout = %s, want 60s", cfg.APILogCleanupTimeout)
 	}
 }
 
@@ -79,6 +87,14 @@ func TestGoLogRetentionRequiresDatabase(t *testing.T) {
 func TestLoadRejectsInvalidLogRetentionOwner(t *testing.T) {
 	resetJobEnv(t)
 	t.Setenv("API_LOG_RETENTION_OWNER", "both")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() expected an error")
+	}
+}
+
+func TestLoadRejectsInvalidCleanupRetry(t *testing.T) {
+	resetJobEnv(t)
+	t.Setenv("API_LOG_CLEANUP_RETRY_SECONDS", "0")
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() expected an error")
 	}
