@@ -24,7 +24,7 @@ import (
 )
 
 type Server struct {
-	cfg       config.Config
+	cfg       config.APIConfig
 	logger    *slog.Logger
 	startedAt time.Time
 	proxy     *httputil.ReverseProxy
@@ -32,11 +32,11 @@ type Server struct {
 	requests  atomic.Uint64
 }
 
-func New(cfg config.Config, logger *slog.Logger) (*Server, error) {
+func New(cfg config.APIConfig, logger *slog.Logger) (*Server, error) {
 	return newWithProber(cfg, logger, readiness.Default())
 }
 
-func newWithProber(cfg config.Config, logger *slog.Logger, prober readiness.Prober) (*Server, error) {
+func newWithProber(cfg config.APIConfig, logger *slog.Logger, prober readiness.Prober) (*Server, error) {
 	server := &Server{
 		cfg:       cfg,
 		logger:    logger,
@@ -78,7 +78,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Info(
 			"Go API runtime listening",
 			"address", httpServer.Addr,
-			"api_mode", s.cfg.APIMode,
+			"api_mode", s.cfg.Mode,
 			"legacy_api", s.cfg.LegacyAPIURL,
 		)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -103,7 +103,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 		"data": map[string]any{
 			"status":           "ok",
 			"runtime":          "go-migration-bridge",
-			"apiMode":          s.cfg.APIMode,
+			"apiMode":          s.cfg.Mode,
 			"legacyConfigured": s.proxy != nil,
 		},
 	})
@@ -131,7 +131,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		"success": report.Ready,
 		"data": map[string]any{
 			"status": state,
-			"mode":   s.cfg.APIMode,
+			"mode":   s.cfg.Mode,
 			"checks": report.Checks,
 		},
 	})
