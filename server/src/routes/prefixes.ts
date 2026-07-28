@@ -26,6 +26,7 @@ export const BACKEND_NAMESPACE_PREFIXES: readonly string[] = [
     ROUTE_PREFIXES.admin,
     ROUTE_PREFIXES.mailboxPortalApi,
     ROUTE_PREFIXES.ingressNamespace,
+    ROUTE_PREFIXES.legacyOauth,
 ] as const;
 
 export const ADMIN_PASSWORD_CHANGE_ALLOWED_PATHS: readonly string[] = [
