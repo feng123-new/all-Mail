@@ -25,24 +25,49 @@ func (cleaner *fakeCleaner) Cleanup(context.Context) (int64, error) {
 	return cleaner.deleted, cleaner.err
 }
 
-func TestRunWritesHeartbeatAndRunsRetention(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cfg := config.Config{
+type retryCleaner struct {
+	calls atomic.Int64
+}
+
+func (cleaner *retryCleaner) Cleanup(context.Context) (int64, error) {
+	if cleaner.calls.Add(1) == 1 {
+		return 0, errors.New("temporary database error")
+	}
+	return 3, nil
+}
+
+type blockingCleaner struct {
+	calls atomic.Int64
+}
+
+func (cleaner *blockingCleaner) Cleanup(ctx context.Context) (int64, error) {
+	cleaner.calls.Add(1)
+	<-ctx.Done()
+	return 0, ctx.Err()
+}
+
+func baseJobConfig(t *testing.T) config.Config {
+	t.Helper()
+	return config.Config{
 		StateDir:              t.TempDir(),
 		JobsHeartbeatInterval: 10 * time.Millisecond,
+		JobsHeartbeatMaxAge:   time.Minute,
 		APILogCleanupInterval: time.Hour,
+		APILogCleanupRetry:    10 * time.Millisecond,
+		APILogCleanupTimeout:  time.Second,
 		APILogRetentionDays:   30,
 		APILogCleanupBatch:    5000,
 		LogRetentionOwner:     config.RuntimeOwnerGo,
-		JobsHeartbeatMaxAge:   time.Minute,
 	}
+}
+
+func TestRunWritesHeartbeatAndRunsRetention(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := baseJobConfig(t)
 	cleaner := &fakeCleaner{deleted: 7}
 	done := make(chan error, 1)
 	go func() { done <- run(ctx, cfg, discardLogger(), cleaner) }()
-	deadline := time.Now().Add(time.Second)
-	for cleaner.calls.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
+	waitForCalls(t, &cleaner.calls, 1)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 	if err := <-done; err != nil {
@@ -60,21 +85,13 @@ func TestRunWritesHeartbeatAndRunsRetention(t *testing.T) {
 	}
 }
 
-func TestRunRecordsRetentionFailureWithoutCrashingSupervisor(t *testing.T) {
+func TestRetentionRetriesAfterFailureAndRecovers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cfg := config.Config{
-		StateDir:              t.TempDir(),
-		JobsHeartbeatInterval: 10 * time.Millisecond,
-		APILogCleanupInterval: time.Hour,
-		LogRetentionOwner:     config.RuntimeOwnerGo,
-	}
-	cleaner := &fakeCleaner{err: errors.New("database unavailable")}
+	cfg := baseJobConfig(t)
+	cleaner := &retryCleaner{}
 	done := make(chan error, 1)
 	go func() { done <- run(ctx, cfg, discardLogger(), cleaner) }()
-	deadline := time.Now().Add(time.Second)
-	for cleaner.calls.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
+	waitForCalls(t, &cleaner.calls, 2)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 	if err := <-done; err != nil {
@@ -84,19 +101,38 @@ func TestRunRecordsRetentionFailureWithoutCrashingSupervisor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsAll(string(content), `"lastError":"database unavailable"`) {
+	if !containsAll(string(content), `"lastDeleted":3`, `"lastSuccessAt"`) || strings.Contains(string(content), `"lastError"`) {
+		t.Fatalf("heartbeat = %s", content)
+	}
+}
+
+func TestRetentionRunIsTimeBounded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := baseJobConfig(t)
+	cfg.APILogCleanupTimeout = 15 * time.Millisecond
+	cfg.APILogCleanupRetry = time.Hour
+	cleaner := &blockingCleaner{}
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, cfg, discardLogger(), cleaner) }()
+	waitForCalls(t, &cleaner.calls, 1)
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "context deadline exceeded") {
 		t.Fatalf("heartbeat = %s", content)
 	}
 }
 
 func TestHeartbeatOnlyModeDoesNotRunRetention(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cfg := config.Config{
-		StateDir:              t.TempDir(),
-		JobsHeartbeatInterval: 10 * time.Millisecond,
-		APILogCleanupInterval: time.Hour,
-		LogRetentionOwner:     config.RuntimeOwnerLegacy,
-	}
+	cfg := baseJobConfig(t)
+	cfg.LogRetentionOwner = config.RuntimeOwnerLegacy
 	done := make(chan error, 1)
 	go func() { done <- run(ctx, cfg, discardLogger(), nil) }()
 	time.Sleep(20 * time.Millisecond)
@@ -106,6 +142,17 @@ func TestHeartbeatOnlyModeDoesNotRunRetention(t *testing.T) {
 	}
 	if _, err := os.Stat(HeartbeatPath(cfg.StateDir)); err != nil {
 		t.Fatalf("heartbeat missing: %v", err)
+	}
+}
+
+func waitForCalls(t *testing.T, calls *atomic.Int64, target int64) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for calls.Load() < target && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if calls.Load() < target {
+		t.Fatalf("cleanup calls = %d, want at least %d", calls.Load(), target)
 	}
 }
 
