@@ -17,11 +17,13 @@ This document is the authoritative deployment entry for `all-Mail`.
 This repository is Docker-first. The default stack is defined in `docker-compose.yml` and starts:
 
 - `app`
+- `go-jobs`
+- `legacy-api`
 - `jobs`
 - `postgres`
 - `redis`
 
-The `app` service is the migration-owning runtime. The `jobs` service sets `ALL_MAIL_RUN_MIGRATIONS=0` and should not be treated as the migration entrypoint.
+The one-shot `go-migrate` service runs after `legacy-api` has applied the existing Prisma migrations. Both Go runtimes depend on its successful completion. The legacy `jobs` service sets `ALL_MAIL_RUN_MIGRATIONS=0` and is not a migration entrypoint.
 
 ### 2. Secondary: compiled source runtime
 
@@ -66,16 +68,19 @@ Important bootstrap behavior:
 ## Startup sequence (Docker)
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build --wait --wait-timeout 240
 docker compose ps
 ```
 
 Expected baseline:
 
 - `app` is running and eventually healthy
+- `go-jobs` is running and eventually healthy
+- `legacy-api` is running and eventually healthy
 - `jobs` is running and eventually healthy
 - `postgres` is healthy
 - `redis` is healthy
+- `go-migrate` exited successfully before the Go runtimes started
 
 If this is the first boot and secrets were generated automatically, startup output prints the first-login URL and the bootstrap admin username. `ADMIN_PASSWORD` stays out of startup logs by default; retrieve it from the persisted bootstrap-secret file unless you explicitly set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` for short-lived recovery. Any generated password must be changed immediately after login.
 
@@ -85,6 +90,7 @@ Basic health probe:
 
 ```bash
 curl http://127.0.0.1:3002/health
+curl --fail http://127.0.0.1:3002/readyz
 ```
 
 If you changed `APP_PORT`, replace `3002` accordingly.
@@ -112,8 +118,9 @@ When your shell exports `NODE_USE_ENV_PROXY` / `HTTP[S]_PROXY`, prefer the `./bi
 
 ## Migration expectations
 
-- Docker `app` startup runs Prisma migrations.
-- Docker `jobs` startup does not.
+- Docker `legacy-api` startup applies the existing Prisma migrations.
+- The one-shot Docker `go-migrate` service then applies and validates the additive Go migration set under a PostgreSQL advisory lock.
+- Docker `app`, `go-jobs`, and `jobs` do not run migrations themselves.
 - `docker/entrypoint.sh` and `scripts/start-all-mail.mjs` fall back from Prisma migrate to a targeted legacy repair plus `db push` only when Prisma reports `P3005` for a legacy non-empty database.
 - `P3009` is not auto-recovered. Treat it as a manual operator intervention case and use [`docs/RUNBOOK.md`](./RUNBOOK.md).
 
@@ -124,14 +131,19 @@ When your shell exports `NODE_USE_ENV_PROXY` / `HTTP[S]_PROXY`, prefer the `./bi
 3. Rebuild and restart the stack:
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build --wait --wait-timeout 240
 ```
+
+During a forwarding-owner upgrade, Compose replaces the legacy `jobs` container
+and waits for its fresh heartbeat before starting `go-jobs`. This closes the old
+writer before the Go writer can acquire ownership.
 
 4. Re-run smoke checks:
 
 ```bash
 docker compose ps
 curl http://127.0.0.1:3002/health
+curl --fail http://127.0.0.1:3002/readyz
 ./bin/all-mail doctor
 ```
 
@@ -152,13 +164,21 @@ Rollback means restoring a previously known-good application revision and, when 
 Minimum rollback procedure:
 
 1. Stop applying new changes.
-2. Return the repo or image source to the previous known-good revision.
-3. Restart the stack with that revision:
+2. Set `FORWARDING_WORKER_OWNER=legacy` in `.env`.
+3. Stop both forwarding runtimes under the current revision and wait for the command to return, so no old claim can finish during the ownership switch:
 
 ```bash
-docker compose up -d --build
+docker compose stop go-jobs jobs
 ```
 
-4. Re-run the same smoke checks used for deploy.
+4. Return the repo or image source to the previous known-good revision.
+5. Restart the legacy worker first, then recreate the remaining stack:
+
+```bash
+docker compose up -d --build --force-recreate jobs
+docker compose up -d --build --wait --wait-timeout 240
+```
+
+6. Re-run the same readiness and doctor checks used for deploy.
 
 If the failed release already changed database state, application-only rollback may be insufficient. In that case, restore PostgreSQL and persisted runtime data together. See the backup/restore starting point in [`docs/RUNBOOK.md`](./RUNBOOK.md).

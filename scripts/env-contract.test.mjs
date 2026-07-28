@@ -37,6 +37,34 @@ test("docker compose binds published ports to configurable hosts", async () => {
 	assert.match(compose, /\$\{REDIS_PUBLISH_HOST:-127\.0\.0\.1\}/);
 });
 
+test("Go forwarding waits for a fresh gated legacy jobs runtime", async () => {
+	const [compose, entrypoint] = await Promise.all([
+		readFile(path.join(repoRoot, "docker-compose.yml"), "utf8"),
+		readFile(path.join(repoRoot, "docker/entrypoint.sh"), "utf8"),
+	]);
+
+	assert.match(
+		compose,
+		/go-jobs:[\s\S]*?depends_on:[\s\S]*?\n\s{6}jobs:\n\s{8}condition: service_healthy/,
+	);
+	assert.match(
+		entrypoint,
+		/runtime_role" = "jobs"[\s\S]*?rm -f "\$ALL_MAIL_STATE_DIR\/jobs-heartbeat\.txt"/,
+	);
+});
+
+test("Prisma db push preserves the Go forwarding lease timestamp type", async () => {
+	const schema = await readFile(
+		path.join(repoRoot, "server/prisma/schema.prisma"),
+		"utf8",
+	);
+
+	assert.match(
+		schema,
+		/leaseExpiresAt\s+DateTime\?\s+@map\("lease_expires_at"\)\s+@db\.Timestamptz\(3\)/,
+	);
+});
+
 test("root release scripts include worker install and production audits", async () => {
 	const packageJson = JSON.parse(
 		await readFile(path.join(repoRoot, "package.json"), "utf8"),

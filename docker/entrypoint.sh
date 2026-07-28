@@ -23,6 +23,10 @@ esac
 
 ALL_MAIL_STATE_DIR=${ALL_MAIL_STATE_DIR:-/var/lib/all-mail}
 mkdir -p "$ALL_MAIL_STATE_DIR"
+chown 10001:10001 "$ALL_MAIL_STATE_DIR"
+if [ "$runtime_role" = "jobs" ]; then
+    rm -f "$ALL_MAIL_STATE_DIR/jobs-heartbeat.txt"
+fi
 sanitize_runtime_env=/app/scripts/sanitize-runtime-env.sh
 eval "$("$sanitize_runtime_env" node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR" --format shell)"
 

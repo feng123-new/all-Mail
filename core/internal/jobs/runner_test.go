@@ -143,6 +143,90 @@ func TestHeartbeatOnlyModeDoesNotRunRetention(t *testing.T) {
 	if _, err := os.Stat(HeartbeatPath(cfg.StateDir)); err != nil {
 		t.Fatalf("heartbeat missing: %v", err)
 	}
+	content, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Ready bool `json:"ready"`
+	}
+	if err := json.Unmarshal(content, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Ready {
+		t.Fatal("heartbeat should report ready")
+	}
+}
+
+func TestRunRequiresDatabaseForGoForwardingOwner(t *testing.T) {
+	cfg := config.Config{
+		StateDir:              t.TempDir(),
+		JobsHeartbeatInterval: time.Second,
+		ForwardingWorkerOwner: "go",
+		EncryptionKey:         "test-encryption-key-1234567890ab",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := Run(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil {
+		t.Fatal("Run() expected an error")
+	}
+}
+
+type blockingForwardingRunner struct{}
+
+func (blockingForwardingRunner) runOnce(ctx context.Context, _ time.Time) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestRunSupervisorKeepsHeartbeatFreshDuringSlowForwarding(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := config.Config{
+		StateDir:              t.TempDir(),
+		JobsHeartbeatInterval: 10 * time.Millisecond,
+		ForwardingInterval:    time.Hour,
+		ForwardingWorkerOwner: "go",
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- runSupervisor(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), blockingForwardingRunner{}, func(context.Context) error { return nil })
+	}()
+
+	time.Sleep(15 * time.Millisecond)
+	firstContent, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(25 * time.Millisecond)
+	secondContent, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if string(firstContent) == string(secondContent) {
+		t.Fatal("heartbeat did not advance while forwarding was blocked")
+	}
+}
+
+func TestRunSupervisorReturnsWhenForwardingOwnerConnectionIsLost(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	cfg := config.Config{
+		StateDir:              t.TempDir(),
+		JobsHeartbeatInterval: 10 * time.Millisecond,
+		ForwardingInterval:    time.Hour,
+		ForwardingWorkerOwner: "go",
+	}
+
+	err := runSupervisor(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), blockingForwardingRunner{}, func(context.Context) error {
+		return errors.New("owner connection closed")
+	})
+	if err == nil || !strings.Contains(err.Error(), "forwarding owner lock connection lost") {
+		t.Fatalf("runSupervisor() error = %v, want owner lock loss", err)
+	}
 }
 
 func waitForCalls(t *testing.T, calls *atomic.Int64, target int64) {

@@ -1,4 +1,6 @@
 import { Prisma } from "@prisma/client";
+import { randomBytes } from "node:crypto";
+import { Client } from "pg";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { decrypt } from "../lib/crypto.js";
@@ -15,6 +17,7 @@ export const FORWARDING_MAX_ATTEMPTS = 3;
 const FORWARDING_INITIAL_BACKOFF_MS = 30_000;
 const FORWARDING_MAX_BACKOFF_MS = 5 * 60_000;
 const FORWARDING_RUNNING_STALE_MS = 10 * 60_000;
+const FORWARDING_ADVISORY_LOCK_KEY = "18379764083873604";
 
 export interface ForwardingWorkerDeps {
 	prisma: typeof prisma;
@@ -156,19 +159,32 @@ function isRetryableForwardingError(error: unknown): boolean {
 
 type ClaimedForwardJobRow = {
 	id: bigint;
+	claim_token: string;
 	previous_status: "PENDING" | "FAILED" | "RUNNING";
 };
+
+class ForwardingClaimLostError extends Error {}
+
+function assertClaimUpdated(count: number, jobId: bigint) {
+	if (count !== 1) {
+		throw new ForwardingClaimLostError(
+			`Forwarding claim lost for job ${jobId.toString()}`,
+		);
+	}
+}
 
 async function claimForwardJobIds(
 	deps: ForwardingWorkerDeps,
 	limit: number,
 	now: Date,
 ): Promise<
-	Array<{ id: bigint; previousStatus: "PENDING" | "FAILED" | "RUNNING" }>
+	Array<{ id: bigint; claimToken: string; previousStatus: "PENDING" | "FAILED" | "RUNNING" }>
 > {
 	const staleRunningCutoff = new Date(
 		now.getTime() - FORWARDING_RUNNING_STALE_MS,
 	);
+	const claimToken = randomBytes(16).toString("hex");
+	const leaseExpiresAt = new Date(now.getTime() + FORWARDING_RUNNING_STALE_MS);
 	const rows = await deps.prisma.$queryRaw<ClaimedForwardJobRow[]>(Prisma.sql`
         WITH claimable AS (
             SELECT id, status AS previous_status
@@ -186,22 +202,25 @@ async function claimForwardJobIds(
             LIMIT ${limit}
             FOR UPDATE SKIP LOCKED
         )
-        UPDATE mailbox_forward_jobs AS job
-        SET status = CAST('RUNNING' AS "ForwardJobStatus"),
-            updated_at = ${now}
+	        UPDATE mailbox_forward_jobs AS job
+	        SET status = CAST('RUNNING' AS "ForwardJobStatus"),
+	            claim_token = ${claimToken},
+	            lease_expires_at = ${leaseExpiresAt},
+	            updated_at = ${now}
         FROM claimable
         WHERE job.id = claimable.id
-        RETURNING job.id, claimable.previous_status
+	        RETURNING job.id, job.claim_token, claimable.previous_status
     `);
 
 	return rows.map((row) => ({
 		id: BigInt(row.id),
+		claimToken: row.claim_token,
 		previousStatus: row.previous_status,
 	}));
 }
 
-async function loadForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
-	return deps.prisma.mailboxForwardJob.findUnique({
+async function loadForwardJob(deps: ForwardingWorkerDeps, jobId: bigint, claimToken: string) {
+	const job = await deps.prisma.mailboxForwardJob.findUnique({
 		where: { id: jobId },
 		select: {
 			id: true,
@@ -210,6 +229,8 @@ async function loadForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
 			mode: true,
 			forwardTo: true,
 			attemptCount: true,
+			status: true,
+			claimToken: true,
 			inboundMessage: {
 				select: {
 					id: true,
@@ -252,28 +273,36 @@ async function loadForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
 			},
 		},
 	});
+	if (!job || job.status !== "RUNNING" || job.claimToken !== claimToken) {
+		return null;
+	}
+	return job;
 }
 
 async function markForwardJobSkipped(
 	deps: ForwardingWorkerDeps,
 	jobId: bigint,
+	claimToken: string,
 	reason: string,
 	processedAt: Date,
 ) {
-	await deps.prisma.mailboxForwardJob.update({
-		where: { id: jobId },
+	const result = await deps.prisma.mailboxForwardJob.updateMany({
+		where: { id: jobId, status: "RUNNING", claimToken },
 		data: {
 			status: "SKIPPED",
 			lastError: reason,
 			nextAttemptAt: null,
 			processedAt,
+			claimToken: null,
+			leaseExpiresAt: null,
 		},
 	});
+	assertClaimUpdated(result.count, jobId);
 }
 
 async function markForwardJobFailed(
 	deps: ForwardingWorkerDeps,
-	job: { id: bigint; attemptCount: number },
+	job: { id: bigint; claimToken: string; attemptCount: number },
 	error: unknown,
 	processedAt: Date,
 ) {
@@ -288,16 +317,19 @@ async function markForwardJobFailed(
 			)
 		: null;
 
-	await deps.prisma.mailboxForwardJob.update({
-		where: { id: job.id },
+	const result = await deps.prisma.mailboxForwardJob.updateMany({
+		where: { id: job.id, status: "RUNNING", claimToken: job.claimToken },
 		data: {
 			status: "FAILED",
 			attemptCount: nextAttemptCount,
 			lastError: getErrorMessage(error),
 			nextAttemptAt,
 			processedAt,
+			claimToken: null,
+			leaseExpiresAt: null,
 		},
 	});
+	assertClaimUpdated(result.count, job.id);
 
 	return {
 		nextAttemptCount,
@@ -311,14 +343,29 @@ async function markForwardJobSent(
 	deps: ForwardingWorkerDeps,
 	job: {
 		id: bigint;
+		claimToken: string;
 		inboundMessageId: bigint;
 		mode: "COPY" | "MOVE";
 		attemptCount: number;
 	},
 	providerMessageId: string | null,
 	processedAt: Date,
-) {
+	) {
 	await deps.prisma.$transaction(async (tx) => {
+		const result = await tx.mailboxForwardJob.updateMany({
+			where: { id: job.id, status: "RUNNING", claimToken: job.claimToken },
+			data: {
+				status: "SENT",
+				attemptCount: job.attemptCount + 1,
+				lastError: null,
+				providerMessageId,
+				nextAttemptAt: null,
+				processedAt,
+				claimToken: null,
+				leaseExpiresAt: null,
+			},
+		});
+		assertClaimUpdated(result.count, job.id);
 		if (job.mode === "MOVE") {
 			await tx.inboundMessage.update({
 				where: { id: job.inboundMessageId },
@@ -327,18 +374,6 @@ async function markForwardJobSent(
 				},
 			});
 		}
-
-		await tx.mailboxForwardJob.update({
-			where: { id: job.id },
-			data: {
-				status: "SENT",
-				attemptCount: job.attemptCount + 1,
-				lastError: null,
-				providerMessageId,
-				nextAttemptAt: null,
-				processedAt,
-			},
-		});
 	});
 }
 
@@ -354,8 +389,8 @@ function validateForwardTarget(forwardTo: string) {
 	return parsed.data;
 }
 
-async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
-	const job = await loadForwardJob(deps, jobId);
+async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint, claimToken: string) {
+	const job = await loadForwardJob(deps, jobId, claimToken);
 	if (!job) {
 		return;
 	}
@@ -379,7 +414,7 @@ async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
 	if (!job.mailbox || job.mailbox.status !== "ACTIVE") {
 		const failure = await markForwardJobFailed(
 			deps,
-			{ id: job.id, attemptCount: job.attemptCount },
+			{ id: job.id, claimToken, attemptCount: job.attemptCount },
 			new AppError(
 				"DOMAIN_MAILBOX_DISABLED",
 				"Mailbox is no longer active for forwarding",
@@ -409,8 +444,9 @@ async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
 		currentForwardTo !== normalizeEmailAddress(job.forwardTo)
 	) {
 		await markForwardJobSkipped(
-			deps,
-			job.id,
+				deps,
+				job.id,
+				claimToken,
 			"Forwarding configuration changed after job creation",
 			processedAt,
 		);
@@ -428,7 +464,7 @@ async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
 	if (job.mailbox.domain.status !== "ACTIVE") {
 		const failure = await markForwardJobFailed(
 			deps,
-			{ id: job.id, attemptCount: job.attemptCount },
+			{ id: job.id, claimToken, attemptCount: job.attemptCount },
 			new AppError(
 				"DOMAIN_DISABLED",
 				"Domain is not active for forwarding",
@@ -452,7 +488,7 @@ async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
 	if (!job.mailbox.domain.canSend) {
 		const failure = await markForwardJobFailed(
 			deps,
-			{ id: job.id, attemptCount: job.attemptCount },
+			{ id: job.id, claimToken, attemptCount: job.attemptCount },
 			new AppError(
 				"DOMAIN_SEND_DISABLED",
 				"Domain cannot send forwarded mail",
@@ -477,7 +513,7 @@ async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
 	if (!sendConfig) {
 		const failure = await markForwardJobFailed(
 			deps,
-			{ id: job.id, attemptCount: job.attemptCount },
+			{ id: job.id, claimToken, attemptCount: job.attemptCount },
 			new AppError(
 				"SEND_CONFIG_NOT_FOUND",
 				"No active sending configuration is available for this domain",
@@ -525,6 +561,7 @@ async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
 			deps,
 			{
 				id: job.id,
+				claimToken,
 				inboundMessageId: job.inboundMessageId,
 				mode: job.mode === "MOVE" ? "MOVE" : "COPY",
 				attemptCount: job.attemptCount,
@@ -545,9 +582,12 @@ async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint) {
 			"Mailbox forwarding job sent",
 		);
 	} catch (error) {
+		if (error instanceof ForwardingClaimLostError) {
+			throw error;
+		}
 		const failure = await markForwardJobFailed(
 			deps,
-			{ id: job.id, attemptCount: job.attemptCount },
+			{ id: job.id, claimToken, attemptCount: job.attemptCount },
 			error,
 			processedAt,
 		);
@@ -580,22 +620,22 @@ export function createForwardingWorker(
 		now: () => new Date(),
 		...overrides,
 	};
-	let running = false;
+	let activeRun: Promise<void> | null = null;
 
-	async function runOnce() {
-		if (running) {
-			return;
+	function runOnce(): Promise<void> {
+		if (activeRun) {
+			return activeRun;
 		}
 
-		running = true;
-		try {
-			const claimedJobs = await claimForwardJobIds(
+		activeRun = (async () => {
+			try {
+				const claimedJobs = await claimForwardJobIds(
 				deps,
 				env.FORWARDING_WORKER_BATCH_SIZE,
 				deps.now(),
-			);
-			if (claimedJobs.length > 0) {
-				deps.logger.info(
+				);
+				if (claimedJobs.length > 0) {
+					deps.logger.info(
 					{
 						claimedCount: claimedJobs.length,
 						reclaimedCount: claimedJobs.filter(
@@ -604,21 +644,24 @@ export function createForwardingWorker(
 						claimedJobIds: claimedJobs.map((job) => job.id.toString()),
 					},
 					"Mailbox forwarding worker claimed jobs",
-				);
-			}
-			for (const job of claimedJobs) {
-				await processForwardJob(deps, job.id);
-			}
-		} catch (err) {
-			deps.logger.error({ err }, "Mailbox forwarding worker failed");
-		} finally {
-			running = false;
-			try {
-				await Promise.resolve(deps.markHealthy(deps.now()));
+					);
+				}
+				for (const job of claimedJobs) {
+					await processForwardJob(deps, job.id, job.claimToken);
+				}
 			} catch (err) {
-				deps.logger.warn({ err }, "Failed to update jobs heartbeat");
+				deps.logger.error({ err }, "Mailbox forwarding worker failed");
+			} finally {
+				try {
+					await Promise.resolve(deps.markHealthy(deps.now()));
+				} catch (err) {
+					deps.logger.warn({ err }, "Failed to update jobs heartbeat");
+				}
 			}
-		}
+		})().finally(() => {
+			activeRun = null;
+		});
+		return activeRun;
 	}
 
 	function start() {
@@ -636,8 +679,9 @@ export function createForwardingWorker(
 			void runOnce();
 		}, intervalMs);
 
-		return () => {
+		return async () => {
 			clearInterval(timer);
+			await activeRun;
 		};
 	}
 
@@ -647,6 +691,31 @@ export function createForwardingWorker(
 	};
 }
 
-export function startForwardingWorker(): () => void {
-	return createForwardingWorker().start();
+export async function startForwardingWorker(): Promise<() => Promise<void>> {
+	const lockClient = new Client({ connectionString: env.DATABASE_URL });
+	await lockClient.connect();
+	try {
+		const result = await lockClient.query<{ acquired: boolean }>(
+			"SELECT pg_try_advisory_lock($1::bigint) AS acquired",
+			[FORWARDING_ADVISORY_LOCK_KEY],
+		);
+		if (!result.rows[0]?.acquired) {
+			throw new Error("Forwarding owner lock is held by another runtime");
+		}
+	} catch (error) {
+		await lockClient.end();
+		throw error;
+	}
+
+	const stopWorker = createForwardingWorker().start();
+	return async () => {
+		await stopWorker();
+		try {
+			await lockClient.query("SELECT pg_advisory_unlock($1::bigint)", [
+				FORWARDING_ADVISORY_LOCK_KEY,
+			]);
+		} finally {
+			await lockClient.end();
+		}
+	};
 }

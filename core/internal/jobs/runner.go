@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
+	"github.com/feng123-new/all-Mail/core/internal/legacycrypto"
+	"github.com/feng123-new/all-Mail/core/internal/provider"
 )
 
 type workerHeartbeat struct {

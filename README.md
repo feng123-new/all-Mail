@@ -87,23 +87,26 @@ cp .env.cloudflare.example .env
 ### 2. Start the stack
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build --wait --wait-timeout 240
 docker compose ps
 ```
 
 Expected baseline services:
 
 - `app`
+- `go-jobs`
+- `legacy-api`
 - `jobs`
 - `postgres`
 - `redis`
 
-After startup, `app` and `jobs` should settle into a healthy state in `docker compose ps`, while `postgres` and `redis` should report healthy from their own checks.
+The one-shot `go-migrate` service runs after the legacy Prisma migrations and must finish successfully before `app` or `go-jobs` starts. The `--wait` command exits only after the long-running services report healthy.
 
 ### 3. Probe health
 
 ```bash
 curl http://127.0.0.1:3002/health
+curl --fail http://127.0.0.1:3002/readyz
 ```
 
 Expected response:

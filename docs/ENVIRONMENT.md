@@ -126,6 +126,7 @@ This repo documents bootstrap generation and persistence. It does not provide a 
 | `SEND_ENABLED_DOMAINS` | feature-gated | `.env.cloudflare.example`, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Optional allowlist-style setting |
 | `API_LOG_RETENTION_DAYS` | optional | root templates, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Default `30` |
 | `API_LOG_CLEANUP_INTERVAL_MINUTES` | optional | root templates, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Default `60` |
+| `FORWARDING_WORKER_OWNER` | required during migration | root templates, `server/.env.example`, `docker-compose.yml`, Go and Node runtime config | `go` in Compose; set `legacy` for rollback or `disabled` to pause claims |
 | `FORWARDING_WORKER_INTERVAL_SECONDS` | optional | root templates, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Default `30` |
 | `FORWARDING_WORKER_BATCH_SIZE` | optional | root templates, `server/.env.example`, `docker-compose.yml`, `server/src/config/env.ts` | Default `10` |
 

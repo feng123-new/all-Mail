@@ -45,7 +45,7 @@ curl --fail http://127.0.0.1:3002/readyz
 Apply the additive Go runtime migrations explicitly:
 
 ```bash
-docker compose run --rm app migrate
+docker compose run --rm go-migrate
 ```
 
 The API never mutates the Go schema during startup.

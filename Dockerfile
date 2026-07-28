@@ -7,7 +7,7 @@ RUN npm run build
 
 FROM golang:1.23-bookworm AS go-builder
 WORKDIR /src/core
-COPY core/go.mod ./
+COPY core/go.mod core/go.sum ./
 RUN go mod download
 COPY core ./
 RUN test -z "$(gofmt -l .)" \

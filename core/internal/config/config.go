@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -34,10 +35,15 @@ type Config struct {
 	LegacyAPIURL          string
 	DatabaseURL           string
 	RedisURL              string
+	EncryptionKey         string
 	ReadyTimeout          time.Duration
 	ShutdownTimeout       time.Duration
 	JobsHeartbeatInterval time.Duration
 	JobsHeartbeatMaxAge   time.Duration
+	ForwardingWorkerOwner string
+	ForwardingInterval    time.Duration
+	ForwardingBatchSize   int
+	ResendAPIBaseURL      string
 	MigrationDir          string
 	LogRetentionOwner     RuntimeOwner
 	APILogRetentionDays   int
@@ -94,14 +100,19 @@ func Load() (Config, error) {
 		APIMode:               APIMode(strings.ToLower(env("GO_API_MODE", string(APIModeBridge)))),
 		Port:                  port,
 		StaticDir:             env("ALL_MAIL_STATIC_DIR", "/app/public"),
-		StateDir:              env("ALL_MAIL_STATE_DIR", "/var/lib/all-mail"),
+		StateDir:              stateDir,
 		LegacyAPIURL:          strings.TrimSpace(os.Getenv("LEGACY_API_URL")),
 		DatabaseURL:           strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		RedisURL:              strings.TrimSpace(os.Getenv("REDIS_URL")),
+		EncryptionKey:         encryptionKey,
 		ReadyTimeout:          time.Duration(readySeconds) * time.Second,
 		ShutdownTimeout:       time.Duration(shutdownSeconds) * time.Second,
 		JobsHeartbeatInterval: time.Duration(heartbeatSeconds) * time.Second,
 		JobsHeartbeatMaxAge:   time.Duration(heartbeatMaxAgeSeconds) * time.Second,
+		ForwardingWorkerOwner: strings.ToLower(env("FORWARDING_WORKER_OWNER", "legacy")),
+		ForwardingInterval:    time.Duration(forwardingSeconds) * time.Second,
+		ForwardingBatchSize:   forwardingBatchSize,
+		ResendAPIBaseURL:      strings.TrimRight(env("RESEND_API_BASE_URL", "https://api.resend.com"), "/"),
 		MigrationDir:          env("ALL_MAIL_MIGRATION_DIR", "/app/migrations"),
 		LogRetentionOwner:     RuntimeOwner(strings.ToLower(env("API_LOG_RETENTION_OWNER", string(RuntimeOwnerLegacy)))),
 		APILogRetentionDays:   retentionDays,
@@ -239,4 +250,22 @@ func envInt(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer: %w", name, err)
 	}
 	return value, nil
+}
+
+func managedSecret(stateDir, name string) string {
+	content, err := os.ReadFile(filepath.Join(stateDir, "bootstrap-secrets.env"))
+	if err != nil {
+		return ""
+	}
+	for _, rawLine := range strings.Split(string(content), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) == name {
+			return strings.Trim(strings.TrimSpace(parts[1]), "\"'")
+		}
+	}
+	return ""
 }

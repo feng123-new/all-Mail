@@ -173,6 +173,37 @@ jobs:
           fi
           test "$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('runtime_migrations') IS NULL")" = "t"
 
+  go:
+    name: go-core
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Race test
+        run: go test -race ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
   web:
     name: web-lint-build
     runs-on: ubuntu-latest
@@ -314,8 +345,10 @@ jobs:
       - name: Verify Go jobs runtime
         run: docker compose exec -T go-jobs allmail doctor jobs
 
-      - name: Check container health
-        run: docker compose ps
+      - name: Check runtime doctors
+        run: |
+          docker compose exec -T app allmail doctor api
+          docker compose exec -T go-jobs allmail doctor jobs
 
       - name: Stop Docker stack
         if: always()
