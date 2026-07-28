@@ -17,7 +17,7 @@ import (
 
 const heartbeatFutureSkew = 5 * time.Second
 
-func API(ctx context.Context, cfg config.Config) error {
+func API(ctx context.Context, cfg config.APIConfig) error {
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
@@ -54,17 +54,25 @@ func API(ctx context.Context, cfg config.Config) error {
 	return nil
 }
 
-func Jobs(cfg config.Config) error {
-	content, err := os.ReadFile(jobs.HeartbeatPath(cfg.StateDir))
+func Forwarding(cfg config.ForwardingConfig) error {
+	return worker(cfg.StateDir, jobs.WorkerForwarding, cfg.HeartbeatMaxAge, cfg.RunTimeout)
+}
+
+func Retention(cfg config.RetentionConfig) error {
+	return worker(cfg.StateDir, jobs.WorkerRetention, cfg.HeartbeatMaxAge, cfg.RunTimeout)
+}
+
+func worker(stateDir, expectedWorker string, maxAge, runLimit time.Duration) error {
+	content, err := os.ReadFile(jobs.HeartbeatPath(stateDir, expectedWorker))
 	if err != nil {
-		return fmt.Errorf("read Go jobs heartbeat: %w", err)
+		return fmt.Errorf("read Go %s worker heartbeat: %w", expectedWorker, err)
 	}
 	var payload struct {
 		Runtime   string    `json:"runtime"`
+		Worker    string    `json:"worker"`
 		PID       int       `json:"pid"`
 		UpdatedAt time.Time `json:"updatedAt"`
-		Workers   map[string]struct {
-			Enabled             bool       `json:"enabled"`
+		State     struct {
 			Running             bool       `json:"running"`
 			StartedAt           *time.Time `json:"startedAt"`
 			LastRunAt           *time.Time `json:"lastRunAt"`
@@ -72,93 +80,59 @@ func Jobs(cfg config.Config) error {
 			LastSuccessAt       *time.Time `json:"lastSuccessAt"`
 			ConsecutiveFailures int        `json:"consecutiveFailures"`
 			LastError           string     `json:"lastError"`
-		} `json:"workers"`
+		} `json:"state"`
 	}
 	if err := json.Unmarshal(content, &payload); err != nil {
-		return fmt.Errorf("decode Go jobs heartbeat: %w", err)
+		return fmt.Errorf("decode Go %s worker heartbeat: %w", expectedWorker, err)
 	}
-	if payload.Runtime != "go-jobs-runtime" || payload.PID <= 0 {
-		return fmt.Errorf("Go jobs heartbeat has invalid runtime identity")
+	if payload.Runtime != "allmail-worker-"+expectedWorker || payload.Worker != expectedWorker || payload.PID <= 0 {
+		return fmt.Errorf("Go %s worker heartbeat has invalid runtime identity", expectedWorker)
 	}
 	process, err := os.FindProcess(payload.PID)
 	if err != nil {
-		return fmt.Errorf("find Go jobs process %d: %w", payload.PID, err)
+		return fmt.Errorf("find Go %s worker process %d: %w", expectedWorker, payload.PID, err)
 	}
 	if err := process.Signal(syscall.Signal(0)); err != nil && !errors.Is(err, syscall.EPERM) {
-		return fmt.Errorf("Go jobs heartbeat process is not running: pid %d", payload.PID)
+		return fmt.Errorf("Go %s worker heartbeat process is not running: pid %d", expectedWorker, payload.PID)
 	}
 	if payload.UpdatedAt.IsZero() {
-		return fmt.Errorf("Go jobs heartbeat has no timestamp")
+		return fmt.Errorf("Go %s worker heartbeat has no timestamp", expectedWorker)
 	}
 	now := time.Now()
 	if payload.UpdatedAt.After(now.Add(heartbeatFutureSkew)) {
-		return fmt.Errorf("Go jobs heartbeat timestamp is in the future")
+		return fmt.Errorf("Go %s worker heartbeat timestamp is in the future", expectedWorker)
 	}
-	if age := now.Sub(payload.UpdatedAt); age > cfg.JobsHeartbeatMaxAge {
-		return fmt.Errorf("Go jobs heartbeat is stale: %s", age.Round(time.Second))
+	if maxAge <= 0 {
+		return fmt.Errorf("Go %s worker heartbeat max age is not configured", expectedWorker)
 	}
-	if len(payload.Workers) == 0 {
-		return fmt.Errorf("Go jobs heartbeat has no worker state")
+	if age := now.Sub(payload.UpdatedAt); age > maxAge {
+		return fmt.Errorf("Go %s worker heartbeat is stale: %s", expectedWorker, age.Round(time.Second))
 	}
-
-	expectedWorkers := map[string]bool{
-		"apiLogRetention": cfg.LogRetentionOwner == config.RuntimeOwnerGo,
-		"forwarding":      cfg.ForwardingWorkerOwner == config.RuntimeOwnerGo,
-	}
-	for name, expectedEnabled := range expectedWorkers {
-		worker, ok := payload.Workers[name]
-		if !ok {
-			return fmt.Errorf("Go jobs heartbeat is missing %s worker state", name)
+	for label, timestamp := range map[string]*time.Time{
+		"startedAt":       payload.State.StartedAt,
+		"lastRunAt":       payload.State.LastRunAt,
+		"lastCompletedAt": payload.State.LastCompletedAt,
+		"lastSuccessAt":   payload.State.LastSuccessAt,
+	} {
+		if timestamp != nil && timestamp.After(now.Add(heartbeatFutureSkew)) {
+			return fmt.Errorf("Go %s worker %s is in the future", expectedWorker, label)
 		}
-		if worker.Enabled != expectedEnabled {
+	}
+	if payload.State.Running {
+		if payload.State.StartedAt == nil {
+			return fmt.Errorf("Go %s worker is running without a start timestamp", expectedWorker)
+		}
+		if runLimit > 0 && now.Sub(*payload.State.StartedAt) > runLimit+heartbeatFutureSkew {
 			return fmt.Errorf(
-				"Go jobs worker %s enablement does not match configured ownership",
-				name,
+				"Go %s worker has exceeded its run limit: %s",
+				expectedWorker,
+				now.Sub(*payload.State.StartedAt).Round(time.Second),
 			)
 		}
-		for label, timestamp := range map[string]*time.Time{
-			"startedAt":       worker.StartedAt,
-			"lastRunAt":       worker.LastRunAt,
-			"lastCompletedAt": worker.LastCompletedAt,
-			"lastSuccessAt":   worker.LastSuccessAt,
-		} {
-			if timestamp != nil && timestamp.After(now.Add(heartbeatFutureSkew)) {
-				return fmt.Errorf("Go jobs worker %s %s is in the future", name, label)
-			}
-		}
-		if !worker.Enabled {
-			continue
-		}
-		if worker.Running {
-			if worker.StartedAt == nil {
-				return fmt.Errorf("Go jobs worker %s is running without a start timestamp", name)
-			}
-			limit := workerRunLimit(name, cfg)
-			if limit > 0 && now.Sub(*worker.StartedAt) > limit {
-				return fmt.Errorf(
-					"Go jobs worker %s has exceeded its run limit: %s",
-					name,
-					now.Sub(*worker.StartedAt).Round(time.Second),
-				)
-			}
-		}
-		if worker.LastError == "" {
-			continue
-		}
-		if worker.LastSuccessAt == nil || (worker.LastRunAt != nil && worker.LastRunAt.After(*worker.LastSuccessAt)) {
-			return fmt.Errorf("Go jobs worker %s is unhealthy: %s", name, worker.LastError)
-		}
+	}
+	if payload.State.LastError != "" && (payload.State.LastSuccessAt == nil ||
+		(payload.State.LastCompletedAt != nil && payload.State.LastCompletedAt.After(*payload.State.LastSuccessAt))) {
+		return fmt.Errorf("Go %s worker is unhealthy: %s", expectedWorker, payload.State.LastError)
 	}
 	return nil
-}
-
-func workerRunLimit(name string, cfg config.Config) time.Duration {
-	switch name {
-	case "forwarding":
-		return cfg.ForwardingRunTimeout
-	case "apiLogRetention":
-		return cfg.APILogCleanupTimeout
-	default:
-		return 0
-	}
 }
