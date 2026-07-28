@@ -16,16 +16,26 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/migrate"
 )
 
+const usageText = `Usage:
+  allmail api
+  allmail jobs
+  allmail migrate
+  allmail doctor api
+  allmail doctor jobs
+`
+
 func main() {
+	command, showHelp := commandFromArgs(os.Args)
+	if showHelp {
+		fmt.Fprint(os.Stdout, usageText)
+		return
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
-	}
-	command := "api"
-	if len(os.Args) > 1 {
-		command = os.Args[1]
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -63,6 +73,18 @@ func main() {
 		}
 	default:
 		fatal(logger, fmt.Errorf("unknown command %q; use api, jobs, migrate or doctor", command))
+	}
+}
+
+func commandFromArgs(args []string) (string, bool) {
+	if len(args) < 2 {
+		return "api", false
+	}
+	switch args[1] {
+	case "-h", "--help", "help":
+		return "", true
+	default:
+		return args[1], false
 	}
 }
 

@@ -3,15 +3,19 @@ package doctor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
 	"github.com/feng123-new/all-Mail/core/internal/jobs"
 )
+
+const heartbeatFutureSkew = 5 * time.Second
 
 func API(ctx context.Context, cfg config.Config) error {
 	request, err := http.NewRequestWithContext(
@@ -76,17 +80,52 @@ func Jobs(cfg config.Config) error {
 	if payload.Runtime != "go-jobs-runtime" || payload.PID <= 0 {
 		return fmt.Errorf("Go jobs heartbeat has invalid runtime identity")
 	}
+	process, err := os.FindProcess(payload.PID)
+	if err != nil {
+		return fmt.Errorf("find Go jobs process %d: %w", payload.PID, err)
+	}
+	if err := process.Signal(syscall.Signal(0)); err != nil && !errors.Is(err, syscall.EPERM) {
+		return fmt.Errorf("Go jobs heartbeat process is not running: pid %d", payload.PID)
+	}
 	if payload.UpdatedAt.IsZero() {
 		return fmt.Errorf("Go jobs heartbeat has no timestamp")
 	}
-	if age := time.Since(payload.UpdatedAt); age > cfg.JobsHeartbeatMaxAge {
+	now := time.Now()
+	if payload.UpdatedAt.After(now.Add(heartbeatFutureSkew)) {
+		return fmt.Errorf("Go jobs heartbeat timestamp is in the future")
+	}
+	if age := now.Sub(payload.UpdatedAt); age > cfg.JobsHeartbeatMaxAge {
 		return fmt.Errorf("Go jobs heartbeat is stale: %s", age.Round(time.Second))
 	}
 	if len(payload.Workers) == 0 {
 		return fmt.Errorf("Go jobs heartbeat has no worker state")
 	}
 
-	for name, worker := range payload.Workers {
+	expectedWorkers := map[string]bool{
+		"apiLogRetention": cfg.LogRetentionOwner == config.RuntimeOwnerGo,
+		"forwarding":      cfg.ForwardingWorkerOwner == config.RuntimeOwnerGo,
+	}
+	for name, expectedEnabled := range expectedWorkers {
+		worker, ok := payload.Workers[name]
+		if !ok {
+			return fmt.Errorf("Go jobs heartbeat is missing %s worker state", name)
+		}
+		if worker.Enabled != expectedEnabled {
+			return fmt.Errorf(
+				"Go jobs worker %s enablement does not match configured ownership",
+				name,
+			)
+		}
+		for label, timestamp := range map[string]*time.Time{
+			"startedAt":       worker.StartedAt,
+			"lastRunAt":       worker.LastRunAt,
+			"lastCompletedAt": worker.LastCompletedAt,
+			"lastSuccessAt":   worker.LastSuccessAt,
+		} {
+			if timestamp != nil && timestamp.After(now.Add(heartbeatFutureSkew)) {
+				return fmt.Errorf("Go jobs worker %s %s is in the future", name, label)
+			}
+		}
 		if !worker.Enabled {
 			continue
 		}
@@ -95,11 +134,11 @@ func Jobs(cfg config.Config) error {
 				return fmt.Errorf("Go jobs worker %s is running without a start timestamp", name)
 			}
 			limit := workerRunLimit(name, cfg)
-			if limit > 0 && time.Since(*worker.StartedAt) > limit {
+			if limit > 0 && now.Sub(*worker.StartedAt) > limit {
 				return fmt.Errorf(
 					"Go jobs worker %s has exceeded its run limit: %s",
 					name,
-					time.Since(*worker.StartedAt).Round(time.Second),
+					now.Sub(*worker.StartedAt).Round(time.Second),
 				)
 			}
 		}

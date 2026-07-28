@@ -170,10 +170,11 @@ func runSupervisor(
 
 	forwardingResults := make(chan error, 1)
 	forwardingRunning := false
-	startForwarding := func(now time.Time) {
+	startForwarding := func() {
 		if forwarder == nil || forwardingRunning {
 			return
 		}
+		now := time.Now().UTC()
 		forwardingRunning = true
 		state.markForwardingStarted(now)
 		runTimeout := cfg.ForwardingRunTimeout
@@ -186,7 +187,7 @@ func runSupervisor(
 			forwardingResults <- forwarder.runOnce(runCtx, now)
 		}()
 	}
-	startForwarding(time.Now().UTC())
+	startForwarding()
 
 	waitForWorkers := func() error {
 		cancelWorkers()
@@ -213,8 +214,8 @@ func runSupervisor(
 			}
 			logger.Info("Go jobs runtime stopped")
 			return nil
-		case now := <-forwardingTicks:
-			startForwarding(now.UTC())
+		case <-forwardingTicks:
+			startForwarding()
 		case <-ownerCheckTicks:
 			if err := checkOwner(); err != nil {
 				state.markForwardingFailed(time.Now().UTC(), err)
@@ -380,11 +381,20 @@ func writeHeartbeat(stateDir string, workers map[string]workerHeartbeat) error {
 		return err
 	}
 	target := HeartbeatPath(stateDir)
-	temporary := target + ".tmp"
-	if err := os.WriteFile(temporary, payload, 0o600); err != nil {
+	temporary, err := os.CreateTemp(stateDir, ".go-jobs-heartbeat-*.tmp")
+	if err != nil {
 		return fmt.Errorf("write heartbeat: %w", err)
 	}
-	if err := os.Rename(temporary, target); err != nil {
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := temporary.Write(payload); err != nil {
+		temporary.Close()
+		return fmt.Errorf("write heartbeat: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close heartbeat: %w", err)
+	}
+	if err := os.Rename(temporaryPath, target); err != nil {
 		return fmt.Errorf("publish heartbeat: %w", err)
 	}
 	return nil

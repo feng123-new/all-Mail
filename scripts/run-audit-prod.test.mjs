@@ -4,6 +4,7 @@ import {
   auditAdvisoryAllowlist,
   evaluateAuditReport,
   productionAuditSteps,
+  runAuditStep,
   runProductionAudits,
 } from './run-audit-prod.mjs';
 
@@ -78,6 +79,96 @@ test('evaluateAuditReport does not let an exception cover another package', () =
 
   assert.equal(result.ok, false);
   assert.deepEqual(result.blocking.map((item) => item.packageName), ['unrelated-package']);
+});
+
+test('evaluateAuditReport rejects npm audit error responses', () => {
+  const result = evaluateAuditReport({
+    error: {
+      code: 'ENOAUDIT',
+      summary: 'The configured registry does not support audit requests',
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.invalidReason, /error response/i);
+});
+
+test('evaluateAuditReport blocks unresolved advisories beside an allowed advisory', () => {
+  const report = routerAuditReport();
+  report.vulnerabilities['react-router'].via.push({
+    source: 5678,
+    title: 'Unrelated advisory without a GitHub advisory identifier',
+    url: 'https://example.invalid/CVE-2026-0001',
+  });
+
+  const result = evaluateAuditReport(report, {
+    now: new Date('2026-07-28T00:00:00Z'),
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(
+    result.blocking.map((item) => item.packageName).sort(),
+    ['react-router', 'react-router-dom'],
+  );
+});
+
+test('runAuditStep fails closed for a nonzero npm error response', async () => {
+  const step = {
+    name: 'fixture',
+    command: process.execPath,
+    args: [
+      '--input-type=module',
+      '-e',
+      `console.log(JSON.stringify({ error: { code: 'ENOAUDIT', summary: 'registry unavailable' } })); process.exit(1);`,
+    ],
+  };
+
+  const result = await runAuditStep(step);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 1);
+});
+
+test('runAuditStep fails closed when a successful command returns malformed output', async () => {
+  const step = {
+    name: 'fixture',
+    command: process.execPath,
+    args: ['--input-type=module', '-e', `console.log('not-json')`],
+  };
+
+  const result = await runAuditStep(step);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 1);
+  assert.match(result.error.message, /valid JSON/);
+});
+
+test('evaluateAuditReport rejects cyclic advisory references', () => {
+  const report = {
+    vulnerabilities: {
+      'react-router': {
+        via: [
+          {
+            url: 'https://github.com/advisories/GHSA-qwww-vcr4-c8h2',
+          },
+          'react-router-dom',
+        ],
+      },
+      'react-router-dom': {
+        via: ['react-router'],
+      },
+    },
+  };
+
+  const result = evaluateAuditReport(report, {
+    now: new Date('2026-07-28T00:00:00Z'),
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(
+    result.blocking.map((item) => item.packageName).sort(),
+    ['react-router', 'react-router-dom'],
+  );
 });
 
 test('runProductionAudits executes every audit step before failing overall', async () => {

@@ -41,28 +41,39 @@ function advisoryID(via) {
   return null;
 }
 
-function collectAdvisories(name, vulnerabilities, visited = new Set()) {
-  if (visited.has(name)) {
-    return [];
+function collectAdvisories(name, vulnerabilities, active = new Set(), memo = new Map()) {
+  if (memo.has(name)) {
+    return memo.get(name);
   }
-  visited.add(name);
+  if (active.has(name)) {
+    return { ids: [], complete: false };
+  }
   const vulnerability = vulnerabilities[name];
-  if (!vulnerability || !Array.isArray(vulnerability.via)) {
-    return [];
+  if (!vulnerability || !Array.isArray(vulnerability.via) || vulnerability.via.length === 0) {
+    return { ids: [], complete: false };
   }
 
+  active.add(name);
   const advisories = [];
+  let complete = true;
   for (const via of vulnerability.via) {
     if (typeof via === 'string') {
-      advisories.push(...collectAdvisories(via, vulnerabilities, visited));
+      const nested = collectAdvisories(via, vulnerabilities, active, memo);
+      advisories.push(...nested.ids);
+      complete &&= nested.complete;
       continue;
     }
     const id = advisoryID(via);
     if (id) {
       advisories.push(id);
+    } else {
+      complete = false;
     }
   }
-  return [...new Set(advisories)];
+  active.delete(name);
+  const result = { ids: [...new Set(advisories)], complete };
+  memo.set(name, result);
+  return result;
 }
 
 function exceptionIsActive(exception, now) {
@@ -73,17 +84,35 @@ function exceptionIsActive(exception, now) {
 export function evaluateAuditReport(report, options = {}) {
   const now = options.now ?? new Date();
   const allowlist = options.allowlist ?? auditAdvisoryAllowlist;
-  const vulnerabilities = report?.vulnerabilities && typeof report.vulnerabilities === 'object'
-    ? report.vulnerabilities
-    : {};
+  let invalidReason = null;
+  if (!report || typeof report !== 'object' || Array.isArray(report)) {
+    invalidReason = 'npm audit returned a non-object report';
+  } else if (report.error) {
+    invalidReason = 'npm audit returned an error response';
+  } else if (!report.vulnerabilities || typeof report.vulnerabilities !== 'object' || Array.isArray(report.vulnerabilities)) {
+    invalidReason = 'npm audit report has no vulnerabilities object';
+  }
+  if (invalidReason) {
+    return {
+      ok: false,
+      allowed: [],
+      blocking: [],
+      metadata: report?.metadata ?? null,
+      invalidReason,
+    };
+  }
+
+  const vulnerabilities = report.vulnerabilities;
   const allowed = [];
   const blocking = [];
 
   for (const [packageName, vulnerability] of Object.entries(vulnerabilities)) {
-    const advisoryIds = collectAdvisories(packageName, vulnerabilities);
+    const advisoryCollection = collectAdvisories(packageName, vulnerabilities);
+    const advisoryIds = advisoryCollection.ids;
     const exceptions = advisoryIds.map((id) => ({ id, exception: allowlist[id] }));
-    const isAllowed = advisoryIds.length > 0 && exceptions.every(({ exception }) => (
+    const isAllowed = advisoryCollection.complete && advisoryIds.length > 0 && exceptions.every(({ exception }) => (
       exception
+      && Array.isArray(exception.packages)
       && exception.packages.includes(packageName)
       && exceptionIsActive(exception, now)
     ));
@@ -91,7 +120,12 @@ export function evaluateAuditReport(report, options = {}) {
     if (isAllowed) {
       allowed.push({ packageName, vulnerability, advisories: exceptions });
     } else {
-      blocking.push({ packageName, vulnerability, advisoryIds });
+      blocking.push({
+        packageName,
+        vulnerability,
+        advisoryIds,
+        unresolvedAdvisory: !advisoryCollection.complete,
+      });
     }
   }
 
@@ -100,6 +134,7 @@ export function evaluateAuditReport(report, options = {}) {
     allowed,
     blocking,
     metadata: report?.metadata ?? null,
+    invalidReason: null,
   };
 }
 
@@ -116,6 +151,9 @@ function parseAuditReport(stdout) {
 }
 
 function printAuditEvaluation(step, evaluation) {
+  if (evaluation.invalidReason) {
+    console.error(`${stepLabel(step)} invalid audit report: ${evaluation.invalidReason}`);
+  }
   for (const item of evaluation.allowed) {
     for (const { id, exception } of item.advisories) {
       console.warn(
@@ -164,9 +202,9 @@ export async function runAuditStep(step, options = {}) {
         }
         resolve({
           step,
-          ok: code === 0,
-          code: code ?? 1,
-          error: code === 0 ? null : new Error('npm audit did not return valid JSON'),
+          ok: false,
+          code: 1,
+          error: new Error('npm audit did not return valid JSON'),
         });
         return;
       }
@@ -176,11 +214,15 @@ export async function runAuditStep(step, options = {}) {
       if (stderr) {
         process.stderr.write(stderr);
       }
+      const findingCount = evaluation.allowed.length + evaluation.blocking.length;
+      const executionSucceeded = code === 0 || (code === 1 && findingCount > 0);
+      const ok = evaluation.ok && executionSucceeded;
       resolve({
         step,
-        ok: evaluation.ok,
-        code: evaluation.ok ? 0 : (code ?? 1),
+        ok,
+        code: ok ? 0 : (code ?? 1),
         evaluation,
+        error: executionSucceeded ? null : new Error(`npm audit exited ${code ?? 'without a status'} without vulnerability findings`),
       });
     });
   });

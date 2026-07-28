@@ -25,6 +25,13 @@ esac
 ALL_MAIL_STATE_DIR=${ALL_MAIL_STATE_DIR:-/var/lib/all-mail}
 sanitize_runtime_env=/app/scripts/sanitize-runtime-env.sh
 
+case "$ALL_MAIL_STATE_DIR" in
+    /)
+        printf '%s\n' "Refusing unsafe ALL_MAIL_STATE_DIR=${ALL_MAIL_STATE_DIR}" >&2
+        exit 1
+        ;;
+esac
+
 is_true() {
     case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
         1|true|yes|on)
@@ -54,7 +61,7 @@ exec_as_allmail() {
 prepare_runtime_state() {
     if [ "$(id -u)" -eq 0 ]; then
         mkdir -p "$ALL_MAIL_STATE_DIR"
-        chown 10001:10001 "$ALL_MAIL_STATE_DIR"
+        chown -R 10001:10001 "$ALL_MAIL_STATE_DIR"
     else
         mkdir -p "$ALL_MAIL_STATE_DIR"
     fi

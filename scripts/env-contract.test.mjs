@@ -84,9 +84,10 @@ test("Go jobs are independent and legacy jobs are rollback-only", async () => {
 });
 
 test("long-running legacy containers use the unprivileged hardened runtime", async () => {
-	const [compose, dockerfile] = await Promise.all([
+	const [compose, dockerfile, entrypoint] = await Promise.all([
 		readFile(path.join(repoRoot, "docker-compose.yml"), "utf8"),
 		readFile(path.join(repoRoot, "Dockerfile.legacy"), "utf8"),
+		readFile(path.join(repoRoot, "docker/entrypoint.sh"), "utf8"),
 	]);
 
 	assert.match(compose, /x-legacy-runtime:[\s\S]*?user: "10001:10001"/);
@@ -94,6 +95,8 @@ test("long-running legacy containers use the unprivileged hardened runtime", asy
 	assert.match(compose, /legacy-jobs:[\s\S]*?<<: \*legacy-runtime/);
 	assert.match(dockerfile, /useradd --system --uid 10001/);
 	assert.match(dockerfile, /gosu/);
+	assert.match(entrypoint, /chown -R 10001:10001 "\$ALL_MAIL_STATE_DIR"/);
+	assert.match(entrypoint, /Refusing unsafe ALL_MAIL_STATE_DIR/);
 });
 
 test("Prisma db push preserves the Go forwarding lease timestamp type", async () => {

@@ -2,11 +2,13 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -317,6 +319,42 @@ func TestRunSupervisorCancelsActiveForwardingWhenOwnerConnectionIsLost(t *testin
 	}
 	if checks.Load() < 2 {
 		t.Fatalf("owner checks = %d, want initial and active-run checks", checks.Load())
+	}
+}
+
+func TestWriteHeartbeatSupportsConcurrentPublishers(t *testing.T) {
+	stateDir := t.TempDir()
+	const publishers = 64
+	start := make(chan struct{})
+	errors := make(chan error, publishers)
+	var group sync.WaitGroup
+
+	for index := 0; index < publishers; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			<-start
+			errors <- writeHeartbeat(stateDir, map[string]workerHeartbeat{
+				"forwarding": {Enabled: true},
+			})
+		}()
+	}
+	close(start)
+	group.Wait()
+	close(errors)
+
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("writeHeartbeat() error = %v", err)
+		}
+	}
+	content, err := os.ReadFile(HeartbeatPath(stateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload heartbeat
+	if err := json.Unmarshal(content, &payload); err != nil {
+		t.Fatalf("decode heartbeat: %v", err)
 	}
 }
 
