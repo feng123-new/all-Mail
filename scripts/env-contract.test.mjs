@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -17,13 +17,14 @@ function parseEnvKeys(content) {
 		.sort();
 }
 
-test("default docker env templates stay aligned", async () => {
-	const [defaultTemplate, basicTemplate] = await Promise.all([
+test("Docker env templates expose one aligned variable contract", async () => {
+	const [defaultTemplate, cloudflareTemplate] = await Promise.all([
 		readFile(path.join(repoRoot, ".env.example"), "utf8"),
-		readFile(path.join(repoRoot, ".env.basic.example"), "utf8"),
+		readFile(path.join(repoRoot, ".env.cloudflare.example"), "utf8"),
 	]);
 
-	assert.deepEqual(parseEnvKeys(defaultTemplate), parseEnvKeys(basicTemplate));
+	assert.deepEqual(parseEnvKeys(defaultTemplate), parseEnvKeys(cloudflareTemplate));
+	await assert.rejects(access(path.join(repoRoot, ".env.basic.example")));
 });
 
 test("docker compose binds published ports to configurable hosts", async () => {
@@ -37,23 +38,62 @@ test("docker compose binds published ports to configurable hosts", async () => {
 	assert.match(compose, /\$\{REDIS_PUBLISH_HOST:-127\.0\.0\.1\}/);
 });
 
-test("Go forwarding waits for a fresh gated legacy jobs runtime", async () => {
+test("legacy bootstrap and migrations complete before long-running services", async () => {
 	const [compose, entrypoint] = await Promise.all([
 		readFile(path.join(repoRoot, "docker-compose.yml"), "utf8"),
 		readFile(path.join(repoRoot, "docker/entrypoint.sh"), "utf8"),
 	]);
 
+	assert.match(compose, /legacy-init:[\s\S]*?command: \["init"\]/);
 	assert.match(
 		compose,
-		/go-jobs:[\s\S]*?depends_on:[\s\S]*?\n\s{6}jobs:\n\s{8}condition: service_healthy/,
+		/go-migrate:[\s\S]*?depends_on:[\s\S]*?legacy-init:[\s\S]*?condition: service_completed_successfully/,
 	);
 	assert.match(
-		entrypoint,
-		/runtime_role" = "jobs"[\s\S]*?rm -f "\$ALL_MAIL_STATE_DIR\/jobs-heartbeat\.txt"/,
+		compose,
+		/legacy-api:[\s\S]*?depends_on:[\s\S]*?go-migrate:[\s\S]*?condition: service_completed_successfully/,
 	);
-	assert.match(compose, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail\/encryption-key/);
-	assert.match(compose, /ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-go\/encryption-key/);
-	assert.match(entrypoint, /chown 10001:10001 "\$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"/);
+	assert.match(
+		compose,
+		/legacy-init:[\s\S]*?ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-go\/encryption-key/,
+	);
+	assert.match(entrypoint, /runtime_role" = "init"/);
+	assert.match(entrypoint, /ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR/);
+	assert.match(entrypoint, /automatic db push fallback is disabled/);
+});
+
+test("Go jobs are independent and legacy jobs are rollback-only", async () => {
+	const compose = await readFile(
+		path.join(repoRoot, "docker-compose.yml"),
+		"utf8",
+	);
+	const goJobsSection = compose.match(/\n  go-jobs:[\s\S]*?\n  legacy-jobs:/)?.[0] ?? "";
+
+	assert.ok(goJobsSection, "go-jobs section not found");
+	assert.doesNotMatch(
+		goJobsSection,
+		/\n\s{6}(?:jobs|legacy-jobs):\n\s{8}condition: service_healthy/,
+	);
+	assert.match(compose, /legacy-jobs:[\s\S]*?profiles: \["rollback"\]/);
+	assert.match(compose, /legacy-jobs:[\s\S]*?API_LOG_RETENTION_OWNER: legacy/);
+	assert.match(compose, /legacy-jobs:[\s\S]*?FORWARDING_WORKER_OWNER: legacy/);
+	assert.match(
+		compose,
+		/FORWARDING_RUN_TIMEOUT_SECONDS: \$\{FORWARDING_RUN_TIMEOUT_SECONDS:-120\}/,
+	);
+});
+
+test("long-running legacy containers use the unprivileged hardened runtime", async () => {
+	const [compose, dockerfile] = await Promise.all([
+		readFile(path.join(repoRoot, "docker-compose.yml"), "utf8"),
+		readFile(path.join(repoRoot, "Dockerfile.legacy"), "utf8"),
+	]);
+
+	assert.match(compose, /x-legacy-runtime:[\s\S]*?user: "10001:10001"/);
+	assert.match(compose, /legacy-api:[\s\S]*?<<: \*legacy-runtime/);
+	assert.match(compose, /legacy-jobs:[\s\S]*?<<: \*legacy-runtime/);
+	assert.match(dockerfile, /useradd --system --uid 10001/);
+	assert.match(dockerfile, /gosu/);
 });
 
 test("Prisma db push preserves the Go forwarding lease timestamp type", async () => {
@@ -82,7 +122,7 @@ test("source-runtime migrations install forwarding claim ownership columns", asy
 	assert.match(migration, /mailbox_forward_jobs_go_claim_idx/);
 });
 
-test("root release scripts include worker install and production audits", async () => {
+test("root release scripts include rollback controls and production audits", async () => {
 	const packageJson = JSON.parse(
 		await readFile(path.join(repoRoot, "package.json"), "utf8"),
 	);
@@ -90,6 +130,10 @@ test("root release scripts include worker install and production audits", async 
 	assert.match(
 		packageJson.scripts["install:all"],
 		/cloudflare\/workers\/allmail-edge install/,
+	);
+	assert.match(
+		packageJson.scripts["docker:rollback:jobs"],
+		/--profile rollback up -d legacy-jobs/,
 	);
 	assert.match(packageJson.scripts["verify:release"], /npm run audit:prod/);
 	assert.match(
@@ -99,7 +143,7 @@ test("root release scripts include worker install and production audits", async 
 	assert.match(packageJson.scripts.check, /npm run verify:release/);
 });
 
-test("bootstrap password output stays opt-in and points operators at persisted state", async () => {
+test("bootstrap password output stays opt-in and points to the owning legacy volume", async () => {
 	const [startScript, entrypoint] = await Promise.all([
 		readFile(path.join(repoRoot, "scripts/start-all-mail.mjs"), "utf8"),
 		readFile(path.join(repoRoot, "docker/entrypoint.sh"), "utf8"),
@@ -111,4 +155,5 @@ test("bootstrap password output stays opt-in and points operators at persisted s
 		entrypoint,
 		/Retrieve it from the runtime state file instead of startup logs\./,
 	);
+	assert.match(entrypoint, /docker compose exec legacy-api/);
 });
