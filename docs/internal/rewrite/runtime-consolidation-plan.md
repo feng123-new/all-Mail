@@ -1,95 +1,34 @@
-# Runtime consolidation and legacy removal plan
+# Runtime consolidation and remaining migration plan
 
 ## Purpose
 
-This document turns the current Go migration bridge into an explicit sequence of removable compatibility layers. It is maintainer-facing and deliberately separates:
+The repository now has one canonical production topology and one implementation for each background state machine. This plan records what is complete and what still blocks final Fastify/Prisma removal.
 
-- changes implemented by the runtime-consolidation PR;
-- changes that require production observation before deletion;
-- business API ports that must be completed before `server/` can be removed.
+The target is not maximum Go line count. The target is:
 
-The target is not to maximize Go line count. The target is one authoritative owner per capability, one canonical production topology and a repository where rollback history lives in releases/images rather than duplicate active implementations.
+- one authoritative writer per capability;
+- explicit route ownership;
+- independent failure domains;
+- deterministic migrations;
+- rollback through known-good releases/images rather than duplicate active implementations.
 
-## Current ownership after the consolidation PR
+## Completed runtime consolidation
 
-| Capability | Default owner | Compatibility owner |
-| --- | --- | --- |
-| Public listener and SPA | Go `app` | Previous release/image only |
-| Readiness and metrics | Go `app` | Fastify has internal readiness only |
-| API-log retention | Go `go-jobs` | `legacy-jobs` rollback profile |
-| Forwarding execution | Go `go-jobs` | `legacy-jobs` rollback profile |
-| Business HTTP APIs | Fastify `legacy-api` | Not yet ported |
-| Prisma business schema | Prisma migrations in `legacy-init` | Not yet ported |
-| Additive Go runtime schema | `go-migrate` | No second writer |
-| Cloudflare Email Worker | TypeScript Worker | Not part of backend migration |
+### Production topology
 
-## Phase 0 — implemented in the consolidation PR
+Completed:
 
-### Runtime topology
+- Go owns the public listener, React SPA, readiness and metrics;
+- one-shot `legacy-init` owns bootstrap secrets and Prisma migrations;
+- one-shot `go-migrate` owns additive Go migrations;
+- `worker-forwarding` and `worker-retention` run as independent Go services;
+- long-running services do not mutate schema on startup;
+- legacy containers run as UID/GID `10001` with read-only filesystem, dropped capabilities and `no-new-privileges`;
+- automatic production `P3005 -> db push` fallback is disabled.
 
-- remove the default `go-jobs -> jobs` dependency;
-- rename the old worker role to `legacy-jobs`;
-- hide it behind the `rollback` Compose profile;
-- introduce one-shot `legacy-init` before `go-migrate`;
-- keep long-running API and jobs services free of startup migrations;
-- disable automatic production `db push` unless an operator explicitly enables the P3005 repair switch;
-- run long-lived legacy containers as UID/GID `10001` with read-only filesystem, dropped capabilities and `no-new-privileges`.
+### Legacy runtime retirement
 
-### Go runtime
-
-- type both worker ownership settings;
-- bound each forwarding pass;
-- expose active-run progress and consecutive failures in the jobs heartbeat;
-- make doctor reject stalled workers;
-- move PostgreSQL readiness and retention execution from child `psql` processes to `pgx`;
-- classify Resend HTTP errors by status rather than relying only on message fragments.
-
-### Configuration and CI
-
-- remove `.env.basic.example`;
-- align the default and Cloudflare templates;
-- add explicit rollback npm commands;
-- split dependency audit from Docker smoke;
-- keep final `release-gate` dependent on both;
-- add a package-scoped, GHSA-specific and expiring exception for the React Router RSC advisory while the Vite SPA remains outside the affected feature path.
-
-## Phase 1 — prove Go jobs parity, then delete Node jobs code
-
-### Required observation window
-
-Run the Go owners through at least one stable release window with production-like traffic. Track:
-
-- forwarding claim count;
-- sent/failed/skipped count;
-- retry distribution;
-- provider status-code distribution;
-- claim-loss events;
-- owner-lock loss;
-- forwarding pass duration;
-- retention deletion count and duration;
-- duplicate-send reports;
-- MOVE visibility correctness.
-
-### Required tests
-
-Add a real PostgreSQL forwarding integration suite:
-
-1. apply Prisma migrations;
-2. apply Go migrations;
-3. seed domain, mailbox, sending configuration, inbound message and forward job rows;
-4. start a mock Resend HTTP server;
-5. execute the Go forwarding worker;
-6. verify `SENT`, `FAILED`, `SKIPPED` and `MOVE` transitions;
-7. verify claim-token mismatch cannot update a job;
-8. verify expired leases can be reclaimed;
-9. verify a second owner cannot acquire the advisory lock;
-10. verify the provider idempotency key remains stable across retries.
-
-Use shared JSON fixtures for Go and TypeScript parity until the TypeScript implementation is deleted.
-
-### Deletion gate
-
-Delete the following only after the observation and integration gates pass:
+Deleted:
 
 ```text
 server/src/jobs/forwarding.worker.ts
@@ -99,247 +38,191 @@ server/src/jobs/api-log-retention.ts
 server/src/jobs/api-log-retention.test.ts
 server/src/worker.ts
 server/src/runtime/jobsHealth.ts
-legacy-jobs service from docker-compose.yml
-jobs role from docker/entrypoint.sh
-start:npm:jobs compatibility command if no supported source workflow needs it
-```
-
-Then remove:
-
-```text
+legacy-jobs / go-jobs / jobs Compose services
+jobs role in docker/entrypoint.sh
 FORWARDING_WORKER_OWNER
 API_LOG_RETENTION_OWNER
 ```
 
-from normal runtime configuration. Rollback should use a previous tagged image, not a permanently maintained second state machine in `main`.
+Rollback for background execution now uses a previous known-good revision or image.
 
-## Phase 2 — split Go worker processes by capability
+### Worker evidence
 
-The combined `go-jobs` supervisor is acceptable during the first cutover, but it couples unrelated failure domains.
+Completed:
 
-Target commands:
+- per-run forwarding timeout;
+- claim-token and lease fencing;
+- structured Resend HTTP retry classification;
+- independent heartbeat and doctor per worker;
+- real PostgreSQL integration coverage for COPY, MOVE, retry, permanent failure, skip, expired lease reclamation, stale claim-token rejection and advisory-lock ownership.
+
+### Migration and configuration cleanup
+
+Completed:
+
+- PostgreSQL readiness and retention use `pgx`;
+- Go migrations use one direct `pgx` transaction and advisory lock;
+- the Go image no longer installs `psql`;
+- command-specific `APIConfig`, `ForwardingConfig`, `RetentionConfig`, and `MigrationConfig` loaders replace the transitional aggregate config.
+
+### Static/source runtime cleanup
+
+Deleted:
 
 ```text
-allmail worker retention
-allmail worker forwarding
-allmail worker outbound-delivery
-allmail worker mailbox-sync
+Fastify static-file registration
+Fastify SPA fallback
+server-side static precompression
+scripts/prepare-public.mjs
+scripts/start-all-mail.mjs
+Node production start/up/deploy commands
 ```
 
-Target Compose services:
+Fastify is API-only. Vite remains available for frontend development.
 
-```text
-worker-retention
-worker-forwarding
-worker-outbound-delivery
-worker-mailbox-sync
-```
+## Current ownership
 
-Each service should have:
+| Capability | Current owner |
+| --- | --- |
+| Public listener and SPA | Go `app` |
+| Readiness and metrics | Go `app` |
+| API-log retention | `worker-retention` |
+| Forwarding execution | `worker-forwarding` |
+| Business HTTP APIs | Fastify `legacy-api` |
+| Prisma business schema | Prisma migrations in `legacy-init` |
+| Additive runtime schema | `go-migrate` |
+| Cloudflare Email Worker | TypeScript Worker |
 
-- its own heartbeat;
-- its own doctor target;
-- its own run timeout and backoff;
-- independent resource limits;
-- independent restart behavior;
-- no ability to stop unrelated capabilities when one owner connection fails.
+## Remaining Phase 1 — explicit route ownership registry
 
-Do not split merely by package. Split when lifecycle, scaling or failure isolation differs.
+The Go gateway still proxies broad backend namespaces. Replace this with an explicit registry so every route prefix has one visible owner.
 
-## Phase 3 — converge database migration ownership
-
-The repository currently needs Prisma migrations for legacy business tables and Go migrations for additive runtime tables. The same physical database therefore has two ledgers.
-
-Short-term rule:
-
-- Prisma owns existing business schema;
-- Go owns only numbered additive runtime migrations;
-- no field/table is introduced independently in both systems without an explicit compatibility explanation;
-- `legacy-init` completes before `go-migrate`.
-
-Before final cutover, choose one database migration authority.
-
-### Option A — Go becomes final owner
-
-- freeze Prisma schema changes;
-- export the final Prisma schema as a numbered Go baseline/cutover migration;
-- validate all constraints, indexes, enum values and data transformations;
-- archive Prisma migration history for reference;
-- remove Prisma migrate from production images.
-
-### Option B — external migration tool becomes final owner
-
-- move both Go and legacy SQL into a dedicated migration project/tool;
-- keep application binaries unable to mutate schema;
-- run migrations as an explicit release step.
-
-Do not keep dual ledgers permanently after Fastify has been removed.
-
-## Phase 4 — port business APIs by vertical capability
-
-Do not rewrite all routes at once. Each port must include handlers, authorization, validation, storage, audit behavior and failure tests.
-
-Recommended order:
-
-1. read-only dashboard queries;
-2. API-key external read/allocation endpoints;
-3. ingress signature and replay persistence;
-4. outbound delivery jobs and attempt history;
-5. Gmail History and Microsoft Graph delta synchronization;
-6. IMAP UID/UIDVALIDITY synchronization;
-7. domain and mailbox administration;
-8. mailbox portal flows;
-9. OAuth and administrator authentication last.
-
-### Route ownership registry
-
-Replace broad prefix proxying with an explicit registry:
+Target shape:
 
 ```text
 /admin/dashboard/*       -> Go
 /api/mailboxes/*         -> Go
 /ingress/domain-mail/*   -> Go
-all other business paths -> legacy proxy
+all other business paths -> compatibility proxy
 ```
 
 For every migrated prefix:
 
-- add contract tests against the previous implementation;
-- add auth and permission tests;
-- add database failure tests;
-- remove the prefix from legacy proxy ownership;
-- remove the corresponding Fastify registration after a release window.
+- add contract tests against the Fastify behavior;
+- add authentication/permission tests;
+- add validation and database failure tests;
+- move transaction and audit behavior together;
+- route the prefix to Go;
+- remove the Fastify registration only after a release observation window.
 
 The gateway must never silently route the same write endpoint to two implementations.
 
-## Phase 5 — remove duplicate static and source runtimes
+## Remaining Phase 2 — port business APIs vertically
 
-Fastify still contains static-file registration and SPA fallback for the secondary Node source runtime. The canonical Docker runtime already serves the built React app from Go.
+Recommended order:
 
-After formally ending Node-only production support, delete:
+1. read-only dashboard and status queries;
+2. external API-key mailbox allocation/read endpoints;
+3. ingress replay persistence and signed delivery handling;
+4. outbound delivery jobs and attempt history;
+5. Gmail History and Microsoft Graph delta synchronization;
+6. IMAP UID/UIDVALIDITY synchronization;
+7. domain/mailbox/alias administration;
+8. mailbox portal flows;
+9. OAuth and administrator authentication last.
 
-```text
-Fastify @fastify/static registration
-Fastify SPA index fallback
-server-side static precompression path
-scripts/prepare-public.mjs
-root public/ compatibility build output
-scripts/start-all-mail.mjs
-Node-only deploy/up commands that imply production equivalence
-```
+Each slice must include:
 
-Keep frontend development through Vite and build the SPA directly into the Go image.
+- handlers and route ownership;
+- authorization and permission parity;
+- request/response validation;
+- database transaction boundaries;
+- rate-limit/replay/audit behavior;
+- failure injection;
+- migration and rollback notes.
 
-Before deletion, update `docs/advanced-runtime.md` to either:
+Do not port only the controller while leaving a hidden write path in Fastify.
 
-- describe development-only Fastify execution; or
-- remove the source runtime entirely.
+## Remaining Phase 3 — converge database migration authority
 
-## Phase 6 — simplify configuration packages
+The same physical PostgreSQL database still has:
 
-The current Go `Config` remains a transitional aggregate. Split it when commands no longer need the same legacy bridge fields:
+- Prisma migration history for business tables;
+- Go migration history for additive runtime tables.
 
-```go
-type APIConfig struct {
-    Port          int
-    Mode          APIMode
-    StaticDir     string
-    LegacyAPIURL  string
-    DatabaseURL   string
-    RedisURL      string
-}
+Short-term rules:
 
-type ForwardingConfig struct {
-    DatabaseURL string
-    StateDir    string
-    Interval    time.Duration
-    RunTimeout  time.Duration
-    BatchSize   int
-    ResendURL   string
-}
+- Prisma owns existing business schema;
+- Go owns only numbered additive runtime migrations;
+- no table/column is introduced independently in both systems without a documented compatibility reason;
+- `legacy-init` completes before `go-migrate`.
 
-type RetentionConfig struct {
-    DatabaseURL string
-    StateDir    string
-    Interval    time.Duration
-    Retry       time.Duration
-    RunTimeout  time.Duration
-    BatchSize   int
-    Days        int
-}
+Before final Fastify removal, choose one authority:
 
-type MigrationConfig struct {
-    DatabaseURL string
-    Directory   string
-}
-```
+### Option A — Go becomes final migration owner
 
-Command-specific loaders should prevent an API process from loading worker secrets and prevent migration commands from requiring irrelevant HTTP configuration.
+- freeze Prisma schema changes;
+- export a validated business-schema baseline/cutover migration;
+- verify constraints, indexes, enum values and data transformations;
+- archive Prisma history for reference;
+- remove Prisma migrate from production images.
 
-## Phase 7 — repository structure cleanup
+### Option B — external migration project/tool
 
-Avoid a large path-only diff until runtime ownership is stable. Then consolidate tools:
+- move both histories into a dedicated migration surface;
+- keep application binaries unable to mutate schema;
+- run migrations as an explicit release step.
+
+Do not keep dual ledgers after the Fastify business API is gone.
+
+## Remaining Phase 4 — repository structure cleanup
+
+Avoid path-only churn until ownership is stable. Candidates after route migration:
 
 ```text
 tools/oauth/google/       <- gmail_oauth/
 tools/oauth/microsoft/    <- oauth-temp/
-tools/source-runtime/     <- remaining compatibility source helpers
-```
-
-Suggested long-term layout:
-
-```text
-core/
-  cmd/allmail/
-  internal/gateway/
-  internal/workers/
-  internal/platform/
-  migrations/
-server/                   # removed after final business port
-web/
-cloudflare/workers/allmail-edge/
+core/internal/gateway/
+core/internal/workers/
+core/internal/platform/
 deploy/
-tools/
-docs/
 ```
 
-Do not move directories only for appearance. Move them when imports, documentation and ownership boundaries can be updated atomically.
+Move directories only when imports, documentation and ownership boundaries can be updated atomically.
 
 ## Final deletion gate for `server/`
 
-`server/` can be removed only when all of the following are true:
+Remove `server/`, Prisma and `Dockerfile.legacy` only when all are true:
 
 - no public or internal route is proxied to Fastify;
-- no Node jobs process is supported;
-- Go or an external tool owns all database migrations;
 - authentication and OAuth parity tests pass;
-- API-key permissions and rate limits pass failure-injection tests;
-- mailbox/provider operations have production observation;
-- the Go image no longer copies Node server artifacts;
-- `legacy-api`, `legacy-init`, `Dockerfile.legacy` and Prisma dependencies are absent from Compose and CI;
-- rollback is performed by deploying the previous release, not by starting compatibility code from the current release.
+- API-key permissions, rate limits and replay protection pass failure-injection tests;
+- provider mailbox operations have a production observation window;
+- one migration authority owns the complete schema;
+- `legacy-api` and `legacy-init` are absent from Compose and CI;
+- the Go image contains all required production behavior;
+- rollback uses the previous release/image and matching persisted state.
 
-## Pull request sequencing
+## Recommended PR sequence
 
-Prefer reviewable PRs with one ownership boundary each:
+1. explicit route ownership registry plus first read-only Go route;
+2. external API-key read/allocation slice;
+3. ingress replay/delivery slice;
+4. outbound delivery worker and attempt history;
+5. provider synchronization slices;
+6. domain/mailbox administration;
+7. portal authentication;
+8. admin OAuth/authentication;
+9. migration-authority cutover;
+10. final Fastify/Prisma removal;
+11. repository path cleanup.
 
-1. runtime consolidation and documentation;
-2. forwarding PostgreSQL integration tests;
-3. Node jobs deletion;
-4. worker-process split;
-5. first read-only business route port;
-6. first write-route port with parity tests;
-7. migration authority cutover;
-8. Fastify static/source runtime removal;
-9. final Fastify business API removal;
-10. repository path cleanup.
+Every PR should state:
 
-Each PR description should include:
-
-- current and new capability owner;
-- data written by the change;
+- old and new capability owner;
+- data written;
 - concurrency guard;
 - rollback procedure;
 - tests and failure injection;
-- exact files intentionally retained for compatibility;
-- exact deletion gate for the next phase.
+- compatibility files intentionally retained;
+- deletion gate for the next slice.
