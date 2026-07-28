@@ -58,6 +58,7 @@ func baseJobConfig(t *testing.T) config.Config {
 		APILogRetentionDays:   30,
 		APILogCleanupBatch:    5000,
 		LogRetentionOwner:     config.RuntimeOwnerGo,
+		ForwardingRunTimeout:  time.Second,
 	}
 }
 
@@ -80,7 +81,7 @@ func TestRunWritesHeartbeatAndRunsRetention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("heartbeat missing: %v", err)
 	}
-	if !containsAll(string(content), `"apiLogRetention"`, `"lastDeleted":7`, `"lastSuccessAt"`) {
+	if !containsAll(string(content), `"apiLogRetention"`, `"lastDeleted":7`, `"lastSuccessAt"`, `"lastCompletedAt"`) {
 		t.Fatalf("heartbeat = %s", content)
 	}
 }
@@ -101,7 +102,7 @@ func TestRetentionRetriesAfterFailureAndRecovers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsAll(string(content), `"lastDeleted":3`, `"lastSuccessAt"`) || strings.Contains(string(content), `"lastError"`) {
+	if !containsAll(string(content), `"lastDeleted":3`, `"lastSuccessAt"`, `"consecutiveFailures":0`) || strings.Contains(string(content), `"lastError"`) {
 		t.Fatalf("heartbeat = %s", content)
 	}
 }
@@ -147,7 +148,11 @@ func TestHeartbeatOnlyModeDoesNotRunRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsAll(string(content), `"apiLogRetention":{"enabled":false}`, `"forwarding":{"enabled":false}`) {
+	if !containsAll(
+		string(content),
+		`"apiLogRetention":{"enabled":false,"running":false}`,
+		`"forwarding":{"enabled":false,"running":false}`,
+	) {
 		t.Fatalf("heartbeat = %s", content)
 	}
 }
@@ -156,7 +161,7 @@ func TestRunRequiresDatabaseForGoForwardingOwner(t *testing.T) {
 	cfg := config.Config{
 		StateDir:              t.TempDir(),
 		JobsHeartbeatInterval: time.Second,
-		ForwardingWorkerOwner: "go",
+		ForwardingWorkerOwner: config.RuntimeOwnerGo,
 		EncryptionKey:         "test-encryption-key-1234567890ab",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -195,7 +200,7 @@ func (runner *countingForwardingRunner) runOnce(context.Context, time.Time) erro
 func TestRunSupervisorRunsRetentionAndForwardingTogether(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cfg := baseJobConfig(t)
-	cfg.ForwardingWorkerOwner = "go"
+	cfg.ForwardingWorkerOwner = config.RuntimeOwnerGo
 	cfg.ForwardingInterval = time.Hour
 	cleaner := &fakeCleaner{deleted: 2}
 	forwarder := &countingForwardingRunner{}
@@ -226,7 +231,8 @@ func TestRunSupervisorKeepsHeartbeatFreshDuringSlowForwarding(t *testing.T) {
 		StateDir:              t.TempDir(),
 		JobsHeartbeatInterval: 10 * time.Millisecond,
 		ForwardingInterval:    time.Hour,
-		ForwardingWorkerOwner: "go",
+		ForwardingRunTimeout:  time.Second,
+		ForwardingWorkerOwner: config.RuntimeOwnerGo,
 	}
 	done := make(chan error, 1)
 	go func() {
@@ -250,6 +256,38 @@ func TestRunSupervisorKeepsHeartbeatFreshDuringSlowForwarding(t *testing.T) {
 	if string(firstContent) == string(secondContent) {
 		t.Fatal("heartbeat did not advance while forwarding was blocked")
 	}
+	if !strings.Contains(string(secondContent), `"running":true`) {
+		t.Fatalf("heartbeat = %s", secondContent)
+	}
+}
+
+func TestRunSupervisorTimesOutSlowForwarding(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := config.Config{
+		StateDir:              t.TempDir(),
+		JobsHeartbeatInterval: 5 * time.Millisecond,
+		ForwardingInterval:    time.Hour,
+		ForwardingRunTimeout:  15 * time.Millisecond,
+		ShutdownTimeout:       time.Second,
+		ForwardingWorkerOwner: config.RuntimeOwnerGo,
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- runSupervisor(ctx, cfg, discardLogger(), nil, blockingForwardingRunner{}, func(context.Context) error { return nil })
+	}()
+
+	time.Sleep(40 * time.Millisecond)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAll(string(content), "context deadline exceeded", `"running":false`, `"consecutiveFailures":1`) {
+		t.Fatalf("heartbeat = %s", content)
+	}
 }
 
 func TestRunSupervisorReturnsWhenForwardingOwnerConnectionIsLost(t *testing.T) {
@@ -259,7 +297,8 @@ func TestRunSupervisorReturnsWhenForwardingOwnerConnectionIsLost(t *testing.T) {
 		StateDir:              t.TempDir(),
 		JobsHeartbeatInterval: 10 * time.Millisecond,
 		ForwardingInterval:    time.Hour,
-		ForwardingWorkerOwner: "go",
+		ForwardingRunTimeout:  time.Second,
+		ForwardingWorkerOwner: config.RuntimeOwnerGo,
 	}
 
 	err := runSupervisor(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, blockingForwardingRunner{}, func(context.Context) error {
@@ -279,7 +318,8 @@ func TestRunSupervisorCancelsActiveForwardingWhenOwnerConnectionIsLost(t *testin
 		ShutdownTimeout:       100 * time.Millisecond,
 		JobsHeartbeatInterval: 10 * time.Millisecond,
 		ForwardingInterval:    time.Hour,
-		ForwardingWorkerOwner: "go",
+		ForwardingRunTimeout:  time.Second,
+		ForwardingWorkerOwner: config.RuntimeOwnerGo,
 	}
 	started := make(chan struct{})
 	var checks atomic.Int64
@@ -292,7 +332,6 @@ func TestRunSupervisorCancelsActiveForwardingWhenOwnerConnectionIsLost(t *testin
 			return errors.New("owner connection closed")
 		})
 	}()
-
 	select {
 	case <-started:
 	case <-ctx.Done():
