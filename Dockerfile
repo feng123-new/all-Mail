@@ -1,47 +1,40 @@
-FROM node:20-bookworm-slim AS base
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends openssl ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
-
-FROM base AS server-deps
-WORKDIR /app/server
-COPY server/package*.json ./
-RUN npm ci --include=dev
-
-FROM base AS web-deps
-WORKDIR /app/web
+FROM node:20-bookworm-slim AS web-builder
+WORKDIR /src/web
 COPY web/package*.json ./
-RUN npm ci --include=dev --legacy-peer-deps
+RUN npm ci --legacy-peer-deps
+COPY web ./
+RUN npm run build
 
-FROM base AS builder
-WORKDIR /app
-COPY --from=server-deps /app/server/node_modules ./server/node_modules
-COPY --from=web-deps /app/web/node_modules ./web/node_modules
-COPY server ./server
-COPY web ./web
+FROM golang:1.23-bookworm AS go-builder
+WORKDIR /src/core
+COPY core/go.mod core/go.sum ./
+RUN go mod download
+COPY core ./
+RUN test -z "$(gofmt -l .)" \
+    && go test ./... \
+    && go vet ./... \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/allmail ./cmd/allmail
 
-RUN cd server && npm run db:generate
-RUN cd server && npm run build
-RUN cd server && npm prune --omit=dev
-RUN cd web && npm run build
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata postgresql-client \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 allmail \
+    && useradd --system --uid 10001 --gid allmail --home-dir /var/lib/all-mail --shell /usr/sbin/nologin allmail \
+    && mkdir -p /app/public /app/migrations /var/lib/all-mail \
+    && chown -R allmail:allmail /app /var/lib/all-mail
 
-FROM base AS runtime
-WORKDIR /app/server
-ENV NODE_ENV=production
+ENV ALL_MAIL_ENV=production \
+    ALL_MAIL_STATIC_DIR=/app/public \
+    ALL_MAIL_STATE_DIR=/var/lib/all-mail \
+    ALL_MAIL_MIGRATION_DIR=/app/migrations \
+    PORT=3000
 
-COPY --from=builder /app/server/dist ./dist
-COPY --from=builder /app/server/node_modules ./node_modules
-COPY --from=builder /app/server/package*.json ./
-COPY --from=builder /app/server/prisma ./prisma
-COPY --from=builder /app/web/dist ../public
-COPY docker/entrypoint.sh /usr/local/bin/all-mail-entrypoint
-COPY scripts ../scripts
+COPY --from=go-builder /out/allmail /usr/local/bin/allmail
+COPY --from=web-builder /src/web/dist /app/public
+COPY core/migrations /app/migrations
 
-RUN sed -i 's/\r$//' /usr/local/bin/all-mail-entrypoint && \
-    sed -i 's/\r$//' /app/scripts/sanitize-runtime-env.sh && \
-    chmod +x /usr/local/bin/all-mail-entrypoint /app/scripts/sanitize-runtime-env.sh
-
+USER allmail:allmail
 EXPOSE 3000
-
-ENTRYPOINT ["all-mail-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/allmail"]
 CMD ["api"]

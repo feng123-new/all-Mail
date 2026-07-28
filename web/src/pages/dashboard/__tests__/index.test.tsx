@@ -25,10 +25,6 @@ describe('DashboardPage proof scenario', () => {
     render(
       <MemoryRouter
         initialEntries={['/dashboard?proof=degraded-data']}
-        future={{
-          v7_relativeSplatPath: true,
-          v7_startTransition: true,
-        }}
       >
         <DashboardPage />
       </MemoryRouter>,
@@ -50,10 +46,6 @@ describe('DashboardPage proof scenario', () => {
       <I18nProvider initialLanguage="en-US" persist={false}>
         <MemoryRouter
           initialEntries={['/dashboard?proof=degraded-data']}
-          future={{
-            v7_relativeSplatPath: true,
-            v7_startTransition: true,
-          }}
         >
           <DashboardPage />
         </MemoryRouter>

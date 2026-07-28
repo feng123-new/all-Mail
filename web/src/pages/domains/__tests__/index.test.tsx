@@ -632,10 +632,6 @@ describe("DomainsPage hosted_internal admin closure", () => {
 
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<DomainsPage />
 			</MemoryRouter>,
@@ -653,10 +649,6 @@ describe("DomainsPage hosted_internal admin closure", () => {
 	it("loads domain detail and aliases when opening the config modal", async () => {
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<DomainsPage />
 			</MemoryRouter>,
@@ -695,10 +687,6 @@ describe("DomainsPage hosted_internal admin closure", () => {
 
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<DomainsPage />
 			</MemoryRouter>,
@@ -742,10 +730,6 @@ describe("DomainsPage hosted_internal admin closure", () => {
 
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<DomainsPage />
 			</MemoryRouter>,
@@ -778,10 +762,6 @@ describe("DomainsPage hosted_internal admin closure", () => {
 
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<DomainsPage />
 			</MemoryRouter>,
@@ -846,10 +826,6 @@ describe("DomainsPage hosted_internal admin closure", () => {
 
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<DomainsPage />
 			</MemoryRouter>,
@@ -925,10 +901,6 @@ describe("DomainsPage hosted_internal admin closure", () => {
 
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<DomainsPage />
 			</MemoryRouter>,

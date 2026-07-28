@@ -374,6 +374,8 @@ model MailboxForwardJob {
   lastError         String?           @map("last_error") @db.Text
   providerMessageId String?           @map("provider_message_id") @db.VarChar(255)
   nextAttemptAt     DateTime?         @default(now()) @map("next_attempt_at")
+  claimToken        String?           @map("claim_token") @db.VarChar(64)
+  leaseExpiresAt    DateTime?         @map("lease_expires_at") @db.Timestamptz(3)
   processedAt       DateTime?         @map("processed_at")
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")

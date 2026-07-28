@@ -26,6 +26,8 @@ function createWorkerHarness(options?: {
     mailboxStatus?: 'ACTIVE' | 'DISABLED';
     domainStatus?: 'ACTIVE' | 'DISABLED';
     canSend?: boolean;
+    loseClaimBeforeTerminal?: boolean;
+    sendGate?: Promise<void>;
 }) {
     const now = new Date('2026-03-29T12:00:00.000Z');
     const staleRunningCutoff = new Date(now.getTime() - 10 * 60_000);
@@ -78,6 +80,8 @@ function createWorkerHarness(options?: {
             processedAt: null as Date | null,
             createdAt: new Date('2026-03-29T11:57:00.000Z'),
             updatedAt: options?.updatedAt ?? new Date('2026-03-29T11:57:00.000Z'),
+            claimToken: null as string | null,
+            leaseExpiresAt: null as Date | null,
         },
     };
 
@@ -100,14 +104,16 @@ function createWorkerHarness(options?: {
                 const previousStatus = state.job.status;
                 state.job.status = 'RUNNING';
                 state.job.updatedAt = now;
-                return [{ id: state.job.id, previous_status: previousStatus }];
+                state.job.claimToken = 'legacy-claim-token';
+                state.job.leaseExpiresAt = new Date(now.getTime() + 10 * 60_000);
+                return [{ id: state.job.id, claim_token: state.job.claimToken, previous_status: previousStatus }];
             }
 
             return [];
         },
         $transaction: async (callback: (tx: {
             inboundMessage: { update: (args: { where: { id: bigint }; data: Partial<typeof state.inboundMessage> }) => Promise<typeof state.inboundMessage> };
-            mailboxForwardJob: { update: (args: { where: { id: bigint }; data: Partial<typeof state.job> }) => Promise<typeof state.job> };
+            mailboxForwardJob: { updateMany: (args: { where: { id: bigint; status?: ForwardJobStatus; claimToken?: string }; data: Partial<typeof state.job> }) => Promise<{ count: number }> };
         }) => Promise<unknown>) => callback({
             inboundMessage: {
                 update: async ({ data }) => {
@@ -116,9 +122,12 @@ function createWorkerHarness(options?: {
                 },
             },
             mailboxForwardJob: {
-                update: async ({ data }) => {
+				updateMany: async ({ where, data }) => {
+					if (where.id !== state.job.id || (where.status && where.status !== state.job.status) || (where.claimToken && where.claimToken !== state.job.claimToken)) {
+						return { count: 0 };
+					}
                     Object.assign(state.job, data);
-                    return state.job;
+					return { count: 1 };
                 },
             },
         }),
@@ -135,6 +144,8 @@ function createWorkerHarness(options?: {
                     mode: state.job.mode,
                     forwardTo: state.job.forwardTo,
                     attemptCount: state.job.attemptCount,
+                    status: state.job.status,
+                    claimToken: state.job.claimToken,
                     inboundMessage: { ...state.inboundMessage },
                     mailbox: {
                         id: state.mailbox.id,
@@ -155,6 +166,13 @@ function createWorkerHarness(options?: {
             update: async ({ data }: { where: { id: bigint }; data: Partial<typeof state.job> }) => {
                 Object.assign(state.job, data);
                 return state.job;
+            },
+            updateMany: async ({ where, data }: { where: { id: bigint; status?: ForwardJobStatus; claimToken?: string }; data: Partial<typeof state.job> }) => {
+                if (where.id !== state.job.id || (where.status && where.status !== state.job.status) || (where.claimToken && where.claimToken !== state.job.claimToken)) {
+                    return { count: 0 };
+                }
+                Object.assign(state.job, data);
+                return { count: 1 };
             },
         },
         inboundMessage: {
@@ -189,8 +207,14 @@ function createWorkerHarness(options?: {
             decrypt: (value: string) => value,
             sendWithResend: async (input: unknown) => {
                 sentInputs.push(input);
+                if (options?.sendGate) {
+                    await options.sendGate;
+                }
                 if (options?.sendError) {
                     throw new Error(options.sendError);
+                }
+                if (options?.loseClaimBeforeTerminal) {
+                    state.job.claimToken = 'new-owner-token';
                 }
                 return { id: 'provider-1' };
             },
@@ -354,7 +378,7 @@ void test('forwarding worker keeps its interval referenced so the dedicated jobs
 
     try {
         const stop = createForwardingWorker(harness.deps as never).start();
-        stop();
+        await stop();
     } finally {
         globalThis.setInterval = originalSetInterval;
         globalThis.clearInterval = originalClearInterval;
@@ -371,4 +395,40 @@ void test('forwarding worker emits a heartbeat after each run so Docker can heal
     await worker.runOnce();
 
     assert.equal(harness.healthMarks, 1);
+});
+
+void test('forwarding worker cannot complete a job after its claim token is replaced', async () => {
+    const { createForwardingWorker } = await import('./forwarding.worker.js');
+    const harness = createWorkerHarness({ mode: 'MOVE', loseClaimBeforeTerminal: true });
+
+    const worker = createForwardingWorker(harness.deps as never);
+    await worker.runOnce();
+
+    assert.equal(harness.state.job.status, 'RUNNING');
+    assert.equal(harness.state.job.claimToken, 'new-owner-token');
+    assert.equal(harness.state.inboundMessage.portalState, 'VISIBLE');
+});
+
+void test('forwarding worker stop waits for the active provider call to drain', async () => {
+    const { createForwardingWorker } = await import('./forwarding.worker.js');
+    let releaseSend: () => void = () => undefined;
+    const sendGate = new Promise<void>((resolve) => {
+        releaseSend = resolve;
+    });
+    const harness = createWorkerHarness({ sendGate });
+    const stop = createForwardingWorker(harness.deps as never).start();
+
+    while (harness.sentInputs.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+    }
+    let stopped = false;
+    const stopping = Promise.resolve(stop()).then(() => {
+        stopped = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(stopped, false);
+
+    releaseSend();
+    await stopping;
+    assert.equal(stopped, true);
 });

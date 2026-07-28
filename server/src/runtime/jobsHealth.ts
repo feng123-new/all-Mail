@@ -25,3 +25,20 @@ export async function markJobsHealthy(now: Date = new Date()) {
 		"utf8",
 	);
 }
+
+export function startJobsHeartbeat(intervalSeconds: number): () => void {
+    let stopped = false;
+    const mark = () => {
+        void markJobsHealthy().catch((error) => {
+            console.error('Failed to update jobs heartbeat', error);
+        });
+    };
+    mark();
+    const timer = setInterval(mark, Math.max(5, intervalSeconds) * 1000);
+    return () => {
+        if (!stopped) {
+            stopped = true;
+            clearInterval(timer);
+        }
+    };
+}

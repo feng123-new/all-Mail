@@ -44,10 +44,6 @@ describe('SettingsPage API usage localization', () => {
     render(
       <I18nProvider initialLanguage="en-US" persist={false}>
         <MemoryRouter
-          future={{
-            v7_relativeSplatPath: true,
-            v7_startTransition: true,
-          }}
         >
           <SettingsPage />
         </MemoryRouter>

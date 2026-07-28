@@ -272,10 +272,6 @@ describe('MailboxUsersPage editing flow', () => {
 		const { unmount } = render(
 			<I18nProvider initialLanguage="zh-CN" persist={false}>
 				<MemoryRouter
-					future={{
-						v7_relativeSplatPath: true,
-						v7_startTransition: true,
-					}}
 				>
 					<MailboxUsersPage />
 				</MemoryRouter>
@@ -304,10 +300,6 @@ describe('MailboxUsersPage editing flow', () => {
 		render(
 			<I18nProvider initialLanguage="en-US" persist={false}>
 				<MemoryRouter
-					future={{
-						v7_relativeSplatPath: true,
-						v7_startTransition: true,
-					}}
 				>
 					<MailboxUsersPage />
 				</MemoryRouter>

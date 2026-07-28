@@ -37,6 +37,51 @@ test("docker compose binds published ports to configurable hosts", async () => {
 	assert.match(compose, /\$\{REDIS_PUBLISH_HOST:-127\.0\.0\.1\}/);
 });
 
+test("Go forwarding waits for a fresh gated legacy jobs runtime", async () => {
+	const [compose, entrypoint] = await Promise.all([
+		readFile(path.join(repoRoot, "docker-compose.yml"), "utf8"),
+		readFile(path.join(repoRoot, "docker/entrypoint.sh"), "utf8"),
+	]);
+
+	assert.match(
+		compose,
+		/go-jobs:[\s\S]*?depends_on:[\s\S]*?\n\s{6}jobs:\n\s{8}condition: service_healthy/,
+	);
+	assert.match(
+		entrypoint,
+		/runtime_role" = "jobs"[\s\S]*?rm -f "\$ALL_MAIL_STATE_DIR\/jobs-heartbeat\.txt"/,
+	);
+	assert.match(compose, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail\/encryption-key/);
+	assert.match(compose, /ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-go\/encryption-key/);
+	assert.match(entrypoint, /chown 10001:10001 "\$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"/);
+});
+
+test("Prisma db push preserves the Go forwarding lease timestamp type", async () => {
+	const schema = await readFile(
+		path.join(repoRoot, "server/prisma/schema.prisma"),
+		"utf8",
+	);
+
+	assert.match(
+		schema,
+		/leaseExpiresAt\s+DateTime\?\s+@map\("lease_expires_at"\)\s+@db\.Timestamptz\(3\)/,
+	);
+});
+
+test("source-runtime migrations install forwarding claim ownership columns", async () => {
+	const migration = await readFile(
+		path.join(
+			repoRoot,
+			"server/prisma/migrations/202607281200_forwarding_claim_lease_v1/migration.sql",
+		),
+		"utf8",
+	);
+
+	assert.match(migration, /claim_token VARCHAR\(64\)/);
+	assert.match(migration, /lease_expires_at TIMESTAMPTZ\(3\)/);
+	assert.match(migration, /mailbox_forward_jobs_go_claim_idx/);
+});
+
 test("root release scripts include worker install and production audits", async () => {
 	const packageJson = JSON.parse(
 		await readFile(path.join(repoRoot, "package.json"), "utf8"),

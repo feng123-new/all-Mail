@@ -66,8 +66,10 @@ void test('jobs runtime starts background loops without creating an HTTP app', a
     let disconnected = 0;
     let retentionStarts = 0;
     let forwardingStarts = 0;
+    let heartbeatStarts = 0;
     let retentionStops = 0;
     let forwardingStops = 0;
+    let heartbeatStops = 0;
 
     const runtime = createJobsRuntime({
         logger: {
@@ -82,13 +84,20 @@ void test('jobs runtime starts background loops without creating an HTTP app', a
                 disconnected += 1;
             },
         },
+        forwardingWorkerOwner: 'legacy',
+        startJobsHeartbeat() {
+            heartbeatStarts += 1;
+            return () => {
+                heartbeatStops += 1;
+            };
+        },
         startApiLogRetentionJob() {
             retentionStarts += 1;
             return () => {
                 retentionStops += 1;
             };
         },
-        startForwardingWorker() {
+        async startForwardingWorker() {
             forwardingStarts += 1;
             return () => {
                 forwardingStops += 1;
@@ -103,6 +112,40 @@ void test('jobs runtime starts background loops without creating an HTTP app', a
     assert.equal(disconnected, 1);
     assert.equal(retentionStarts, 1);
     assert.equal(forwardingStarts, 1);
+    assert.equal(heartbeatStarts, 1);
     assert.equal(retentionStops, 1);
     assert.equal(forwardingStops, 1);
+    assert.equal(heartbeatStops, 1);
+});
+
+void test('jobs runtime keeps legacy maintenance alive without starting forwarding when Go owns it', async () => {
+    const { createJobsRuntime } = await import('./processes.js');
+    let retentionStarts = 0;
+    let forwardingStarts = 0;
+    let heartbeatStarts = 0;
+
+    const runtime = createJobsRuntime({
+        logger: { info: () => undefined, error: () => undefined },
+        prisma: { async $connect() {}, async $disconnect() {} },
+        forwardingWorkerOwner: 'go',
+        startApiLogRetentionJob() {
+            retentionStarts += 1;
+            return () => undefined;
+        },
+        async startForwardingWorker() {
+            forwardingStarts += 1;
+            return () => undefined;
+        },
+        startJobsHeartbeat() {
+            heartbeatStarts += 1;
+            return () => undefined;
+        },
+    });
+
+    await runtime.start();
+    await runtime.stop();
+
+    assert.equal(retentionStarts, 1);
+    assert.equal(heartbeatStarts, 1);
+    assert.equal(forwardingStarts, 0);
 });

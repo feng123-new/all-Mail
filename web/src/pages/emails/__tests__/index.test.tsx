@@ -132,10 +132,6 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<EmailsPage />
 			</MemoryRouter>,
@@ -156,10 +152,6 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<EmailsPage />
 			</MemoryRouter>,
@@ -189,10 +181,6 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<EmailsPage />
 			</MemoryRouter>,
@@ -226,10 +214,6 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 
 		render(
 			<MemoryRouter
-				future={{
-					v7_relativeSplatPath: true,
-					v7_startTransition: true,
-				}}
 			>
 				<EmailsPage />
 			</MemoryRouter>,
@@ -248,10 +232,6 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 		render(
 			<I18nProvider initialLanguage="en-US" persist={false}>
 				<MemoryRouter
-					future={{
-						v7_relativeSplatPath: true,
-						v7_startTransition: true,
-					}}
 				>
 					<EmailsPage />
 				</MemoryRouter>

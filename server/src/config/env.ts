@@ -64,10 +64,12 @@ const envSchema = z.object({
     ADMIN_2FA_WINDOW: z.coerce.number().int().min(0).max(5).default(1),
 
     // API log retention
+    API_LOG_RETENTION_OWNER: z.enum(['legacy', 'go']).default('legacy'),
     API_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
     API_LOG_CLEANUP_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
     FORWARDING_WORKER_INTERVAL_SECONDS: z.coerce.number().int().min(5).default(30),
     FORWARDING_WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(10),
+    FORWARDING_WORKER_OWNER: z.enum(['legacy', 'go', 'disabled']).default('legacy'),
     INGRESS_SIGNING_SECRET: z.preprocess(
         (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
         z.string().trim().min(16).optional()

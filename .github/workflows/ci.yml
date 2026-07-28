@@ -22,7 +22,198 @@ jobs:
           node-version: 20
 
       - name: Test runtime scripts
-        run: ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs
+        shell: bash
+        run: |
+          set +e
+          ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs 2>&1 | tee "$RUNNER_TEMP/runtime-tests.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Upload runtime test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-test-log
+          path: ${{ runner.temp }}/runtime-tests.log
+          if-no-files-found: error
+
+  go:
+    name: go-core
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: allmail_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d allmail_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGPASSWORD: postgres
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Test with race detector
+        run: go test -race ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -trimpath -o ./allmail ./cmd/allmail
+
+      - name: Verify fresh and repeated migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_ci?sslmode=disable
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE admins (id integer PRIMARY KEY);
+          CREATE TABLE email_accounts (id integer PRIMARY KEY);
+          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
+          CREATE TABLE api_logs (
+              id bigserial PRIMARY KEY,
+              created_at timestamptz NOT NULL DEFAULT now()
+          );
+          CREATE TYPE "ForwardJobStatus" AS ENUM ('PENDING', 'RUNNING', 'SENT', 'FAILED', 'SKIPPED');
+          CREATE TABLE mailbox_forward_jobs (
+              id bigserial PRIMARY KEY,
+              status "ForwardJobStatus" NOT NULL DEFAULT 'PENDING',
+              next_attempt_at timestamptz,
+              created_at timestamptz NOT NULL DEFAULT now()
+          );
+          SQL
+          ./allmail migrate
+          ./allmail migrate
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "3"
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT datetime_precision FROM information_schema.columns WHERE table_name = 'mailbox_forward_jobs' AND column_name = 'lease_expires_at'")" = "3"
+
+      - name: Verify Go API log retention worker
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_ci?sslmode=disable
+          ALL_MAIL_STATE_DIR: ${{ runner.temp }}/allmail-go-jobs
+          API_LOG_RETENTION_OWNER: go
+          API_LOG_RETENTION_DAYS: 30
+          API_LOG_CLEANUP_INTERVAL_MINUTES: 60
+          API_LOG_CLEANUP_BATCH_SIZE: 5000
+          GO_JOBS_HEARTBEAT_SECONDS: 1
+          GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS: 10
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO api_logs (created_at)
+          VALUES (now() - interval '45 days'), (now() - interval '5 days');
+          SQL
+          mkdir -p "$ALL_MAIL_STATE_DIR"
+          ./allmail jobs &
+          jobs_pid=$!
+          trap 'kill -TERM "$jobs_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if grep -q '"lastSuccessAt"' "$ALL_MAIL_STATE_DIR/go-jobs-heartbeat.json" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          ./allmail doctor jobs
+          kill -TERM "$jobs_pid"
+          wait "$jobs_pid"
+          trap - EXIT
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM api_logs WHERE created_at < now() - interval '30 days'")" = "0"
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM api_logs WHERE created_at >= now() - interval '30 days'")" = "1"
+
+      - name: Verify legacy ledger adoption
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_legacy_ledger?sslmode=disable
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+        run: |
+          createdb -h 127.0.0.1 -U postgres allmail_legacy_ledger
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE admins (id integer PRIMARY KEY);
+          CREATE TABLE email_accounts (id integer PRIMARY KEY);
+          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
+          CREATE TABLE runtime_migrations (
+              name text PRIMARY KEY,
+              applied_at timestamptz NOT NULL DEFAULT now()
+          );
+          CREATE TYPE "ForwardJobStatus" AS ENUM ('PENDING', 'RUNNING', 'SENT', 'FAILED', 'SKIPPED');
+          CREATE TABLE mailbox_forward_jobs (
+              id bigserial PRIMARY KEY,
+              status "ForwardJobStatus" NOT NULL DEFAULT 'PENDING',
+              next_attempt_at timestamptz,
+              created_at timestamptz NOT NULL DEFAULT now()
+          );
+          INSERT INTO runtime_migrations (name)
+          VALUES ('0001_go_runtime_foundation'), ('0002_runtime_security_state');
+          SQL
+          ./allmail migrate
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
+
+      - name: Reject malformed pre-existing schema
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_corrupt?sslmode=disable
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+        run: |
+          createdb -h 127.0.0.1 -U postgres allmail_corrupt
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE admins (id integer PRIMARY KEY);
+          CREATE TABLE email_accounts (id integer PRIMARY KEY);
+          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
+          CREATE TABLE runtime_login_attempts (subject_key varchar(255) PRIMARY KEY);
+          SQL
+          if ./allmail migrate; then
+            echo "migration unexpectedly accepted malformed runtime_login_attempts"
+            exit 1
+          fi
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('runtime_migrations') IS NULL")" = "t"
+
+      - name: Reject malformed forwarding lease schema
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_forwarding_corrupt?sslmode=disable
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+        run: |
+          createdb -h 127.0.0.1 -U postgres allmail_forwarding_corrupt
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE admins (id integer PRIMARY KEY);
+          CREATE TABLE email_accounts (id integer PRIMARY KEY);
+          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
+          CREATE TYPE "ForwardJobStatus" AS ENUM ('PENDING', 'RUNNING', 'SENT', 'FAILED', 'SKIPPED');
+          CREATE TABLE mailbox_forward_jobs (
+              id bigserial PRIMARY KEY,
+              status "ForwardJobStatus" NOT NULL DEFAULT 'PENDING',
+              next_attempt_at timestamptz,
+              lease_expires_at text,
+              created_at timestamptz NOT NULL DEFAULT now()
+          );
+          SQL
+          if ./allmail migrate; then
+            echo "migration unexpectedly accepted malformed mailbox_forward_jobs.lease_expires_at"
+            exit 1
+          fi
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('runtime_migrations') IS NULL")" = "t"
 
   web:
     name: web-lint-build
@@ -74,7 +265,20 @@ jobs:
         run: ../scripts/sanitize-runtime-env.sh npm ci
 
       - name: Lint
-        run: ../scripts/sanitize-runtime-env.sh npm run lint
+        shell: bash
+        run: |
+          set +e
+          ../scripts/sanitize-runtime-env.sh npm run lint 2>&1 | tee "$RUNNER_TEMP/server-lint.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Upload server lint log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-lint-log
+          path: ${{ runner.temp }}/server-lint.log
+          if-no-files-found: error
 
       - name: Test
         run: ../scripts/sanitize-runtime-env.sh npm run test
@@ -108,7 +312,7 @@ jobs:
   release-gate:
     name: release-gate
     runs-on: ubuntu-latest
-    needs: [runtime, web, server, worker]
+    needs: [runtime, go, web, server, worker]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -121,29 +325,38 @@ jobs:
       - name: Prepare default env file
         run: cp .env.example .env
 
-      - name: Install server deps
-        run: ./scripts/sanitize-runtime-env.sh npm ci --prefix server
+      - name: Audit production dependencies
+        shell: bash
+        run: |
+          set +e
+          ./scripts/sanitize-runtime-env.sh npm run audit:prod 2>&1 | tee "$RUNNER_TEMP/production-audit.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
 
-      - name: Install web deps
-        run: ./scripts/sanitize-runtime-env.sh npm ci --prefix web
-
-      - name: Install worker deps
-        run: ./scripts/sanitize-runtime-env.sh npm ci --prefix cloudflare/workers/allmail-edge
-
-      - name: Verify release contract
-        run: ./bin/all-mail check
+      - name: Upload production audit log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-audit-log
+          path: ${{ runner.temp }}/production-audit.log
+          if-no-files-found: error
 
       - name: Start Docker stack
-        run: docker compose up -d --build
+        run: docker compose up -d --build --wait --wait-timeout 240
 
-      - name: Run doctor
-        run: ./bin/all-mail doctor
+      - name: Verify Go and legacy readiness
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:3002/health
+          curl --fail --silent --show-error http://127.0.0.1:3002/readyz
+          docker compose exec -T legacy-api node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
 
-      - name: Check container health
-        run: docker compose ps
+      - name: Verify Go jobs runtime
+        run: docker compose exec -T go-jobs allmail doctor jobs
 
-      - name: Check application health endpoint
-        run: curl --fail --silent --show-error http://127.0.0.1:3002/health
+      - name: Check runtime doctors
+        run: |
+          docker compose exec -T app allmail doctor api
+          docker compose exec -T go-jobs allmail doctor jobs
 
       - name: Stop Docker stack
         if: always()

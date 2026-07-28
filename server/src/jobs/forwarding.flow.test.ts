@@ -103,6 +103,8 @@ function createFlowState(mode: ForwardMode) {
             lastError: string | null;
             providerMessageId: string | null;
             nextAttemptAt: Date | null;
+            claimToken: string | null;
+            leaseExpiresAt: Date | null;
             processedAt: Date | null;
             createdAt: Date;
             updatedAt: Date;
@@ -250,20 +252,22 @@ async function installFlowMocks(mode: ForwardMode) {
                     lastError: data.lastError ?? null,
                     providerMessageId: data.providerMessageId ?? null,
                     nextAttemptAt: data.nextAttemptAt ?? now,
+                    claimToken: null,
+                    leaseExpiresAt: null,
                     processedAt: data.processedAt ?? null,
                     createdAt: now,
                     updatedAt: now,
                 });
                 return { id };
             },
-            update: async ({ where, data }: { where: { id: bigint }; data: Partial<(typeof state.forwardJobs)[number]> }) => {
+            updateMany: async ({ where, data }: { where: { id: bigint; status?: ForwardJobStatus; claimToken?: string }; data: Partial<(typeof state.forwardJobs)[number]> }) => {
                 const job = state.forwardJobs.find((item) => item.id === where.id);
-                if (!job) {
-                    throw new Error('Forward job not found');
+                if (!job || (where.status && where.status !== job.status) || (where.claimToken && where.claimToken !== job.claimToken)) {
+                    return { count: 0 };
                 }
                 Object.assign(job, data);
                 job.updatedAt = new Date('2026-03-29T12:05:00.000Z');
-                return job;
+                return { count: 1 };
             },
         },
     };
@@ -279,7 +283,9 @@ async function installFlowMocks(mode: ForwardMode) {
             return [];
         }
         claimable.status = 'RUNNING';
-        return [{ id: claimable.id }];
+        claimable.claimToken = 'flow-claim-token';
+        claimable.leaseExpiresAt = new Date(forwardingWorkerNow.getTime() + 10 * 60_000);
+        return [{ id: claimable.id, claim_token: claimable.claimToken, previous_status: 'PENDING' }];
     }) as never));
     restores.push(overrideMethod(prisma.mailboxForwardJob, 'findUnique', (async ({ where }: { where: { id: bigint } }) => {
         const job = state.forwardJobs.find((item) => item.id === where.id);
@@ -297,6 +303,8 @@ async function installFlowMocks(mode: ForwardMode) {
             mode: job.mode,
             forwardTo: job.forwardTo,
             attemptCount: job.attemptCount,
+            status: job.status,
+            claimToken: job.claimToken,
             inboundMessage: {
                 id: inboundMessage.id,
                 domainId: inboundMessage.domainId,
@@ -329,7 +337,7 @@ async function installFlowMocks(mode: ForwardMode) {
             },
         };
     }) as never));
-    restores.push(overrideMethod(prisma.mailboxForwardJob, 'update', tx.mailboxForwardJob.update as never));
+    restores.push(overrideMethod(prisma.mailboxForwardJob, 'updateMany', tx.mailboxForwardJob.updateMany as never));
     restores.push(overrideMethod(prisma.inboundMessage, 'findMany', (async ({ where, skip, take }: { where: Record<string, unknown>; skip: number; take: number }) => {
         const filtered = applyInboundWhere(state.inboundMessages, where)
             .sort((a, b) => Number(b.id - a.id))
