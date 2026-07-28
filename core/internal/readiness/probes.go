@@ -12,13 +12,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
+	"github.com/jackc/pgx/v5"
 )
 
 type Probe func(context.Context, string) error
@@ -94,26 +94,17 @@ func checkPostgres(ctx context.Context, databaseURL string) error {
 		return fmt.Errorf("unsupported PostgreSQL URL scheme %q", parsed.Scheme)
 	}
 
-	psql, err := exec.LookPath("psql")
+	connection, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
-		return fmt.Errorf("psql executable not found: %w", err)
+		return fmt.Errorf("connect to PostgreSQL: %w", err)
 	}
-	command := exec.CommandContext(
-		ctx,
-		psql,
-		databaseURL,
-		"-X",
-		"--set=ON_ERROR_STOP=1",
-		"--tuples-only",
-		"--no-align",
-		"--command=SELECT current_database()",
-	)
-	command.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("PostgreSQL query failed: %w: %s", err, compactOutput(output))
+	defer connection.Close(context.Background())
+
+	var databaseName string
+	if err := connection.QueryRow(ctx, "SELECT current_database()").Scan(&databaseName); err != nil {
+		return fmt.Errorf("PostgreSQL readiness query failed: %w", err)
 	}
-	if strings.TrimSpace(string(output)) == "" {
+	if strings.TrimSpace(databaseName) == "" {
 		return errors.New("PostgreSQL query returned no database name")
 	}
 	return nil
