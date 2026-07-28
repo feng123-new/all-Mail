@@ -23,7 +23,7 @@ The Go process owns the public listener, SPA delivery, request IDs, security hea
 ```text
 app            Go public API and migration bridge
 legacy-api     Fastify/Prisma business API
-legacy-jobs    existing forwarding and log-retention jobs
+jobs           existing legacy forwarding and log-retention jobs
 postgres       shared application database
 redis          OAuth state, rate-limit, replay and cache backend
 ```
@@ -122,7 +122,7 @@ GitHub Actions contains a dedicated `go-core` job that also verifies:
 | Capability | Current writer |
 | --- | --- |
 | Existing admin/domain/mailbox records | Fastify/Prisma |
-| Existing forwarding job state | `legacy-jobs` |
+| Existing forwarding job state | `jobs` (legacy Node runtime) |
 | Existing OAuth flows and API-key enforcement | Fastify/Redis |
 | Go sync cursor and job tables | reserved for future Go handlers |
 | Public listener, SPA and health endpoints | Go API |
