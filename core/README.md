@@ -2,21 +2,21 @@
 
 This directory contains the Go migration control plane for all-Mail.
 
-It is intentionally introduced as a **strangler bridge** rather than pretending
-that every existing Fastify route has already been rewritten:
+It is introduced as a **strangler bridge** rather than pretending that every existing Fastify route has already been rewritten:
 
 - Go owns the public HTTP listener, SPA delivery, health/readiness and request IDs.
 - Existing API paths are proxied to `LEGACY_API_URL` until each module is moved.
-- Go defines the durable synchronization, delivery, attempt and outbox tables.
-- `allmail jobs` currently provides a supervised heartbeat runtime; the legacy
-  worker remains enabled by Docker Compose until job handlers are migrated.
+- Go owns API-log retention through the `go-jobs` runtime.
+- The legacy Node `jobs` runtime continues to own forwarding.
+- Go defines the durable synchronization, delivery, attempt and outbox tables for subsequent ports.
 
 ## Commands
 
 ```bash
-go test ./...
+test -z "$(gofmt -l .)"
+go test -race ./...
 go vet ./...
-go build ./cmd/allmail
+go build -trimpath -o ./allmail ./cmd/allmail
 
 ./allmail api
 ./allmail jobs
@@ -25,4 +25,13 @@ go build ./cmd/allmail
 ./allmail doctor jobs
 ```
 
-Read `docs/GO-MIGRATION.md` before changing service ownership.
+## Runtime ownership
+
+`API_LOG_RETENTION_OWNER` is the explicit single-writer switch for API-log cleanup:
+
+```text
+API_LOG_RETENTION_OWNER=go      # Go cleaner enabled, legacy cleaner disabled
+API_LOG_RETENTION_OWNER=legacy  # rollback to the Node cleaner
+```
+
+Read `docs/GO-MIGRATION.md` before changing service ownership or editing an applied migration.
