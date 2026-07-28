@@ -24,6 +24,106 @@ jobs:
       - name: Test runtime scripts
         run: ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs
 
+  go:
+    name: go-core
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: allmail_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d allmail_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGPASSWORD: postgres
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: core/go.mod
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Test with race detector
+        run: go test -race ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -trimpath -o ./allmail ./cmd/allmail
+
+      - name: Verify fresh and repeated migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_ci?sslmode=disable
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE admins (id integer PRIMARY KEY);
+          CREATE TABLE email_accounts (id integer PRIMARY KEY);
+          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
+          SQL
+          ./allmail migrate
+          ./allmail migrate
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "2"
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
+
+      - name: Verify legacy ledger adoption
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_legacy_ledger?sslmode=disable
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+        run: |
+          createdb -h 127.0.0.1 -U postgres allmail_legacy_ledger
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE admins (id integer PRIMARY KEY);
+          CREATE TABLE email_accounts (id integer PRIMARY KEY);
+          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
+          CREATE TABLE runtime_migrations (
+              name text PRIMARY KEY,
+              applied_at timestamptz NOT NULL DEFAULT now()
+          );
+          INSERT INTO runtime_migrations (name)
+          VALUES ('0001_go_runtime_foundation'), ('0002_runtime_security_state');
+          SQL
+          ./allmail migrate
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
+
+      - name: Reject malformed pre-existing schema
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_corrupt?sslmode=disable
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+        run: |
+          createdb -h 127.0.0.1 -U postgres allmail_corrupt
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE admins (id integer PRIMARY KEY);
+          CREATE TABLE email_accounts (id integer PRIMARY KEY);
+          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
+          CREATE TABLE runtime_login_attempts (subject_key varchar(255) PRIMARY KEY);
+          SQL
+          if ./allmail migrate; then
+            echo "migration unexpectedly accepted malformed runtime_login_attempts"
+            exit 1
+          fi
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('runtime_migrations') IS NULL")" = "t"
+
   web:
     name: web-lint-build
     runs-on: ubuntu-latest
@@ -108,7 +208,7 @@ jobs:
   release-gate:
     name: release-gate
     runs-on: ubuntu-latest
-    needs: [runtime, web, server, worker]
+    needs: [runtime, go, web, server, worker]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -121,30 +221,29 @@ jobs:
       - name: Prepare default env file
         run: cp .env.example .env
 
-      - name: Install server deps
-        run: ./scripts/sanitize-runtime-env.sh npm ci --prefix server
-
-      - name: Install web deps
-        run: ./scripts/sanitize-runtime-env.sh npm ci --prefix web
-
-      - name: Install worker deps
-        run: ./scripts/sanitize-runtime-env.sh npm ci --prefix cloudflare/workers/allmail-edge
-
-      - name: Verify release contract
-        run: ./bin/all-mail check
+      - name: Audit production dependencies
+        run: ./scripts/sanitize-runtime-env.sh npm run audit:prod
 
       - name: Start Docker stack
-        run: docker compose up -d --build
+        run: docker compose up -d --build --wait --wait-timeout 240
 
-      - name: Run doctor
-        run: ./bin/all-mail doctor
+      - name: Apply Go runtime migrations
+        run: docker compose run --rm app migrate
+
+      - name: Verify Go and legacy readiness
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:3002/health
+          curl --fail --silent --show-error http://127.0.0.1:3002/readyz
+          docker compose exec -T legacy-api node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
+
+      - name: Verify optional Go jobs supervisor
+        run: |
+          docker compose --profile go-migration up -d --wait --wait-timeout 90 go-jobs
+          docker compose exec -T go-jobs allmail doctor jobs
 
       - name: Check container health
-        run: docker compose ps
-
-      - name: Check application health endpoint
-        run: curl --fail --silent --show-error http://127.0.0.1:3002/health
+        run: docker compose --profile go-migration ps
 
       - name: Stop Docker stack
         if: always()
-        run: docker compose down -v
+        run: docker compose --profile go-migration down -v
