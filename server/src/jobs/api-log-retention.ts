@@ -4,6 +4,10 @@ import { logger } from '../lib/logger.js';
 
 let running = false;
 
+export function isLegacyApiLogRetentionOwner(owner: 'legacy' | 'go' = env.API_LOG_RETENTION_OWNER): boolean {
+    return owner === 'legacy';
+}
+
 async function runApiLogRetentionOnce() {
     if (running) {
         return;
@@ -33,8 +37,14 @@ async function runApiLogRetentionOnce() {
 }
 
 export function startApiLogRetentionJob(): () => void {
+    if (!isLegacyApiLogRetentionOwner()) {
+        logger.info({ owner: env.API_LOG_RETENTION_OWNER }, 'Legacy API log retention job disabled');
+        return () => undefined;
+    }
+
     const intervalMs = env.API_LOG_CLEANUP_INTERVAL_MINUTES * 60 * 1000;
     logger.info({
+        owner: env.API_LOG_RETENTION_OWNER,
         retentionDays: env.API_LOG_RETENTION_DAYS,
         intervalMinutes: env.API_LOG_CLEANUP_INTERVAL_MINUTES,
     }, 'API log retention job started');
