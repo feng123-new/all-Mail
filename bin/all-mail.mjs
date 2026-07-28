@@ -13,67 +13,41 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const serverDir = path.join(repoRoot, 'server');
 const webDir = path.join(repoRoot, 'web');
+const workerDir = path.join(repoRoot, 'cloudflare', 'workers', 'allmail-edge');
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 function printHelp() {
-  console.log(`all-mail CLI
+  console.log(`all-mail repository CLI
 
 Usage:
   all-mail install
   all-mail build
   all-mail doctor [--env-file <path>]
   all-mail deps up|down
-  all-mail up [--docker-deps] [--env-file <path>] [--port <number>]
-  all-mail start [--env-file <path>] [--port <number>]
-  all-mail deploy [--env-file <path>] [--port <number>]
   all-mail check
   all-mail setup
 
 Commands:
-  install   Install nested server/web dependencies
-  build     Build backend + frontend and prepare ./public assets
-  doctor    Check env, build artifacts, PostgreSQL, and Redis reachability
-  deps      Start or stop PostgreSQL + Redis via docker compose
-  up        One-command app startup; optionally boot dockerized deps first
-  start     Start compiled all-Mail API + jobs runtimes with env resolution and Prisma fallback
-  deploy    Build first, then start
-  check     Run the full repository release gate, including production audits
-  setup     Install nested dependencies, then build everything
+  install   Install server, web, and Cloudflare Worker dependencies
+  build     Build the compatibility API and React frontend
+  doctor    Check env resolution, infrastructure reachability, and build artifacts
+  deps      Start or stop PostgreSQL + Redis for local development
+  check     Run the full repository release gate
+  setup     Install dependencies, then build
 
-Examples:
-  all-mail doctor --env-file /path/to/.env
-  all-mail deps up
-  all-mail up --docker-deps --env-file /path/to/.env --port 3102
-  all-mail setup
-  all-mail start --env-file /path/to/.env --port 3102
-  all-mail deploy --port 3002
+The supported production runtime is Docker Compose. This CLI intentionally does
+not start a parallel Node production topology.
 `);
 }
 
 function parseOptions(argv) {
-  const options = {
-    envFile: undefined,
-    port: undefined,
-    dockerDeps: false,
-  };
-
+  const options = { envFile: undefined };
   for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === '--env-file') {
+    if (argv[index] === '--env-file') {
       options.envFile = argv[index + 1];
       index += 1;
-      continue;
-    }
-    if (arg === '--port') {
-      options.port = argv[index + 1];
-      index += 1;
-      continue;
-    }
-    if (arg === '--docker-deps') {
-      options.dockerDeps = true;
     }
   }
-
   return options;
 }
 
@@ -90,12 +64,20 @@ function parseEnvText(content) {
     }
     const key = line.slice(0, separatorIndex).trim();
     const value = line.slice(separatorIndex + 1).trim();
-    if (!key) {
-      continue;
+    if (key) {
+      entries[key] = value.replace(/^['"]|['"]$/g, '');
     }
-    entries[key] = value.replace(/^['"]|['"]$/g, '');
   }
   return entries;
+}
+
+async function pathExists(targetPath) {
+  try {
+    await access(targetPath, fsConstants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function resolveEnvFile(explicitEnvFile) {
@@ -116,40 +98,17 @@ async function resolveEnvFile(explicitEnvFile) {
 
 function normalizeEnv(fileEnv) {
   const normalizedEnv = { ...fileEnv };
-
-  if (!normalizedEnv.PORT && normalizedEnv.APP_PORT) {
-    normalizedEnv.PORT = normalizedEnv.APP_PORT;
-  }
-
   if (!normalizedEnv.DATABASE_URL && normalizedEnv.POSTGRES_USER && normalizedEnv.POSTGRES_PASSWORD && normalizedEnv.POSTGRES_DB) {
-    const postgresHost = normalizedEnv.POSTGRES_HOST || '127.0.0.1';
-    const postgresPort = normalizedEnv.POSTGRES_PORT || normalizedEnv.POSTGRES_INTERNAL_PORT || '5432';
-    normalizedEnv.DATABASE_URL = `postgresql://${normalizedEnv.POSTGRES_USER}:${normalizedEnv.POSTGRES_PASSWORD}@${postgresHost}:${postgresPort}/${normalizedEnv.POSTGRES_DB}`;
+    const host = normalizedEnv.POSTGRES_HOST || '127.0.0.1';
+    const port = normalizedEnv.POSTGRES_PORT || normalizedEnv.POSTGRES_INTERNAL_PORT || '5432';
+    normalizedEnv.DATABASE_URL = `postgresql://${normalizedEnv.POSTGRES_USER}:${normalizedEnv.POSTGRES_PASSWORD}@${host}:${port}/${normalizedEnv.POSTGRES_DB}`;
   }
-
   if (!normalizedEnv.REDIS_URL && (normalizedEnv.REDIS_PORT || normalizedEnv.REDIS_INTERNAL_PORT)) {
-    const redisHost = normalizedEnv.REDIS_HOST || '127.0.0.1';
-    const redisPort = normalizedEnv.REDIS_PORT || normalizedEnv.REDIS_INTERNAL_PORT || '6379';
-    normalizedEnv.REDIS_URL = `redis://${redisHost}:${redisPort}`;
+    const host = normalizedEnv.REDIS_HOST || '127.0.0.1';
+    const port = normalizedEnv.REDIS_PORT || normalizedEnv.REDIS_INTERNAL_PORT || '6379';
+    normalizedEnv.REDIS_URL = `redis://${host}:${port}`;
   }
-
   return normalizedEnv;
-}
-
-async function loadRuntimeEnv(explicitEnvFile, portOverride) {
-  const envFile = await resolveEnvFile(explicitEnvFile);
-  if (!envFile) {
-    throw new Error('No env file found. Create server/.env from server/.env.example, or root .env from .env.example, then retry.');
-  }
-
-  const fileEnv = parseEnvText(await readFile(envFile, 'utf8'));
-  const normalizedEnv = normalizeEnv(fileEnv);
-  const runtimeEnv = sanitizeNodeRuntimeEnv({ ...normalizedEnv, ...process.env });
-  if (portOverride) {
-    runtimeEnv.PORT = String(portOverride);
-  }
-
-  return { envFile, runtimeEnv };
 }
 
 function readPortFromUrl(urlString, fallbackPort) {
@@ -164,27 +123,16 @@ async function testTcpReachability(host, port, label) {
       socket.destroy();
       reject(new Error(`${label} timed out while connecting to ${host}:${port}`));
     }, 4000);
-
     socket.once('connect', () => {
       clearTimeout(timeout);
       socket.end();
       resolve();
     });
-
     socket.once('error', (error) => {
       clearTimeout(timeout);
       reject(error);
     });
   });
-}
-
-async function pathExists(targetPath) {
-  try {
-    await access(targetPath, fsConstants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function run(command, args, options = {}) {
@@ -194,7 +142,6 @@ async function run(command, args, options = {}) {
       env: sanitizeNodeRuntimeEnv(options.env ?? process.env),
       stdio: options.stdio ?? 'inherit',
     });
-
     child.on('error', reject);
     child.on('close', (code) => {
       if (code === 0) {
@@ -207,37 +154,20 @@ async function run(command, args, options = {}) {
 }
 
 async function installAll(force = false) {
-  const serverNodeModules = path.join(serverDir, 'node_modules');
-  const webNodeModules = path.join(webDir, 'node_modules');
-  const workerDir = path.join(repoRoot, 'cloudflare', 'workers', 'allmail-edge');
-  const workerNodeModules = path.join(workerDir, 'node_modules');
-
-  if (force || !(await pathExists(serverNodeModules))) {
-    await run(npmCommand, ['--prefix', 'server', 'install']);
-  }
-
-  if (force || !(await pathExists(webNodeModules))) {
-    await run(npmCommand, ['--prefix', 'web', 'install', '--legacy-peer-deps']);
-  }
-
-  if (force || !(await pathExists(workerNodeModules))) {
-    await run(npmCommand, ['--prefix', 'cloudflare/workers/allmail-edge', 'install']);
+  const installs = [
+    [serverDir, path.join(serverDir, 'node_modules'), []],
+    [webDir, path.join(webDir, 'node_modules'), ['--legacy-peer-deps']],
+    [workerDir, path.join(workerDir, 'node_modules'), []],
+  ];
+  for (const [directory, nodeModules, extraArgs] of installs) {
+    if (force || !(await pathExists(nodeModules))) {
+      await run(npmCommand, ['install', ...extraArgs], { cwd: directory });
+    }
   }
 }
 
 async function buildAll() {
   await run(npmCommand, ['run', 'build'], { cwd: repoRoot });
-}
-
-async function startAll(options = {}) {
-  const env = { ...process.env };
-  if (options.envFile) {
-    env.ALL_MAIL_ENV_FILE = path.resolve(options.envFile);
-  }
-  if (options.port) {
-    env.PORT = String(options.port);
-  }
-  await run('node', ['scripts/start-all-mail.mjs'], { cwd: repoRoot, env });
 }
 
 async function runCheck() {
@@ -272,31 +202,43 @@ async function runDockerDeps(action) {
 async function runDoctor(options) {
   const results = [];
   try {
-    const { envFile, runtimeEnv } = await loadRuntimeEnv(options.envFile, options.port);
+    const envFile = await resolveEnvFile(options.envFile);
+    if (!envFile) {
+      throw new Error('No env file found. Copy .env.example to .env or create server/.env for API development.');
+    }
     results.push({ level: 'ok', message: `Using env file: ${envFile}` });
+    const fileEnv = normalizeEnv(parseEnvText(await readFile(envFile, 'utf8')));
+    const runtimeEnv = sanitizeNodeRuntimeEnv({ ...fileEnv, ...process.env });
 
     if (!runtimeEnv.DATABASE_URL) {
       throw new Error('DATABASE_URL could not be resolved from the current env configuration.');
     }
-
     const databaseUrl = new URL(runtimeEnv.DATABASE_URL);
-    await testTcpReachability(databaseUrl.hostname, readPortFromUrl(runtimeEnv.DATABASE_URL, 5432), 'PostgreSQL');
-    results.push({ level: 'ok', message: `PostgreSQL reachable at ${databaseUrl.hostname}:${readPortFromUrl(runtimeEnv.DATABASE_URL, 5432)}` });
+    const databasePort = readPortFromUrl(runtimeEnv.DATABASE_URL, 5432);
+    await testTcpReachability(databaseUrl.hostname, databasePort, 'PostgreSQL');
+    results.push({ level: 'ok', message: `PostgreSQL reachable at ${databaseUrl.hostname}:${databasePort}` });
 
     if (runtimeEnv.REDIS_URL) {
       const redisUrl = new URL(runtimeEnv.REDIS_URL);
-      await testTcpReachability(redisUrl.hostname, readPortFromUrl(runtimeEnv.REDIS_URL, 6379), 'Redis');
-      results.push({ level: 'ok', message: `Redis reachable at ${redisUrl.hostname}:${readPortFromUrl(runtimeEnv.REDIS_URL, 6379)}` });
+      const redisPort = readPortFromUrl(runtimeEnv.REDIS_URL, 6379);
+      await testTcpReachability(redisUrl.hostname, redisPort, 'Redis');
+      results.push({ level: 'ok', message: `Redis reachable at ${redisUrl.hostname}:${redisPort}` });
     } else {
-      results.push({ level: 'warn', message: 'REDIS_URL is not configured. The app can start, but OAuth state caching and some rate-limit behavior will degrade.' });
+      results.push({ level: 'warn', message: 'REDIS_URL is not configured; OAuth state and rate-limit behavior can degrade.' });
     }
 
-    const serverDistEntry = path.join(serverDir, 'dist', 'index.js');
-    const serverWorkerDistEntry = path.join(serverDir, 'dist', 'worker.js');
-    const publicIndexFile = path.join(repoRoot, 'public', 'index.html');
-    results.push({ level: (await pathExists(serverDistEntry)) ? 'ok' : 'warn', message: (await pathExists(serverDistEntry)) ? 'Server build artifacts exist.' : 'Server build artifacts are missing. Run `all-mail setup` or `all-mail build`.' });
-    results.push({ level: (await pathExists(serverWorkerDistEntry)) ? 'ok' : 'warn', message: (await pathExists(serverWorkerDistEntry)) ? 'Jobs runtime build artifacts exist.' : 'Jobs runtime build artifacts are missing. Run `all-mail setup` or `all-mail build`.' });
-    results.push({ level: (await pathExists(publicIndexFile)) ? 'ok' : 'warn', message: (await pathExists(publicIndexFile)) ? 'Frontend public assets exist.' : 'Frontend public assets are missing. Run `all-mail setup` or `all-mail build`.' });
+    const artifacts = [
+      [path.join(serverDir, 'dist', 'index.js'), 'Compatibility API build artifacts'],
+      [path.join(webDir, 'dist', 'index.html'), 'React frontend build artifacts'],
+    ];
+    for (const [artifact, label] of artifacts) {
+      const exists = await pathExists(artifact);
+      results.push({
+        level: exists ? 'ok' : 'warn',
+        message: exists ? `${label} exist.` : `${label} are missing. Run all-mail setup or npm run build.`,
+      });
+    }
+    results.push({ level: 'ok', message: 'Production startup remains docker compose up -d --build --wait.' });
   } catch (error) {
     results.push({ level: 'error', message: error instanceof Error ? error.message : String(error) });
   }
@@ -305,39 +247,14 @@ async function runDoctor(options) {
     const prefix = result.level === 'ok' ? '[ok]' : result.level === 'warn' ? '[warn]' : '[error]';
     console.log(`${prefix} ${result.message}`);
   }
-
   if (results.some((result) => result.level === 'error')) {
     process.exit(1);
   }
 }
 
-async function runUp(options) {
-  const serverNodeModules = path.join(serverDir, 'node_modules');
-  const webNodeModules = path.join(webDir, 'node_modules');
-  const serverDistEntry = path.join(serverDir, 'dist', 'index.js');
-  const publicIndexFile = path.join(repoRoot, 'public', 'index.html');
-
-  if (options.dockerDeps) {
-    await runDockerDeps('up');
-  }
-
-  const needsSetup = !(
-    await pathExists(serverNodeModules)
-    && await pathExists(webNodeModules)
-    && await pathExists(serverDistEntry)
-    && await pathExists(publicIndexFile)
-  );
-
-  if (needsSetup) {
-    await runSetup(false);
-  }
-
-  await startAll(options);
-}
-
 async function main() {
   const [command, maybeSubcommand, ...restArgs] = process.argv.slice(2);
-  const options = parseOptions(command === 'deps' ? restArgs : [maybeSubcommand, ...restArgs].filter(Boolean));
+  const options = parseOptions([maybeSubcommand, ...restArgs].filter(Boolean));
 
   switch (command) {
     case undefined:
@@ -361,27 +278,11 @@ async function main() {
       }
       await runDockerDeps(maybeSubcommand);
       return;
-    case 'up':
-      await runUp(options);
-      return;
-    case 'start':
-      await startAll(options);
-      return;
-    case 'deploy':
-      await runSetup(false);
-      await startAll(options);
-      return;
     case 'check':
       await runCheck();
       return;
     case 'setup':
       await runSetup(true);
-      return;
-    case 'internal-postinstall':
-      if (process.env.ALL_MAIL_SKIP_POSTINSTALL === '1') {
-        return;
-      }
-      await runSetup(false);
       return;
     default:
       console.error(`Unknown command: ${command}`);
