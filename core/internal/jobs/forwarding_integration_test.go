@@ -27,7 +27,7 @@ import (
 type capturedForwardRequest struct {
 	IdempotencyKey string
 	Authorization  string
-	Payload         provider.SendRequest
+	Payload        provider.SendRequest
 }
 
 type forwardingScenario struct {
@@ -75,7 +75,7 @@ func TestPostgresForwardingIntegration(t *testing.T) {
 		requests <- capturedForwardRequest{
 			IdempotencyKey: r.Header.Get("Idempotency-Key"),
 			Authorization:  r.Header.Get("Authorization"),
-			Payload:         payload,
+			Payload:        payload,
 		}
 		status := int(responseStatus.Load())
 		w.Header().Set("Content-Type", "application/json")
