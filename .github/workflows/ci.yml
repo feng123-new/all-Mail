@@ -321,7 +321,20 @@ jobs:
           if-no-files-found: error
 
       - name: Test
-        run: ../scripts/sanitize-runtime-env.sh npm run test
+        shell: bash
+        run: |
+          set +e
+          ../scripts/sanitize-runtime-env.sh npm run test 2>&1 | tee "$RUNNER_TEMP/server-test.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Upload server test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-test-log
+          path: ${{ runner.temp }}/server-test.log
+          if-no-files-found: error
 
       - name: Build
         run: ../scripts/sanitize-runtime-env.sh npm run db:generate && ../scripts/sanitize-runtime-env.sh npm run build
