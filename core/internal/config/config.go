@@ -12,9 +12,14 @@ import (
 
 type APIMode string
 
+type RuntimeOwner string
+
 const (
 	APIModeBridge APIMode = "bridge"
 	APIModeStatic APIMode = "static"
+
+	RuntimeOwnerLegacy RuntimeOwner = "legacy"
+	RuntimeOwnerGo     RuntimeOwner = "go"
 )
 
 // Config contains runtime settings shared by the API, jobs, migration and
@@ -34,6 +39,10 @@ type Config struct {
 	JobsHeartbeatInterval time.Duration
 	JobsHeartbeatMaxAge   time.Duration
 	MigrationDir          string
+	LogRetentionOwner     RuntimeOwner
+	APILogRetentionDays   int
+	APILogCleanupInterval time.Duration
+	APILogCleanupBatch    int
 }
 
 func Load() (Config, error) {
@@ -57,6 +66,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	retentionDays, err := envInt("API_LOG_RETENTION_DAYS", 30)
+	if err != nil {
+		return Config{}, err
+	}
+	cleanupMinutes, err := envInt("API_LOG_CLEANUP_INTERVAL_MINUTES", 60)
+	if err != nil {
+		return Config{}, err
+	}
+	cleanupBatch, err := envInt("API_LOG_CLEANUP_BATCH_SIZE", 5000)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		Environment:           env("ALL_MAIL_ENV", env("NODE_ENV", "development")),
@@ -72,6 +93,10 @@ func Load() (Config, error) {
 		JobsHeartbeatInterval: time.Duration(heartbeatSeconds) * time.Second,
 		JobsHeartbeatMaxAge:   time.Duration(heartbeatMaxAgeSeconds) * time.Second,
 		MigrationDir:          env("ALL_MAIL_MIGRATION_DIR", "/app/migrations"),
+		LogRetentionOwner:     RuntimeOwner(strings.ToLower(env("API_LOG_RETENTION_OWNER", string(RuntimeOwnerLegacy)))),
+		APILogRetentionDays:   retentionDays,
+		APILogCleanupInterval: time.Duration(cleanupMinutes) * time.Minute,
+		APILogCleanupBatch:    cleanupBatch,
 	}
 
 	if cfg.Port < 1 || cfg.Port > 65535 {
@@ -82,6 +107,18 @@ func Load() (Config, error) {
 	}
 	if cfg.JobsHeartbeatInterval <= 0 || cfg.JobsHeartbeatMaxAge <= 0 {
 		return Config{}, errors.New("jobs heartbeat durations must be positive")
+	}
+	if cfg.APILogRetentionDays < 1 {
+		return Config{}, errors.New("API_LOG_RETENTION_DAYS must be positive")
+	}
+	if cfg.APILogCleanupInterval <= 0 {
+		return Config{}, errors.New("API_LOG_CLEANUP_INTERVAL_MINUTES must be positive")
+	}
+	if cfg.APILogCleanupBatch < 1 || cfg.APILogCleanupBatch > 100000 {
+		return Config{}, errors.New("API_LOG_CLEANUP_BATCH_SIZE must be between 1 and 100000")
+	}
+	if cfg.LogRetentionOwner != RuntimeOwnerLegacy && cfg.LogRetentionOwner != RuntimeOwnerGo {
+		return Config{}, fmt.Errorf("unsupported API_LOG_RETENTION_OWNER %q; use legacy or go", cfg.LogRetentionOwner)
 	}
 	if err := validateAbsoluteURL("LEGACY_API_URL", cfg.LegacyAPIURL, "http", "https"); err != nil {
 		return Config{}, err
@@ -123,6 +160,9 @@ func (c Config) ValidateFor(command string) error {
 	case "jobs":
 		if strings.TrimSpace(c.StateDir) == "" {
 			return errors.New("ALL_MAIL_STATE_DIR is required for jobs")
+		}
+		if c.LogRetentionOwner == RuntimeOwnerGo && c.DatabaseURL == "" {
+			return errors.New("DATABASE_URL is required when API_LOG_RETENTION_OWNER=go")
 		}
 	case "migrate":
 		if c.DatabaseURL == "" {
