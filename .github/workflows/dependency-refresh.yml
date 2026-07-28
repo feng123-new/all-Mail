@@ -1,0 +1,70 @@
+name: Dependency lock refresh
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - server/package.json
+      - web/package.json
+      - .github/workflows/dependency-refresh.yml
+  workflow_dispatch:
+
+jobs:
+  refresh-lockfiles:
+    name: refresh-lockfiles
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.18.1
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            web/package-lock.json
+
+      - name: Resolve server lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix server --package-lock-only --ignore-scripts
+          npm audit fix --prefix server --package-lock-only --omit=dev --ignore-scripts || true
+          npm audit --prefix server --omit=dev --json > "$RUNNER_TEMP/server-audit.json" || true
+          npm ls --prefix server --omit=dev --depth=0 > "$RUNNER_TEMP/server-top-level.txt"
+
+      - name: Resolve web lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix web --package-lock-only --ignore-scripts
+          npm audit fix --prefix web --package-lock-only --omit=dev --ignore-scripts || true
+          npm audit --prefix web --omit=dev --json > "$RUNNER_TEMP/web-audit.json" || true
+          npm ls --prefix web --omit=dev --depth=0 > "$RUNNER_TEMP/web-top-level.txt"
+
+      - name: Record registry resolution
+        shell: bash
+        run: |
+          {
+            npm view react-router-dom@6.30.5 version 2>&1 || true
+            npm view react-router-dom@7.18.1 version 2>&1 || true
+            npm view undici@7.28.0 version 2>&1 || true
+            npm view @fastify/static@10.1.2 version 2>&1 || true
+            npm view @fastify/swagger-ui@5.2.6 version 2>&1 || true
+          } > "$RUNNER_TEMP/registry-resolution.txt"
+
+      - name: Upload resolved dependency state
+        uses: actions/upload-artifact@v4
+        with:
+          name: refreshed-lockfiles
+          path: |
+            server/package-lock.json
+            web/package-lock.json
+            ${{ runner.temp }}/server-audit.json
+            ${{ runner.temp }}/web-audit.json
+            ${{ runner.temp }}/server-top-level.txt
+            ${{ runner.temp }}/web-top-level.txt
+            ${{ runner.temp }}/registry-resolution.txt
+          if-no-files-found: error
