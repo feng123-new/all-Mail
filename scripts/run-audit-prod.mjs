@@ -14,7 +14,7 @@ export const productionAuditSteps = [
 ];
 
 export const auditAdvisoryAllowlist = {
-  'GHSA-qwww-vcr4-c8h2': {
+  'GHSA-QWWW-VCR4-C8H2': {
     packages: ['react-router', 'react-router-dom'],
     expiresOn: '2026-09-30',
     reason: 'The shipped web application is a Vite SPA and does not use React Router unstable RSC APIs. Upgrade to the patched router line remains tracked before this exception expires.',
@@ -33,7 +33,7 @@ function advisoryID(via) {
     .filter((value) => typeof value === 'string' || typeof value === 'number')
     .map(String);
   for (const candidate of candidates) {
-    const match = candidate.match(/GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}/i);
+    const match = candidate.match(/GHSA-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}/i);
     if (match) {
       return match[0].toUpperCase();
     }
