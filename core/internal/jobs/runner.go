@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -57,6 +58,8 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger, cleaner Re
 		"heartbeat_interval", cfg.JobsHeartbeatInterval,
 		"api_log_retention_owner", cfg.LogRetentionOwner,
 		"api_log_cleanup_interval", cfg.APILogCleanupInterval,
+		"api_log_cleanup_retry", cfg.APILogCleanupRetry,
+		"api_log_cleanup_timeout", cfg.APILogCleanupTimeout,
 	)
 	if err := writeHeartbeat(cfg.StateDir, state.snapshot()); err != nil {
 		return err
@@ -95,34 +98,49 @@ func runRetentionLoop(
 	cleaner RetentionCleaner,
 	state *runtimeState,
 ) {
-	runOnce := func() {
-		startedAt := time.Now().UTC()
-		state.markRetentionStarted(startedAt)
-		deleted, err := cleaner.Cleanup(ctx)
-		finishedAt := time.Now().UTC()
-		if err != nil {
-			state.markRetentionFailed(finishedAt, err)
-			logger.Error("Go API log retention cleanup failed", "error", err)
-			return
-		}
-		state.markRetentionSucceeded(finishedAt, deleted)
-		logger.Info(
-			"Go API log retention cleanup completed",
-			"deleted", deleted,
-			"retention_days", cfg.APILogRetentionDays,
-			"batch_size", cfg.APILogCleanupBatch,
-		)
-	}
+	delay := time.Duration(0)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 
-	runOnce()
-	ticker := time.NewTicker(cfg.APILogCleanupInterval)
-	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			runOnce()
+		case <-timer.C:
+			startedAt := time.Now().UTC()
+			state.markRetentionStarted(startedAt)
+
+			cleanupCtx, cancel := context.WithTimeout(ctx, cfg.APILogCleanupTimeout)
+			deleted, err := cleaner.Cleanup(cleanupCtx)
+			cancel()
+			finishedAt := time.Now().UTC()
+
+			if err != nil {
+				if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+					return
+				}
+				state.markRetentionFailed(finishedAt, err)
+				logger.Error(
+					"Go API log retention cleanup failed",
+					"error", err,
+					"retry_after", cfg.APILogCleanupRetry,
+				)
+				delay = cfg.APILogCleanupRetry
+			} else {
+				state.markRetentionSucceeded(finishedAt, deleted)
+				logger.Info(
+					"Go API log retention cleanup completed",
+					"deleted", deleted,
+					"retention_days", cfg.APILogRetentionDays,
+					"batch_size", cfg.APILogCleanupBatch,
+				)
+				delay = cfg.APILogCleanupInterval
+			}
+
+			if delay <= 0 {
+				delay = time.Second
+			}
+			timer.Reset(delay)
 		}
 	}
 }
