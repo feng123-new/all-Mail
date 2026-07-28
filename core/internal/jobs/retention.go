@@ -2,119 +2,102 @@ package jobs
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"strconv"
-	"strings"
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
+	"github.com/jackc/pgx/v5"
 )
 
-const apiLogRetentionLockKey = 240729
+const (
+	apiLogRetentionLockNamespace int32 = 421337
+	apiLogRetentionLockKey       int32 = 240729
+)
+
+const retentionDeleteSQL = `
+WITH doomed AS MATERIALIZED (
+    SELECT logs.id
+    FROM api_logs AS logs
+    WHERE logs.created_at < now() - ($1::int * interval '1 day')
+    ORDER BY logs.id
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+)
+DELETE FROM api_logs AS logs
+USING doomed
+WHERE logs.id = doomed.id
+RETURNING logs.id`
 
 type RetentionCleaner interface {
 	Cleanup(context.Context) (int64, error)
 }
 
-type psqlRetentionCleaner struct {
-	psql        string
+type pgxRetentionCleaner struct {
 	databaseURL string
 	retention   int
 	batchSize   int
 }
 
 func newRetentionCleaner(cfg config.Config) (RetentionCleaner, error) {
-	psql, err := exec.LookPath("psql")
-	if err != nil {
-		return nil, fmt.Errorf("psql is required for Go API log retention: %w", err)
+	if cfg.DatabaseURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required for Go API log retention")
 	}
-	return psqlRetentionCleaner{
-		psql:        psql,
+	return pgxRetentionCleaner{
 		databaseURL: cfg.DatabaseURL,
 		retention:   cfg.APILogRetentionDays,
 		batchSize:   cfg.APILogCleanupBatch,
 	}, nil
 }
 
-func (cleaner psqlRetentionCleaner) Cleanup(ctx context.Context) (int64, error) {
-	query := buildRetentionSQL(cleaner.retention, cleaner.batchSize)
-	command := exec.CommandContext(
-		ctx,
-		cleaner.psql,
-		cleaner.databaseURL,
-		"-X",
-		"--set=ON_ERROR_STOP=1",
-		"--tuples-only",
-		"--no-align",
-		"--field-separator=|",
-		"--command", query,
-	)
-	command.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=10")
-	output, err := command.CombinedOutput()
+func (cleaner pgxRetentionCleaner) Cleanup(ctx context.Context) (int64, error) {
+	connection, err := pgx.Connect(ctx, cleaner.databaseURL)
 	if err != nil {
-		return 0, fmt.Errorf("API log retention query failed: %w: %s", err, compactCommandOutput(output))
+		return 0, fmt.Errorf("connect API log retention database: %w", err)
 	}
-	acquired, deleted, err := parseRetentionResult(string(output))
+	defer connection.Close(context.Background())
+
+	transaction, err := connection.Begin(ctx)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("begin API log retention transaction: %w", err)
+	}
+	defer transaction.Rollback(context.Background())
+
+	var acquired bool
+	if err := transaction.QueryRow(
+		ctx,
+		"SELECT pg_try_advisory_xact_lock($1, $2)",
+		apiLogRetentionLockNamespace,
+		apiLogRetentionLockKey,
+	).Scan(&acquired); err != nil {
+		return 0, fmt.Errorf("acquire API log retention lock: %w", err)
 	}
 	if !acquired {
+		if err := transaction.Commit(ctx); err != nil {
+			return 0, fmt.Errorf("commit skipped API log retention transaction: %w", err)
+		}
 		return 0, nil
 	}
-	return deleted, nil
-}
 
-func buildRetentionSQL(retentionDays, batchSize int) string {
-	return fmt.Sprintf(`WITH lock_state AS MATERIALIZED (
-    SELECT pg_try_advisory_xact_lock(421337, %d) AS acquired
-),
-doomed AS MATERIALIZED (
-    SELECT logs.id
-    FROM api_logs AS logs
-    WHERE logs.created_at < now() - make_interval(days => %d)
-      AND (SELECT acquired FROM lock_state)
-    ORDER BY logs.id
-    LIMIT %d
-),
-deleted AS (
-    DELETE FROM api_logs AS logs
-    USING doomed
-    WHERE logs.id = doomed.id
-    RETURNING logs.id
-)
-SELECT (SELECT acquired FROM lock_state), count(*) FROM deleted;`, apiLogRetentionLockKey, retentionDays, batchSize)
-}
-
-func parseRetentionResult(output string) (bool, int64, error) {
-	line := strings.TrimSpace(output)
-	if line == "" {
-		return false, 0, errors.New("API log retention query returned no result")
-	}
-	lines := strings.Split(line, "\n")
-	fields := strings.Split(strings.TrimSpace(lines[len(lines)-1]), "|")
-	if len(fields) != 2 {
-		return false, 0, fmt.Errorf("unexpected API log retention result %q", line)
-	}
-	acquired, err := strconv.ParseBool(strings.TrimSpace(fields[0]))
+	rows, err := transaction.Query(ctx, retentionDeleteSQL, cleaner.retention, cleaner.batchSize)
 	if err != nil {
-		return false, 0, fmt.Errorf("decode API log retention lock result: %w", err)
+		return 0, fmt.Errorf("delete expired API logs: %w", err)
 	}
-	deleted, err := strconv.ParseInt(strings.TrimSpace(fields[1]), 10, 64)
-	if err != nil || deleted < 0 {
-		return false, 0, fmt.Errorf("decode API log retention delete count %q", fields[1])
+	var deleted int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("read deleted API log id: %w", err)
+		}
+		deleted++
 	}
-	return acquired, deleted, nil
-}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("iterate deleted API logs: %w", err)
+	}
+	rows.Close()
 
-func compactCommandOutput(output []byte) string {
-	text := strings.Join(strings.Fields(string(output)), " ")
-	if text == "" {
-		return "no diagnostic output"
+	if err := transaction.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit API log retention transaction: %w", err)
 	}
-	if len(text) > 400 {
-		return text[:400] + "..."
-	}
-	return text
+	return deleted, nil
 }

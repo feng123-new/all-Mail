@@ -130,7 +130,7 @@ export function buildBootstrapAdminPasswordMessages({
 
   if (passwordSource === 'generated' || passwordSource === 'state-file') {
     const accessCommand = runtimeKind === 'docker'
-      ? `docker compose exec app sh -lc "grep '^ADMIN_PASSWORD=' ${secretsFile} | cut -d= -f2-"`
+      ? `docker compose exec legacy-api sh -lc "grep '^ADMIN_PASSWORD=' ${secretsFile} | cut -d= -f2-"`
       : `grep '^ADMIN_PASSWORD=' ${shellQuote(secretsFile)} | cut -d= -f2-`;
     const lines = [
       `Bootstrap admin password is stored in ${secretsFile}.`,

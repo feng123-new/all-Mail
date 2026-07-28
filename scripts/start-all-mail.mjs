@@ -22,6 +22,11 @@ const serverDistEntry = path.join(serverDir, 'dist', 'index.js');
 const serverWorkerDistEntry = path.join(serverDir, 'dist', 'worker.js');
 const publicIndexFile = path.join(repoRoot, 'public', 'index.html');
 
+function isTruthyEnvFlag(value) {
+  return typeof value === 'string'
+    && ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
 async function resolveEnvFile() {
   const candidates = [
     process.env.ALL_MAIL_ENV_FILE,
@@ -92,13 +97,13 @@ async function run(command, args, options = {}) {
 }
 
 async function main() {
-  await ensureReadable(serverDistEntry, 'server build output is missing. This script is for the advanced source-runtime path; run `./bin/all-mail build` at repo root first, or use the default Docker path with `docker compose up -d --build`.');
-  await ensureReadable(serverWorkerDistEntry, 'server worker build output is missing. This script is for the advanced source-runtime path; run `./bin/all-mail build` at repo root first so the jobs runtime is compiled, or use the default Docker path with `docker compose up -d --build`.');
-  await ensureReadable(publicIndexFile, 'public/index.html is missing. This script is for the advanced source-runtime path; run `./bin/all-mail build` at repo root first so the frontend is copied into ./public, or use the default Docker path with `docker compose up -d --build`.');
+  await ensureReadable(serverDistEntry, 'server build output is missing. This script is for the advanced source-runtime path; run `./bin/all-mail build` at repo root first, or use the canonical Docker path with `docker compose up -d --build`.');
+  await ensureReadable(serverWorkerDistEntry, 'server worker build output is missing. This script is for the advanced source-runtime path; run `./bin/all-mail build` at repo root first so the compatibility jobs runtime is compiled, or use the canonical Docker path.');
+  await ensureReadable(publicIndexFile, 'public/index.html is missing. This script is for the advanced source-runtime path; run `./bin/all-mail build` at repo root first, or use the canonical Docker path.');
 
   const envFile = await resolveEnvFile();
   if (!envFile) {
-    console.error('No env file found. For the default Docker path, copy `.env.example` to `.env` and run `docker compose up -d --build`. For the advanced source-runtime path, create `server/.env` from `server/.env.example`, or provide a root `.env`, then retry.');
+    console.error('No env file found. For Docker, copy `.env.example` to `.env`. For the advanced source runtime, create `server/.env` from `server/.env.example`, or provide a root `.env`.');
     process.exit(1);
   }
 
@@ -121,8 +126,9 @@ async function main() {
     normalizedEnv.REDIS_URL = `redis://${redisHost}:${redisPort}`;
   }
 
-  const stateDir = process.env.ALL_MAIL_STATE_DIR
-    ? path.resolve(process.env.ALL_MAIL_STATE_DIR)
+  const configuredStateDir = process.env.ALL_MAIL_STATE_DIR || normalizedEnv.ALL_MAIL_STATE_DIR;
+  const stateDir = configuredStateDir
+    ? path.resolve(configuredStateDir)
     : path.join(repoRoot, '.all-mail-runtime');
   const bootstrapSecrets = await ensureBootstrapSecrets({ stateDir, env: normalizedEnv });
   Object.assign(normalizedEnv, bootstrapSecrets.secrets);
@@ -142,6 +148,7 @@ async function main() {
     managedKeys: bootstrapSecrets.managedKeys,
   });
 
+  console.log('WARNING: the source runtime starts Fastify and Node jobs directly; it does not validate the canonical Go Docker topology.');
   console.log(`Using env file: ${envFile}`);
   if (bootstrapSecrets.createdKeys.length > 0) {
     console.log(`Generated bootstrap secrets in ${bootstrapSecrets.secretsFile}`);
@@ -149,7 +156,7 @@ async function main() {
   if (shouldPrintBootstrapLogin) {
     console.log(`First login URL: ${loginUrl}`);
     if (usesLocalLoginBaseUrl(runtimeEnv)) {
-      console.log('NOTE: 127.0.0.1/localhost only works on the same machine. Replace it with your cloud server public IP, domain, or the correct local address when accessing remotely.');
+      console.log('NOTE: 127.0.0.1/localhost only works on the same machine. Replace it with your public IP, domain, or the correct local address for remote access.');
     }
     console.log(`Bootstrap admin username: ${runtimeEnv.ADMIN_USERNAME || 'admin'}`);
     for (const line of buildBootstrapAdminPasswordMessages({
@@ -171,7 +178,13 @@ async function main() {
     if (!combinedOutput.includes('P3005')) {
       throw error;
     }
-    console.log('Prisma migrate deploy skipped for legacy non-empty database; falling back to db push.');
+    if (!isTruthyEnvFlag(runtimeEnv.ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR)) {
+      throw new Error(
+        'Prisma reported P3005. Automatic db push is disabled. Review and back up the database, then set ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true for one intentional repair run only.',
+        { cause: error },
+      );
+    }
+    console.log('P3005 detected; running the explicitly enabled legacy repair and db push path.');
     await run('npm', ['run', 'db:repair:legacy-p3005'], { cwd: serverDir, env: runtimeEnv });
     await run('npm', ['run', 'db:push', '--', '--skip-generate'], { cwd: serverDir, env: runtimeEnv });
   }

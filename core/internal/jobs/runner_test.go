@@ -2,11 +2,13 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,6 +60,7 @@ func baseJobConfig(t *testing.T) config.Config {
 		APILogRetentionDays:   30,
 		APILogCleanupBatch:    5000,
 		LogRetentionOwner:     config.RuntimeOwnerGo,
+		ForwardingRunTimeout:  time.Second,
 	}
 }
 
@@ -68,7 +71,7 @@ func TestRunWritesHeartbeatAndRunsRetention(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- run(ctx, cfg, discardLogger(), cleaner) }()
 	waitForCalls(t, &cleaner.calls, 1)
-	time.Sleep(20 * time.Millisecond)
+	content := waitForHeartbeatContains(t, cfg.StateDir, `"lastDeleted":7`, time.Second)
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -76,11 +79,7 @@ func TestRunWritesHeartbeatAndRunsRetention(t *testing.T) {
 	if cleaner.calls.Load() != 1 {
 		t.Fatalf("cleanup calls = %d", cleaner.calls.Load())
 	}
-	content, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
-	if err != nil {
-		t.Fatalf("heartbeat missing: %v", err)
-	}
-	if !containsAll(string(content), `"apiLogRetention"`, `"lastDeleted":7`, `"lastSuccessAt"`) {
+	if !containsAll(string(content), `"apiLogRetention"`, `"lastSuccessAt"`, `"lastCompletedAt"`) {
 		t.Fatalf("heartbeat = %s", content)
 	}
 }
@@ -92,16 +91,12 @@ func TestRetentionRetriesAfterFailureAndRecovers(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- run(ctx, cfg, discardLogger(), cleaner) }()
 	waitForCalls(t, &cleaner.calls, 2)
-	time.Sleep(20 * time.Millisecond)
+	content := waitForHeartbeatContains(t, cfg.StateDir, `"lastDeleted":3`, time.Second)
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	content, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !containsAll(string(content), `"lastDeleted":3`, `"lastSuccessAt"`) || strings.Contains(string(content), `"lastError"`) {
+	if !containsAll(string(content), `"lastSuccessAt"`) || strings.Contains(string(content), `"lastError"`) || strings.Contains(string(content), `"consecutiveFailures"`) {
 		t.Fatalf("heartbeat = %s", content)
 	}
 }
@@ -115,16 +110,12 @@ func TestRetentionRunIsTimeBounded(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- run(ctx, cfg, discardLogger(), cleaner) }()
 	waitForCalls(t, &cleaner.calls, 1)
-	time.Sleep(30 * time.Millisecond)
+	content := waitForHeartbeatContains(t, cfg.StateDir, "context deadline exceeded", time.Second)
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	content, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(content), "context deadline exceeded") {
+	if !containsAll(string(content), `"running":false`, `"consecutiveFailures":1`) {
 		t.Fatalf("heartbeat = %s", content)
 	}
 }
@@ -135,19 +126,16 @@ func TestHeartbeatOnlyModeDoesNotRunRetention(t *testing.T) {
 	cfg.LogRetentionOwner = config.RuntimeOwnerLegacy
 	done := make(chan error, 1)
 	go func() { done <- run(ctx, cfg, discardLogger(), nil) }()
-	time.Sleep(20 * time.Millisecond)
+	content := waitForHeartbeatContains(t, cfg.StateDir, `"apiLogRetention":{"enabled":false`, time.Second)
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(HeartbeatPath(cfg.StateDir)); err != nil {
-		t.Fatalf("heartbeat missing: %v", err)
-	}
-	content, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !containsAll(string(content), `"apiLogRetention":{"enabled":false}`, `"forwarding":{"enabled":false}`) {
+	if !containsAll(
+		string(content),
+		`"apiLogRetention":{"enabled":false,"running":false}`,
+		`"forwarding":{"enabled":false,"running":false}`,
+	) {
 		t.Fatalf("heartbeat = %s", content)
 	}
 }
@@ -156,7 +144,7 @@ func TestRunRequiresDatabaseForGoForwardingOwner(t *testing.T) {
 	cfg := config.Config{
 		StateDir:              t.TempDir(),
 		JobsHeartbeatInterval: time.Second,
-		ForwardingWorkerOwner: "go",
+		ForwardingWorkerOwner: config.RuntimeOwnerGo,
 		EncryptionKey:         "test-encryption-key-1234567890ab",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -195,7 +183,7 @@ func (runner *countingForwardingRunner) runOnce(context.Context, time.Time) erro
 func TestRunSupervisorRunsRetentionAndForwardingTogether(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cfg := baseJobConfig(t)
-	cfg.ForwardingWorkerOwner = "go"
+	cfg.ForwardingWorkerOwner = config.RuntimeOwnerGo
 	cfg.ForwardingInterval = time.Hour
 	cleaner := &fakeCleaner{deleted: 2}
 	forwarder := &countingForwardingRunner{}
@@ -206,16 +194,12 @@ func TestRunSupervisorRunsRetentionAndForwardingTogether(t *testing.T) {
 
 	waitForCalls(t, &cleaner.calls, 1)
 	waitForCalls(t, &forwarder.calls, 1)
-	time.Sleep(20 * time.Millisecond)
+	content := waitForHeartbeatContains(t, cfg.StateDir, `"lastDeleted":2`, time.Second)
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	content, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !containsAll(string(content), `"apiLogRetention"`, `"lastDeleted":2`, `"forwarding"`, `"lastSuccessAt"`) {
+	if !containsAll(string(content), `"apiLogRetention"`, `"forwarding"`, `"lastSuccessAt"`) {
 		t.Fatalf("heartbeat = %s", content)
 	}
 }
@@ -226,29 +210,59 @@ func TestRunSupervisorKeepsHeartbeatFreshDuringSlowForwarding(t *testing.T) {
 		StateDir:              t.TempDir(),
 		JobsHeartbeatInterval: 10 * time.Millisecond,
 		ForwardingInterval:    time.Hour,
-		ForwardingWorkerOwner: "go",
+		ForwardingRunTimeout:  time.Second,
+		ForwardingWorkerOwner: config.RuntimeOwnerGo,
 	}
 	done := make(chan error, 1)
 	go func() {
 		done <- runSupervisor(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, blockingForwardingRunner{}, func(context.Context) error { return nil })
 	}()
 
-	time.Sleep(15 * time.Millisecond)
-	firstContent, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(25 * time.Millisecond)
-	secondContent, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
-	if err != nil {
-		t.Fatal(err)
+	firstContent := waitForHeartbeatContains(t, cfg.StateDir, `"running":true`, time.Second)
+	deadline := time.Now().Add(time.Second)
+	var secondContent []byte
+	for time.Now().Before(deadline) {
+		content, err := os.ReadFile(HeartbeatPath(cfg.StateDir))
+		if err == nil && string(content) != string(firstContent) {
+			secondContent = content
+			break
+		}
+		time.Sleep(time.Millisecond)
 	}
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if string(firstContent) == string(secondContent) {
+	if len(secondContent) == 0 {
 		t.Fatal("heartbeat did not advance while forwarding was blocked")
+	}
+	if !strings.Contains(string(secondContent), `"running":true`) {
+		t.Fatalf("heartbeat = %s", secondContent)
+	}
+}
+
+func TestRunSupervisorTimesOutSlowForwarding(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := config.Config{
+		StateDir:              t.TempDir(),
+		JobsHeartbeatInterval: 5 * time.Millisecond,
+		ForwardingInterval:    time.Hour,
+		ForwardingRunTimeout:  15 * time.Millisecond,
+		ShutdownTimeout:       time.Second,
+		ForwardingWorkerOwner: config.RuntimeOwnerGo,
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- runSupervisor(ctx, cfg, discardLogger(), nil, blockingForwardingRunner{}, func(context.Context) error { return nil })
+	}()
+
+	content := waitForHeartbeatContains(t, cfg.StateDir, "context deadline exceeded", time.Second)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !containsAll(string(content), `"running":false`, `"consecutiveFailures":1`) {
+		t.Fatalf("heartbeat = %s", content)
 	}
 }
 
@@ -259,7 +273,8 @@ func TestRunSupervisorReturnsWhenForwardingOwnerConnectionIsLost(t *testing.T) {
 		StateDir:              t.TempDir(),
 		JobsHeartbeatInterval: 10 * time.Millisecond,
 		ForwardingInterval:    time.Hour,
-		ForwardingWorkerOwner: "go",
+		ForwardingRunTimeout:  time.Second,
+		ForwardingWorkerOwner: config.RuntimeOwnerGo,
 	}
 
 	err := runSupervisor(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, blockingForwardingRunner{}, func(context.Context) error {
@@ -279,7 +294,8 @@ func TestRunSupervisorCancelsActiveForwardingWhenOwnerConnectionIsLost(t *testin
 		ShutdownTimeout:       100 * time.Millisecond,
 		JobsHeartbeatInterval: 10 * time.Millisecond,
 		ForwardingInterval:    time.Hour,
-		ForwardingWorkerOwner: "go",
+		ForwardingRunTimeout:  time.Second,
+		ForwardingWorkerOwner: config.RuntimeOwnerGo,
 	}
 	started := make(chan struct{})
 	var checks atomic.Int64
@@ -292,7 +308,6 @@ func TestRunSupervisorCancelsActiveForwardingWhenOwnerConnectionIsLost(t *testin
 			return errors.New("owner connection closed")
 		})
 	}()
-
 	select {
 	case <-started:
 	case <-ctx.Done():
@@ -307,6 +322,42 @@ func TestRunSupervisorCancelsActiveForwardingWhenOwnerConnectionIsLost(t *testin
 	}
 }
 
+func TestWriteHeartbeatSupportsConcurrentPublishers(t *testing.T) {
+	stateDir := t.TempDir()
+	const publishers = 64
+	start := make(chan struct{})
+	errors := make(chan error, publishers)
+	var group sync.WaitGroup
+
+	for index := 0; index < publishers; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			<-start
+			errors <- writeHeartbeat(stateDir, map[string]workerHeartbeat{
+				"forwarding": {Enabled: true},
+			})
+		}()
+	}
+	close(start)
+	group.Wait()
+	close(errors)
+
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("writeHeartbeat() error = %v", err)
+		}
+	}
+	content, err := os.ReadFile(HeartbeatPath(stateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload heartbeat
+	if err := json.Unmarshal(content, &payload); err != nil {
+		t.Fatalf("decode heartbeat: %v", err)
+	}
+}
+
 func waitForCalls(t *testing.T, calls *atomic.Int64, target int64) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
@@ -316,6 +367,27 @@ func waitForCalls(t *testing.T, calls *atomic.Int64, target int64) {
 	if calls.Load() < target {
 		t.Fatalf("cleanup calls = %d, want at least %d", calls.Load(), target)
 	}
+}
+
+func waitForHeartbeatContains(t *testing.T, stateDir, expected string, timeout time.Duration) []byte {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var lastContent []byte
+	var lastErr error
+	for time.Now().Before(deadline) {
+		content, err := os.ReadFile(HeartbeatPath(stateDir))
+		if err == nil {
+			lastContent = content
+			if strings.Contains(string(content), expected) {
+				return content
+			}
+		} else {
+			lastErr = err
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("heartbeat did not contain %q before timeout; last content=%s last error=%v", expected, lastContent, lastErr)
+	return nil
 }
 
 func discardLogger() *slog.Logger {

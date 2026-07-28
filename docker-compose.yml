@@ -51,7 +51,37 @@ x-allmail-hardening: &allmail-hardening
   cap_drop:
     - ALL
 
+x-legacy-runtime: &legacy-runtime
+  <<: *allmail-hardening
+  user: "10001:10001"
+
 services:
+  legacy-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.legacy
+    command: ["init"]
+    environment:
+      <<: *legacy-environment
+      ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE: /var/lib/all-mail-go/encryption-key
+      ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR: ${ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - legacy_runtime_data:/var/lib/all-mail
+      - go_runtime_data:/var/lib/all-mail-go
+    networks:
+      - app-network
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+
   go-migrate:
     build:
       context: .
@@ -62,12 +92,43 @@ services:
       ALL_MAIL_MIGRATION_DIR: /app/migrations
       DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
     depends_on:
-      legacy-api:
+      legacy-init:
+        condition: service_completed_successfully
+      postgres:
         condition: service_healthy
     restart: "no"
     networks:
       - app-network
     <<: *allmail-hardening
+
+  legacy-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.legacy
+    command: ["api"]
+    environment:
+      <<: *legacy-environment
+      PORT: ${LEGACY_API_INTERNAL_PORT:-3100}
+    depends_on:
+      go-migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      - legacy_runtime_data:/var/lib/all-mail
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "/app/scripts/sanitize-runtime-env.sh", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then((r)=>process.exit(r.ok ? 0 : 1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    <<: *legacy-runtime
 
   app:
     build:
@@ -128,6 +189,7 @@ services:
       FORWARDING_WORKER_OWNER: ${FORWARDING_WORKER_OWNER:-go}
       FORWARDING_WORKER_INTERVAL_SECONDS: ${FORWARDING_WORKER_INTERVAL_SECONDS:-30}
       FORWARDING_WORKER_BATCH_SIZE: ${FORWARDING_WORKER_BATCH_SIZE:-10}
+      FORWARDING_RUN_TIMEOUT_SECONDS: ${FORWARDING_RUN_TIMEOUT_SECONDS:-120}
       RESEND_API_BASE_URL: ${RESEND_API_BASE_URL:-https://api.resend.com}
       GO_JOBS_HEARTBEAT_SECONDS: ${GO_JOBS_HEARTBEAT_SECONDS:-15}
       GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS: ${GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS:-90}
@@ -135,8 +197,6 @@ services:
     depends_on:
       go-migrate:
         condition: service_completed_successfully
-      jobs:
-        condition: service_healthy
       legacy-api:
         condition: service_healthy
       postgres:
@@ -155,44 +215,16 @@ services:
       start_period: 45s
     <<: *allmail-hardening
 
-  legacy-api:
-    build:
-      context: .
-      dockerfile: Dockerfile.legacy
-    command: ["api"]
-    environment:
-      <<: *legacy-environment
-      PORT: ${LEGACY_API_INTERNAL_PORT:-3100}
-      ALL_MAIL_RUN_MIGRATIONS: "1"
-      ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE: /var/lib/all-mail-go/encryption-key
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    stop_grace_period: 30s
-    volumes:
-      - legacy_runtime_data:/var/lib/all-mail
-      - go_runtime_data:/var/lib/all-mail-go
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "/app/scripts/sanitize-runtime-env.sh", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then((r)=>process.exit(r.ok ? 0 : 1)).catch(()=>process.exit(1))"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 75s
-
-  jobs:
+  legacy-jobs:
+    profiles: ["rollback"]
     build:
       context: .
       dockerfile: Dockerfile.legacy
     command: ["jobs"]
     environment:
       <<: [*legacy-environment, *forwarding-environment]
-      PORT: ${LEGACY_API_INTERNAL_PORT:-3100}
-      ALL_MAIL_RUN_MIGRATIONS: "0"
+      API_LOG_RETENTION_OWNER: legacy
+      FORWARDING_WORKER_OWNER: legacy
     depends_on:
       go-migrate:
         condition: service_completed_successfully
@@ -214,6 +246,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 90s
+    <<: *legacy-runtime
 
   redis:
     image: redis:7-alpine

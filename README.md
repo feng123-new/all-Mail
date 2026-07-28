@@ -2,22 +2,27 @@
 
 `all-Mail` is a self-hostable email control plane for operators who need one place to manage:
 
-- external mailbox providers (Outlook / Gmail / QQ and related IMAP/SMTP families)
-- domain mailboxes, aliases, and portal users
-- signed inbound ingress for domain mail flows
-- outbound sending and automation-facing mailbox APIs
+- external mailbox providers such as Outlook, Gmail, QQ and related IMAP/SMTP families;
+- domain mailboxes, aliases and portal users;
+- signed inbound ingress for domain mail flows;
+- outbound sending and automation-facing mailbox APIs.
 
-The repository is **Docker-first**. The default deployment shape is one Docker Compose stack for the app, jobs worker, PostgreSQL, and Redis.
+The repository is **Docker-first**. The current production topology is an incremental Go migration, not a completed Fastify replacement:
+
+- Go owns the public listener, React SPA delivery, health/readiness, request IDs, metrics, API-log retention and forwarding execution;
+- Fastify/Prisma remains the authoritative business API for admin, mailbox, domain, OAuth, portal, API-key and ingress routes;
+- PostgreSQL and Redis remain shared state backends;
+- the former Node jobs runtime is available only through an explicit rollback profile.
 
 ## Product shape
 
 `all-Mail` combines several operator workflows in one system:
 
-- **external mailbox control** — connect and operate provider mailboxes from one admin console
-- **domain mailbox control** — manage domains, mailboxes, aliases, and portal access
-- **ingress control** — receive inbound mail through a signed Cloudflare worker path when needed
-- **outbound sending** — manage send configs and outbound delivery flows
-- **automation APIs** — expose script-friendly mailbox allocation and message retrieval endpoints
+- **external mailbox control** — connect and operate provider mailboxes from one admin console;
+- **domain mailbox control** — manage domains, mailboxes, aliases and portal access;
+- **ingress control** — receive inbound mail through a signed Cloudflare Worker path when needed;
+- **outbound sending** — manage send configurations and delivery flows;
+- **automation APIs** — expose script-friendly mailbox allocation and message retrieval endpoints.
 
 ## Screenshots
 
@@ -25,35 +30,57 @@ The repository is **Docker-first**. The default deployment shape is one Docker C
 | --- | --- |
 | ![all-Mail admin sign-in page](./docs/screenshots/login-page.png) | ![all-Mail dashboard overview](./docs/screenshots/dashboard-home.png) |
 
-Both images are repository-tracked, sanitized screenshots intended for GitHub-facing documentation. The dashboard image uses the local proof scenario so the README stays public-safe while still showing the real homepage shape.
+The screenshots are repository-tracked and sanitized for public documentation.
 
-## End-to-end control-plane flow
+## Current runtime architecture
 
 ```mermaid
 flowchart TD
-    Operator["Operator signs in to the admin console"] --> UI["React admin console and portal-aware UI"]
-    UI --> API["Fastify app service"]
+    Operator[Operator] --> GoAPI[Go public API]
+    Automation[Automation client] --> GoAPI
+    Worker[Cloudflare Email Worker] --> GoAPI
 
-    Automation["Automation clients using API keys"] --> API
-    Ingress["Cloudflare Email Routing and allmail-edge Worker"] --> API
+    GoAPI --> SPA[React SPA]
+    GoAPI --> Legacy[Fastify / Prisma business API]
+    GoAPI --> Postgres[(PostgreSQL)]
+    GoAPI --> Redis[(Redis)]
 
-    API --> Postgres["PostgreSQL stores config, state, logs, and mail records"]
-    API --> Redis["Redis handles queue, replay, and rate-limit support"]
-    API --> Providers["External mailbox providers and IMAP SMTP services"]
-    API --> Portal["Mailbox portal sessions and user flows"]
+    Legacy --> Postgres
+    Legacy --> Redis
+    Legacy --> Providers[Mailbox and sending providers]
 
-    Jobs["Background jobs worker"] --> Postgres
-    Jobs --> Redis
-    Jobs --> Providers
-    API --> Jobs
+    GoJobs[Go jobs runtime] --> Postgres
+    GoJobs --> Providers
+
+    LegacyInit[legacy-init one-shot] --> Postgres
+    LegacyInit --> SecretVolume[Persisted bootstrap secrets]
+    GoMigrate[go-migrate one-shot] --> Postgres
+    LegacyInit --> GoMigrate
+    GoMigrate --> Legacy
+    GoMigrate --> GoAPI
+    GoMigrate --> GoJobs
+
+    LegacyRollback[legacy-jobs rollback profile] -. explicit rollback only .-> Postgres
 ```
 
-In practice, the project runs in four connected lanes:
+The default long-running services are:
 
-1. **operator lane** — admins log in, read the dashboard posture, then move into mailbox, domain, sending, or log pages.
-2. **automation lane** — API-key callers allocate mailboxes, fetch messages, and drive workflow automation through the backend.
-3. **ingress lane** — Cloudflare Email Routing can send inbound domain-mail traffic through the Worker into the backend ingress endpoint.
-4. **jobs lane** — the dedicated `jobs` runtime handles background forwarding, retries, cleanup, and other asynchronous mailflow work.
+| Service | Responsibility |
+| --- | --- |
+| `app` | Go public listener, SPA, readiness, metrics and legacy proxy |
+| `go-jobs` | Go API-log retention and forwarding workers |
+| `legacy-api` | Fastify/Prisma business API that has not yet been ported |
+| `postgres` | Application and runtime state |
+| `redis` | OAuth state, rate-limit, replay and cache support |
+
+Two one-shot services run before the long-running application processes:
+
+| Service | Responsibility |
+| --- | --- |
+| `legacy-init` | Generate/persist bootstrap secrets, export only the forwarding encryption key and apply Prisma migrations |
+| `go-migrate` | Apply checksummed additive Go migrations under a PostgreSQL advisory lock |
+
+`legacy-jobs` is **not** started by the default profile. It exists only as a temporary rollback owner while the Go forwarding and retention cutover is being validated.
 
 ## Provider support
 
@@ -65,10 +92,10 @@ In practice, the project runs in four connected lanes:
 | 163 / 126 | IMAP / SMTP auth code | Yes | Yes | No | Yes |
 | iCloud / Yahoo / Zoho / Aliyun | IMAP / SMTP app password | Yes | Yes | No | Yes |
 | Fastmail / AOL / GMX / Mail.com / Yandex | IMAP / SMTP password or app password | Yes | Yes | No | Yes |
-| Amazon WorkMail | IMAP / SMTP password + region-specific host | Yes | Yes | No | Yes |
-| Custom IMAP / SMTP | User-defined IMAP / SMTP server settings | Yes | Yes | No | Yes |
+| Amazon WorkMail | IMAP / SMTP password plus region-specific host | Yes | Yes | No | Yes |
+| Custom IMAP / SMTP | User-defined server settings | Yes | Yes | No | Yes |
 
-## Quick start (canonical Docker path)
+## Quick start
 
 ### 1. Choose an environment template
 
@@ -78,135 +105,142 @@ Default Docker deployment:
 cp .env.example .env
 ```
 
-If you also need Cloudflare Email Routing / signed ingress for domain-mail delivery:
+Cloudflare Email Routing / signed ingress deployment:
 
 ```bash
 cp .env.cloudflare.example .env
 ```
 
-### 2. Start the stack
+Replace the shipped ingress placeholder before enabling ingress.
+
+### 2. Start the canonical stack
 
 ```bash
 docker compose up -d --build --wait --wait-timeout 240
-docker compose ps
+docker compose ps -a
 ```
 
-Expected baseline services:
+Expected behavior:
 
-- `app`
-- `go-jobs`
-- `legacy-api`
-- `jobs`
-- `postgres`
-- `redis`
-
-The one-shot `go-migrate` service runs after the legacy Prisma migrations and must finish successfully before `app` or `go-jobs` starts. The `--wait` command exits only after the long-running services report healthy.
+- `legacy-init` exits successfully after bootstrap and Prisma migration work;
+- `go-migrate` exits successfully after additive Go migrations;
+- `app`, `go-jobs`, `legacy-api`, `postgres` and `redis` remain running;
+- `legacy-jobs` is absent unless the `rollback` profile was explicitly enabled.
 
 ### 3. Probe health
 
 ```bash
 curl http://127.0.0.1:3002/health
 curl --fail http://127.0.0.1:3002/readyz
+docker compose exec -T app allmail doctor api
+docker compose exec -T go-jobs allmail doctor jobs
 ```
 
-Expected response:
+The Go health response identifies the migration bridge, for example:
 
 ```json
-{"success":true,"data":{"status":"ok"}}
+{
+  "success": true,
+  "data": {
+    "status": "ok",
+    "runtime": "go-migration-bridge",
+    "apiMode": "bridge",
+    "legacyConfigured": true
+  }
+}
 ```
 
-### 4. First-login note
+### 4. Retrieve a generated first-login password
 
-You may leave `JWT_SECRET`, `ENCRYPTION_KEY`, and `ADMIN_PASSWORD` blank on first boot.
+`JWT_SECRET`, `ENCRYPTION_KEY` and `ADMIN_PASSWORD` may be blank on first boot. `legacy-init` generates missing values and persists them in the legacy runtime volume.
 
-`all-Mail` will generate them automatically and persist them for reuse:
+The password is not printed by default. Retrieve it from the service that owns the volume:
 
-- Docker runtime: `/var/lib/all-mail/bootstrap-secrets.env`
-- source runtime: defaults to `.all-mail-runtime/bootstrap-secrets.env`; export `ALL_MAIL_STATE_DIR` before launch if you need a different bootstrap-state location
+```bash
+docker compose exec legacy-api sh -lc \
+  "grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-secrets.env | cut -d= -f2-"
+```
 
-By default, startup prints the first-login URL and bootstrap admin username but keeps `ADMIN_PASSWORD` out of stdout. Retrieve generated passwords from the persisted bootstrap-secret file above, or set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only for short-lived recovery in a controlled terminal. Change any generated password immediately after the first login.
+Set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only for short-lived recovery in a controlled terminal. Change a generated password immediately after first login.
 
-## Canonical verification entrypoints
+## Rollback-only Node jobs runtime
 
-Use repo-root commands as the default verification contract:
+The rollback service is deliberately excluded from normal startup.
+
+To transfer both migrated jobs back to Node:
+
+```bash
+# 1. Stop the Go jobs writer and wait for shutdown drain.
+docker compose stop go-jobs
+
+# 2. Start the rollback profile. The service forces both owners to legacy.
+docker compose --profile rollback up -d legacy-jobs
+
+# 3. Inspect health before resuming traffic.
+docker compose --profile rollback ps
+docker compose logs legacy-jobs --tail=200
+```
+
+To return ownership to Go:
+
+```bash
+docker compose --profile rollback stop legacy-jobs
+docker compose up -d go-jobs
+```
+
+Do not run Go and Node writers for the same state machine concurrently. The PostgreSQL owner lock is a final guard, not a substitute for an intentional handover.
+
+## Verification entrypoints
 
 | Command | Purpose |
 | --- | --- |
-| `./bin/all-mail doctor` | preferred readiness check; sanitizes Node proxy startup flags before running the local doctor |
-| `./bin/all-mail check` | preferred full local release gate; sanitizes Node proxy startup flags before running lint, tests, builds, worker checks, and production dependency audits |
-| `npm run verify:release` | compatibility alias for the full local release gate |
-| `npm run check` | compatibility alias for `npm run verify:release` |
+| `./bin/all-mail doctor` | Compatibility source-runtime readiness check |
+| `./bin/all-mail check` | Full repository lint/test/build/worker/audit gate |
+| `npm run test:runtime` | Runtime and environment-contract tests |
+| `npm run docker:rollback:jobs` | Start the rollback-only Node jobs service |
+| `npm run docker:rollback:stop` | Stop the rollback-only Node jobs service |
 
-If your shell exports `NODE_USE_ENV_PROXY` or `HTTP[S]_PROXY`, prefer the `./bin/all-mail ...` entrypoints above. They avoid noisy `UNDICI-EHPA` warnings by sanitizing those startup flags before Node/npm bootstraps.
-
-`./bin/all-mail doctor` is **not** the full release gate.
+The CI workflow keeps dependency audit and Docker smoke as independent jobs, then combines both in `release-gate`. An audit failure therefore remains blocking without preventing Docker integration diagnostics from running.
 
 ## Documentation map
 
-Use the authoritative doc that matches the task instead of treating this README as the full runbook.
-
-Only the files listed below should be treated as the public onboarding and operator contract. Internal design notes, planning artifacts, and historical rewrite references now live under [`docs/internal/`](docs/internal/README.md) and are not part of the primary setup path.
-
-| Need | Canonical doc |
+| Need | Canonical document |
 | --- | --- |
-| Deploy, update, smoke check, rollback entry | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+| Deploy, update, smoke check and rollback | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
 | Day-2 operations and recovery | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
-| Env variables and template ownership | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
-| External mailbox operations and provider-specific notes | [`docs/external-email-management-guide.md`](docs/external-email-management-guide.md) |
-| Cloudflare worker deployment and ingress troubleshooting | [`CLOUDFLARE-DEPLOY.md`](CLOUDFLARE-DEPLOY.md) |
-| Secondary npm/CLI source runtime | [`docs/advanced-runtime.md`](docs/advanced-runtime.md) |
-| Public docs index inside `docs/` | [`docs/README.md`](docs/README.md) |
+| Environment variables and template ownership | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
+| Current Go/Fastify ownership and migration rules | [`docs/GO-MIGRATION.md`](docs/GO-MIGRATION.md) |
+| Staged removal plan for legacy runtime code | [`docs/internal/rewrite/runtime-consolidation-plan.md`](docs/internal/rewrite/runtime-consolidation-plan.md) |
+| External mailbox operations | [`docs/external-email-management-guide.md`](docs/external-email-management-guide.md) |
+| Cloudflare ingress | [`CLOUDFLARE-DEPLOY.md`](CLOUDFLARE-DEPLOY.md) |
+| Secondary Node source runtime | [`docs/advanced-runtime.md`](docs/advanced-runtime.md) |
 | Contribution workflow | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
-| Release-governance context | [`PROVENANCE.md`](PROVENANCE.md), [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md) |
-
-### Guided reading by job-to-be-done
-
-| Goal | Start here | Then continue with |
-| --- | --- | --- |
-| Bring up the default local stack | [`README.md`](README.md#quick-start-canonical-docker-path) | [`docs/DEPLOY.md`](docs/DEPLOY.md), [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
-| Troubleshoot a running Docker deployment | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
-| Operate external third-party mailboxes | [`docs/external-email-management-guide.md`](docs/external-email-management-guide.md) | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
-| Enable Cloudflare ingress for domain mail | [`CLOUDFLARE-DEPLOY.md`](CLOUDFLARE-DEPLOY.md) | [`docs/DEPLOY.md`](docs/DEPLOY.md), [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
-| Validate release readiness before publishing changes | [`./bin/all-mail check`](./bin/all-mail) | [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md) |
 
 ## Repository layout
 
 ```text
-├── bin/                             # repo entrypoints such as ./bin/all-mail doctor/check
-├── .env.example                     # default Docker-first environment template
-├── .env.cloudflare.example          # Cloudflare-oriented Docker environment template
-├── server/                          # Fastify + Prisma backend
-├── web/                             # React admin console
-├── cloudflare/workers/allmail-edge/ # Signed inbound mail worker
-├── docs/                            # public deployment, environment, runbook, guides, screenshots, and docs index
-│   ├── internal/                    # internal design notes, plans, and historical reference docs
-│   └── screenshots/                 # sanitized README-safe product images
-├── docker-compose.yml
-└── Dockerfile
+├── core/                            # Go listener, jobs, migrations and runtime contracts
+├── server/                          # Compatibility Fastify/Prisma business API
+├── web/                             # React admin console and mailbox portal UI
+├── cloudflare/workers/allmail-edge/ # Signed inbound email Worker
+├── docker/                          # Compatibility runtime entrypoint
+├── scripts/                         # Verification, bootstrap and source-runtime helpers
+├── docs/                            # Public operator docs and internal migration notes
+├── Dockerfile                       # Go runtime plus built React SPA
+├── Dockerfile.legacy                # Compatibility Fastify runtime
+└── docker-compose.yml               # Canonical production topology
 ```
 
-## Secondary runtime notes
+## Secondary source runtime
 
-The npm/CLI source-runtime path is still supported, but it is **not** the default onboarding path. Use it only when you intentionally need:
+The npm/CLI source path starts the compiled Fastify API and Node jobs process directly. It is retained for advanced debugging and compatibility, but it is **not topology-equivalent** to the canonical Docker path and must not be used as proof that the Go gateway or Go workers are healthy.
 
-- app runtime outside the main Docker container
-- hybrid mode (`docker compose` only for PostgreSQL / Redis)
-- source-based global CLI workflows
-
-See [`docs/advanced-runtime.md`](docs/advanced-runtime.md) for that path.
-
-## Related release and support docs
-
-- [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- [`SECURITY.md`](SECURITY.md)
-- [`SUPPORT.md`](SUPPORT.md)
-- [`CHANGELOG.md`](CHANGELOG.md)
-- [`docs/open-source-release-checklist.md`](docs/open-source-release-checklist.md)
+See [`docs/advanced-runtime.md`](docs/advanced-runtime.md).
 
 ## License
 
 This repository is released under the custom **all-Mail Non-Commercial License**.
 
-- non-commercial use, study, modification, and redistribution are allowed under the license terms
-- commercial use is **not** allowed without prior written permission
-- if you want commercial use rights, contact the repository owner first to discuss licensing
+- non-commercial use, study, modification and redistribution are allowed under the license terms;
+- commercial use is not allowed without prior written permission;
+- contact the repository owner to discuss commercial licensing.

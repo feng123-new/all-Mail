@@ -17,6 +17,7 @@ func resetJobEnv(t *testing.T) {
 		"API_LOG_CLEANUP_BATCH_SIZE",
 		"FORWARDING_WORKER_OWNER",
 		"FORWARDING_WORKER_INTERVAL_SECONDS",
+		"FORWARDING_RUN_TIMEOUT_SECONDS",
 		"FORWARDING_WORKER_BATCH_SIZE",
 		"RESEND_API_BASE_URL",
 		"ALL_MAIL_SECRET_STATE_DIR",
@@ -47,8 +48,11 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LogRetentionOwner != RuntimeOwnerLegacy {
 		t.Fatalf("LogRetentionOwner = %q, want legacy", cfg.LogRetentionOwner)
 	}
-	if cfg.ForwardingWorkerOwner != "legacy" {
+	if cfg.ForwardingWorkerOwner != RuntimeOwnerLegacy {
 		t.Fatalf("ForwardingWorkerOwner = %q, want legacy", cfg.ForwardingWorkerOwner)
+	}
+	if cfg.ForwardingRunTimeout.Seconds() != 120 {
+		t.Fatalf("ForwardingRunTimeout = %s, want 120s", cfg.ForwardingRunTimeout)
 	}
 	if cfg.APILogCleanupRetry.Seconds() != 30 {
 		t.Fatalf("APILogCleanupRetry = %s, want 30s", cfg.APILogCleanupRetry)
@@ -114,6 +118,14 @@ func TestLoadRejectsInvalidCleanupRetry(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidForwardingRunTimeout(t *testing.T) {
+	resetJobEnv(t)
+	t.Setenv("FORWARDING_RUN_TIMEOUT_SECONDS", "0")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() expected an error")
+	}
+}
+
 func TestLoadReadsManagedEncryptionKeyFromSeparateSecretState(t *testing.T) {
 	resetJobEnv(t)
 	secretStateDir := t.TempDir()
@@ -156,11 +168,23 @@ func TestLoadRejectsInvalidForwardingOwner(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsDisabledForwardingOwner(t *testing.T) {
+	resetJobEnv(t)
+	t.Setenv("FORWARDING_WORKER_OWNER", "disabled")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ForwardingWorkerOwner != RuntimeOwnerDisabled {
+		t.Fatalf("ForwardingWorkerOwner = %q, want disabled", cfg.ForwardingWorkerOwner)
+	}
+}
+
 func TestGoForwardingRequiresDatabaseAndEncryptionKey(t *testing.T) {
 	cfg := Config{
 		StateDir:              t.TempDir(),
 		LogRetentionOwner:     RuntimeOwnerLegacy,
-		ForwardingWorkerOwner: "go",
+		ForwardingWorkerOwner: RuntimeOwnerGo,
 	}
 	if err := cfg.ValidateFor("jobs"); err == nil {
 		t.Fatal("ValidateFor(jobs) expected a database error")

@@ -1,184 +1,201 @@
-# Deployment Guide
+# Deployment guide
 
 ## Boundary
 
 This document is the authoritative deployment entry for `all-Mail`.
 
-- Use this file for deployment path selection, startup, update, smoke checks, and rollback.
-- Use [`docs/RUNBOOK.md`](./RUNBOOK.md) for day-2 troubleshooting and recovery.
-- Use [`docs/ENVIRONMENT.md`](./ENVIRONMENT.md) for variable meaning and template mapping.
-- Use [`CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) only for the worker-specific ingress path.
-- Use [`docs/advanced-runtime.md`](./advanced-runtime.md) only when you intentionally run the compiled app outside the main Docker app container.
+- Use this file for startup, update, smoke checks and rollback.
+- Use [`RUNBOOK.md`](./RUNBOOK.md) for day-2 troubleshooting.
+- Use [`ENVIRONMENT.md`](./ENVIRONMENT.md) for variable meaning.
+- Use [`GO-MIGRATION.md`](./GO-MIGRATION.md) for capability ownership.
+- Use [`../CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) only for Worker ingress.
 
-## Supported deployment paths
+## Supported paths
 
-### 1. Default: Docker Compose (canonical)
+### Canonical: Docker Compose
 
-This repository is Docker-first. The default stack is defined in `docker-compose.yml` and starts:
+Default long-running services:
 
-- `app`
-- `go-jobs`
-- `legacy-api`
-- `jobs`
-- `postgres`
-- `redis`
+- `app` — Go public API and SPA;
+- `go-jobs` — Go retention and forwarding;
+- `legacy-api` — Fastify/Prisma business API;
+- `postgres`;
+- `redis`.
 
-The one-shot `go-migrate` service runs after `legacy-api` has applied the existing Prisma migrations. Both Go runtimes depend on its successful completion. The legacy `jobs` service sets `ALL_MAIL_RUN_MIGRATIONS=0` and is not a migration entrypoint.
+One-shot startup services:
 
-### 2. Secondary: compiled source runtime
+- `legacy-init` — bootstrap secrets, isolated key export and Prisma migrations;
+- `go-migrate` — additive checksummed Go migrations.
 
-Use the source runtime only for advanced local debugging or operator workflows. The repo entrypoint is:
+Rollback-only service:
 
-```bash
-npm run start:npm
-```
+- `legacy-jobs` — available only with `--profile rollback`.
 
-That path is documented in [`docs/advanced-runtime.md`](./advanced-runtime.md).
+### Secondary: compiled source runtime
 
-### 3. Optional: Cloudflare worker ingress
+Use `npm run start:npm` only for advanced debugging or compatibility workflows. It runs the compiled Fastify API and Node worker directly and does not prove that the Go listener or Go workers function.
 
-The Cloudflare worker is not the main app deployment path. If you need Cloudflare Email Routing or signed ingress, deploy the main app first and then follow [`CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md).
+### Optional: Cloudflare Worker ingress
+
+Deploy the main application first, then follow [`../CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md).
 
 ## Prerequisites
 
-- Docker Engine with `docker compose`
-- Node.js 20+ only if you plan to use repo-level verification commands locally
-- A copied environment file at repo root
+- Docker Engine with `docker compose`;
+- Node.js 20+ only for repository-level local verification;
+- a root `.env` copied from one canonical template.
 
 ## Environment selection
 
-Default Docker path:
+Default:
 
 ```bash
 cp .env.example .env
 ```
 
-Docker path with Cloudflare ingress-oriented settings from day one:
+Cloudflare ingress-oriented:
 
 ```bash
 cp .env.cloudflare.example .env
 ```
 
-Important bootstrap behavior:
+Replace `POSTGRES_PASSWORD` and any ingress placeholder before a real remote deployment.
 
-- `JWT_SECRET`, `ENCRYPTION_KEY`, and `ADMIN_PASSWORD` may be left blank on first boot.
-- In Docker mode, generated values are persisted to `/var/lib/all-mail/bootstrap-secrets.env` inside the runtime volume.
-- In the source runtime, generated values default to `.all-mail-runtime/bootstrap-secrets.env`. If you need a different bootstrap-state location, export `ALL_MAIL_STATE_DIR` before launching the source runtime; putting it only in the env file does not move the initial bootstrap-secret write.
-
-## Startup sequence (Docker)
+## Startup sequence
 
 ```bash
+docker compose config --quiet
 docker compose up -d --build --wait --wait-timeout 240
-docker compose ps
+docker compose ps -a
 ```
 
-Expected baseline:
+Expected sequence:
 
-- `app` is running and eventually healthy
-- `go-jobs` is running and eventually healthy
-- `legacy-api` is running and eventually healthy
-- `jobs` is running and eventually healthy
-- `postgres` is healthy
-- `redis` is healthy
-- `go-migrate` exited successfully before the Go runtimes started
+1. PostgreSQL and Redis become healthy.
+2. `legacy-init` generates or reads bootstrap secrets and runs Prisma migrations.
+3. `go-migrate` applies additive Go migrations.
+4. `legacy-api` starts as UID `10001` and becomes healthy.
+5. `app` and `go-jobs` start.
+6. `legacy-jobs` remains absent in the default profile.
 
-If this is the first boot and secrets were generated automatically, startup output prints the first-login URL and the bootstrap admin username. `ADMIN_PASSWORD` stays out of startup logs by default; retrieve it from the persisted bootstrap-secret file unless you explicitly set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` for short-lived recovery. Any generated password must be changed immediately after login.
+Verify the service set:
+
+```bash
+test "$(docker compose exec -T legacy-api id -u)" = "10001"
+if docker compose ps --services | grep -qx legacy-jobs; then
+  echo "unexpected legacy-jobs service in default profile"
+  exit 1
+fi
+```
+
+## Bootstrap-secret behavior
+
+`JWT_SECRET`, `ENCRYPTION_KEY` and `ADMIN_PASSWORD` may be blank on first boot. `legacy-init` persists generated values in the legacy runtime volume.
+
+Retrieve the generated password:
+
+```bash
+docker compose exec legacy-api sh -lc \
+  "grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-secrets.env | cut -d= -f2-"
+```
+
+The Go jobs volume receives only the encryption key required for forwarding:
+
+```bash
+docker compose exec go-jobs sh -lc \
+  'test -r /var/lib/all-mail/encryption-key && stat /var/lib/all-mail/encryption-key'
+```
 
 ## Health and smoke checks
 
-Basic health probe:
-
 ```bash
 curl http://127.0.0.1:3002/health
 curl --fail http://127.0.0.1:3002/readyz
+docker compose exec -T app allmail doctor api
+docker compose exec -T go-jobs allmail doctor jobs
+docker compose exec -T legacy-api node -e \
+  "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
 ```
 
-If you changed `APP_PORT`, replace `3002` accordingly.
-
-Container-level quick check:
-
-```bash
-docker compose ps
-```
-
-`jobs` now reports health from a runtime heartbeat file under `/var/lib/all-mail/jobs-heartbeat.txt`, so a long-lived `starting` or `unhealthy` state should be treated as a background-runtime problem rather than as a cosmetic gap.
-
-Repo verification entrypoints:
-
-| Command | What it proves |
-| --- | --- |
-| `./bin/all-mail doctor` | Preferred readiness check; sanitizes Node proxy startup flags before running the local doctor |
-| `./bin/all-mail check` | Preferred full local release gate; sanitizes Node proxy startup flags before running lint, tests, builds, worker checks, and production dependency audits |
-| `npm run verify:release` | Compatibility alias for the full local release gate |
-| `npm run check` | Compatibility alias for `npm run verify:release` |
-
-When your shell exports `NODE_USE_ENV_PROXY` / `HTTP[S]_PROXY`, prefer the `./bin/all-mail ...` entrypoints above. They sanitize those startup flags before Node/npm bootstraps, which avoids noisy `UNDICI-EHPA` warnings in operator workflows.
-
-`doctor` is not the full release gate. Use `./bin/all-mail check`, `check`, or `verify:release` before calling a change release-ready.
+`allmail doctor jobs` now checks both heartbeat freshness and worker progress. A continuously updated global heartbeat does not hide a forwarding or retention pass that exceeds its configured run limit.
 
 ## Migration expectations
 
-- Docker `legacy-api` startup applies the existing Prisma migrations.
-- The one-shot Docker `go-migrate` service then applies and validates the additive Go migration set under a PostgreSQL advisory lock.
-- Docker `app`, `go-jobs`, and `jobs` do not run migrations themselves.
-- `docker/entrypoint.sh` and `scripts/start-all-mail.mjs` fall back from Prisma migrate to a targeted legacy repair plus `db push` only when Prisma reports `P3005` for a legacy non-empty database.
-- `P3009` is not auto-recovered. Treat it as a manual operator intervention case and use [`docs/RUNBOOK.md`](./RUNBOOK.md).
+- `legacy-init` is the only Docker role that runs Prisma migrations.
+- `go-migrate` is the only role that applies Go migration files.
+- `legacy-api`, `app`, `go-jobs` and `legacy-jobs` do not run schema migrations during ordinary startup.
+- applied Go migrations are checksummed; add a new migration rather than editing an applied file.
+- Prisma P3009 requires manual recovery.
+- Prisma P3005 no longer silently falls back to `db push`.
+
+For a reviewed legacy P3005 repair only:
+
+```bash
+docker compose run --rm \
+  -e ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true \
+  legacy-init
+```
+
+Do not make that variable a standing production default.
 
 ## Updating an existing deployment
 
-1. Pull the target revision.
-2. Review env changes before restart.
-3. Rebuild and restart the stack:
+1. Back up PostgreSQL and persisted runtime volumes.
+2. Pull the target revision.
+3. Review `.env.example`, migration files and ownership changes.
+4. Recreate the canonical stack:
 
 ```bash
 docker compose up -d --build --wait --wait-timeout 240
 ```
 
-During a forwarding-owner upgrade, Compose replaces the legacy `jobs` container
-and waits for its fresh heartbeat before starting `go-jobs`. This closes the old
-writer before the Go writer can acquire ownership.
-
-4. Re-run smoke checks:
-
-```bash
-docker compose ps
-curl http://127.0.0.1:3002/health
-curl --fail http://127.0.0.1:3002/readyz
-./bin/all-mail doctor
-```
-
-If the release changed background-job wiring, also verify the `jobs` service is healthy in `docker compose ps` before calling the Docker loop closed.
-
-5. Before wider rollout, run the local release gate when your environment can support it:
+5. Run the smoke checks above.
+6. Run repository verification when available:
 
 ```bash
 ./bin/all-mail check
 ```
 
-## Rollback entry
+The dependency audit and Docker smoke jobs execute independently in CI. The final `release-gate` requires both.
 
-The repo does not provide one-button rollback automation.
+## Background worker rollback
 
-Rollback means restoring a previously known-good application revision and, when necessary, restoring matching persisted data.
+The main branch retains the Node worker only as an explicit rollback profile.
 
-Minimum rollback procedure:
-
-1. Stop applying new changes.
-2. Set `FORWARDING_WORKER_OWNER=legacy` in `.env`.
-3. Stop both forwarding runtimes under the current revision and wait for the command to return, so no old claim can finish during the ownership switch:
+### Move ownership from Go to Node
 
 ```bash
-docker compose stop go-jobs jobs
+# Stop Go first and wait for the stop command to return.
+docker compose stop go-jobs
+
+# Start the rollback-only service. Compose forces both owners to legacy.
+docker compose --profile rollback up -d legacy-jobs
+
+docker compose --profile rollback ps
+docker compose logs legacy-jobs --tail=200
 ```
 
-4. Return the repo or image source to the previous known-good revision.
-5. Restart the legacy worker first, then recreate the remaining stack:
+Validate that forwarding jobs move and the heartbeat remains fresh before resuming normal traffic.
+
+### Move ownership back to Go
 
 ```bash
-docker compose up -d --build --force-recreate jobs
-docker compose up -d --build --wait --wait-timeout 240
+docker compose --profile rollback stop legacy-jobs
+docker compose up -d go-jobs
+docker compose exec -T go-jobs allmail doctor jobs
 ```
 
-6. Re-run the same readiness and doctor checks used for deploy.
+Never intentionally run both writers at once. The shared advisory lock should reject the second owner, but a clean stop/start handover remains mandatory.
 
-If the failed release already changed database state, application-only rollback may be insufficient. In that case, restore PostgreSQL and persisted runtime data together. See the backup/restore starting point in [`docs/RUNBOOK.md`](./RUNBOOK.md).
+## Full application rollback
+
+The repository does not provide one-button data rollback.
+
+1. Stop new changes and external automation.
+2. Stop `app`, `go-jobs` and any rollback worker.
+3. Return application source or images to the last known-good revision.
+4. Restore matching PostgreSQL/runtime-volume backups when schema or persisted state changed.
+5. Start the previous topology according to that revision's own deployment guide.
+6. Re-run readiness and functional checks.
+
+Do not drop additive Go runtime tables while any Go worker can still write them.

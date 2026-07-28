@@ -17,11 +17,15 @@ import (
 )
 
 type workerHeartbeat struct {
-	Enabled       bool       `json:"enabled"`
-	LastRunAt     *time.Time `json:"lastRunAt,omitempty"`
-	LastSuccessAt *time.Time `json:"lastSuccessAt,omitempty"`
-	LastDeleted   int64      `json:"lastDeleted,omitempty"`
-	LastError     string     `json:"lastError,omitempty"`
+	Enabled             bool       `json:"enabled"`
+	Running             bool       `json:"running"`
+	StartedAt           *time.Time `json:"startedAt,omitempty"`
+	LastRunAt           *time.Time `json:"lastRunAt,omitempty"`
+	LastCompletedAt     *time.Time `json:"lastCompletedAt,omitempty"`
+	LastSuccessAt       *time.Time `json:"lastSuccessAt,omitempty"`
+	LastDeleted         int64      `json:"lastDeleted,omitempty"`
+	ConsecutiveFailures int        `json:"consecutiveFailures,omitempty"`
+	LastError           string     `json:"lastError,omitempty"`
 }
 
 type heartbeat struct {
@@ -57,7 +61,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	var checkForwardingOwner func(context.Context) error
 	var ownerLock *forwardingOwnerLock
 	var forwardingStore *postgresForwardingStore
-	if cfg.ForwardingWorkerOwner == "go" {
+	if cfg.ForwardingWorkerOwner == config.RuntimeOwnerGo {
 		var err error
 		ownerLock, err = acquireForwardingOwner(ctx, cfg.DatabaseURL)
 		if err != nil {
@@ -111,6 +115,7 @@ func runSupervisor(
 		"heartbeat_interval", cfg.JobsHeartbeatInterval,
 		"api_log_retention_owner", cfg.LogRetentionOwner,
 		"forwarding_owner", cfg.ForwardingWorkerOwner,
+		"forwarding_run_timeout", cfg.ForwardingRunTimeout,
 	)
 	if err := writeHeartbeat(cfg.StateDir, state.snapshot()); err != nil {
 		return err
@@ -165,17 +170,24 @@ func runSupervisor(
 
 	forwardingResults := make(chan error, 1)
 	forwardingRunning := false
-	startForwarding := func(now time.Time) {
+	startForwarding := func() {
 		if forwarder == nil || forwardingRunning {
 			return
 		}
+		now := time.Now().UTC()
 		forwardingRunning = true
 		state.markForwardingStarted(now)
+		runTimeout := cfg.ForwardingRunTimeout
+		if runTimeout <= 0 {
+			runTimeout = 2 * time.Minute
+		}
+		runCtx, cancelRun := context.WithTimeout(workerCtx, runTimeout)
 		go func() {
-			forwardingResults <- forwarder.runOnce(workerCtx, now)
+			defer cancelRun()
+			forwardingResults <- forwarder.runOnce(runCtx, now)
 		}()
 	}
-	startForwarding(time.Now().UTC())
+	startForwarding()
 
 	waitForWorkers := func() error {
 		cancelWorkers()
@@ -202,8 +214,8 @@ func runSupervisor(
 			}
 			logger.Info("Go jobs runtime stopped")
 			return nil
-		case now := <-forwardingTicks:
-			startForwarding(now.UTC())
+		case <-forwardingTicks:
+			startForwarding()
 		case <-ownerCheckTicks:
 			if err := checkOwner(); err != nil {
 				state.markForwardingFailed(time.Now().UTC(), err)
@@ -286,42 +298,62 @@ func runRetentionLoop(
 func (state *runtimeState) markRetentionStarted(at time.Time) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	state.retention.Running = true
+	state.retention.StartedAt = &at
 	state.retention.LastRunAt = &at
 }
 
 func (state *runtimeState) markRetentionSucceeded(at time.Time, deleted int64) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	state.retention.Running = false
+	state.retention.StartedAt = nil
+	state.retention.LastCompletedAt = &at
 	state.retention.LastSuccessAt = &at
 	state.retention.LastDeleted = deleted
+	state.retention.ConsecutiveFailures = 0
 	state.retention.LastError = ""
 }
 
 func (state *runtimeState) markRetentionFailed(at time.Time, err error) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	state.retention.Running = false
+	state.retention.StartedAt = nil
+	state.retention.LastCompletedAt = &at
 	state.retention.LastRunAt = &at
+	state.retention.ConsecutiveFailures++
 	state.retention.LastError = err.Error()
 }
 
 func (state *runtimeState) markForwardingStarted(at time.Time) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	state.forwarding.Running = true
+	state.forwarding.StartedAt = &at
 	state.forwarding.LastRunAt = &at
 }
 
 func (state *runtimeState) markForwardingSucceeded(at time.Time) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	state.forwarding.Running = false
+	state.forwarding.StartedAt = nil
+	state.forwarding.LastCompletedAt = &at
 	state.forwarding.LastRunAt = &at
 	state.forwarding.LastSuccessAt = &at
+	state.forwarding.ConsecutiveFailures = 0
 	state.forwarding.LastError = ""
 }
 
 func (state *runtimeState) markForwardingFailed(at time.Time, err error) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	state.forwarding.Running = false
+	state.forwarding.StartedAt = nil
+	state.forwarding.LastCompletedAt = &at
 	state.forwarding.LastRunAt = &at
+	state.forwarding.ConsecutiveFailures++
 	state.forwarding.LastError = err.Error()
 }
 
@@ -349,11 +381,20 @@ func writeHeartbeat(stateDir string, workers map[string]workerHeartbeat) error {
 		return err
 	}
 	target := HeartbeatPath(stateDir)
-	temporary := target + ".tmp"
-	if err := os.WriteFile(temporary, payload, 0o600); err != nil {
+	temporary, err := os.CreateTemp(stateDir, ".go-jobs-heartbeat-*.tmp")
+	if err != nil {
 		return fmt.Errorf("write heartbeat: %w", err)
 	}
-	if err := os.Rename(temporary, target); err != nil {
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := temporary.Write(payload); err != nil {
+		temporary.Close()
+		return fmt.Errorf("write heartbeat: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close heartbeat: %w", err)
+	}
+	if err := os.Rename(temporaryPath, target); err != nil {
 		return fmt.Errorf("publish heartbeat: %w", err)
 	}
 	return nil

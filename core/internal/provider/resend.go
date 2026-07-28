@@ -25,6 +25,31 @@ type SendResult struct {
 	ID string
 }
 
+type HTTPError struct {
+	StatusCode int
+	Code       string
+	Message    string
+}
+
+func (e *HTTPError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	if e.Code != "" {
+		return fmt.Sprintf("Resend returned %d (%s): %s", e.StatusCode, e.Code, e.Message)
+	}
+	return fmt.Sprintf("Resend returned %d: %s", e.StatusCode, e.Message)
+}
+
+func (e *HTTPError) Retryable() bool {
+	if e == nil {
+		return false
+	}
+	return e.StatusCode == http.StatusRequestTimeout ||
+		e.StatusCode == http.StatusTooManyRequests ||
+		e.StatusCode >= http.StatusInternalServerError
+}
+
 type ResendClient struct {
 	baseURL string
 	http    *http.Client
@@ -63,19 +88,32 @@ func (c *ResendClient) Send(ctx context.Context, apiKey string, input SendReques
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		var failure struct {
+			Code    string `json:"code"`
+			Name    string `json:"name"`
 			Message string `json:"message"`
 		}
 		_ = json.Unmarshal(body, &failure)
 		if strings.TrimSpace(failure.Message) == "" {
 			failure.Message = http.StatusText(response.StatusCode)
 		}
-		return SendResult{}, fmt.Errorf("Resend returned %d: %s", response.StatusCode, failure.Message)
+		code := strings.TrimSpace(failure.Code)
+		if code == "" {
+			code = strings.TrimSpace(failure.Name)
+		}
+		return SendResult{}, &HTTPError{
+			StatusCode: response.StatusCode,
+			Code:       code,
+			Message:    failure.Message,
+		}
 	}
 	var success struct {
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(body, &success); err != nil {
 		return SendResult{}, fmt.Errorf("decode Resend response: %w", err)
+	}
+	if strings.TrimSpace(success.ID) == "" {
+		return SendResult{}, fmt.Errorf("decode Resend response: missing message id")
 	}
 	return SendResult{ID: success.ID}, nil
 }

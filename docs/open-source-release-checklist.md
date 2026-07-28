@@ -1,54 +1,88 @@
-# all-Mail Open-Source Release Checklist
+# all-Mail open-source release checklist
 
-This checklist is the publish-readiness closure loop for turning the repository from private to public.
+This checklist is the publication and release-readiness closure loop.
 
-## P0 — legal / publishability gate
+## P0 — legal and publishability
 
-- [ ] Confirm the current code, docs, and assets in this repository are legally publishable
-- [ ] Re-check `PROVENANCE.md` and `docs/internal/` for wording drift that no longer matches the repository posture
-- [ ] Remove or rewrite any tracked material whose publishing basis is unclear before the repo is promoted publicly
+- [ ] Confirm code, docs and assets are legally publishable.
+- [ ] Re-check `PROVENANCE.md` and `docs/internal/` for stale or confidential wording.
+- [ ] Remove or rewrite tracked material whose publishing basis is unclear.
+- [ ] Confirm the custom non-commercial license and public messaging match the intended release.
 
-## P1 — secrets / security gate
+## P1 — secrets and security
 
-- [ ] Re-scan tracked files for `.env`, tokens, OAuth runtime outputs, screenshots, and local migration artifacts
-- [ ] Confirm `.gitignore` still excludes runtime state (`oauth-temp/runtime/`, `gmail_oauth/runtime/`, `.dev.vars`, screenshots, local state)
-- [ ] Run `npm audit --omit=dev` in `web`, `server`, and `cloudflare/workers/allmail-edge`
-- [ ] Record any remaining risk that cannot be fully fixed without architectural change
+- [ ] Re-scan tracked files for `.env`, tokens, OAuth outputs, screenshots and local runtime artifacts.
+- [ ] Confirm `.gitignore` excludes `oauth-temp/runtime/`, `gmail_oauth/runtime/`, `.dev.vars`, `.all-mail-runtime/` and local state.
+- [ ] Run the repository production audit: `npm run audit:prod`.
+- [ ] Review every advisory exception for exact GHSA ID, package scope, rationale and expiry date.
+- [ ] Confirm no expired audit exception remains.
+- [ ] Confirm Docker bootstrap passwords are retrieved through `legacy-api`, not the public Go image.
+- [ ] Confirm `legacy-api` runs as UID `10001` with read-only filesystem, dropped capabilities and `no-new-privileges`.
 
-## P2 — engineering verification gate
+## P2 — engineering verification
 
-- [ ] `./bin/all-mail doctor`
-- [ ] `./bin/all-mail check`
-- [ ] Docker smoke path from `docs/DEPLOY.md` still works (`docker compose up -d --build`, `docker compose ps`, `/health`)
-- [ ] Cloudflare worker preflight from `CLOUDFLARE-DEPLOY.md` still works when that path is in scope
-- [ ] Any environment-specific `doctor` limitation is documented truthfully instead of being silently skipped
+- [ ] Runtime contract tests pass: `npm run test:runtime`.
+- [ ] Go format/race/vet/build passes.
+- [ ] Server lint/test/build passes.
+- [ ] Web lint/test/build passes.
+- [ ] Cloudflare Worker checks pass.
+- [ ] `docker compose config --quiet` passes.
+- [ ] Canonical Docker smoke passes:
 
-## P3 — release-safety gate
+```bash
+cp .env.example .env
+docker compose up -d --build --wait --wait-timeout 240
+docker compose ps -a
+curl --fail http://127.0.0.1:3002/readyz
+docker compose exec -T app allmail doctor api
+docker compose exec -T go-jobs allmail doctor jobs
+```
 
-- [ ] Migration expectations are reviewed for the release (`P3005` fallback vs. manual `P3009` recovery)
-- [ ] Rollback path is still documented and realistic for this release
-- [ ] Setup/behavior docs (`README.md`, `docs/DEPLOY.md`, `docs/RUNBOOK.md`, `docs/ENVIRONMENT.md`) match the shipped runtime contract
-- [ ] PR/release notes mention deploy-impacting docs, rollback notes, and migration notes where relevant
+- [ ] `legacy-init` and `go-migrate` completed successfully.
+- [ ] `legacy-jobs` is absent from the default profile.
+- [ ] `release-gate` is green; both dependency audit and Docker smoke must succeed.
 
-## P4 — repository presentation gate
+## P3 — migration and release safety
 
-- [ ] Main `README.md` explains scope, primary deployment path, verification entrypoints, and limitations clearly
-- [ ] Public-safe screenshots exist and do not expose live keys, full mailbox addresses, or production domains
-- [ ] `CHANGELOG.md` reflects the state users will first encounter publicly
-- [ ] `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, and `CODE_OF_CONDUCT.md` stay consistent with current project scope
-- [ ] Remove template leftovers or dead default assets that make the repo look unfinished
+- [ ] Review Prisma and Go migrations for the release.
+- [ ] Confirm no applied Go migration was edited after checksum recording.
+- [ ] Confirm P3005 automatic `db push` remains disabled.
+- [ ] Document any intentional one-time use of `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true`.
+- [ ] Treat P3009 as manual recovery.
+- [ ] Verify PostgreSQL and runtime-volume backups before risky deployment.
+- [ ] Verify the Go-to-Node rollback profile remains realistic or remove it once its deletion gate is met.
+- [ ] Release notes name current capability owners and any ownership changes.
 
-## P5 — release decision gate
+## P4 — runtime truthfulness
 
-- [ ] GitHub repo visibility is still private until P0–P4 are complete
-- [ ] Choose the public message: alpha / beta / stable
-- [ ] Decide whether screenshots, desktop plans, and future roadmap docs belong in the first public cut
-- [ ] Publish only after legal, security, engineering, release-safety, and presentation gates are all green
+- [ ] `README.md` identifies Go as the public listener and Fastify as the compatibility business API.
+- [ ] Default service list is `app`, `go-jobs`, `legacy-api`, `postgres`, `redis` plus one-shot init/migration services.
+- [ ] Source-runtime docs explicitly say they do not validate the Go topology.
+- [ ] Cloudflare docs route ingress through the Go public listener.
+- [ ] `docs/DEPLOY.md`, `RUNBOOK.md`, `ENVIRONMENT.md` and `GO-MIGRATION.md` match Compose.
+- [ ] The staged deletion gates in `docs/internal/rewrite/runtime-consolidation-plan.md` are current.
 
-## Recommended public release note structure
+## P5 — repository presentation
 
-1. What `all-Mail` is
-2. Which providers and mail flows are stable today
-3. What remains intentionally out of scope
-4. How to self-host quickly
-5. Repository identity and license posture
+- [ ] Public-safe screenshots expose no live keys, full mailbox addresses or production domains.
+- [ ] `CHANGELOG.md` matches the state users encounter.
+- [ ] `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md` and `CODE_OF_CONDUCT.md` match current scope.
+- [ ] Remove dead templates and misleading compatibility entrypoints.
+- [ ] Do not present reserved Go tables as completed workers.
+
+## P6 — release decision
+
+- [ ] Choose alpha, beta or stable messaging.
+- [ ] Decide whether desktop plans and future-roadmap documents belong in the public cut.
+- [ ] Publish only after legal, security, engineering, migration and presentation gates are green.
+
+## Recommended release-note structure
+
+1. What `all-Mail` is.
+2. Current Go/Fastify ownership boundary.
+3. Stable providers and mail flows.
+4. Deploy or upgrade instructions.
+5. Migration and rollback impact.
+6. Known compatibility code and its deletion gate.
+7. Security advisories or temporary exceptions.
+8. License and repository identity.

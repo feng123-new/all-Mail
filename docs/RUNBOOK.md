@@ -1,408 +1,353 @@
-# Operator Runbook
+# Operator runbook
 
 ## Boundary
 
-This document is the authoritative day-2 operations and recovery guide for `all-Mail`.
+This document is the authoritative day-2 troubleshooting and recovery guide for `all-Mail`.
 
-- Use this file for troubleshooting, recovery, and operator checklists.
-- Use [`docs/DEPLOY.md`](./DEPLOY.md) for deployment and rollback entry.
-- Use [`docs/ENVIRONMENT.md`](./ENVIRONMENT.md) for variable meaning and template ownership.
-- Use [`CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) for worker-specific troubleshooting beyond the shared ingress prerequisites listed here.
+- Use [`DEPLOY.md`](./DEPLOY.md) for normal deployment and rollback entry.
+- Use [`ENVIRONMENT.md`](./ENVIRONMENT.md) for variable meaning.
+- Use [`GO-MIGRATION.md`](./GO-MIGRATION.md) for ownership and migration guarantees.
+- Use [`../CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) for full Worker deployment details.
 
 ## Healthy baseline
 
-### Scope and symptoms
+A healthy default Docker deployment has five long-running services:
 
-A healthy default Docker deployment has four expected services:
+- `app`;
+- `go-jobs`;
+- `legacy-api`;
+- `postgres`;
+- `redis`.
 
-- `app`
-- `jobs`
-- `postgres`
-- `redis`
+It also has two successfully completed one-shot services:
 
-Quick baseline commands:
+- `legacy-init`;
+- `go-migrate`.
 
-```bash
-docker compose ps
-docker compose logs app --tail=100
-docker compose logs jobs --tail=100
-```
+`legacy-jobs` must not run unless the `rollback` profile was explicitly selected.
 
-Healthy signs:
-
-- `app` serves `/health`
-- `jobs` stays running and reports healthy via the heartbeat-based Docker healthcheck
-- `postgres` passes `pg_isready`
-- `redis` responds to `PING`
-
-Concrete checks:
+Baseline checks:
 
 ```bash
+docker compose ps -a
 curl http://127.0.0.1:3002/health
-docker compose exec postgres pg_isready -U ${POSTGRES_USER:-allmail} -p ${POSTGRES_INTERNAL_PORT:-5432}
-docker compose exec redis redis-cli -p ${REDIS_INTERNAL_PORT:-6379} ping
+curl --fail http://127.0.0.1:3002/readyz
+docker compose exec -T app allmail doctor api
+docker compose exec -T go-jobs allmail doctor jobs
+test "$(docker compose exec -T legacy-api id -u)" = "10001"
 ```
 
-If you use the Cloudflare worker path, also verify the backend ingress secret is aligned with worker config before treating the ingress lane as healthy.
-
-## Jobs not processing
-
-### Scope and symptoms
-
-- background forwarding work stops moving
-- scheduled cleanup/backfill work stalls
-- `jobs` exits or loops while `app` still looks healthy
-
-### Preconditions and safety checks
-
-- Confirm `postgres` and `redis` are healthy first.
-- Confirm only `app` owns migrations; `jobs` is expected to run with `ALL_MAIL_RUN_MIGRATIONS=0`.
-
-### Response steps
-
-1. Inspect jobs logs:
+Inspect logs by responsibility:
 
 ```bash
-docker compose logs jobs --tail=200
+docker compose logs legacy-init --tail=200
+docker compose logs go-migrate --tail=200
+docker compose logs legacy-api --tail=200
+docker compose logs app --tail=200
+docker compose logs go-jobs --tail=200
 ```
 
-2. Confirm the container is running:
+## Stack does not start
+
+### Identify the failed stage
 
 ```bash
-docker compose ps jobs
+docker compose ps -a
 ```
 
-Healthy jobs should eventually show a healthy status, not just `Up`.
+Use the first failed stage in this order:
 
-3. If the container is down, restart only that service after confirming infra health:
+1. `postgres` / `redis` health;
+2. `legacy-init` exit code;
+3. `go-migrate` exit code;
+4. `legacy-api` health;
+5. `app` / `go-jobs` health.
+
+Do not repeatedly restart later services when an earlier one-shot dependency failed.
+
+### PostgreSQL or Redis unhealthy
 
 ```bash
-docker compose up -d jobs
+docker compose logs postgres --tail=200
+docker compose logs redis --tail=200
+docker compose exec postgres pg_isready \
+  -U "${POSTGRES_USER:-allmail}" \
+  -p "${POSTGRES_INTERNAL_PORT:-5432}"
+docker compose exec redis redis-cli \
+  -p "${REDIS_INTERNAL_PORT:-6379}" ping
 ```
 
-4. If logs indicate database or Redis connectivity issues, resolve those dependencies before restarting jobs repeatedly.
+Resolve credentials, storage or port conflicts before restarting application services.
 
-### Validation
+## `legacy-init` failed
 
-- `jobs` remains up after restart and reaches a healthy state
-- repeated errors stop appearing in `docker compose logs jobs`
+`legacy-init` owns:
 
-### Escalation / rollback
+- bootstrap-secret generation/persistence;
+- isolated forwarding-key export;
+- Prisma migration execution.
 
-- If `jobs` fails again with the same error after infra is healthy, capture logs and stop repeated restarts until the underlying cause is understood.
+Inspect:
 
-## Redis degraded / local fallback implications
+```bash
+docker compose logs legacy-init --tail=300
+```
 
-### Scope and symptoms
+### Prisma P3005
 
-- Redis healthcheck fails
-- rate limiting or queue-backed behavior degrades
-- app or jobs logs report Redis connection failures
+P3005 means Prisma found a non-empty database without the expected baseline. Automatic `db push` is disabled.
 
-### Preconditions and safety checks
+Do not permanently enable the compatibility switch. After inspecting and backing up the database, run the explicit repair once only when appropriate:
 
-- `ALLOW_LOCAL_RATE_LIMIT_FALLBACK` defaults to `false`.
-- Do not assume degraded Redis is safe just because the API still responds.
+```bash
+docker compose run --rm \
+  -e ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true \
+  legacy-init
+```
 
-### Response steps
+Then return the variable to `false` and start the normal stack.
 
-1. Check Redis health:
+### Prisma P3009
+
+P3009 indicates a failed migration record. It requires manual inspection and recovery. Repeated container restarts do not repair it.
+
+For disposable data only:
+
+```bash
+docker compose down -v
+docker compose up -d --build --wait --wait-timeout 240
+```
+
+Do not use that reset when data must be preserved.
+
+## `go-migrate` failed
+
+Inspect:
+
+```bash
+docker compose logs go-migrate --tail=300
+```
+
+Common causes:
+
+- a required legacy table is missing;
+- a pre-existing runtime table has the wrong shape;
+- an applied migration file was edited and its checksum no longer matches;
+- PostgreSQL permissions are insufficient;
+- another migration session holds the advisory lock longer than expected.
+
+Rules:
+
+- never edit an already applied numbered Go migration;
+- add a new migration for corrective schema changes;
+- preserve the database before manual ledger changes;
+- do not delete `runtime_migrations` to bypass a checksum failure.
+
+## Go jobs unhealthy or not processing
+
+Symptoms include:
+
+- forwarding jobs stop advancing;
+- API logs stop expiring;
+- `go-jobs` is unhealthy while `app` remains healthy;
+- doctor reports a stale heartbeat, failed worker or exceeded run limit.
+
+Inspect:
+
+```bash
+docker compose ps go-jobs
+docker compose logs go-jobs --tail=300
+docker compose exec -T go-jobs allmail doctor jobs
+docker compose exec -T go-jobs sh -lc \
+  'cat /var/lib/all-mail/go-jobs-heartbeat.json'
+```
+
+Heartbeat fields distinguish:
+
+- process freshness (`updatedAt`);
+- whether an individual worker is running;
+- when that run started;
+- when it last completed and succeeded;
+- consecutive failures and the last error.
+
+A fresh top-level heartbeat with an overlong `startedAt` is unhealthy.
+
+### Forwarding run timeout
+
+The default limit is:
+
+```text
+FORWARDING_RUN_TIMEOUT_SECONDS=120
+```
+
+A timeout usually points to a blocked database/provider request or an unexpectedly large batch. Inspect the last error before increasing the limit. Prefer fixing the operation or reducing `FORWARDING_WORKER_BATCH_SIZE` over making the timeout unbounded.
+
+### Retention timeout
+
+The default limit is:
+
+```text
+API_LOG_CLEANUP_TIMEOUT_SECONDS=60
+```
+
+Retention is bounded by `API_LOG_CLEANUP_BATCH_SIZE` and uses a transaction advisory lock. Check database load and lock contention before increasing the timeout.
+
+## Transfer jobs to the rollback runtime
+
+Use this only when the Go worker itself must be rolled back while the Fastify API remains usable.
+
+```bash
+# Stop the current writer and wait for drain.
+docker compose stop go-jobs
+
+# Start the rollback-only Node writer.
+docker compose --profile rollback up -d legacy-jobs
+
+docker compose --profile rollback ps
+docker compose logs legacy-jobs --tail=300
+```
+
+The rollback service forces both owner values to `legacy`. Do not run another manually configured Node worker beside it.
+
+Return ownership to Go:
+
+```bash
+docker compose --profile rollback stop legacy-jobs
+docker compose up -d go-jobs
+docker compose exec -T go-jobs allmail doctor jobs
+```
+
+If the second runtime reports that the forwarding advisory lock is already held, stop and identify the still-running owner rather than bypassing the lock.
+
+## Legacy API unhealthy
+
+Inspect:
+
+```bash
+docker compose ps legacy-api
+docker compose logs legacy-api --tail=300
+docker compose exec -T legacy-api node -e \
+  "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(console.error)"
+```
+
+Confirm:
+
+- `legacy-init` and `go-migrate` completed;
+- the process runs as UID `10001`;
+- PostgreSQL and Redis are healthy;
+- bootstrap secrets exist and satisfy Fastify validation;
+- ingress placeholders are not left enabled.
+
+The Fastify service is internal-only in the default Compose topology. Public traffic should enter through `app`.
+
+## Redis degraded
+
+`ALLOW_LOCAL_RATE_LIMIT_FALLBACK` defaults to `false`. Do not assume the system is safe merely because some routes still respond.
 
 ```bash
 docker compose ps redis
 docker compose logs redis --tail=200
-docker compose exec redis redis-cli -p ${REDIS_INTERNAL_PORT:-6379} ping
+docker compose exec redis redis-cli \
+  -p "${REDIS_INTERNAL_PORT:-6379}" ping
 ```
 
-2. If Redis is unhealthy, restart the service:
-
-```bash
-docker compose up -d redis
-```
-
-3. Re-check app and jobs logs after Redis recovery:
-
-```bash
-docker compose logs app --tail=100
-docker compose logs jobs --tail=100
-```
-
-### Validation
-
-- Redis returns `PONG`
-- dependent services stop logging connection failures
-
-### Escalation / rollback
-
-- If Redis data integrity or persistence is in doubt, stop before forcing repeated restarts and recover from your platform backup strategy.
-
-## Failed migration / Prisma `P3009`
-
-### Scope and symptoms
-
-- `app` startup fails during migration
-- Prisma reports `P3009`
-
-### Preconditions and safety checks
-
-- `P3005` and `P3009` are different cases.
-- The repo only auto-falls back to a targeted legacy repair plus `db push` for `P3005`.
-- `P3009` requires manual operator action.
-
-### Response steps
-
-1. Inspect the failing app logs:
-
-```bash
-docker compose logs app --tail=200
-```
-
-2. If the error is `P3005`, the runtime should already apply the legacy repair step and then fall back automatically. If it did not, inspect the exact output before retrying.
-
-3. If the error is `P3009`, stop and inspect Prisma migration state before another restart. Do not keep bouncing the container.
-
-4. On a fresh disposable install where no PostgreSQL data must be preserved, the clean reset path is:
-
-```bash
-docker compose down -v
-docker compose up -d --build
-```
-
-5. If data must be preserved, resolve the failed migration intentionally before restarting the app.
-
-### Validation
-
-- app startup completes
-- `/health` returns success
-- repeated migration errors disappear from logs
-
-### Escalation / rollback
-
-- For non-disposable data, treat `P3009` as a database recovery event, not as a normal restart issue.
+After Redis recovery, recheck both Go and Fastify readiness.
 
 ## Bootstrap/admin secret confusion
 
-### Scope and symptoms
-
-- operator is unsure where generated secrets were stored
-- first login URL/password were missed on first boot
-- bootstrap admin flow is blocked by stale assumptions about blank secrets
-
-### Preconditions and safety checks
-
-- Blank `JWT_SECRET`, `ENCRYPTION_KEY`, and `ADMIN_PASSWORD` are allowed on first boot.
-- Docker persists generated values under `/var/lib/all-mail/bootstrap-secrets.env`.
-- Source runtime defaults to `.all-mail-runtime/bootstrap-secrets.env`; if `ALL_MAIL_STATE_DIR` was exported before startup, inspect that directory instead.
-- Setting `ALL_MAIL_STATE_DIR` only inside the env file does not move the initial bootstrap-secret write performed by `scripts/start-all-mail.mjs`.
-- Startup wrappers keep `ADMIN_PASSWORD` out of stdout by default and point operators to the persisted bootstrap-secret source instead.
-- Set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only for short-lived recovery in a controlled terminal if you explicitly need startup password output.
-- First-login URL output prefers `PUBLIC_BASE_URL`, then `ALL_MAIL_PUBLIC_BASE_URL`, then the first `CORS_ORIGIN`, and only falls back to localhost when none of those are set.
-
-### Response steps
-
-1. Decide which runtime you are using.
-2. Inspect the persisted bootstrap-secret file for that runtime:
+Docker secrets are stored in the legacy runtime volume:
 
 ```bash
-# Docker runtime
-docker compose exec app sh -lc 'ls -l /var/lib/all-mail && cat /var/lib/all-mail/bootstrap-secrets.env'
+docker compose exec legacy-api sh -lc \
+  'ls -l /var/lib/all-mail && cat /var/lib/all-mail/bootstrap-secrets.env'
+```
 
-# Source runtime
-ls -l "${ALL_MAIL_STATE_DIR:-.all-mail-runtime}"
+The Go jobs container receives only the encryption key:
+
+```bash
+docker compose exec go-jobs sh -lc \
+  'ls -l /var/lib/all-mail && test -r /var/lib/all-mail/encryption-key'
+```
+
+The public Go `app` container does not own or mount the bootstrap admin password. Older instructions using `docker compose exec app ...bootstrap-secrets.env` are invalid for the current topology.
+
+For the source runtime, inspect:
+
+```bash
 cat "${ALL_MAIL_STATE_DIR:-.all-mail-runtime}/bootstrap-secrets.env"
 ```
 
-3. Confirm the active admin username from env or startup output. If you used the default bootstrap path and did not override it, the admin username is usually `ADMIN_USERNAME` or `admin`.
-4. If the temporary admin password was generated, complete the password-change flow before expecting normal admin access.
+## Dependency audit failure
 
-### Validation
+CI runs production dependency audit independently from Docker smoke. An audit failure should not prevent Docker diagnostics.
 
-- operator can identify the correct persisted secret file
-- bootstrap login URL and admin username are known
-- admin account can complete the required password update flow
+The audit script supports only advisory-specific, package-scoped, expiring exceptions. It must not contain a blanket severity waiver.
 
-### Escalation / rollback
+Current exception review checklist:
 
-- The repo provides bootstrap generation and persistence, not a general secret-rotation runbook. Treat broader secret rotation as a planned change with backups first.
+1. confirm the advisory's affected feature is not used;
+2. confirm package names and GHSA ID are exact;
+3. set a near-term expiry date;
+4. keep the patched-version upgrade tracked;
+5. allow CI to fail automatically after expiry.
 
-## Cloudflare tunnel down / public hostnames returning 530
+Remove the exception as soon as the dependency is upgraded.
 
-### Scope and symptoms
+## Cloudflare tunnel down or public hostnames return 530
 
-- Cloudflare Dashboard → Tunnel overview shows `Status: Down`
-- `Active replicas` is `0`
-- the published hostnames (for example `console.example.com` and `edge.example.com`) return `HTTP 530`
-- local `app` still looks healthy, so the break is between Cloudflare and the backend rather than inside `all-Mail`
-
-### Preconditions and safety checks
-
-- Treat the tunnel token as a secret. Do not commit it, paste it into repo files, or leave it in shell history unnecessarily.
-- Confirm the backend is healthy before rotating or reinstalling the connector. A healthy tunnel pointing at a dead backend does not close the loop.
-- Prefer a long-running OS-managed connector on the Windows host that owns the tunnel.
-- For this repo, the expected published routes are:
-- `https://console.example.com`
-- `https://edge.example.com`
-
-### Response steps
-
-1. Confirm the local backend is healthy:
+First prove the local backend is healthy:
 
 ```bash
-docker compose ps
+docker compose ps -a
 curl http://127.0.0.1:3002/health
+curl --fail http://127.0.0.1:3002/readyz
 ```
 
-Expected baseline:
+Then inspect the connector host and Cloudflare dashboard:
 
-- `app`, `jobs`, `postgres`, and `redis` are `healthy`
-- `/health` returns `{"success":true,"data":{"status":"ok"}}`
+- tunnel status;
+- active replica count;
+- published routes;
+- token-rotation warnings;
+- `cloudflared` service status and logs.
 
-2. Open the tunnel in Cloudflare Dashboard and verify the operator-facing state:
-
-- `Status`
-- `Active replicas`
-- published routes
-- any token-rotation warning banners
-
-For this tunnel, the canonical dashboard path is the named tunnel under **Networking → Tunnels**.
-
-3. On the Windows host that should own the connector, inspect the current service state in an elevated shell:
+Windows service checks:
 
 ```powershell
 Get-Service cloudflared
 sc query cloudflared
 ```
 
-If the service is missing, you have two supported install paths:
-
-- **Fastest recovery:** use the Cloudflare Dashboard-provided token install command.
-- **Preferred long-term path when you need transport pinning (for example `http2`):** use a named-tunnel `config.yml` under the Windows system profile.
-
-Dashboard-token install path:
+Foreground diagnosis:
 
 ```powershell
-cloudflared.exe service install <tunnel-token-from-dashboard>
-Start-Service cloudflared
+cloudflared.exe tunnel run --token <token-from-dashboard>
 ```
 
-Config-file service path:
+If QUIC repeatedly times out but HTTP/2 succeeds:
 
 ```powershell
-mkdir C:\Windows\System32\config\systemprofile\.cloudflared
-notepad C:\Windows\System32\config\systemprofile\.cloudflared\config.yml
-cloudflared.exe service install
-Start-Service cloudflared
+cloudflared.exe tunnel run --protocol http2 --token <token-from-dashboard>
 ```
 
-When you use this path, keep the Cloudflare-generated named-tunnel config and credentials material under `C:\Windows\System32\config\systemprofile\.cloudflared\` and pin `protocol: http2` there if QUIC is unreliable on that host network.
+Pin the working transport in the connector configuration instead of changing the backend when local readiness is already healthy. Never commit the tunnel token.
 
-If the service already exists but is unhealthy or stale:
+## Backup and restore starting point
 
-```powershell
-Restart-Service cloudflared
-Get-Service cloudflared
-```
+Persistent Docker volumes in the canonical topology are:
 
-4. If the dashboard still shows `Down`, run a foreground connector check on the host to separate service problems from edge-connectivity problems:
+- `postgres_data`;
+- `redis_data`;
+- `legacy_runtime_data` — bootstrap secrets and legacy runtime state;
+- `go_runtime_data` — isolated Go heartbeat and forwarding key.
 
-```powershell
-cloudflared.exe tunnel run --token <tunnel-token-from-dashboard>
-```
+Before risky upgrades or manual migration recovery:
 
-Healthy signs include log lines like:
+1. stop external writes where possible;
+2. back up PostgreSQL using a database-aware method;
+3. preserve both runtime-state volumes;
+4. preserve Redis when its state matters to the recovery window;
+5. record the exact application revision and `.env` contract;
+6. test restore in an isolated environment.
 
-- `Registered tunnel connection`
-- `Updated to new configuration`
-
-5. If foreground startup repeatedly stalls on QUIC handshakes, retry with HTTP/2 explicitly:
-
-```powershell
-cloudflared.exe tunnel run --protocol http2 --token <tunnel-token-from-dashboard>
-```
-
-This repo was verified successfully with HTTP/2 after repeated QUIC handshake timeouts. If `http2` succeeds and plain startup does not, move the host to the config-file service path above and pin `protocol: http2` there instead of repeatedly bouncing a failing QUIC path.
-
-6. Re-check the published hostnames from an operator shell after the replica is up:
-
-```bash
-curl https://console.example.com/health
-curl https://edge.example.com/health
-```
-
-Expected output:
-
-```json
-{"success":true,"data":{"status":"ok"}}
-```
-
-### Validation
-
-- Cloudflare Dashboard shows `Status: Healthy`
-- `Active replicas` is at least `1`
-- published routes still point at the intended hostnames
-- public `/health` checks return the same success payload as the local backend
-
-### Token rotation / planned maintenance
-
-Use this when the dashboard token was rotated or the connector host was rebuilt.
-
-1. In Cloudflare Dashboard, rotate the tunnel token.
-2. On every host running this tunnel, stop the old connector.
-3. Update the host according to the mode it uses:
-
-- **Dashboard-token service mode:** reinstall with the new token.
-- **Config-file mode:** replace the token/credentials material referenced by `config.yml`, then restart the service.
-
-Dashboard-token service example:
-
-```powershell
-Stop-Service cloudflared
-cloudflared.exe service uninstall
-cloudflared.exe service install <new-tunnel-token-from-dashboard>
-Start-Service cloudflared
-```
-
-4. If you need to inspect the service after rotation:
-
-```powershell
-Get-Service cloudflared
-sc query cloudflared
-```
-
-5. Re-run the validation steps above before calling the rotation complete.
-
-### Escalation / rollback
-
-- If the local backend is healthy but the tunnel remains `Down`, treat it as a connector/egress problem first.
-- If QUIC fails and HTTP/2 succeeds, keep service traffic on the working transport until network policy is fixed.
-- If neither transport can register a tunnel connection, capture the connector logs and stop rotating tokens or rebuilding the backend blindly.
-- If the tunnel is healthy but the public hostnames still fail, move to route/DNS inspection in Cloudflare before changing the app.
-
-## Backup / restore starting point
-
-### Scope and symptoms
-
-Use this entry before risky upgrades, before manual migration recovery, or after an operator decides application rollback alone is insufficient.
-
-### Preconditions and safety checks
-
-- The default Docker deployment persists PostgreSQL in `postgres_data` and runtime state in `app_runtime_data`.
-- The repo does not provide built-in backup orchestration.
-
-### Response steps
-
-1. Stop and identify which data must be preserved.
-2. Snapshot at least:
-   - PostgreSQL data (`postgres_data`)
-   - runtime state / generated bootstrap secrets (`app_runtime_data`)
-3. If you use external PostgreSQL, Redis, or object storage, use the platform-native backup process for those services.
-4. Before restore, stop the stack and make sure the target app revision matches the data you plan to restore.
-
-### Validation
-
-- the backup includes both database state and runtime state when applicable
-- the restored stack passes the same health checks used in deployment
-
-### Escalation / rollback
-
-- If you cannot explain which persisted state changed during the failed release, stop and preserve the current volumes before any destructive recovery attempt.
+Application rollback without matching persisted state may be insufficient after migrations or secret changes. When uncertain, preserve the current volumes before any destructive action.

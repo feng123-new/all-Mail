@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -48,15 +49,51 @@ func TestResendSendPreservesPayloadAndIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestResendSendReturnsProviderError(t *testing.T) {
+func TestResendSendReturnsRetryableHTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"message":"temporary upstream 503"}`))
+		_, _ = w.Write([]byte(`{"code":"application_error","message":"temporary upstream 503"}`))
+	}))
+	defer server.Close()
+
+	client := NewResendClient(server.URL, server.Client())
+	_, err := client.Send(context.Background(), "re_secret", SendRequest{To: []string{"target@example.net"}})
+	var providerErr *HTTPError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("error = %v, want HTTPError", err)
+	}
+	if providerErr.StatusCode != http.StatusServiceUnavailable || !providerErr.Retryable() {
+		t.Fatalf("provider error = %#v", providerErr)
+	}
+}
+
+func TestResendSendReturnsPermanentHTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"name":"validation_error","message":"invalid recipient"}`))
+	}))
+	defer server.Close()
+
+	client := NewResendClient(server.URL, server.Client())
+	_, err := client.Send(context.Background(), "re_secret", SendRequest{To: []string{"target@example.net"}})
+	var providerErr *HTTPError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("error = %v, want HTTPError", err)
+	}
+	if providerErr.Code != "validation_error" || providerErr.Retryable() {
+		t.Fatalf("provider error = %#v", providerErr)
+	}
+}
+
+func TestResendSendRejectsSuccessWithoutMessageID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer server.Close()
 
 	client := NewResendClient(server.URL, server.Client())
 	if _, err := client.Send(context.Background(), "re_secret", SendRequest{To: []string{"target@example.net"}}); err == nil {
-		t.Fatal("Send() expected an error")
+		t.Fatal("Send() expected a missing message id error")
 	}
 }

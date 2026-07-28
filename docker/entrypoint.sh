@@ -8,13 +8,14 @@ if [ "$#" -gt 0 ]; then
 fi
 
 case "$runtime_role" in
+    init)
+        runtime_entry=""
+        ;;
     api)
         runtime_entry="dist/index.js"
-        run_migrations=${ALL_MAIL_RUN_MIGRATIONS:-1}
         ;;
     jobs)
         runtime_entry="dist/worker.js"
-        run_migrations=${ALL_MAIL_RUN_MIGRATIONS:-0}
         ;;
     *)
         exec "$runtime_role" "$@"
@@ -22,30 +23,76 @@ case "$runtime_role" in
 esac
 
 ALL_MAIL_STATE_DIR=${ALL_MAIL_STATE_DIR:-/var/lib/all-mail}
-mkdir -p "$ALL_MAIL_STATE_DIR"
-chown 10001:10001 "$ALL_MAIL_STATE_DIR"
+sanitize_runtime_env=/app/scripts/sanitize-runtime-env.sh
+
+case "$ALL_MAIL_STATE_DIR" in
+    /)
+        printf '%s\n' "Refusing unsafe ALL_MAIL_STATE_DIR=${ALL_MAIL_STATE_DIR}" >&2
+        exit 1
+        ;;
+esac
+
+is_true() {
+    case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+        1|true|yes|on)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+run_as_allmail() {
+    if [ "$(id -u)" -eq 0 ]; then
+        gosu allmail "$@"
+    else
+        "$@"
+    fi
+}
+
+exec_as_allmail() {
+    if [ "$(id -u)" -eq 0 ]; then
+        exec gosu allmail "$@"
+    fi
+    exec "$@"
+}
+
+prepare_runtime_state() {
+    if [ "$(id -u)" -eq 0 ]; then
+        mkdir -p "$ALL_MAIL_STATE_DIR"
+        chown -R 10001:10001 "$ALL_MAIL_STATE_DIR"
+    else
+        mkdir -p "$ALL_MAIL_STATE_DIR"
+    fi
+}
+
+prepare_runtime_state
 if [ "$runtime_role" = "jobs" ]; then
     rm -f "$ALL_MAIL_STATE_DIR/jobs-heartbeat.txt"
 fi
-sanitize_runtime_env=/app/scripts/sanitize-runtime-env.sh
-eval "$("$sanitize_runtime_env" node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR" --format shell)"
-if [ -n "${ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE:-}" ] && [ -n "${ENCRYPTION_KEY:-}" ]; then
-    mkdir -p "$(dirname "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE")"
-    printf '%s\n' "$ENCRYPTION_KEY" > "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"
-    chown 10001:10001 "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"
-    chmod 600 "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"
+
+eval "$(run_as_allmail "$sanitize_runtime_env" node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR" --format shell)"
+
+if [ "$runtime_role" = "init" ] && [ -n "${ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE:-}" ] && [ -n "${ENCRYPTION_KEY:-}" ]; then
+    export_directory=$(dirname "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE")
+    mkdir -p "$export_directory"
+    if [ "$(id -u)" -eq 0 ]; then
+        chown 10001:10001 "$export_directory"
+    fi
+    temporary_key_file="${ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE}.tmp.$$"
+    umask 077
+    printf '%s\n' "$ENCRYPTION_KEY" > "$temporary_key_file"
+    if [ "$(id -u)" -eq 0 ]; then
+        chown 10001:10001 "$temporary_key_file"
+    fi
+    chmod 600 "$temporary_key_file"
+    mv -f "$temporary_key_file" "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"
 fi
 
 if [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
     printf '%s\n' "Generated bootstrap secrets in ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE}"
 fi
-
-print_bootstrap_password=0
-case "$(printf '%s' "${ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD:-}" | tr '[:upper:]' '[:lower:]')" in
-    1|true|yes|on)
-        print_bootstrap_password=1
-        ;;
-esac
 
 admin_password_source=""
 case ",${ALL_MAIL_GENERATED_SECRETS:-}," in
@@ -75,7 +122,7 @@ if [ "${ALL_MAIL_CREATED_STATE_FILE:-0}" = "1" ] || [ -n "${ALL_MAIL_GENERATED_S
     esac
     printf '%s\n' "Bootstrap admin username: ${ADMIN_USERNAME:-admin}"
     if [ -n "${ADMIN_PASSWORD:-}" ]; then
-        if [ "$print_bootstrap_password" = "1" ]; then
+        if is_true "${ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD:-false}"; then
             case "$admin_password_source" in
                 generated)
                     printf '%s\n' "Temporary admin password: ${ADMIN_PASSWORD}"
@@ -94,7 +141,7 @@ if [ "${ALL_MAIL_CREATED_STATE_FILE:-0}" = "1" ] || [ -n "${ALL_MAIL_GENERATED_S
                 generated|state-file)
                     printf '%s\n' "Bootstrap admin password is stored in ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE}."
                     printf '%s\n' 'Retrieve it from the runtime state file instead of startup logs.'
-                    printf '%s\n' "Example: docker compose exec app sh -lc \"grep '^ADMIN_PASSWORD=' ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE} | cut -d= -f2-\""
+                    printf '%s\n' "Example: docker compose exec legacy-api sh -lc \"grep '^ADMIN_PASSWORD=' ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE} | cut -d= -f2-\""
                     if [ "$admin_password_source" = "generated" ]; then
                         printf '%s\n' 'You must log in and change this temporary password immediately before using the rest of the application.'
                     fi
@@ -109,26 +156,40 @@ if [ "${ALL_MAIL_CREATED_STATE_FILE:-0}" = "1" ] || [ -n "${ALL_MAIL_GENERATED_S
     fi
 fi
 
-if [ "$run_migrations" = "1" ]; then
+run_legacy_migrations() {
     set +e
-    migration_output=$("$sanitize_runtime_env" npm run db:migrate 2>&1)
+    migration_output=$(run_as_allmail "$sanitize_runtime_env" npm run db:migrate 2>&1)
     migration_exit=$?
     set -e
 
     printf '%s\n' "$migration_output"
-
-    if [ "$migration_exit" -ne 0 ]; then
-        case "$migration_output" in
-            *P3005*)
-                printf '%s\n' 'Prisma migrate deploy skipped for legacy non-empty database; falling back to db push.'
-                "$sanitize_runtime_env" npm run db:repair:legacy-p3005
-                "$sanitize_runtime_env" npm run db:push -- --skip-generate
-                ;;
-            *)
-                exit "$migration_exit"
-                ;;
-        esac
+    if [ "$migration_exit" -eq 0 ]; then
+        return 0
     fi
+
+    case "$migration_output" in
+        *P3005*)
+            if is_true "${ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR:-false}"; then
+                printf '%s\n' 'P3005 detected; running the explicitly enabled legacy repair and db push path.'
+                run_as_allmail "$sanitize_runtime_env" npm run db:repair:legacy-p3005
+                run_as_allmail "$sanitize_runtime_env" npm run db:push -- --skip-generate
+                return 0
+            fi
+            printf '%s\n' 'Prisma reported P3005 for a non-empty legacy database.' >&2
+            printf '%s\n' 'The automatic db push fallback is disabled for production safety.' >&2
+            printf '%s\n' 'Review the database, then run legacy-init once with ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true only when the documented repair path is intended.' >&2
+            return "$migration_exit"
+            ;;
+        *)
+            return "$migration_exit"
+            ;;
+    esac
+}
+
+if [ "$runtime_role" = "init" ]; then
+    run_legacy_migrations
+    printf '%s\n' 'Legacy bootstrap and Prisma migrations completed.'
+    exit 0
 fi
 
-exec "$sanitize_runtime_env" node "$runtime_entry"
+exec_as_allmail "$sanitize_runtime_env" node "$runtime_entry" "$@"

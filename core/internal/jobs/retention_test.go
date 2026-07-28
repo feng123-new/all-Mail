@@ -3,44 +3,44 @@ package jobs
 import (
 	"strings"
 	"testing"
+
+	"github.com/feng123-new/all-Mail/core/internal/config"
 )
 
-func TestBuildRetentionSQLIsBoundedAndLocked(t *testing.T) {
-	sql := buildRetentionSQL(30, 5000)
+func TestRetentionDeleteSQLIsBoundedAndClaimSafe(t *testing.T) {
 	for _, expected := range []string{
-		"pg_try_advisory_xact_lock",
-		"make_interval(days => 30)",
-		"LIMIT 5000",
+		"$1::int * interval '1 day'",
+		"LIMIT $2",
+		"FOR UPDATE SKIP LOCKED",
 		"DELETE FROM api_logs",
+		"RETURNING logs.id",
 	} {
-		if !strings.Contains(sql, expected) {
-			t.Fatalf("retention SQL is missing %q:\n%s", expected, sql)
+		if !strings.Contains(retentionDeleteSQL, expected) {
+			t.Fatalf("retention SQL is missing %q:\n%s", expected, retentionDeleteSQL)
 		}
 	}
 }
 
-func TestParseRetentionResult(t *testing.T) {
-	acquired, deleted, err := parseRetentionResult("t|42\n")
+func TestNewRetentionCleanerUsesTypedConfiguration(t *testing.T) {
+	cleaner, err := newRetentionCleaner(config.Config{
+		DatabaseURL:         "postgresql://example.invalid/allmail",
+		APILogRetentionDays: 30,
+		APILogCleanupBatch:  5000,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !acquired || deleted != 42 {
-		t.Fatalf("result = %v %d", acquired, deleted)
+	value, ok := cleaner.(pgxRetentionCleaner)
+	if !ok {
+		t.Fatalf("cleaner type = %T, want pgxRetentionCleaner", cleaner)
 	}
-
-	acquired, deleted, err = parseRetentionResult("f|0\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if acquired || deleted != 0 {
-		t.Fatalf("result = %v %d", acquired, deleted)
+	if value.retention != 30 || value.batchSize != 5000 {
+		t.Fatalf("cleaner = %#v", value)
 	}
 }
 
-func TestParseRetentionResultRejectsInvalidOutput(t *testing.T) {
-	for _, output := range []string{"", "HTTP/1.1 200 OK", "t|not-a-number"} {
-		if _, _, err := parseRetentionResult(output); err == nil {
-			t.Fatalf("parseRetentionResult(%q) expected an error", output)
-		}
+func TestNewRetentionCleanerRequiresDatabaseURL(t *testing.T) {
+	if _, err := newRetentionCleaner(config.Config{}); err == nil {
+		t.Fatal("newRetentionCleaner expected an error")
 	}
 }
