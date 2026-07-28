@@ -1,10 +1,3 @@
-BEGIN;
-
-CREATE TABLE IF NOT EXISTS runtime_migrations (
-    name text PRIMARY KEY,
-    applied_at timestamptz NOT NULL DEFAULT now()
-);
-
 CREATE TABLE IF NOT EXISTS runtime_heartbeats (
     runtime_name text PRIMARY KEY,
     instance_id text NOT NULL,
@@ -112,8 +105,63 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 CREATE INDEX IF NOT EXISTS outbox_events_claim_idx
     ON outbox_events (status, next_attempt_at, id);
 
-INSERT INTO runtime_migrations (name)
-VALUES ('0001_go_runtime_foundation')
-ON CONFLICT (name) DO NOTHING;
+DO $allmail_0001$
+DECLARE
+    missing_columns text;
+BEGIN
+    SELECT string_agg(expected.table_name || '.' || expected.column_name, ', ' ORDER BY expected.table_name, expected.column_name)
+    INTO missing_columns
+    FROM (
+        VALUES
+            ('runtime_heartbeats', 'runtime_name'),
+            ('runtime_heartbeats', 'instance_id'),
+            ('runtime_heartbeats', 'updated_at'),
+            ('mailbox_sync_cursors', 'id'),
+            ('mailbox_sync_cursors', 'email_account_id'),
+            ('mailbox_sync_cursors', 'folder_key'),
+            ('mailbox_sync_cursors', 'cursor_type'),
+            ('mailbox_sync_cursors', 'generation'),
+            ('mailbox_sync_cursors', 'version'),
+            ('mailbox_sync_jobs', 'id'),
+            ('mailbox_sync_jobs', 'email_account_id'),
+            ('mailbox_sync_jobs', 'folder_key'),
+            ('mailbox_sync_jobs', 'status'),
+            ('mailbox_sync_jobs', 'next_attempt_at'),
+            ('mailbox_sync_jobs', 'locked_by'),
+            ('mailbox_sync_jobs', 'locked_until'),
+            ('outbound_delivery_jobs', 'id'),
+            ('outbound_delivery_jobs', 'outbound_message_id'),
+            ('outbound_delivery_jobs', 'idempotency_key'),
+            ('outbound_delivery_jobs', 'status'),
+            ('outbound_delivery_jobs', 'next_attempt_at'),
+            ('job_attempts', 'id'),
+            ('job_attempts', 'job_kind'),
+            ('job_attempts', 'job_id'),
+            ('job_attempts', 'attempt_number'),
+            ('outbox_events', 'id'),
+            ('outbox_events', 'aggregate_type'),
+            ('outbox_events', 'aggregate_id'),
+            ('outbox_events', 'event_type'),
+            ('outbox_events', 'payload'),
+            ('outbox_events', 'status')
+    ) AS expected(table_name, column_name)
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns actual
+        WHERE actual.table_schema = current_schema()
+          AND actual.table_name = expected.table_name
+          AND actual.column_name = expected.column_name
+    );
 
-COMMIT;
+    IF missing_columns IS NOT NULL THEN
+        RAISE EXCEPTION '0001 schema validation failed; missing columns: %', missing_columns;
+    END IF;
+
+    IF to_regclass('mailbox_sync_jobs_claim_idx') IS NULL
+       OR to_regclass('outbound_delivery_jobs_claim_idx') IS NULL
+       OR to_regclass('job_attempts_job_idx') IS NULL
+       OR to_regclass('outbox_events_claim_idx') IS NULL THEN
+        RAISE EXCEPTION '0001 schema validation failed; one or more required indexes are missing';
+    END IF;
+END
+$allmail_0001$;
