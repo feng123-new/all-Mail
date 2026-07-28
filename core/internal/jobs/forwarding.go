@@ -236,6 +236,13 @@ func normalizeEmail(value string) string {
 }
 
 func isRetryableForwardingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var classified interface{ Retryable() bool }
+	if errors.As(err, &classified) {
+		return classified.Retryable()
+	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	return !strings.Contains(message, "invalid email") &&
 		!strings.Contains(message, "invalid recipient") &&
