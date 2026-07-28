@@ -1,5 +1,5 @@
-import { Prisma } from "@prisma/client";
 import { randomBytes } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { Client } from "pg";
 import { z } from "zod";
 import { env } from "../config/env.js";
@@ -273,7 +273,7 @@ async function loadForwardJob(deps: ForwardingWorkerDeps, jobId: bigint, claimTo
 			},
 		},
 	});
-	if (!job || job.status !== "RUNNING" || job.claimToken !== claimToken) {
+	if (job?.status !== "RUNNING" || job.claimToken !== claimToken) {
 		return null;
 	}
 	return job;
@@ -411,7 +411,7 @@ async function processForwardJob(deps: ForwardingWorkerDeps, jobId: bigint, clai
 		"Mailbox forwarding job started",
 	);
 
-	if (!job.mailbox || job.mailbox.status !== "ACTIVE") {
+	if (job.mailbox?.status !== "ACTIVE") {
 		const failure = await markForwardJobFailed(
 			deps,
 			{ id: job.id, claimToken, attemptCount: job.attemptCount },
