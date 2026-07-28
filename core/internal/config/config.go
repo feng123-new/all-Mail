@@ -42,6 +42,8 @@ type Config struct {
 	LogRetentionOwner     RuntimeOwner
 	APILogRetentionDays   int
 	APILogCleanupInterval time.Duration
+	APILogCleanupRetry    time.Duration
+	APILogCleanupTimeout  time.Duration
 	APILogCleanupBatch    int
 }
 
@@ -74,6 +76,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	cleanupRetrySeconds, err := envInt("API_LOG_CLEANUP_RETRY_SECONDS", 30)
+	if err != nil {
+		return Config{}, err
+	}
+	cleanupTimeoutSeconds, err := envInt("API_LOG_CLEANUP_TIMEOUT_SECONDS", 60)
+	if err != nil {
+		return Config{}, err
+	}
 	cleanupBatch, err := envInt("API_LOG_CLEANUP_BATCH_SIZE", 5000)
 	if err != nil {
 		return Config{}, err
@@ -96,6 +106,8 @@ func Load() (Config, error) {
 		LogRetentionOwner:     RuntimeOwner(strings.ToLower(env("API_LOG_RETENTION_OWNER", string(RuntimeOwnerLegacy)))),
 		APILogRetentionDays:   retentionDays,
 		APILogCleanupInterval: time.Duration(cleanupMinutes) * time.Minute,
+		APILogCleanupRetry:    time.Duration(cleanupRetrySeconds) * time.Second,
+		APILogCleanupTimeout:  time.Duration(cleanupTimeoutSeconds) * time.Second,
 		APILogCleanupBatch:    cleanupBatch,
 	}
 
@@ -113,6 +125,12 @@ func Load() (Config, error) {
 	}
 	if cfg.APILogCleanupInterval <= 0 {
 		return Config{}, errors.New("API_LOG_CLEANUP_INTERVAL_MINUTES must be positive")
+	}
+	if cfg.APILogCleanupRetry <= 0 {
+		return Config{}, errors.New("API_LOG_CLEANUP_RETRY_SECONDS must be positive")
+	}
+	if cfg.APILogCleanupTimeout <= 0 {
+		return Config{}, errors.New("API_LOG_CLEANUP_TIMEOUT_SECONDS must be positive")
 	}
 	if cfg.APILogCleanupBatch < 1 || cfg.APILogCleanupBatch > 100000 {
 		return Config{}, errors.New("API_LOG_CLEANUP_BATCH_SIZE must be between 1 and 100000")
