@@ -32,14 +32,17 @@ func main() {
 
 	switch command {
 	case "api":
+		fatalIf(logger, cfg.ValidateFor("api"))
 		server, newErr := httpapi.New(cfg, logger)
 		if newErr != nil {
 			fatal(logger, newErr)
 		}
 		fatalIf(logger, server.Run(ctx))
 	case "jobs":
+		fatalIf(logger, cfg.ValidateFor("jobs"))
 		fatalIf(logger, jobs.Run(ctx, cfg, logger))
 	case "migrate":
+		fatalIf(logger, cfg.ValidateFor("migrate"))
 		migrationCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		fatalIf(logger, migrate.Run(migrationCtx, cfg, logger))
@@ -53,6 +56,7 @@ func main() {
 		case "api":
 			fatalIf(logger, doctor.API(doctorCtx, cfg))
 		case "jobs":
+			fatalIf(logger, cfg.ValidateFor("jobs"))
 			fatalIf(logger, doctor.Jobs(cfg))
 		default:
 			fatal(logger, fmt.Errorf("unknown doctor target %q", os.Args[2]))
