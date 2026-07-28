@@ -64,6 +64,7 @@ const envSchema = z.object({
     ADMIN_2FA_WINDOW: z.coerce.number().int().min(0).max(5).default(1),
 
     // API log retention
+    API_LOG_RETENTION_OWNER: z.enum(['legacy', 'go']).default('legacy'),
     API_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
     API_LOG_CLEANUP_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
     FORWARDING_WORKER_INTERVAL_SECONDS: z.coerce.number().int().min(5).default(30),
