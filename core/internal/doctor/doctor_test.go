@@ -84,10 +84,10 @@ func TestJobsRejectsForwardingRunPastItsDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{
-		StateDir:              stateDir,
-		JobsHeartbeatMaxAge:   time.Minute,
-		ForwardingRunTimeout:  30 * time.Second,
-		APILogCleanupTimeout:  time.Minute,
+		StateDir:             stateDir,
+		JobsHeartbeatMaxAge:  time.Minute,
+		ForwardingRunTimeout: 30 * time.Second,
+		APILogCleanupTimeout: time.Minute,
 	}
 	err := Jobs(cfg)
 	if err == nil || !strings.Contains(err.Error(), "exceeded its run limit") {
