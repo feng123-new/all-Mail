@@ -20,6 +20,7 @@ x-legacy-environment: &legacy-environment
   ADMIN_2FA_WINDOW: ${ADMIN_2FA_WINDOW:-1}
   SEND_ENABLED_DOMAINS: ${SEND_ENABLED_DOMAINS:-}
   API_LOG_RETENTION_DAYS: ${API_LOG_RETENTION_DAYS:-30}
+  API_LOG_RETENTION_OWNER: ${API_LOG_RETENTION_OWNER:-go}
   API_LOG_CLEANUP_INTERVAL_MINUTES: ${API_LOG_CLEANUP_INTERVAL_MINUTES:-60}
   FORWARDING_WORKER_INTERVAL_SECONDS: ${FORWARDING_WORKER_INTERVAL_SECONDS:-30}
   FORWARDING_WORKER_BATCH_SIZE: ${FORWARDING_WORKER_BATCH_SIZE:-10}
@@ -85,7 +86,6 @@ services:
     <<: *allmail-hardening
 
   go-jobs:
-    profiles: ["go-migration"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -93,8 +93,16 @@ services:
     environment:
       ALL_MAIL_ENV: production
       ALL_MAIL_STATE_DIR: /var/lib/all-mail
+      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
+      API_LOG_RETENTION_OWNER: ${API_LOG_RETENTION_OWNER:-go}
+      API_LOG_RETENTION_DAYS: ${API_LOG_RETENTION_DAYS:-30}
+      API_LOG_CLEANUP_INTERVAL_MINUTES: ${API_LOG_CLEANUP_INTERVAL_MINUTES:-60}
+      API_LOG_CLEANUP_BATCH_SIZE: ${API_LOG_CLEANUP_BATCH_SIZE:-5000}
       GO_JOBS_HEARTBEAT_SECONDS: ${GO_JOBS_HEARTBEAT_SECONDS:-15}
       GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS: ${GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS:-90}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     volumes:
       - go_runtime_data:/var/lib/all-mail
