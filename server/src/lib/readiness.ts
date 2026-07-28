@@ -70,9 +70,9 @@ export const checkReadiness = createReadinessChecker({
         if (!redis) {
             throw new Error('Redis is not configured');
         }
-        const response = await redis.ping();
+        const response = String(await redis.ping()).toUpperCase();
         if (response !== 'PONG') {
-            throw new Error(`Unexpected Redis PING response: ${response}`);
+            throw new Error('Unexpected Redis PING response');
         }
     },
     redisRequired: Boolean(env.REDIS_URL),
