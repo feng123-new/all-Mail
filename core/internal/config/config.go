@@ -19,8 +19,9 @@ const (
 	APIModeBridge APIMode = "bridge"
 	APIModeStatic APIMode = "static"
 
-	RuntimeOwnerLegacy RuntimeOwner = "legacy"
-	RuntimeOwnerGo     RuntimeOwner = "go"
+	RuntimeOwnerLegacy   RuntimeOwner = "legacy"
+	RuntimeOwnerGo       RuntimeOwner = "go"
+	RuntimeOwnerDisabled RuntimeOwner = "disabled"
 )
 
 // Config contains runtime settings shared by the API, jobs, migration and
@@ -40,8 +41,9 @@ type Config struct {
 	ShutdownTimeout       time.Duration
 	JobsHeartbeatInterval time.Duration
 	JobsHeartbeatMaxAge   time.Duration
-	ForwardingWorkerOwner string
+	ForwardingWorkerOwner RuntimeOwner
 	ForwardingInterval    time.Duration
+	ForwardingRunTimeout  time.Duration
 	ForwardingBatchSize   int
 	ResendAPIBaseURL      string
 	MigrationDir          string
@@ -75,6 +77,10 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	forwardingSeconds, err := envInt("FORWARDING_WORKER_INTERVAL_SECONDS", 30)
+	if err != nil {
+		return Config{}, err
+	}
+	forwardingRunTimeoutSeconds, err := envInt("FORWARDING_RUN_TIMEOUT_SECONDS", 120)
 	if err != nil {
 		return Config{}, err
 	}
@@ -130,8 +136,9 @@ func Load() (Config, error) {
 		ShutdownTimeout:       time.Duration(shutdownSeconds) * time.Second,
 		JobsHeartbeatInterval: time.Duration(heartbeatSeconds) * time.Second,
 		JobsHeartbeatMaxAge:   time.Duration(heartbeatMaxAgeSeconds) * time.Second,
-		ForwardingWorkerOwner: strings.ToLower(env("FORWARDING_WORKER_OWNER", "legacy")),
+		ForwardingWorkerOwner: RuntimeOwner(strings.ToLower(env("FORWARDING_WORKER_OWNER", string(RuntimeOwnerLegacy)))),
 		ForwardingInterval:    time.Duration(forwardingSeconds) * time.Second,
+		ForwardingRunTimeout:  time.Duration(forwardingRunTimeoutSeconds) * time.Second,
 		ForwardingBatchSize:   forwardingBatchSize,
 		ResendAPIBaseURL:      strings.TrimRight(env("RESEND_API_BASE_URL", "https://api.resend.com"), "/"),
 		MigrationDir:          env("ALL_MAIL_MIGRATION_DIR", "/app/migrations"),
@@ -155,10 +162,13 @@ func Load() (Config, error) {
 	if cfg.ForwardingInterval <= 0 {
 		return Config{}, errors.New("FORWARDING_WORKER_INTERVAL_SECONDS must be positive")
 	}
+	if cfg.ForwardingRunTimeout <= 0 {
+		return Config{}, errors.New("FORWARDING_RUN_TIMEOUT_SECONDS must be positive")
+	}
 	if cfg.ForwardingBatchSize < 1 || cfg.ForwardingBatchSize > 100 {
 		return Config{}, errors.New("FORWARDING_WORKER_BATCH_SIZE must be between 1 and 100")
 	}
-	if cfg.ForwardingWorkerOwner != "legacy" && cfg.ForwardingWorkerOwner != "go" && cfg.ForwardingWorkerOwner != "disabled" {
+	if cfg.ForwardingWorkerOwner != RuntimeOwnerLegacy && cfg.ForwardingWorkerOwner != RuntimeOwnerGo && cfg.ForwardingWorkerOwner != RuntimeOwnerDisabled {
 		return Config{}, fmt.Errorf("unsupported FORWARDING_WORKER_OWNER %q; use legacy, go or disabled", cfg.ForwardingWorkerOwner)
 	}
 	if cfg.APILogRetentionDays < 1 {
@@ -223,10 +233,10 @@ func (c Config) ValidateFor(command string) error {
 		if strings.TrimSpace(c.StateDir) == "" {
 			return errors.New("ALL_MAIL_STATE_DIR is required for jobs")
 		}
-		if (c.LogRetentionOwner == RuntimeOwnerGo || c.ForwardingWorkerOwner == "go") && c.DatabaseURL == "" {
+		if (c.LogRetentionOwner == RuntimeOwnerGo || c.ForwardingWorkerOwner == RuntimeOwnerGo) && c.DatabaseURL == "" {
 			return errors.New("DATABASE_URL is required when a Go jobs worker owns database work")
 		}
-		if c.ForwardingWorkerOwner == "go" && c.EncryptionKey == "" {
+		if c.ForwardingWorkerOwner == RuntimeOwnerGo && c.EncryptionKey == "" {
 			return errors.New("ENCRYPTION_KEY is required when FORWARDING_WORKER_OWNER=go")
 		}
 	case "migrate":
