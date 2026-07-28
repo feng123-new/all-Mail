@@ -57,6 +57,12 @@ func Jobs(cfg config.Config) error {
 	}
 	var payload struct {
 		UpdatedAt time.Time `json:"updatedAt"`
+		Workers   map[string]struct {
+			Enabled       bool       `json:"enabled"`
+			LastRunAt     *time.Time `json:"lastRunAt"`
+			LastSuccessAt *time.Time `json:"lastSuccessAt"`
+			LastError     string     `json:"lastError"`
+		} `json:"workers"`
 	}
 	if err := json.Unmarshal(content, &payload); err != nil {
 		return fmt.Errorf("decode Go jobs heartbeat: %w", err)
@@ -66,6 +72,14 @@ func Jobs(cfg config.Config) error {
 	}
 	if age := time.Since(payload.UpdatedAt); age > cfg.JobsHeartbeatMaxAge {
 		return fmt.Errorf("Go jobs heartbeat is stale: %s", age.Round(time.Second))
+	}
+	for name, worker := range payload.Workers {
+		if !worker.Enabled || worker.LastError == "" {
+			continue
+		}
+		if worker.LastSuccessAt == nil || (worker.LastRunAt != nil && worker.LastRunAt.After(*worker.LastSuccessAt)) {
+			return fmt.Errorf("Go jobs worker %s is unhealthy: %s", name, worker.LastError)
+		}
 	}
 	return nil
 }
