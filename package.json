@@ -2,9 +2,8 @@
   "name": "all-mail",
   "private": true,
   "version": "2.0.0",
-  "description": "all-Mail Docker-first runtime with compatibility CLI scripts",
+  "description": "all-Mail Docker-first Go migration bridge with a compatibility Fastify business API",
   "license": "SEE LICENSE IN LICENSE",
-  "preferGlobal": true,
   "repository": {
     "type": "git",
     "url": "https://github.com/feng123-new/all-Mail.git"
@@ -14,6 +13,7 @@
     "email",
     "self-hosted",
     "cli",
+    "go",
     "fastify",
     "react"
   ],
@@ -25,12 +25,13 @@
     "scripts",
     "server",
     "web",
+    "core",
     "cloudflare/workers/allmail-edge",
     "docker-compose.yml",
     "Dockerfile",
+    "Dockerfile.legacy",
     "README.md",
     ".env.example",
-    ".env.basic.example",
     ".env.cloudflare.example",
     "server/.env.example"
   ],
@@ -42,6 +43,8 @@
     "docker:down": "./scripts/sanitize-runtime-env.sh docker compose down",
     "docker:ps": "./scripts/sanitize-runtime-env.sh docker compose ps",
     "docker:restart": "./scripts/sanitize-runtime-env.sh docker compose down && ./scripts/sanitize-runtime-env.sh docker compose up -d --build",
+    "docker:rollback:jobs": "./scripts/sanitize-runtime-env.sh docker compose --profile rollback up -d legacy-jobs",
+    "docker:rollback:stop": "./scripts/sanitize-runtime-env.sh docker compose --profile rollback stop legacy-jobs",
     "docker:deps:up": "node bin/all-mail.mjs deps up",
     "docker:deps:down": "node bin/all-mail.mjs deps down",
     "postinstall": "node bin/all-mail.mjs internal-postinstall",
