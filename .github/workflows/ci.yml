@@ -80,11 +80,47 @@ jobs:
           CREATE TABLE admins (id integer PRIMARY KEY);
           CREATE TABLE email_accounts (id integer PRIMARY KEY);
           CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
+          CREATE TABLE api_logs (
+              id bigserial PRIMARY KEY,
+              created_at timestamptz NOT NULL DEFAULT now()
+          );
           SQL
           ./allmail migrate
           ./allmail migrate
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "2"
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
+
+      - name: Verify Go API log retention worker
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_ci?sslmode=disable
+          ALL_MAIL_STATE_DIR: ${{ runner.temp }}/allmail-go-jobs
+          API_LOG_RETENTION_OWNER: go
+          API_LOG_RETENTION_DAYS: 30
+          API_LOG_CLEANUP_INTERVAL_MINUTES: 60
+          API_LOG_CLEANUP_BATCH_SIZE: 5000
+          GO_JOBS_HEARTBEAT_SECONDS: 1
+          GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS: 10
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO api_logs (created_at)
+          VALUES (now() - interval '45 days'), (now() - interval '5 days');
+          SQL
+          mkdir -p "$ALL_MAIL_STATE_DIR"
+          ./allmail jobs &
+          jobs_pid=$!
+          trap 'kill -TERM "$jobs_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if grep -q '"lastSuccessAt"' "$ALL_MAIL_STATE_DIR/go-jobs-heartbeat.json" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          ./allmail doctor jobs
+          kill -TERM "$jobs_pid"
+          wait "$jobs_pid"
+          trap - EXIT
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM api_logs WHERE created_at < now() - interval '30 days'")" = "0"
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM api_logs WHERE created_at >= now() - interval '30 days'")" = "1"
 
       - name: Verify legacy ledger adoption
         env:
@@ -236,14 +272,12 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:3002/readyz
           docker compose exec -T legacy-api node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
 
-      - name: Verify optional Go jobs supervisor
-        run: |
-          docker compose --profile go-migration up -d --wait --wait-timeout 90 go-jobs
-          docker compose exec -T go-jobs allmail doctor jobs
+      - name: Verify Go jobs runtime
+        run: docker compose exec -T go-jobs allmail doctor jobs
 
       - name: Check container health
-        run: docker compose --profile go-migration ps
+        run: docker compose ps
 
       - name: Stop Docker stack
         if: always()
-        run: docker compose --profile go-migration down -v
+        run: docker compose down -v
