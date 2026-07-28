@@ -78,7 +78,22 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
 
       - name: Check formatting
-        run: test -z "$(gofmt -l .)"
+        shell: bash
+        run: |
+          set +e
+          gofmt -l . | tee "$RUNNER_TEMP/gofmt-files.txt"
+          gofmt -d . > "$RUNNER_TEMP/gofmt.patch"
+          test ! -s "$RUNNER_TEMP/gofmt-files.txt"
+
+      - name: Upload Go formatting diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gofmt-diagnostics
+          path: |
+            ${{ runner.temp }}/gofmt-files.txt
+            ${{ runner.temp }}/gofmt.patch
+          if-no-files-found: warn
 
       - name: Test with race detector
         run: go test -race ./...
