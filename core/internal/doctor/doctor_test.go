@@ -3,262 +3,113 @@ package doctor
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
+	"github.com/feng123-new/all-Mail/core/internal/jobs"
 )
 
-func TestJobsRejectsFailedEnabledWorker(t *testing.T) {
-	stateDir := t.TempDir()
-	now := time.Now().UTC()
+func writeWorkerHeartbeat(t *testing.T, stateDir, workerName, stateJSON string, updatedAt time.Time, pid int) {
+	t.Helper()
 	payload := fmt.Sprintf(`{
-        "runtime": "go-jobs-runtime",
-		"pid": %d,
+        "runtime": "allmail-worker-%s",
+        "worker": %q,
+        "pid": %d,
         "updatedAt": %q,
-        "workers": {
-            "apiLogRetention": {
-                "enabled": true,
-                "lastRunAt": %q,
-                "lastCompletedAt": %q,
-                "consecutiveFailures": 1,
-                "lastError": "database unavailable"
-            },
-            "forwarding": {"enabled": false}
-        }
-    }`, os.Getpid(), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
-	if err := os.WriteFile(filepath.Join(stateDir, "go-jobs-heartbeat.json"), []byte(payload), 0o600); err != nil {
+        "state": %s
+    }`, workerName, workerName, pid, updatedAt.Format(time.RFC3339Nano), stateJSON)
+	if err := os.WriteFile(jobs.HeartbeatPath(stateDir, workerName), []byte(payload), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	cfg := config.Config{
-		StateDir:              stateDir,
-		JobsHeartbeatMaxAge:   time.Minute,
-		LogRetentionOwner:     config.RuntimeOwnerGo,
-		ForwardingWorkerOwner: config.RuntimeOwnerLegacy,
-	}
-	if err := Jobs(cfg); err == nil {
-		t.Fatal("Jobs expected an error")
 	}
 }
 
-func TestJobsAcceptsHealthyWorker(t *testing.T) {
+func TestForwardingAcceptsHealthyWorker(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Now().UTC()
-	payload := fmt.Sprintf(`{
-        "runtime": "go-jobs-runtime",
-		"pid": %d,
-        "updatedAt": %q,
-        "workers": {
-            "apiLogRetention": {
-                "enabled": true,
-                "running": false,
-                "lastRunAt": %q,
-                "lastCompletedAt": %q,
-                "lastSuccessAt": %q
-            },
-            "forwarding": {"enabled": false}
-        }
-    }`, os.Getpid(), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
-	if err := os.WriteFile(filepath.Join(stateDir, "go-jobs-heartbeat.json"), []byte(payload), 0o600); err != nil {
-		t.Fatal(err)
+	writeWorkerHeartbeat(
+		t,
+		stateDir,
+		jobs.WorkerForwarding,
+		fmt.Sprintf(`{"lastRunAt":%q,"lastCompletedAt":%q,"lastSuccessAt":%q}`, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)),
+		now,
+		os.Getpid(),
+	)
+	cfg := config.ForwardingConfig{
+		StateDir:        stateDir,
+		HeartbeatMaxAge: time.Minute,
+		RunTimeout:      time.Minute,
 	}
-	cfg := config.Config{
-		StateDir:              stateDir,
-		JobsHeartbeatMaxAge:   time.Minute,
-		LogRetentionOwner:     config.RuntimeOwnerGo,
-		ForwardingWorkerOwner: config.RuntimeOwnerLegacy,
-	}
-	if err := Jobs(cfg); err != nil {
-		t.Fatalf("Jobs error = %v", err)
+	if err := Forwarding(cfg); err != nil {
+		t.Fatalf("Forwarding doctor error = %v", err)
 	}
 }
 
-func TestJobsRejectsForwardingRunPastItsDeadline(t *testing.T) {
+func TestRetentionRejectsLatestFailedRun(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now().UTC()
+	writeWorkerHeartbeat(
+		t,
+		stateDir,
+		jobs.WorkerRetention,
+		fmt.Sprintf(`{"lastRunAt":%q,"lastCompletedAt":%q,"consecutiveFailures":1,"lastError":"database unavailable"}`, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)),
+		now,
+		os.Getpid(),
+	)
+	cfg := config.RetentionConfig{
+		StateDir:        stateDir,
+		HeartbeatMaxAge: time.Minute,
+		RunTimeout:      time.Minute,
+	}
+	err := Retention(cfg)
+	if err == nil || !strings.Contains(err.Error(), "database unavailable") {
+		t.Fatalf("Retention doctor error = %v, want worker failure", err)
+	}
+}
+
+func TestForwardingRejectsRunPastDeadline(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Now().UTC()
 	startedAt := now.Add(-2 * time.Minute)
-	payload := fmt.Sprintf(`{
-        "runtime": "go-jobs-runtime",
-		"pid": %d,
-        "updatedAt": %q,
-        "workers": {
-            "apiLogRetention": {"enabled": false},
-            "forwarding": {
-                "enabled": true,
-                "running": true,
-                "startedAt": %q,
-                "lastRunAt": %q
-            }
-        }
-	}`, os.Getpid(), now.Format(time.RFC3339Nano), startedAt.Format(time.RFC3339Nano), startedAt.Format(time.RFC3339Nano))
-	if err := os.WriteFile(filepath.Join(stateDir, "go-jobs-heartbeat.json"), []byte(payload), 0o600); err != nil {
-		t.Fatal(err)
+	writeWorkerHeartbeat(
+		t,
+		stateDir,
+		jobs.WorkerForwarding,
+		fmt.Sprintf(`{"running":true,"startedAt":%q,"lastRunAt":%q}`, startedAt.Format(time.RFC3339Nano), startedAt.Format(time.RFC3339Nano)),
+		now,
+		os.Getpid(),
+	)
+	cfg := config.ForwardingConfig{
+		StateDir:        stateDir,
+		HeartbeatMaxAge: time.Minute,
+		RunTimeout:      30 * time.Second,
 	}
-	cfg := config.Config{
-		StateDir:              stateDir,
-		JobsHeartbeatMaxAge:   time.Minute,
-		ForwardingRunTimeout:  30 * time.Second,
-		APILogCleanupTimeout:  time.Minute,
-		LogRetentionOwner:     config.RuntimeOwnerLegacy,
-		ForwardingWorkerOwner: config.RuntimeOwnerGo,
-	}
-	err := Jobs(cfg)
+	err := Forwarding(cfg)
 	if err == nil || !strings.Contains(err.Error(), "exceeded its run limit") {
-		t.Fatalf("Jobs error = %v, want run limit error", err)
+		t.Fatalf("Forwarding doctor error = %v, want run limit error", err)
 	}
 }
 
-func TestJobsRejectsInvalidRuntimeIdentity(t *testing.T) {
+func TestWorkerRejectsInvalidIdentity(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Now().UTC()
-	payload := fmt.Sprintf(`{"updatedAt":%q,"workers":{"forwarding":{"enabled":false}}}`, now.Format(time.RFC3339Nano))
-	if err := os.WriteFile(filepath.Join(stateDir, "go-jobs-heartbeat.json"), []byte(payload), 0o600); err != nil {
+	payload := fmt.Sprintf(`{"runtime":"wrong","worker":"forwarding","pid":%d,"updatedAt":%q,"state":{}}`, os.Getpid(), now.Format(time.RFC3339Nano))
+	if err := os.WriteFile(jobs.HeartbeatPath(stateDir, jobs.WorkerForwarding), []byte(payload), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{StateDir: stateDir, JobsHeartbeatMaxAge: time.Minute}
-	if err := Jobs(cfg); err == nil {
-		t.Fatal("Jobs expected invalid identity error")
+	cfg := config.ForwardingConfig{StateDir: stateDir, HeartbeatMaxAge: time.Minute, RunTimeout: time.Minute}
+	if err := Forwarding(cfg); err == nil || !strings.Contains(err.Error(), "invalid runtime identity") {
+		t.Fatalf("Forwarding doctor error = %v, want identity error", err)
 	}
 }
 
-func TestJobsRejectsMissingConfiguredWorker(t *testing.T) {
-	stateDir := t.TempDir()
-	now := time.Now().UTC()
-	payload := fmt.Sprintf(`{
-		"runtime": "go-jobs-runtime",
-		"pid": %d,
-		"updatedAt": %q,
-		"workers": {
-			"apiLogRetention": {"enabled": true}
-		}
-	}`, os.Getpid(), now.Format(time.RFC3339Nano))
-	if err := os.WriteFile(filepath.Join(stateDir, "go-jobs-heartbeat.json"), []byte(payload), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Config{
-		StateDir:              stateDir,
-		JobsHeartbeatMaxAge:   time.Minute,
-		LogRetentionOwner:     config.RuntimeOwnerGo,
-		ForwardingWorkerOwner: config.RuntimeOwnerGo,
-	}
-	err := Jobs(cfg)
-	if err == nil || !strings.Contains(err.Error(), "missing forwarding worker state") {
-		t.Fatalf("Jobs error = %v, want missing forwarding worker state", err)
-	}
-}
-
-func TestJobsRejectsWorkerEnablementThatDoesNotMatchOwnership(t *testing.T) {
-	stateDir := t.TempDir()
-	now := time.Now().UTC()
-	payload := fmt.Sprintf(`{
-		"runtime": "go-jobs-runtime",
-		"pid": %d,
-		"updatedAt": %q,
-		"workers": {
-			"apiLogRetention": {"enabled": false},
-			"forwarding": {"enabled": false}
-		}
-	}`, os.Getpid(), now.Format(time.RFC3339Nano))
-	if err := os.WriteFile(filepath.Join(stateDir, "go-jobs-heartbeat.json"), []byte(payload), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Config{
-		StateDir:              stateDir,
-		JobsHeartbeatMaxAge:   time.Minute,
-		LogRetentionOwner:     config.RuntimeOwnerLegacy,
-		ForwardingWorkerOwner: config.RuntimeOwnerGo,
-	}
-	err := Jobs(cfg)
-	if err == nil || !strings.Contains(err.Error(), "forwarding enablement") {
-		t.Fatalf("Jobs error = %v, want forwarding enablement mismatch", err)
-	}
-}
-
-func TestJobsRejectsHeartbeatFromDeadProcess(t *testing.T) {
-	stateDir := t.TempDir()
-	now := time.Now().UTC()
-	payload := fmt.Sprintf(`{
-		"runtime": "go-jobs-runtime",
-		"pid": 1073741824,
-		"updatedAt": %q,
-		"workers": {
-			"apiLogRetention": {"enabled": false},
-			"forwarding": {"enabled": false}
-		}
-	}`, now.Format(time.RFC3339Nano))
-	if err := os.WriteFile(filepath.Join(stateDir, "go-jobs-heartbeat.json"), []byte(payload), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Config{
-		StateDir:              stateDir,
-		JobsHeartbeatMaxAge:   time.Minute,
-		LogRetentionOwner:     config.RuntimeOwnerLegacy,
-		ForwardingWorkerOwner: config.RuntimeOwnerLegacy,
-	}
-	err := Jobs(cfg)
-	if err == nil || !strings.Contains(err.Error(), "process is not running") {
-		t.Fatalf("Jobs error = %v, want dead process error", err)
-	}
-}
-
-func TestJobsRejectsFutureHeartbeatTimestamp(t *testing.T) {
+func TestWorkerRejectsFutureHeartbeat(t *testing.T) {
 	stateDir := t.TempDir()
 	future := time.Now().UTC().Add(time.Hour)
-	payload := fmt.Sprintf(`{
-		"runtime": "go-jobs-runtime",
-		"pid": %d,
-		"updatedAt": %q,
-		"workers": {
-			"apiLogRetention": {"enabled": false},
-			"forwarding": {"enabled": false}
-		}
-	}`, os.Getpid(), future.Format(time.RFC3339Nano))
-	if err := os.WriteFile(filepath.Join(stateDir, "go-jobs-heartbeat.json"), []byte(payload), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Config{
-		StateDir:              stateDir,
-		JobsHeartbeatMaxAge:   time.Minute,
-		LogRetentionOwner:     config.RuntimeOwnerLegacy,
-		ForwardingWorkerOwner: config.RuntimeOwnerLegacy,
-	}
-	err := Jobs(cfg)
-	if err == nil || !strings.Contains(err.Error(), "timestamp is in the future") {
-		t.Fatalf("Jobs error = %v, want future timestamp error", err)
-	}
-}
-
-func TestJobsRejectsFutureWorkerTimestamp(t *testing.T) {
-	stateDir := t.TempDir()
-	now := time.Now().UTC()
-	future := now.Add(time.Hour)
-	payload := fmt.Sprintf(`{
-		"runtime": "go-jobs-runtime",
-		"pid": %d,
-		"updatedAt": %q,
-		"workers": {
-			"apiLogRetention": {"enabled": false},
-			"forwarding": {
-				"enabled": true,
-				"running": true,
-				"startedAt": %q
-			}
-		}
-	}`, os.Getpid(), now.Format(time.RFC3339Nano), future.Format(time.RFC3339Nano))
-	if err := os.WriteFile(filepath.Join(stateDir, "go-jobs-heartbeat.json"), []byte(payload), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Config{
-		StateDir:              stateDir,
-		JobsHeartbeatMaxAge:   time.Minute,
-		ForwardingRunTimeout:  time.Minute,
-		LogRetentionOwner:     config.RuntimeOwnerLegacy,
-		ForwardingWorkerOwner: config.RuntimeOwnerGo,
-	}
-	err := Jobs(cfg)
-	if err == nil || !strings.Contains(err.Error(), "startedAt is in the future") {
-		t.Fatalf("Jobs error = %v, want future worker timestamp error", err)
+	writeWorkerHeartbeat(t, stateDir, jobs.WorkerRetention, `{}`, future, os.Getpid())
+	cfg := config.RetentionConfig{StateDir: stateDir, HeartbeatMaxAge: time.Minute, RunTimeout: time.Minute}
+	if err := Retention(cfg); err == nil || !strings.Contains(err.Error(), "timestamp is in the future") {
+		t.Fatalf("Retention doctor error = %v, want future timestamp error", err)
 	}
 }
