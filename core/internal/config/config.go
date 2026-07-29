@@ -301,6 +301,9 @@ func parseTrustedProxyCIDRs(raw string) ([]netip.Prefix, error) {
 			return nil, fmt.Errorf("TRUSTED_PROXY_CIDRS contains invalid CIDR %q: %w", value, err)
 		}
 		prefix = prefix.Masked()
+		if prefix.Bits() == 0 {
+			return nil, fmt.Errorf("TRUSTED_PROXY_CIDRS must not trust all addresses with %q", value)
+		}
 		if _, ok := seen[prefix]; ok {
 			continue
 		}
