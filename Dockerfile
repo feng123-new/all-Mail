@@ -1,7 +1,7 @@
 FROM node:20-bookworm-slim AS web-builder
 WORKDIR /src/web
 COPY web/package*.json ./
-RUN npm ci --legacy-peer-deps
+RUN npm ci
 COPY web ./
 RUN npm run build
 
@@ -24,8 +24,7 @@ RUN apt-get update -y \
     && mkdir -p /app/public /app/migrations /var/lib/all-mail \
     && chown -R allmail:allmail /app /var/lib/all-mail
 
-ENV ALL_MAIL_ENV=production \
-    ALL_MAIL_STATIC_DIR=/app/public \
+ENV ALL_MAIL_STATIC_DIR=/app/public \
     ALL_MAIL_STATE_DIR=/var/lib/all-mail \
     ALL_MAIL_MIGRATION_DIR=/app/migrations \
     PORT=3000
