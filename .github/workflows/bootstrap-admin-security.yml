@@ -52,7 +52,8 @@ jobs:
           ./scripts/sanitize-runtime-env.sh npm --prefix server run lint
           ./scripts/sanitize-runtime-env.sh npm --prefix server run build
       - name: Verify one-shot bootstrap against PostgreSQL
-        run: ./scripts/sanitize-runtime-env.sh node --test --import tsx server/src/runtime/bootstrapAdmin.integration.test.ts
+        working-directory: server
+        run: ../scripts/sanitize-runtime-env.sh node --test --import tsx src/runtime/bootstrapAdmin.integration.test.ts
       - name: Verify all server unit tests
         run: ./scripts/sanitize-runtime-env.sh npm --prefix server run test
 
