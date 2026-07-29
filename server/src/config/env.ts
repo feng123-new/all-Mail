@@ -24,44 +24,29 @@ const envSchema = z.object({
     // Database
     DATABASE_URL: z.string().url(),
 
-    // Redis (optional)
+    // Redis
     REDIS_URL: z.string().optional(),
     ALLOW_LOCAL_RATE_LIMIT_FALLBACK: booleanFromEnv.default(false),
     CORS_ORIGIN: z.string().optional(),
 
-    // JWT
+    // JWT and encrypted business secrets
     JWT_SECRET: z.string().min(32),
     JWT_EXPIRES_IN: z.string().default('2h'),
-
-    // Encryption
     ENCRYPTION_KEY: z.string().length(32),
 
-    // Default Admin
-    ADMIN_USERNAME: z.string().default('admin'),
-    ADMIN_PASSWORD: z.string().default('admin123'),
-    DOMAIN_BOOTSTRAP_ADMIN_USERNAME: z.preprocess(
-        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-        z.string().trim().min(1).optional()
-    ),
-    DOMAIN_BOOTSTRAP_ADMIN_PASSWORD: z.preprocess(
-        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-        z.string().trim().min(8).optional()
-    ),
-    SEND_ENABLED_DOMAINS: z.preprocess(
-        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-        z.string().trim().min(1).optional()
-    ),
+    // One-time bootstrap credential cleanup path. The API never receives the
+    // bootstrap username or password; it only removes this file after rotation.
+    BOOTSTRAP_ADMIN_SECRET_FILE: z.string().trim().min(1).default('/var/lib/all-mail/bootstrap-admin.env'),
 
     // Admin login security
     ADMIN_LOGIN_MAX_ATTEMPTS: z.coerce.number().int().min(1).default(5),
     ADMIN_LOGIN_LOCK_MINUTES: z.coerce.number().int().min(1).default(15),
-
-    // Optional admin 2FA (TOTP, Base32 secret)
-    ADMIN_2FA_SECRET: z.preprocess(
-        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-        z.string().trim().min(16).regex(/^[A-Za-z2-7]+=*$/, 'ADMIN_2FA_SECRET must be base32').optional()
-    ),
     ADMIN_2FA_WINDOW: z.coerce.number().int().min(0).max(5).default(1),
+
+    SEND_ENABLED_DOMAINS: z.preprocess(
+        (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+        z.string().trim().min(1).optional()
+    ),
 
     // Ingress
     INGRESS_SIGNING_SECRET: z.preprocess(
@@ -70,7 +55,7 @@ const envSchema = z.object({
     ),
     INGRESS_ALLOWED_SKEW_SECONDS: z.coerce.number().int().min(30).default(300),
 
-    // Provider OAuth
+    // Provider OAuth compatibility fallbacks
     GOOGLE_OAUTH_CLIENT_ID: z.preprocess(
         (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
         z.string().trim().min(1).optional()
@@ -127,17 +112,6 @@ function loadEnv(): Env {
     if (!result.success) {
         console.error('❌ Invalid environment variables:');
         console.error(result.error.format());
-        process.exit(1);
-    }
-
-    if (result.data.NODE_ENV === 'production' && result.data.ADMIN_PASSWORD === 'admin123') {
-        console.error('❌ Invalid environment variables:');
-        console.error({
-            _errors: [],
-            ADMIN_PASSWORD: {
-                _errors: ['Production ADMIN_PASSWORD cannot use default value'],
-            },
-        });
         process.exit(1);
     }
 
