@@ -51,6 +51,13 @@ func TestLoadAPIParsesTrustedProxyCIDRs(t *testing.T) {
 	if _, err := LoadAPI(); err == nil {
 		t.Fatal("LoadAPI() expected invalid trusted proxy CIDR error")
 	}
+
+	for _, blanket := range []string{"0.0.0.0/0", "::/0"} {
+		t.Setenv("TRUSTED_PROXY_CIDRS", blanket)
+		if _, err := LoadAPI(); err == nil {
+			t.Fatalf("LoadAPI() accepted blanket trusted proxy CIDR %q", blanket)
+		}
+	}
 }
 
 func TestLoadAPIRejectsInvalidURL(t *testing.T) {
