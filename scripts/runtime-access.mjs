@@ -42,7 +42,6 @@ function resolveCorsOrigin(env) {
 export function resolveLoginBaseUrl(env = {}) {
   const explicitBaseUrl = normalizeBaseUrl(pickFirstNonEmpty([
     env.PUBLIC_BASE_URL,
-    env.ALL_MAIL_PUBLIC_BASE_URL,
   ]));
 
   if (explicitBaseUrl) {
