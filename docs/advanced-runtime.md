@@ -2,51 +2,66 @@
 
 ## Boundary
 
-Production uses Docker Compose. This guide covers only local development surfaces:
+Production uses `docker-compose.yml` by itself. This guide covers only local development surfaces:
 
 - the Fastify compatibility business API;
 - the Vite React frontend;
-- optional Dockerized PostgreSQL and Redis dependencies;
+- PostgreSQL and Redis published through `docker-compose.dev.yml`;
 - repository verification commands.
 
-There is no Node production jobs runtime, no Node SPA server, and no source command that reproduces the full production topology. Use [`DEPLOY.md`](./DEPLOY.md) for production.
+There is no Node production jobs runtime, Node SPA server, or source command that reproduces the full production topology. Use [`DEPLOY.md`](./DEPLOY.md) for production.
 
 ## Appropriate uses
 
 - develop or debug Fastify business routes;
 - iterate on OAuth/provider behavior;
 - develop the React UI against a local API;
-- inspect existing PostgreSQL data in a controlled environment;
-- run lint, tests and builds before opening a PR.
+- inspect PostgreSQL data in a controlled environment;
+- run lint, tests and builds before review.
 
-Do not treat API-only development success as proof that the Go listener, forwarding worker, retention worker or one-shot migration chain is healthy.
+API-only development success is not proof that the Go gateway, forwarding worker, retention worker, proxy trust boundary, or one-shot migration chain is healthy.
 
 ## Prerequisites
 
 | Dependency | Required | Notes |
 | --- | --- | --- |
 | Node.js 20+ | Yes | Fastify and React development |
-| PostgreSQL | Yes for API work | `DATABASE_URL` is required |
-| Redis | Strongly recommended | OAuth, replay and rate-limit behavior depends on it |
-| Go 1.23+ | Yes for Go development | Listener, workers and migration tests |
+| Docker Compose | Recommended | Local PostgreSQL/Redis overlay |
+| Go 1.23+ | Yes for Go work | Gateway, workers and migration tests |
 
-## Start PostgreSQL and Redis only
+## Start PostgreSQL and Redis
 
-```bash
-docker compose up -d postgres redis
-```
-
-Stop them without deleting data:
+Production keeps these services private. Local development publishes them explicitly:
 
 ```bash
-docker compose stop postgres redis
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
 ```
 
-The repository CLI exposes equivalent helpers:
+Defaults:
+
+```text
+PostgreSQL 127.0.0.1:15433
+Redis      127.0.0.1:6380
+```
+
+Stop without deleting data:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml stop postgres redis
+```
+
+Equivalent helpers:
 
 ```bash
 ./bin/all-mail deps up
 ./bin/all-mail deps down
+```
+
+Override local host ports only with:
+
+```env
+DEV_POSTGRES_PORT=15433
+DEV_REDIS_PORT=6380
 ```
 
 ## Fastify business-API development
@@ -57,29 +72,30 @@ npm --prefix server install
 npm run dev:api
 ```
 
-The default development API port is `3000`. This process:
+The default API port is `3000`. This process:
 
 - serves JSON business routes only;
 - does not serve the React SPA;
 - does not run forwarding or retention;
-- does not run the canonical `legacy-init -> go-migrate` production sequence.
+- does not run the canonical `legacy-init -> go-migrate` production sequence;
+- receives traffic directly, so local tests should not assume the production one-hop Go proxy unless the Go gateway is also running.
 
-Apply Prisma migrations intentionally before API development when required:
+Apply Prisma migrations intentionally when required:
 
 ```bash
 npm --prefix server run db:migrate
 ```
 
-P3005 and P3009 remain database recovery events. The production one-shot repair switch belongs to Docker `legacy-init`, not to a standing local development command.
+P3005 and P3009 remain recovery events. The production repair switch belongs to an explicit Docker `legacy-init` invocation, not a standing local configuration.
 
 ## React development
 
 ```bash
-npm --prefix web install --legacy-peer-deps
+npm --prefix web install
 npm run dev:web
 ```
 
-Configure `web/.env` from `web/.env.example` so the Vite proxy targets the local API or the public Go listener you are testing.
+Configure `web/.env` from `web/.env.example` so the Vite proxy targets the local Fastify API or the public Go gateway being tested.
 
 ## Go development
 
@@ -91,7 +107,7 @@ go vet ./...
 go build -trimpath ./cmd/allmail
 ```
 
-Run a single Go component only when its dependencies are configured:
+Run a component only when its owned dependencies are configured:
 
 ```bash
 allmail api
@@ -100,7 +116,9 @@ allmail worker retention
 allmail migrate
 ```
 
-For production-equivalent process ownership and secret mounts, use Docker Compose instead of manually launching all binaries.
+The forwarding command requires `ENCRYPTION_KEY_FILE`; direct `ENCRYPTION_KEY` and legacy bootstrap-file fallback are intentionally unsupported.
+
+For proxy tests, set `TRUSTED_PROXY_CIDRS` only when a known reverse proxy connects directly to the listener. Direct local access should normally leave it empty.
 
 ## Repository CLI
 
@@ -118,19 +136,12 @@ The CLI intentionally has no `start`, `up`, `deploy`, or jobs-rollback command. 
 
 ## Verification
 
-API/frontend development checks:
-
 ```bash
 npm run test:runtime
 npm run test:server
 npm run test:web
 npm run lint
 npm run build
-```
-
-Full repository gate:
-
-```bash
 ./bin/all-mail check
 ```
 
@@ -138,6 +149,8 @@ Production-equivalent smoke:
 
 ```bash
 cp .env.example .env
+docker compose config --quiet
+docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
 docker compose up -d --build --wait --wait-timeout 240
 docker compose exec -T app allmail doctor api
 docker compose exec -T worker-forwarding allmail doctor worker forwarding
@@ -145,4 +158,4 @@ docker compose exec -T worker-retention allmail doctor worker retention
 docker compose down
 ```
 
-CI remains the authoritative evidence because it also exercises real PostgreSQL forwarding transitions, migrations and the complete Docker startup chain.
+CI remains authoritative because it also exercises real PostgreSQL forwarding transitions, migrations, proxy-header rejection, and the complete Docker startup chain.
