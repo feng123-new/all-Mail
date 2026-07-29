@@ -1,81 +1,82 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
-  buildBootstrapAdminPasswordMessages,
-  ensureBootstrapSecrets,
-  resolveBootstrapAdminPasswordSource,
-  shouldPrintBootstrapPassword,
+  BOOTSTRAP_ADMIN_FILENAME,
+  LEGACY_SECRETS_FILENAME,
+  RUNTIME_SECRETS_FILENAME,
+  ensureRuntimeSecrets,
+  parseEnvText,
 } from './bootstrap-secrets.mjs';
 
-void test('ensureBootstrapSecrets marks first state file creation and resolves login url', async () => {
-  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-bootstrap-'));
-  const firstRun = await ensureBootstrapSecrets({
+void test('runtime secrets contain only long-lived application secrets', async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-runtime-secrets-'));
+  const first = await ensureRuntimeSecrets({
     stateDir,
     env: {
-      APP_PORT: '3002',
-      ADMIN_PASSWORD: 'provided-admin-password',
       PUBLIC_BASE_URL: 'https://mail.example.com/',
+      ADMIN_USERNAME: 'root-admin',
+      ADMIN_PASSWORD: 'provided-admin-password',
     },
   });
 
-  assert.equal(firstRun.createdStateFile, true);
-  assert.equal(firstRun.loginUrl, 'https://mail.example.com/login');
-  assert.deepEqual(firstRun.createdKeys, ['JWT_SECRET', 'ENCRYPTION_KEY']);
+  assert.equal(first.loginUrl, 'https://mail.example.com/login');
+  assert.deepEqual(first.createdKeys, ['JWT_SECRET', 'ENCRYPTION_KEY']);
+  assert.equal(first.runtimeSecrets.ENCRYPTION_KEY.length, 32);
+  assert.equal(first.runtimeSecrets.JWT_SECRET.length, 64);
 
-  const secondRun = await ensureBootstrapSecrets({
+  const runtime = parseEnvText(await readFile(path.join(stateDir, RUNTIME_SECRETS_FILENAME), 'utf8'));
+  assert.deepEqual(Object.keys(runtime).sort(), ['ENCRYPTION_KEY', 'JWT_SECRET']);
+  assert.equal(runtime.ADMIN_PASSWORD, undefined);
+
+  const second = await ensureRuntimeSecrets({ stateDir, env: {} });
+  assert.deepEqual(second.createdKeys, []);
+  assert.deepEqual(second.runtimeSecrets, first.runtimeSecrets);
+});
+
+void test('legacy combined secret bundle is split and removed atomically', async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-legacy-secrets-'));
+  await writeFile(path.join(stateDir, LEGACY_SECRETS_FILENAME), [
+    'JWT_SECRET=legacy-jwt-secret-that-is-at-least-thirty-two-characters',
+    'ENCRYPTION_KEY=0123456789abcdef0123456789abcdef',
+    'ADMIN_PASSWORD=legacy-bootstrap-password',
+    '',
+  ].join('\n'), { mode: 0o600 });
+
+  const result = await ensureRuntimeSecrets({
+    stateDir,
+    env: { ADMIN_USERNAME: 'legacy-admin' },
+  });
+
+  assert.equal(result.migratedLegacyBundle, true);
+  const runtime = parseEnvText(await readFile(path.join(stateDir, RUNTIME_SECRETS_FILENAME), 'utf8'));
+  assert.equal(runtime.ENCRYPTION_KEY, '0123456789abcdef0123456789abcdef');
+  assert.equal(runtime.ADMIN_PASSWORD, undefined);
+
+  const admin = parseEnvText(await readFile(path.join(stateDir, BOOTSTRAP_ADMIN_FILENAME), 'utf8'));
+  assert.deepEqual(admin, {
+    ADMIN_USERNAME: 'legacy-admin',
+    ADMIN_PASSWORD: 'legacy-bootstrap-password',
+  });
+
+  await assert.rejects(readFile(path.join(stateDir, LEGACY_SECRETS_FILENAME), 'utf8'));
+});
+
+void test('explicit runtime environment values are exported but not copied into the volume', async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-explicit-secrets-'));
+  const result = await ensureRuntimeSecrets({
     stateDir,
     env: {
-      APP_PORT: '3002',
-      ADMIN_PASSWORD: 'provided-admin-password',
-      PUBLIC_BASE_URL: 'https://mail.example.com/',
+      JWT_SECRET: 'explicit-jwt-secret-that-is-at-least-thirty-two-characters',
+      ENCRYPTION_KEY: 'fedcba9876543210fedcba9876543210',
     },
   });
 
-  assert.equal(secondRun.createdStateFile, false);
-  assert.equal(secondRun.loginUrl, 'https://mail.example.com/login');
-});
-
-void test('bootstrap password notices default to retrieval instructions instead of stdout secrets', () => {
-  const lines = buildBootstrapAdminPasswordMessages({
-    password: 'generated-admin-password',
-    passwordSource: 'generated',
-    secretsFile: '/var/lib/all-mail/bootstrap-secrets.env',
-    printPassword: false,
-    runtimeKind: 'docker',
-  });
-
-  assert.deepEqual(lines, [
-    'Bootstrap admin password is stored in /var/lib/all-mail/bootstrap-secrets.env.',
-    'Retrieve it from the runtime state file instead of startup logs.',
-    `Example: docker compose exec legacy-api sh -lc "grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-secrets.env | cut -d= -f2-"`,
-    'You must log in and change this temporary password immediately before using the rest of the application.',
-  ]);
-});
-
-void test('bootstrap password notices only print raw secrets when explicitly opted in', () => {
-  assert.equal(shouldPrintBootstrapPassword({ ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD: 'true' }), true);
-  assert.equal(shouldPrintBootstrapPassword({ ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD: '0' }), false);
-
-  const lines = buildBootstrapAdminPasswordMessages({
-    password: 'managed-password',
-    passwordSource: 'state-file',
-    secretsFile: '/tmp/bootstrap-secrets.env',
-    printPassword: true,
-  });
-
-  assert.deepEqual(lines, [
-    'Bootstrap admin password: managed-password',
-    'WARNING: Startup logs may retain this password. Disable ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD after recovery.',
-  ]);
-});
-
-void test('bootstrap password source distinguishes generated, persisted, and env-managed credentials', () => {
-  assert.equal(resolveBootstrapAdminPasswordSource({ password: 'abc', createdKeys: ['ADMIN_PASSWORD'], managedKeys: [] }), 'generated');
-  assert.equal(resolveBootstrapAdminPasswordSource({ password: 'abc', createdKeys: [], managedKeys: ['ADMIN_PASSWORD'] }), 'state-file');
-  assert.equal(resolveBootstrapAdminPasswordSource({ password: 'abc', createdKeys: [], managedKeys: [] }), 'env');
-  assert.equal(resolveBootstrapAdminPasswordSource({ password: '', createdKeys: [], managedKeys: [] }), null);
+  assert.equal(result.runtimeSecrets.JWT_SECRET, 'explicit-jwt-secret-that-is-at-least-thirty-two-characters');
+  assert.equal(result.runtimeSecrets.ENCRYPTION_KEY, 'fedcba9876543210fedcba9876543210');
+  const persisted = parseEnvText(await readFile(path.join(stateDir, RUNTIME_SECRETS_FILENAME), 'utf8'));
+  assert.deepEqual(persisted, {});
 });
