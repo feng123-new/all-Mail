@@ -134,14 +134,17 @@ export async function ensureRuntimeSecrets({ stateDir, env }) {
     formatEnvText('Auto-generated all-Mail runtime secrets', persistedRuntime),
   );
 
+  // Existing split state wins. During migration from the combined bundle, a
+  // canonical one-shot ADMIN_USERNAME/ADMIN_PASSWORD pair may override the old
+  // bundle. This is the safe upgrade path for installations that previously
+  // used DOMAIN_BOOTSTRAP_ADMIN_* values which were never written to the bundle.
   const migratedAdmin = {
     ...selectEntries(legacySecrets, ['ADMIN_USERNAME', 'ADMIN_PASSWORD']),
+    ...selectEntries(env, ['ADMIN_USERNAME', 'ADMIN_PASSWORD']),
     ...selectEntries(existingAdmin, ['ADMIN_USERNAME', 'ADMIN_PASSWORD']),
   };
   if (!isMissing(legacySecrets.ADMIN_PASSWORD) && isMissing(migratedAdmin.ADMIN_USERNAME)) {
-    migratedAdmin.ADMIN_USERNAME = !isMissing(env.ADMIN_USERNAME)
-      ? String(env.ADMIN_USERNAME).trim()
-      : 'admin';
+    migratedAdmin.ADMIN_USERNAME = 'admin';
   }
   if (!isMissing(migratedAdmin.ADMIN_PASSWORD)) {
     await writeAtomic(
