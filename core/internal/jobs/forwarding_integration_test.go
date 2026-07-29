@@ -89,7 +89,7 @@ func TestPostgresForwardingIntegration(t *testing.T) {
 	defer server.Close()
 
 	const encryptionSecret = "integration-encryption-secret"
-	store, err := newPostgresForwardingStore(ctx, databaseURL)
+	store, err := newPostgresForwardingStore(ctx, databaseURL, 3*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}

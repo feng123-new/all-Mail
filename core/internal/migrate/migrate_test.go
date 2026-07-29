@@ -72,3 +72,14 @@ func TestChecksumChangesWithMigrationContent(t *testing.T) {
 		t.Fatal("migration checksum did not change")
 	}
 }
+
+func TestFindUnknownMigrationNamesRejectsNewerDatabaseHistory(t *testing.T) {
+	known := []migration{{Name: "0001_first"}, {Name: "0002_second"}}
+	unknown := findUnknownMigrationNames(known, []string{"0003_newer", "0001_first", "0004_latest"})
+	if len(unknown) != 2 || unknown[0] != "0003_newer" || unknown[1] != "0004_latest" {
+		t.Fatalf("unknown migrations = %#v", unknown)
+	}
+	if value := findUnknownMigrationNames(known, []string{"0002_second", "0001_first"}); len(value) != 0 {
+		t.Fatalf("known migrations reported unknown: %#v", value)
+	}
+}

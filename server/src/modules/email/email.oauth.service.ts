@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { proxyFetch } from "../../lib/proxy.js";
+import { logger } from "../../lib/logger.js";
 import { getRedis } from "../../lib/redis.js";
+import { allowLocalSecurityState, securityStateUnavailable } from "../../lib/security-state.js";
 import { AppError } from "../../plugins/error.js";
 import { mailService } from "../mail/mail.service.js";
 import {
@@ -81,6 +83,17 @@ const localOAuthStateStore = new Map<
 >();
 const localOAuthStatusStore = new Map<string, OAuthStatusSnapshot>();
 
+function handleOAuthStateBackendFailure(operation: string, cause?: unknown): void {
+	if (!allowLocalSecurityState()) {
+		throw securityStateUnavailable(
+			"OAUTH_STATE_BACKEND_UNAVAILABLE",
+			"OAuth security state backend is unavailable",
+			cause,
+		);
+	}
+	logger.warn({ err: cause, operation }, "Redis OAuth state backend unavailable; using local development state");
+}
+
 function cleanupExpiredLocalState() {
 	const now = Date.now();
 	for (const [key, value] of Array.from(localOAuthStateStore.entries())) {
@@ -121,9 +134,11 @@ async function saveOAuthState(
 				payload,
 			);
 			return;
-		} catch {
-			// 回退到本地状态存储
+		} catch (error) {
+			handleOAuthStateBackendFailure("save-state", error);
 		}
+	} else {
+		handleOAuthStateBackendFailure("save-state");
 	}
 
 	cleanupExpiredLocalState();
@@ -144,9 +159,11 @@ async function takeOAuthState(state: string): Promise<OAuthStateRecord | null> {
 			}
 			await redis.del(key);
 			return JSON.parse(payload) as OAuthStateRecord;
-		} catch {
-			// 回退到本地状态存储
+		} catch (error) {
+			handleOAuthStateBackendFailure("take-state", error);
 		}
+	} else {
+		handleOAuthStateBackendFailure("take-state");
 	}
 
 	cleanupExpiredLocalState();
@@ -173,9 +190,11 @@ async function peekOAuthState(state: string): Promise<OAuthStateRecord | null> {
 				return null;
 			}
 			return JSON.parse(payload) as OAuthStateRecord;
-		} catch {
-			// 回退到本地状态存储
+		} catch (error) {
+			handleOAuthStateBackendFailure("peek-state", error);
 		}
+	} else {
+		handleOAuthStateBackendFailure("peek-state");
 	}
 
 	cleanupExpiredLocalState();
@@ -206,9 +225,11 @@ async function saveOAuthStatusSnapshot(
 		try {
 			await redis.setex(buildOAuthStatusKey(state), ttlSeconds, payload);
 			return;
-		} catch {
-			// 回退到本地状态存储
+		} catch (error) {
+			handleOAuthStateBackendFailure("save-status", error);
 		}
+	} else {
+		handleOAuthStateBackendFailure("save-status");
 	}
 
 	cleanupExpiredLocalStatus();
@@ -226,9 +247,11 @@ async function getOAuthStatusSnapshot(
 				return null;
 			}
 			return JSON.parse(payload) as OAuthStatusSnapshot;
-		} catch {
-			// 回退到本地状态存储
+		} catch (error) {
+			handleOAuthStateBackendFailure("get-status", error);
 		}
+	} else {
+		handleOAuthStateBackendFailure("get-status");
 	}
 
 	cleanupExpiredLocalStatus();

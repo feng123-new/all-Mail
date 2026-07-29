@@ -78,6 +78,7 @@ INGRESS_KEY_ID=allmail-edge-main
 INGRESS_PROVIDER=CLOUDFLARE_EMAIL_ROUTING
 RAW_EMAIL_OBJECT_PREFIX=allmail-edge/raw
 RAW_EMAIL_BUCKET_NAME=mail-eml
+MAX_RAW_EMAIL_BYTES=15728640
 INGRESS_SIGNING_SECRET=<same-secret-as-backend>
 ```
 
@@ -88,6 +89,7 @@ INGRESS_SIGNING_SECRET=<same-secret-as-backend>
 | `INGRESS_PROVIDER` | Provider label stored with ingress records |
 | `RAW_EMAIL_OBJECT_PREFIX` | R2 prefix for raw `.eml` files |
 | `RAW_EMAIL_BUCKET_NAME` | R2 bucket used by the Worker |
+| `MAX_RAW_EMAIL_BYTES` | Maximum message size parsed in-memory; default 15 MiB, hard ceiling 25 MiB |
 | `INGRESS_SIGNING_SECRET` | HMAC secret uploaded as a Worker secret |
 
 Do not keep `replace-with-*` placeholders or commit `.dev.vars`.
@@ -115,9 +117,12 @@ These scripts administer the current Fastify business schema. Normal inbound tra
 cd cloudflare/workers/allmail-edge
 npm ci
 npm run check
+npm run types
 npm run doctor
 npm run deploy:prod
 ```
+
+The committed Worker configuration uses the current compatibility date, enables `nodejs_compat`, disables the public `workers.dev` endpoint, and exposes only a minimal health response. Oversized messages are rejected before MIME parsing so raw data and decoded attachments cannot consume the isolate memory budget together.
 
 Cloudflare Dashboard work remains manual where account/domain decisions are required:
 

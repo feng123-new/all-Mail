@@ -68,11 +68,10 @@ Removed gateway aliases include `GO_API_MODE`, `ALL_MAIL_ENV`, and `ALL_MAIL_PUB
 | Variable | Default | Consumers | Notes |
 | --- | --- | --- | --- |
 | `POSTGRES_USER` | `allmail` | Compose/init/workers/Fastify | Internal database URL |
-| `POSTGRES_PASSWORD` | `allmail_dev_password` | Compose/init/workers/Fastify | Replace outside development |
+| `POSTGRES_PASSWORD` | required | Compose/init/workers/Fastify | At least 24 URL-safe characters; no production fallback |
 | `POSTGRES_DB` | `allmail` | Compose/init/workers/Fastify | Database name |
 | `DATABASE_URL` | Compose-derived | Internal services/local Fastify | Never supplied to public Go `app` |
 | `REDIS_URL` | Compose-derived | Fastify/local development | Never supplied to `legacy-init` or `app` |
-| `ALLOW_LOCAL_RATE_LIMIT_FALLBACK` | `false` | Fastify | Keep false in production |
 | `DEV_POSTGRES_PORT` | `15433` | development overlay | Local only |
 | `DEV_REDIS_PORT` | `6380` | development overlay | Local only |
 
@@ -92,6 +91,10 @@ ALL_MAIL_STATE_DIR
 ```
 
 `CORS_ORIGIN` remains a local Fastify-development setting only.
+
+Production security state is fail-closed. Redis is mandatory for administrator login protection, API-key rate limiting, OAuth state/status, and ingress replay reservation. Local in-memory maps are development/test-only.
+
+The initializer may create or migrate `runtime-secrets.env`. Long-running Fastify uses `require-existing` mode and exits instead of generating replacement JWT or encryption keys.
 
 ## Long-lived runtime secrets
 
@@ -118,7 +121,7 @@ ENCRYPTION_KEY
 The forwarding worker receives only a copied key file:
 
 ```text
-ENCRYPTION_KEY_FILE=/var/lib/all-mail/encryption-key
+ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
 ```
 
 It does not receive the raw key environment variable or access the legacy runtime secret bundle.
@@ -223,6 +226,7 @@ API_LOG_CLEANUP_INTERVAL_MINUTES=60
 API_LOG_CLEANUP_RETRY_SECONDS=30
 API_LOG_CLEANUP_TIMEOUT_SECONDS=60
 API_LOG_CLEANUP_BATCH_SIZE=5000
+API_LOG_CLEANUP_MAX_BATCHES=10
 ```
 
 Forwarding:
@@ -231,6 +235,7 @@ Forwarding:
 FORWARDING_WORKER_INTERVAL_SECONDS=30
 FORWARDING_WORKER_BATCH_SIZE=10
 FORWARDING_RUN_TIMEOUT_SECONDS=120
+FORWARDING_LEASE_SECONDS=180
 RESEND_API_BASE_URL=https://api.resend.com
 ```
 
@@ -245,7 +250,7 @@ Still-live compatibility variables:
 
 Database OAuth configuration takes precedence. These remain until a separate importer migrates existing environment-only deployments.
 
-Worker-only values such as `INGRESS_URL`, `INGRESS_KEY_ID`, `RAW_EMAIL_BUCKET_NAME`, and `RAW_EMAIL_OBJECT_PREFIX` remain in the Worker template.
+Worker-only values such as `INGRESS_URL`, `INGRESS_KEY_ID`, `RAW_EMAIL_BUCKET_NAME`, `RAW_EMAIL_OBJECT_PREFIX`, and `MAX_RAW_EMAIL_BYTES` remain in the Worker template. The default raw-message parsing limit is 15 MiB.
 
 ## Coverage rule
 

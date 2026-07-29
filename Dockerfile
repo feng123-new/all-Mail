@@ -1,11 +1,11 @@
-FROM node:20-bookworm-slim AS web-builder
+FROM node:24-bookworm-slim AS web-builder
 WORKDIR /src/web
 COPY web/package*.json ./
 RUN npm ci
 COPY web ./
 RUN npm run build
 
-FROM golang:1.23-bookworm AS go-builder
+FROM golang:1.26.5-bookworm AS go-builder
 WORKDIR /src/core
 COPY core/go.mod core/go.sum ./
 RUN go mod download

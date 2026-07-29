@@ -146,7 +146,7 @@ allmail worker forwarding
 allmail doctor worker forwarding
 ```
 
-Guarantees include advisory single ownership, `FOR UPDATE SKIP LOCKED`, claim tokens, expiring leases, fenced terminal updates, transactional MOVE visibility, stable provider idempotency, structured retry classification, and bounded passes.
+Guarantees include advisory single ownership, `FOR UPDATE SKIP LOCKED`, claim tokens, configurable expiring leases, immediate release of unprocessed claims after an interrupted pass, fenced terminal updates, transactional MOVE visibility, stable provider idempotency, structured retry classification, and bounded passes.
 
 ### Retention
 
@@ -155,7 +155,7 @@ allmail worker retention
 allmail doctor worker retention
 ```
 
-Uses `pgx`, an advisory transaction lock, bounded ordered deletion and `FOR UPDATE SKIP LOCKED`.
+Uses a persistent `pgxpool`, periodic database health probes, an advisory transaction lock, bounded consecutive batches, ordered deletion and `FOR UPDATE SKIP LOCKED`.
 
 Each worker writes an independent atomic heartbeat. Canonical controls:
 
@@ -175,7 +175,8 @@ The Go migration runner uses one direct `pgx` transaction. It:
 5. validates/adopts the ledger;
 6. skips only exact checksum matches;
 7. rejects modified applied files;
-8. records checksums atomically.
+8. rejects ledger entries unknown to the current image so an old runtime cannot silently start on a newer schema;
+9. records checksums atomically.
 
 The Go image contains no `psql`. Never edit an applied numbered migration.
 

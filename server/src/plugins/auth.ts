@@ -7,6 +7,7 @@ import { env } from '../config/env.js';
 import prisma from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { getRedis } from '../lib/redis.js';
+import { allowLocalSecurityState, securityStateUnavailable } from '../lib/security-state.js';
 import { ADMIN_PASSWORD_CHANGE_ALLOWED_PATHS, MAILBOX_PASSWORD_CHANGE_ALLOWED_PATHS } from '../routes/prefixes.js';
 import { AppError } from './error.js';
 import { isApiPermissionAllowed, parseApiPermissions, type ApiPermissions } from './api-permissions.js';
@@ -163,7 +164,7 @@ const localRateLimitStore = new Map<number, { count: number; resetAt: number }>(
 const localIngressReplayStore = new Map<string, number>();
 
 export function shouldAllowLocalRateLimitFallback(): boolean {
-    return env.NODE_ENV !== 'production' || env.ALLOW_LOCAL_RATE_LIMIT_FALLBACK;
+    return allowLocalSecurityState();
 }
 
 interface RateLimitRedisClient {
@@ -197,28 +198,37 @@ export function createApiKeyRateLimitEnforcer(options: ApiKeyRateLimitEnforcerOp
         const redis = getRedisClient();
 
         if (redis) {
+            let count: number;
             try {
                 const minuteBucket = Math.floor(now / 60000);
                 const key = `rate_limit:api_key:${apiKeyId}:${minuteBucket}`;
-                const count = await redis.incr(key);
-
+                count = await redis.incr(key);
                 if (count === 1) {
                     await redis.expire(key, 60);
                 }
+            } catch (error) {
+                if (!allowLocalFallback) {
+                    throw securityStateUnavailable(
+                        'RATE_LIMIT_BACKEND_UNAVAILABLE',
+                        'Rate limit backend is unavailable',
+                        error,
+                    );
+                }
+                logger.warn({ err: error }, 'Redis rate limit backend unavailable; using local development limits');
+                count = 0;
+            }
 
+            if (count > 0) {
                 if (count > maxPerMinute) {
                     throw new AppError('RATE_LIMIT_EXCEEDED', `Rate limit exceeded: ${maxPerMinute} requests/minute`, 429);
                 }
                 return;
-            } catch (error) {
-                if (!allowLocalFallback) {
-                    throw new AppError('RATE_LIMIT_BACKEND_UNAVAILABLE', 'Rate limit backend is unavailable', 503);
-                }
-
-                logger.warn({ err: error }, 'Redis rate limit backend unavailable; falling back to local in-memory limits');
             }
         } else if (!allowLocalFallback) {
-            throw new AppError('RATE_LIMIT_BACKEND_UNAVAILABLE', 'Rate limit backend is unavailable', 503);
+            throw securityStateUnavailable(
+                'RATE_LIMIT_BACKEND_UNAVAILABLE',
+                'Rate limit backend is unavailable',
+            );
         }
 
         const existing = localStore.get(apiKeyId);
@@ -237,34 +247,61 @@ export function createApiKeyRateLimitEnforcer(options: ApiKeyRateLimitEnforcerOp
     };
 }
 
-const enforceApiKeyRateLimit = createApiKeyRateLimitEnforcer();
-
-async function reserveIngressReplayKey(replayKey: string, ttlSeconds: number): Promise<boolean> {
-    const redis = getRedis() as IngressReplayRedisClient | null;
-    if (redis) {
-        try {
-            const result = await redis.set(replayKey, '1', 'EX', ttlSeconds, 'NX');
-            return result === 'OK';
-        } catch (error) {
-            logger.warn({ err: error }, 'Ingress replay backend unavailable; falling back to local in-memory replay protection');
-        }
-    }
-
-    const now = Date.now();
-    for (const [key, expiresAt] of localIngressReplayStore.entries()) {
-        if (expiresAt <= now) {
-            localIngressReplayStore.delete(key);
-        }
-    }
-
-    const existing = localIngressReplayStore.get(replayKey);
-    if (existing && existing > now) {
-        return false;
-    }
-
-    localIngressReplayStore.set(replayKey, now + (ttlSeconds * 1000));
-    return true;
+interface IngressReplayReserverOptions {
+    allowLocalFallback?: boolean;
+    getRedisClient?: () => IngressReplayRedisClient | null;
+    localStore?: Map<string, number>;
+    now?: () => number;
 }
+
+export function createIngressReplayReserver(options: IngressReplayReserverOptions = {}) {
+    const allowLocalFallback = options.allowLocalFallback ?? allowLocalSecurityState();
+    const getRedisClient = options.getRedisClient ?? (() => getRedis() as IngressReplayRedisClient | null);
+    const localStore = options.localStore ?? localIngressReplayStore;
+    const nowSource = options.now ?? Date.now;
+
+    return async function reserveIngressReplayKey(replayKey: string, ttlSeconds: number): Promise<boolean> {
+        const redis = getRedisClient();
+        if (redis) {
+            try {
+                const result = await redis.set(replayKey, '1', 'EX', ttlSeconds, 'NX');
+                return result === 'OK';
+            } catch (error) {
+                if (!allowLocalFallback) {
+                    throw securityStateUnavailable(
+                        'INGRESS_REPLAY_BACKEND_UNAVAILABLE',
+                        'Ingress replay protection is unavailable',
+                        error,
+                    );
+                }
+                logger.warn({ err: error }, 'Redis ingress replay backend unavailable; using local development state');
+            }
+        } else if (!allowLocalFallback) {
+            throw securityStateUnavailable(
+                'INGRESS_REPLAY_BACKEND_UNAVAILABLE',
+                'Ingress replay protection is unavailable',
+            );
+        }
+
+        const now = nowSource();
+        for (const [key, expiresAt] of localStore.entries()) {
+            if (expiresAt <= now) {
+                localStore.delete(key);
+            }
+        }
+
+        const existing = localStore.get(replayKey);
+        if (existing && existing > now) {
+            return false;
+        }
+
+        localStore.set(replayKey, now + (ttlSeconds * 1000));
+        return true;
+    };
+}
+
+const enforceApiKeyRateLimit = createApiKeyRateLimitEnforcer();
+const reserveIngressReplayKey = createIngressReplayReserver();
 
 const authPlugin: FastifyPluginAsync = async (fastify) => {
     /**

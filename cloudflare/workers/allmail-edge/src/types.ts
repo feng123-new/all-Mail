@@ -15,6 +15,7 @@ export interface WorkerEnv {
   INGRESS_SIGNING_SECRET: string;
   INGRESS_PROVIDER?: string;
   RAW_EMAIL_OBJECT_PREFIX?: string;
+  MAX_RAW_EMAIL_BYTES?: string;
   RAW_EMAIL_BUCKET?: R2BucketLike;
 }
 
@@ -23,6 +24,7 @@ export interface EmailMessageLike {
   to: string;
   headers: Headers;
   raw: ReadableStream<Uint8Array>;
+  rawSize: number;
   setReject(reason: string): void;
 }
 

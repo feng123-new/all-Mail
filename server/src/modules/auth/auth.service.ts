@@ -6,35 +6,11 @@ import { signToken, verifyToken } from '../../lib/jwt.js';
 import { decrypt, encrypt, hashPassword, verifyPassword } from '../../lib/crypto.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
-import { getRedis } from '../../lib/redis.js';
 import { AppError } from '../../plugins/error.js';
 import type { LoginInput, ChangePasswordInput, Verify2FaInput, Disable2FaInput } from './auth.schema.js';
+import { adminLoginAttempts, buildLoginAttemptCacheKey } from './login-attempts.js';
 import { buildTotpUri, generateBase32Secret, verifyTotpCode } from './totp.js';
 
-interface LocalLoginAttemptState {
-    count: number;
-    resetAt: number;
-    lockedUntil: number;
-}
-
-const localLoginAttemptStore = new Map<string, LocalLoginAttemptState>();
-
-function buildLoginAttemptCacheKey(username: string, ip?: string): string {
-    const normalizedUsername = username.trim().toLowerCase();
-    const normalizedIp = ip?.trim() || 'unknown';
-    return `admin-login:${normalizedUsername}:${normalizedIp}`;
-}
-
-function buildRedisLoginAttemptKey(cacheKey: string): string {
-    return `auth:admin:login:attempt:${cacheKey}`;
-}
-
-function buildRedisLoginLockKey(cacheKey: string): string {
-    return `auth:admin:login:lock:${cacheKey}`;
-}
-
-const LOCK_SECONDS = env.ADMIN_LOGIN_LOCK_MINUTES * 60;
-const ATTEMPT_WINDOW_SECONDS = LOCK_SECONDS;
 const ADMIN_JWT_AUDIENCE = 'admin-console';
 const EXTERNAL_SECRET_REVEAL_GRANT_AUDIENCE = 'admin-email-secret-reveal';
 const EXTERNAL_SECRET_REVEAL_GRANT_PURPOSE = 'external_password_reveal';
@@ -43,100 +19,6 @@ const EXTERNAL_SECRET_REVEAL_GRANT_TTL_MINUTES = 10;
 function formatLockMessage(lockSeconds: number): string {
     const minutes = Math.max(1, Math.ceil(lockSeconds / 60));
     return `Too many failed attempts. Please try again in ${minutes} minute(s)`;
-}
-
-async function getLockRemainingSeconds(cacheKey: string): Promise<number> {
-    const redis = getRedis();
-    if (redis) {
-        try {
-            const ttl = await redis.ttl(buildRedisLoginLockKey(cacheKey));
-            if (ttl > 0) {
-                return ttl;
-            }
-        } catch {
-            // Redis failure currently falls back to local state. A later hardening
-            // slice makes this fail closed in production.
-        }
-    }
-
-    const state = localLoginAttemptStore.get(cacheKey);
-    if (!state) {
-        return 0;
-    }
-
-    const now = Date.now();
-    if (state.lockedUntil > now) {
-        return Math.max(1, Math.ceil((state.lockedUntil - now) / 1000));
-    }
-
-    if (state.resetAt <= now) {
-        localLoginAttemptStore.delete(cacheKey);
-    } else {
-        state.lockedUntil = 0;
-    }
-
-    return 0;
-}
-
-async function clearLoginAttempts(cacheKey: string): Promise<void> {
-    const redis = getRedis();
-    if (redis) {
-        try {
-            await redis.del(buildRedisLoginAttemptKey(cacheKey), buildRedisLoginLockKey(cacheKey));
-        } catch {
-            // Continue clearing local compatibility state.
-        }
-    }
-
-    localLoginAttemptStore.delete(cacheKey);
-}
-
-async function recordLoginFailure(cacheKey: string): Promise<number> {
-    const redis = getRedis();
-    if (redis) {
-        try {
-            const attemptKey = buildRedisLoginAttemptKey(cacheKey);
-            const lockKey = buildRedisLoginLockKey(cacheKey);
-            const count = await redis.incr(attemptKey);
-            if (count === 1) {
-                await redis.expire(attemptKey, ATTEMPT_WINDOW_SECONDS);
-            }
-
-            if (count >= env.ADMIN_LOGIN_MAX_ATTEMPTS) {
-                await redis.set(lockKey, '1', 'EX', LOCK_SECONDS);
-                await redis.del(attemptKey);
-                return LOCK_SECONDS;
-            }
-            return 0;
-        } catch {
-            // Continue with the current single-process compatibility fallback.
-        }
-    }
-
-    const now = Date.now();
-    const state = localLoginAttemptStore.get(cacheKey);
-    if (!state || state.resetAt <= now) {
-        localLoginAttemptStore.set(cacheKey, {
-            count: 1,
-            resetAt: now + ATTEMPT_WINDOW_SECONDS * 1000,
-            lockedUntil: 0,
-        });
-        return 0;
-    }
-
-    if (state.lockedUntil > now) {
-        return Math.max(1, Math.ceil((state.lockedUntil - now) / 1000));
-    }
-
-    state.count += 1;
-    if (state.count >= env.ADMIN_LOGIN_MAX_ATTEMPTS) {
-        state.count = 0;
-        state.lockedUntil = now + LOCK_SECONDS * 1000;
-        return LOCK_SECONDS;
-    }
-
-    localLoginAttemptStore.set(cacheKey, state);
-    return 0;
 }
 
 function decryptAdmin2FaSecret(encryptedSecret: string | null | undefined): string | null {
@@ -192,7 +74,7 @@ export const authService = {
     async login(input: LoginInput, ip?: string) {
         const { username, password, otp } = input;
         const loginAttemptCacheKey = buildLoginAttemptCacheKey(username, ip);
-        const lockSeconds = await getLockRemainingSeconds(loginAttemptCacheKey);
+        const lockSeconds = await adminLoginAttempts.getLockRemainingSeconds(loginAttemptCacheKey);
         if (lockSeconds > 0) {
             throw new AppError('ACCOUNT_LOCKED', formatLockMessage(lockSeconds), 429);
         }
@@ -212,7 +94,7 @@ export const authService = {
         });
 
         if (!admin) {
-            const newLockSeconds = await recordLoginFailure(loginAttemptCacheKey);
+            const newLockSeconds = await adminLoginAttempts.recordFailure(loginAttemptCacheKey);
             if (newLockSeconds > 0) {
                 throw new AppError('ACCOUNT_LOCKED', formatLockMessage(newLockSeconds), 429);
             }
@@ -225,7 +107,7 @@ export const authService = {
 
         const isValid = await verifyPassword(password, admin.passwordHash);
         if (!isValid) {
-            const newLockSeconds = await recordLoginFailure(loginAttemptCacheKey);
+            const newLockSeconds = await adminLoginAttempts.recordFailure(loginAttemptCacheKey);
             if (newLockSeconds > 0) {
                 throw new AppError('ACCOUNT_LOCKED', formatLockMessage(newLockSeconds), 429);
             }
@@ -236,14 +118,14 @@ export const authService = {
             ? decryptAdmin2FaSecret(admin.twoFactorSecret)
             : null;
         if (admin.twoFactorEnabled && adminTwoFactorSecret && !verifyTotpCode(adminTwoFactorSecret, otp, env.ADMIN_2FA_WINDOW)) {
-            const newLockSeconds = await recordLoginFailure(loginAttemptCacheKey);
+            const newLockSeconds = await adminLoginAttempts.recordFailure(loginAttemptCacheKey);
             if (newLockSeconds > 0) {
                 throw new AppError('ACCOUNT_LOCKED', formatLockMessage(newLockSeconds), 429);
             }
             throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
         }
 
-        await clearLoginAttempts(loginAttemptCacheKey);
+        await adminLoginAttempts.clear(loginAttemptCacheKey);
         await prisma.admin.update({
             where: { id: admin.id },
             data: {

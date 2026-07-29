@@ -48,5 +48,8 @@
     "lodash": "4.18.1",
     "postcss": "8.5.24",
     "styled-components": "6.4.4"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

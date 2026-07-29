@@ -62,6 +62,7 @@ type forwardingJob struct {
 
 type forwardingStore interface {
 	Claim(context.Context, int, time.Time) ([]claimedForwardJob, error)
+	Release(context.Context, []claimedForwardJob, time.Time) error
 	Load(context.Context, int64, string) (forwardingJob, error)
 	MarkSkipped(context.Context, forwardingJob, string, time.Time) error
 	MarkFailed(context.Context, forwardingJob, string, *time.Time, time.Time) error
@@ -86,14 +87,34 @@ func newForwardingWorker(store forwardingStore, sender forwardingSender, decrypt
 	return &forwardingWorker{store: store, sender: sender, decrypt: decrypt, logger: logger, batchSize: batchSize}
 }
 
-func (w *forwardingWorker) runOnce(ctx context.Context, now time.Time) error {
+func (w *forwardingWorker) runOnce(ctx context.Context, now time.Time) (runErr error) {
 	claimed, err := w.store.Claim(ctx, w.batchSize, now)
 	if err != nil {
 		return fmt.Errorf("claim forwarding jobs: %w", err)
 	}
-	for _, claim := range claimed {
+	remaining := append([]claimedForwardJob(nil), claimed...)
+	defer func() {
+		if len(remaining) == 0 {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := w.store.Release(cleanupCtx, remaining, time.Now().UTC()); err != nil {
+			releaseErr := fmt.Errorf("release %d unprocessed forwarding claims: %w", len(remaining), err)
+			w.logger.Error("failed to release unprocessed forwarding claims", "count", len(remaining), "error", err)
+			if runErr != nil {
+				runErr = errors.Join(runErr, releaseErr)
+			} else {
+				runErr = releaseErr
+			}
+		}
+	}()
+
+	for len(remaining) > 0 {
+		claim := remaining[0]
 		job, err := w.store.Load(ctx, claim.ID, claim.ClaimToken)
 		if errors.Is(err, errClaimLost) {
+			remaining = remaining[1:]
 			continue
 		}
 		if err != nil {
@@ -102,10 +123,12 @@ func (w *forwardingWorker) runOnce(ctx context.Context, now time.Time) error {
 		if err := w.process(ctx, job, now); err != nil {
 			if errors.Is(err, errClaimLost) {
 				w.logger.Warn("forwarding claim lost before terminal update", "job_id", job.ID)
+				remaining = remaining[1:]
 				continue
 			}
 			return err
 		}
+		remaining = remaining[1:]
 	}
 	return nil
 }

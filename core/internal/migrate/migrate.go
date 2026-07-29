@@ -56,6 +56,30 @@ func Run(ctx context.Context, cfg config.MigrationConfig, logger *slog.Logger) e
 	if _, err := transaction.Exec(ctx, ledgerBootstrapSQL); err != nil {
 		return fmt.Errorf("initialize migration ledger: %w", err)
 	}
+	rows, err := transaction.Query(ctx, "SELECT name FROM runtime_migrations ORDER BY name")
+	if err != nil {
+		return fmt.Errorf("read applied migration names: %w", err)
+	}
+	appliedNames := make([]string, 0)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan applied migration name: %w", err)
+		}
+		appliedNames = append(appliedNames, name)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate applied migration names: %w", err)
+	}
+	rows.Close()
+	if unknown := findUnknownMigrationNames(migrations, appliedNames); len(unknown) > 0 {
+		return fmt.Errorf(
+			"database schema is newer than this runtime; unknown applied migrations: %s",
+			strings.Join(unknown, ", "),
+		)
+	}
 
 	logger.Info("applying Go runtime migrations", "count", len(migrations))
 	for _, item := range migrations {
@@ -113,6 +137,21 @@ func Run(ctx context.Context, cfg config.MigrationConfig, logger *slog.Logger) e
 		return fmt.Errorf("commit Go runtime migrations: %w", err)
 	}
 	return nil
+}
+
+func findUnknownMigrationNames(migrations []migration, appliedNames []string) []string {
+	known := make(map[string]struct{}, len(migrations))
+	for _, item := range migrations {
+		known[item.Name] = struct{}{}
+	}
+	unknown := make([]string, 0)
+	for _, name := range appliedNames {
+		if _, ok := known[name]; !ok {
+			unknown = append(unknown, name)
+		}
+	}
+	sort.Strings(unknown)
+	return unknown
 }
 
 func loadMigrations(directory string) ([]migration, error) {

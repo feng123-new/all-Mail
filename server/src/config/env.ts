@@ -1,22 +1,6 @@
 import { z } from 'zod';
 import 'dotenv/config';
 
-const booleanFromEnv = z.preprocess((value) => {
-    if (typeof value !== 'string') {
-        return value;
-    }
-
-    const normalized = value.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-        return true;
-    }
-    if (['0', 'false', 'no', 'off', ''].includes(normalized)) {
-        return false;
-    }
-
-    return value;
-}, z.boolean());
-
 const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     PORT: z.coerce.number().default(3000),
@@ -26,7 +10,6 @@ const envSchema = z.object({
 
     // Redis
     REDIS_URL: z.string().optional(),
-    ALLOW_LOCAL_RATE_LIMIT_FALLBACK: booleanFromEnv.default(false),
     CORS_ORIGIN: z.string().optional(),
 
     // JWT and encrypted business secrets
