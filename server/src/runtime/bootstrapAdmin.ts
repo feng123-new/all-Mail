@@ -137,6 +137,43 @@ function resolveLoginUrl(environment: NodeJS.ProcessEnv): string {
     return `${base}/login`;
 }
 
+async function matchExistingBootstrapAdmin(
+    admins: Array<{
+        id: number;
+        username: string;
+        passwordHash: string;
+        mustChangePassword: boolean;
+    }>,
+    fileEntries: Record<string, string>,
+) {
+    const password = fileEntries.ADMIN_PASSWORD?.trim();
+    if (isMissing(password)) {
+        return null;
+    }
+
+    const requestedUsername = fileEntries.ADMIN_USERNAME?.trim();
+    if (requestedUsername) {
+        const named = admins.find((admin) => admin.username === requestedUsername);
+        if (
+            named
+            && named.mustChangePassword
+            && await bcrypt.compare(password, named.passwordHash)
+        ) {
+            return named;
+        }
+    }
+
+    for (const admin of admins) {
+        if (!admin.mustChangePassword) {
+            continue;
+        }
+        if (await bcrypt.compare(password, admin.passwordHash)) {
+            return admin;
+        }
+    }
+    return null;
+}
+
 export async function bootstrapAdministrator(
     prisma: PrismaClient,
     environment: NodeJS.ProcessEnv = process.env,
@@ -150,6 +187,7 @@ export async function bootstrapAdministrator(
             select: {
                 id: true,
                 username: true,
+                passwordHash: true,
                 mustChangePassword: true,
             },
             orderBy: { id: 'asc' },
@@ -157,23 +195,23 @@ export async function bootstrapAdministrator(
 
         if (admins.length > 0) {
             const fileEntries = await readBootstrapFile(bootstrapFile);
-            const fileUsername = fileEntries.ADMIN_USERNAME?.trim();
-            const matching = fileUsername
-                ? admins.find((admin) => admin.username === fileUsername)
-                : null;
-            const shouldKeepFile = Boolean(
-                matching
-                && matching.mustChangePassword
-                && !isMissing(fileEntries.ADMIN_PASSWORD),
-            );
+            const matching = await matchExistingBootstrapAdmin(admins, fileEntries);
+            const shouldKeepFile = Boolean(matching);
 
-            if (!shouldKeepFile) {
+            if (matching) {
+                const storedUsername = fileEntries.ADMIN_USERNAME?.trim();
+                if (storedUsername !== matching.username) {
+                    await writeBootstrapFile(bootstrapFile, {
+                        username: matching.username,
+                        password: fileEntries.ADMIN_PASSWORD.trim(),
+                        source: 'file',
+                    });
+                }
+            } else {
                 await rm(bootstrapFile, { force: true });
             }
 
-            const pending = matching?.mustChangePassword
-                ? matching
-                : admins.find((admin) => admin.mustChangePassword);
+            const pending = matching ?? admins.find((admin) => admin.mustChangePassword);
             return {
                 created: false,
                 username: pending?.username ?? admins[0].username,
