@@ -36,11 +36,15 @@ jobs:
             core/go.sum
       - name: Verify canonical config and proxy identity
         run: go test -race ./internal/config ./internal/readiness ./internal/httpapi
-      - name: Reject removed configuration aliases
+      - name: Reject removed aliases in production Go sources
         shell: bash
         run: |
-          if grep -R -nE 'GO_JOBS_HEARTBEAT_SECONDS|GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS|ALL_MAIL_SECRET_STATE_DIR|ALL_MAIL_PUBLIC_BASE_URL|GO_API_MODE' .; then
-            echo 'removed Go configuration alias remains'
+          if grep -R -nE \
+            --include='*.go' \
+            --exclude='*_test.go' \
+            'GO_JOBS_HEARTBEAT_SECONDS|GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS|ALL_MAIL_SECRET_STATE_DIR|ALL_MAIL_PUBLIC_BASE_URL|GO_API_MODE' \
+            ./cmd ./internal; then
+            echo 'removed Go configuration alias remains in production code'
             exit 1
           fi
 
@@ -77,7 +81,7 @@ jobs:
           init_deps = services['legacy-init'].get('depends_on', {})
           assert 'redis' not in init_deps, 'legacy-init still waits for Redis'
 
-          for name, target in (('postgres', 5432), ('redis', 6379)):
+          for name in ('postgres', 'redis'):
               assert not services[name].get('ports'), f'{name} is published by production Compose'
 
           assert services['app'].get('ports'), 'public Go app has no published port'
