@@ -15,6 +15,7 @@ const serverDir = path.join(repoRoot, 'server');
 const webDir = path.join(repoRoot, 'web');
 const workerDir = path.join(repoRoot, 'cloudflare', 'workers', 'allmail-edge');
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const devComposeArgs = ['-f', 'docker-compose.yml', '-f', 'docker-compose.dev.yml'];
 
 function printHelp() {
   console.log(`all-mail repository CLI
@@ -31,7 +32,7 @@ Commands:
   install   Install server, web, and Cloudflare Worker dependencies
   build     Build the compatibility API and React frontend
   doctor    Check env resolution, infrastructure reachability, and build artifacts
-  deps      Start or stop PostgreSQL + Redis for local development
+  deps      Start or stop PostgreSQL + Redis with docker-compose.dev.yml
   check     Run the full repository release gate
   setup     Install dependencies, then build
 
@@ -100,12 +101,12 @@ function normalizeEnv(fileEnv) {
   const normalizedEnv = { ...fileEnv };
   if (!normalizedEnv.DATABASE_URL && normalizedEnv.POSTGRES_USER && normalizedEnv.POSTGRES_PASSWORD && normalizedEnv.POSTGRES_DB) {
     const host = normalizedEnv.POSTGRES_HOST || '127.0.0.1';
-    const port = normalizedEnv.POSTGRES_PORT || normalizedEnv.POSTGRES_INTERNAL_PORT || '5432';
+    const port = normalizedEnv.DEV_POSTGRES_PORT || '15433';
     normalizedEnv.DATABASE_URL = `postgresql://${normalizedEnv.POSTGRES_USER}:${normalizedEnv.POSTGRES_PASSWORD}@${host}:${port}/${normalizedEnv.POSTGRES_DB}`;
   }
-  if (!normalizedEnv.REDIS_URL && (normalizedEnv.REDIS_PORT || normalizedEnv.REDIS_INTERNAL_PORT)) {
+  if (!normalizedEnv.REDIS_URL) {
     const host = normalizedEnv.REDIS_HOST || '127.0.0.1';
-    const port = normalizedEnv.REDIS_PORT || normalizedEnv.REDIS_INTERNAL_PORT || '6379';
+    const port = normalizedEnv.DEV_REDIS_PORT || '6380';
     normalizedEnv.REDIS_URL = `redis://${host}:${port}`;
   }
   return normalizedEnv;
@@ -155,13 +156,13 @@ async function run(command, args, options = {}) {
 
 async function installAll(force = false) {
   const installs = [
-    [serverDir, path.join(serverDir, 'node_modules'), []],
-    [webDir, path.join(webDir, 'node_modules'), ['--legacy-peer-deps']],
-    [workerDir, path.join(workerDir, 'node_modules'), []],
+    [serverDir, path.join(serverDir, 'node_modules')],
+    [webDir, path.join(webDir, 'node_modules')],
+    [workerDir, path.join(workerDir, 'node_modules')],
   ];
-  for (const [directory, nodeModules, extraArgs] of installs) {
+  for (const [directory, nodeModules] of installs) {
     if (force || !(await pathExists(nodeModules))) {
-      await run(npmCommand, ['install', ...extraArgs], { cwd: directory });
+      await run(npmCommand, ['install'], { cwd: directory });
     }
   }
 }
@@ -189,11 +190,11 @@ async function ensureDockerComposeAvailable() {
 async function runDockerDeps(action) {
   await ensureDockerComposeAvailable();
   if (action === 'up') {
-    await run('docker', ['compose', 'up', '-d', 'postgres', 'redis'], { cwd: repoRoot });
+    await run('docker', ['compose', ...devComposeArgs, 'up', '-d', 'postgres', 'redis'], { cwd: repoRoot });
     return;
   }
   if (action === 'down') {
-    await run('docker', ['compose', 'stop', 'postgres', 'redis'], { cwd: repoRoot });
+    await run('docker', ['compose', ...devComposeArgs, 'stop', 'postgres', 'redis'], { cwd: repoRoot });
     return;
   }
   throw new Error(`Unknown deps action: ${action}`);
