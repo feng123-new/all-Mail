@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 
 import { FASTIFY_TRUST_PROXY_HOPS } from './app.js';
 
-test('Fastify derives request.ip from exactly one canonical Go proxy hop', async () => {
+void test('Fastify derives request.ip from exactly one canonical Go proxy hop', async () => {
     assert.equal(FASTIFY_TRUST_PROXY_HOPS, 1);
 
     const app = Fastify({
