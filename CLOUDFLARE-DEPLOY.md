@@ -4,12 +4,11 @@
 
 This document covers the Cloudflare-specific ingress path for `cloudflare/workers/allmail-edge`.
 
-- Use [`docs/DEPLOY.md`](docs/DEPLOY.md) for the main application stack.
+- Use [`docs/DEPLOY.md`](docs/DEPLOY.md) for the main stack.
 - Use [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for shared backend recovery.
 - Use [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) for variable ownership.
-- Use this file for Cloudflare Email Routing, Worker variables, R2, Wrangler deployment and ingress troubleshooting.
 
-The Worker receives Cloudflare Email Routing traffic and forwards a signed payload to the **Go public listener**. Go then proxies the unported ingress business route to the internal Fastify compatibility API.
+The Worker receives Cloudflare Email Routing traffic and forwards a signed payload to the **Go public gateway**. Go normalizes trusted client identity, then proxies the unported ingress business route to the internal Fastify API.
 
 ```text
 Cloudflare Email Routing
@@ -19,7 +18,10 @@ allmail-edge Worker
           |
           | HTTPS + HMAC signature
           v
-app: Go public listener
+trusted tunnel / reverse proxy
+          |
+          v
+app: Go public gateway
           |
           v
 legacy-api: /ingress/domain-mail/receive
@@ -28,25 +30,30 @@ legacy-api: /ingress/domain-mail/receive
 PostgreSQL
 ```
 
-## Repository components
+## Backend preparation
 
-| Component | Purpose | Location |
-| --- | --- | --- |
-| Go public listener | Public ingress endpoint, request IDs and readiness | `core/` |
-| Compatibility ingress handler | Validates and stores the current business payload | `server/` |
-| Endpoint bootstrap script | Creates/checks the active ingress key record | `server/scripts/ensure-ingress-endpoint.ts` |
-| Cloudflare Worker | Parses email and sends signed ingress payloads | `cloudflare/workers/allmail-edge/` |
-| Worker configuration | Vars, secret and R2 binding template | `cloudflare/workers/allmail-edge/wrangler.jsonc` |
-
-## Preconditions
-
-### Backend
-
-Confirm the canonical Docker stack is healthy:
+There is one backend production template:
 
 ```bash
-cp .env.cloudflare.example .env
-# Replace the ingress placeholder in .env before startup.
+cp .env.example .env
+```
+
+Set at least:
+
+```env
+INGRESS_SIGNING_SECRET=<strong-random-secret>
+INGRESS_ALLOWED_SKEW_SECONDS=300
+PUBLIC_BASE_URL=https://mail.example.com
+TRUSTED_PROXY_CIDRS=<cidrs-of-the-tunnel-or-proxy-directly-connected-to-app>
+```
+
+`TRUSTED_PROXY_CIDRS` must contain the direct peer of the Go listener, not arbitrary public client networks. The Go gateway rejects externally supplied forwarded-IP headers from any other peer and writes one canonical client address downstream.
+
+Do not use `0.0.0.0/0` or `::/0`, and do not expose `legacy-api` directly.
+
+Start and validate:
+
+```bash
 docker compose up -d --build --wait --wait-timeout 240
 curl --fail http://127.0.0.1:3002/readyz
 docker compose exec -T app allmail doctor api
@@ -54,31 +61,7 @@ docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 ```
 
-The backend must expose a public HTTPS hostname that reaches the Go `app` service.
-
-### Cloudflare
-
-- the target domain is active in Cloudflare;
-- Email Routing is enabled;
-- a `workers.dev` subdomain or custom Worker route is available;
-- `npx wrangler whoami` succeeds;
-- `CLOUDFLARE_API_TOKEN` is available for non-interactive deployment/R2 operations when required.
-
-### Local workstation
-
-- Node.js 20+;
-- dependencies installed in `cloudflare/workers/allmail-edge`;
-- `curl` available for backend and post-deploy checks.
-
-## Required shared secret
-
-The backend and Worker must use exactly the same secret:
-
-```env
-INGRESS_SIGNING_SECRET=<strong-random-secret>
-```
-
-Do not keep `replace-with-*` placeholders. Backend startup rejects a shipped placeholder.
+The Go gateway no longer carries PostgreSQL or Redis credentials. Its readiness validates the SPA and Fastify `/readyz`; Fastify performs PostgreSQL and Redis protocol checks.
 
 ## Worker configuration
 
@@ -90,7 +73,7 @@ cp .dev.vars.example .dev.vars
 Fill:
 
 ```env
-INGRESS_URL=https://edge.example.com/ingress/domain-mail/receive
+INGRESS_URL=https://mail.example.com/ingress/domain-mail/receive
 INGRESS_KEY_ID=allmail-edge-main
 INGRESS_PROVIDER=CLOUDFLARE_EMAIL_ROUTING
 RAW_EMAIL_OBJECT_PREFIX=allmail-edge/raw
@@ -100,16 +83,18 @@ INGRESS_SIGNING_SECRET=<same-secret-as-backend>
 
 | Variable | Meaning |
 | --- | --- |
-| `INGRESS_URL` | Public Go listener URL for the ingress route; production should use HTTPS |
-| `INGRESS_KEY_ID` | Key identifier shared with the backend endpoint record |
+| `INGRESS_URL` | Public Go gateway URL for the ingress route |
+| `INGRESS_KEY_ID` | Identifier shared with the backend endpoint record |
 | `INGRESS_PROVIDER` | Provider label stored with ingress records |
-| `RAW_EMAIL_OBJECT_PREFIX` | R2 object prefix for raw `.eml` files |
-| `RAW_EMAIL_BUCKET_NAME` | R2 bucket checked or created by deployment tooling |
+| `RAW_EMAIL_OBJECT_PREFIX` | R2 prefix for raw `.eml` files |
+| `RAW_EMAIL_BUCKET_NAME` | R2 bucket used by the Worker |
 | `INGRESS_SIGNING_SECRET` | HMAC secret uploaded as a Worker secret |
 
-## Ensure the backend ingress endpoint
+Do not keep `replace-with-*` placeholders or commit `.dev.vars`.
 
-From the repository root, with the active backend env available:
+## Ensure the backend endpoint
+
+From the repository root, with the active backend environment:
 
 ```bash
 ./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:ensure
@@ -122,9 +107,9 @@ The check should report:
 - the expected `INGRESS_KEY_ID`;
 - `signingKeyHashMatchesEnv: true`.
 
-These are administrative scripts for the compatibility business API. Normal inbound traffic still enters through the Go public listener.
+These scripts administer the current Fastify business schema. Normal inbound traffic still enters through Go.
 
-## Validate and deploy the Worker
+## Validate and deploy
 
 ```bash
 cd cloudflare/workers/allmail-edge
@@ -134,40 +119,24 @@ npm run doctor
 npm run deploy:prod
 ```
 
-Depending on the helper configuration, deployment can:
-
-- validate required vars;
-- verify Wrangler authentication;
-- create or verify the R2 bucket;
-- upload `INGRESS_SIGNING_SECRET` as a Worker secret;
-- deploy the Worker;
-- run post-deploy health checks.
-
-Cloudflare Dashboard actions remain manual where account/domain decisions are required:
+Cloudflare Dashboard work remains manual where account/domain decisions are required:
 
 1. enable Email Routing;
 2. create or verify the Worker route/subdomain;
-3. create or verify a Tunnel/public hostname for the backend when used;
-4. bind an Email Routing address or catch-all rule to `allmail-edge`.
-
-## R2 behavior
-
-A newly created bucket being empty is normal. Raw `.eml` objects are written at runtime when real messages arrive. Manual object uploads are not part of normal deployment.
-
-The backend stores the resulting object key; it does not need a second copy of the raw email body.
+3. create or verify the Tunnel/public hostname that reaches `app`;
+4. bind an address or catch-all rule to `allmail-edge`.
 
 ## End-to-end validation
 
-1. Verify the local/public backend:
+1. Verify the public gateway:
 
 ```bash
-curl --fail https://edge.example.com/health
-curl --fail https://edge.example.com/readyz
+curl --fail https://mail.example.com/health
+curl --fail https://mail.example.com/readyz
 ```
 
-2. Verify Worker health using the deployed URL/helper.
-3. Send a real test message through the configured Cloudflare Email Routing address.
-4. Inspect runtime logs:
+2. Send a real message through the configured Email Routing address.
+3. Inspect the owning services:
 
 ```bash
 docker compose logs app --tail=200
@@ -175,22 +144,37 @@ docker compose logs legacy-api --tail=200
 docker compose logs worker-forwarding --tail=200
 ```
 
-5. Confirm the inbound record exists and, when configured, the R2 object key is present.
-6. If the mailbox is configured for forwarding, confirm `worker-forwarding` advances the forwarding job independently.
+4. Confirm the inbound record exists.
+5. Confirm the R2 object exists when raw persistence is enabled.
+6. Confirm forwarding transitions when the mailbox has forwarding enabled.
+
+A newly created empty R2 bucket is normal; objects are written only when real email arrives.
+
+## Client-IP validation
+
+After the tunnel is configured, perform an admin login or a controlled request and confirm the Fastify audit/login IP is the real client address supplied by the trusted tunnel.
+
+Also send a direct request with forged headers from an untrusted peer:
+
+```bash
+curl -H 'X-Forwarded-For: 203.0.113.99' \
+  -H 'CF-Connecting-IP: 203.0.113.100' \
+  http://127.0.0.1:3002/health
+```
+
+Those values must not be accepted as client identity.
 
 ## Troubleshooting
 
-### Backend returns 401/403 for ingress
+### Backend returns 401/403
 
 Check:
 
-- backend and Worker secrets match;
-- `INGRESS_KEY_ID` matches an active endpoint;
-- Worker system time and backend allowed skew;
+- backend and Worker HMAC secrets match;
+- `INGRESS_KEY_ID` maps to an active endpoint;
 - request body is not modified after signing;
-- the public URL reaches `app`, not an unrelated service.
-
-Backend inspection:
+- clocks fit `INGRESS_ALLOWED_SKEW_SECONDS`;
+- `INGRESS_URL` reaches `app`, not `legacy-api`.
 
 ```bash
 docker compose logs app --tail=200
@@ -201,50 +185,39 @@ docker compose logs legacy-api --tail=300
 ### Backend returns 502/503
 
 ```bash
-curl -i https://edge.example.com/readyz
+curl -i https://mail.example.com/readyz
 docker compose exec -T app allmail doctor api
 docker compose logs app --tail=200
 docker compose logs legacy-api --tail=200
 ```
 
-A Go readiness failure identifies PostgreSQL, Redis or compatibility API failure. A proxy 502 usually means `legacy-api` is unavailable.
+A 502 usually means the compatibility API is unavailable. The Go readiness response reports SPA or compatibility API failure; database/Redis detail remains inside Fastify readiness.
 
-### Worker cannot reach the backend
+### Real client IP is missing
 
-Verify DNS/Tunnel routing and TLS first. The Worker must call a public HTTPS URL; Docker-internal names such as `legacy-api` are not reachable from Cloudflare.
+- confirm the tunnel/proxy is the socket peer directly connected to `app`;
+- add only that peer CIDR to `TRUSTED_PROXY_CIDRS`;
+- confirm the proxy emits `CF-Connecting-IP`, `X-Real-IP`, or `X-Forwarded-For`;
+- recreate `app` after changing `.env`;
+- never compensate by enabling blanket proxy trust in Fastify.
 
-### Signature mismatch after secret rotation
-
-Rotate deliberately:
+### Signature mismatch after rotation
 
 1. update the backend `.env`;
-2. recreate `legacy-api`/`app` as needed;
-3. upload the same new secret to the Worker;
-4. redeploy the Worker;
+2. recreate `legacy-api` as needed;
+3. upload the same secret to the Worker;
+4. redeploy;
 5. run `ingress:check` and a real delivery test.
 
-Avoid leaving backend and Worker on different secrets during an active delivery window.
+The current global-secret model does not provide overlapping key versions; avoid a long mismatch window.
 
 ### R2 write failure
 
-Check:
-
-- bucket name and binding;
-- API token permissions;
-- Wrangler environment selection;
-- object prefix normalization;
-- Worker logs for the exact R2 exception.
-
-A forwarding-worker error is separate from an R2 ingress-write error; diagnose the owning service rather than restarting the whole stack.
+Check the bucket binding, API token permissions, Wrangler environment, object prefix, and Worker logs. An R2 error is separate from a forwarding worker error; diagnose the owning component.
 
 ## Rollback
 
-Worker rollback:
+- Worker: deploy the previous known-good Worker version and restore matching vars/secrets.
+- Backend: deploy the previous repository revision/image with its matching `.env` contract.
 
-- deploy the previous known-good Worker version;
-- restore the matching vars/secrets;
-- verify the backend ingress endpoint still accepts that contract.
-
-Backend rollback uses the previous known-good repository revision/image as documented in `docs/DEPLOY.md`. The current revision contains no hidden Node jobs writer.
-
-Never expose or commit Worker secrets, Tunnel tokens or account credentials.
+Never expose or commit Worker secrets, Tunnel tokens, or account credentials.
