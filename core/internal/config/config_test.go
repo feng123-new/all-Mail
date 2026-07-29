@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,53 +15,49 @@ func clearEnv(t *testing.T, names ...string) {
 	}
 }
 
-func TestLoadAPIRequiresBridgeDependencies(t *testing.T) {
-	clearEnv(t, "PORT", "GO_API_MODE", "LEGACY_API_URL", "DATABASE_URL", "REDIS_URL")
+func TestLoadAPIRequiresCompatibilityAPIAndStaticAssets(t *testing.T) {
+	clearEnv(t, "PORT", "LEGACY_API_URL", "ALL_MAIL_STATIC_DIR", "TRUSTED_PROXY_CIDRS")
 	if _, err := LoadAPI(); err == nil {
-		t.Fatal("LoadAPI() expected missing bridge dependency error")
+		t.Fatal("LoadAPI() expected missing compatibility API error")
 	}
-}
 
-func TestLoadAPIBridgeAndStaticModes(t *testing.T) {
-	t.Setenv("GO_API_MODE", "bridge")
 	t.Setenv("LEGACY_API_URL", "http://legacy-api:3100")
-	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
-	t.Setenv("REDIS_URL", "redis://redis:6379/0")
+	t.Setenv("ALL_MAIL_STATIC_DIR", t.TempDir())
 	cfg, err := LoadAPI()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Mode != APIModeBridge || cfg.Port != 3000 {
+	if cfg.Port != 3000 || cfg.LegacyAPIURL != "http://legacy-api:3100" {
 		t.Fatalf("API config = %#v", cfg)
-	}
-
-	t.Setenv("GO_API_MODE", "static")
-	t.Setenv("LEGACY_API_URL", "")
-	t.Setenv("DATABASE_URL", "")
-	t.Setenv("REDIS_URL", "")
-	t.Setenv("ALL_MAIL_STATIC_DIR", t.TempDir())
-	cfg, err = LoadAPI()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Mode != APIModeStatic {
-		t.Fatalf("Mode = %q, want static", cfg.Mode)
 	}
 }
 
-func TestLoadAPIRejectsInvalidURLs(t *testing.T) {
-	t.Setenv("GO_API_MODE", "bridge")
-	t.Setenv("LEGACY_API_URL", "not-a-url")
-	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
-	t.Setenv("REDIS_URL", "redis://redis:6379")
-	if _, err := LoadAPI(); err == nil {
-		t.Fatal("LoadAPI() expected invalid legacy URL error")
+func TestLoadAPIParsesTrustedProxyCIDRs(t *testing.T) {
+	t.Setenv("LEGACY_API_URL", "http://legacy-api:3100")
+	t.Setenv("ALL_MAIL_STATIC_DIR", t.TempDir())
+	t.Setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32, 10.0.0.0/8,10.0.0.0/8")
+	cfg, err := LoadAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.TrustedProxyCIDRs) != 2 {
+		t.Fatalf("trusted proxies = %#v", cfg.TrustedProxyCIDRs)
+	}
+	if !cfg.TrustsProxy(netip.MustParseAddr("10.1.2.3")) || cfg.TrustsProxy(netip.MustParseAddr("192.0.2.1")) {
+		t.Fatalf("unexpected proxy trust result: %#v", cfg.TrustedProxyCIDRs)
 	}
 
-	t.Setenv("LEGACY_API_URL", "http://legacy-api:3100")
-	t.Setenv("DATABASE_URL", "http://postgres:5432/allmail")
+	t.Setenv("TRUSTED_PROXY_CIDRS", "not-a-cidr")
 	if _, err := LoadAPI(); err == nil {
-		t.Fatal("LoadAPI() expected invalid database scheme error")
+		t.Fatal("LoadAPI() expected invalid trusted proxy CIDR error")
+	}
+}
+
+func TestLoadAPIRejectsInvalidURL(t *testing.T) {
+	t.Setenv("LEGACY_API_URL", "not-a-url")
+	t.Setenv("ALL_MAIL_STATIC_DIR", t.TempDir())
+	if _, err := LoadAPI(); err == nil {
+		t.Fatal("LoadAPI() expected invalid legacy URL error")
 	}
 }
 
@@ -74,49 +71,50 @@ func TestLoadForwardingDefaultsAndSecretFile(t *testing.T) {
 		"GO_JOBS_HEARTBEAT_SECONDS",
 		"GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS",
 		"RESEND_API_BASE_URL",
-		"ALL_MAIL_SECRET_STATE_DIR",
 		"ENCRYPTION_KEY",
 	)
 	keyFile := filepath.Join(t.TempDir(), "encryption-key")
-	if err := os.WriteFile(keyFile, []byte("exported-encryption-key-1234567\n"), 0o600); err != nil {
+	if err := os.WriteFile(keyFile, []byte("0123456789abcdef0123456789abcdef\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ENCRYPTION_KEY_FILE", keyFile)
 	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
 	t.Setenv("ALL_MAIL_STATE_DIR", t.TempDir())
+	// Removed aliases must not override the canonical defaults.
+	t.Setenv("GO_JOBS_HEARTBEAT_SECONDS", "1")
+	t.Setenv("GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS", "2")
 
 	cfg, err := LoadForwarding()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.EncryptionKey != "exported-encryption-key-1234567" {
+	if cfg.EncryptionKey != "0123456789abcdef0123456789abcdef" {
 		t.Fatalf("EncryptionKey = %q", cfg.EncryptionKey)
 	}
 	if cfg.Interval != 30*time.Second || cfg.RunTimeout != 120*time.Second || cfg.BatchSize != 10 {
 		t.Fatalf("Forwarding defaults = %#v", cfg)
 	}
+	if cfg.HeartbeatInterval != 15*time.Second || cfg.HeartbeatMaxAge != 90*time.Second {
+		t.Fatalf("legacy heartbeat aliases affected config: %#v", cfg)
+	}
 }
 
-func TestLoadForwardingReadsManagedSecretAndRejectsInvalidTimeout(t *testing.T) {
-	secretStateDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(secretStateDir, "bootstrap-secrets.env"), []byte("ENCRYPTION_KEY=managed-encryption-key-12345678\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	clearEnv(t, "ENCRYPTION_KEY", "ENCRYPTION_KEY_FILE")
-	t.Setenv("ALL_MAIL_SECRET_STATE_DIR", secretStateDir)
-	t.Setenv("ALL_MAIL_STATE_DIR", t.TempDir())
+func TestLoadForwardingRequiresSecretFileAndRejectsInvalidKey(t *testing.T) {
+	clearEnv(t, "ENCRYPTION_KEY_FILE")
+	t.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
 	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
-	cfg, err := LoadForwarding()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.EncryptionKey != "managed-encryption-key-12345678" {
-		t.Fatalf("EncryptionKey = %q", cfg.EncryptionKey)
+	t.Setenv("ALL_MAIL_STATE_DIR", t.TempDir())
+	if _, err := LoadForwarding(); err == nil {
+		t.Fatal("LoadForwarding() accepted removed ENCRYPTION_KEY fallback")
 	}
 
-	t.Setenv("FORWARDING_RUN_TIMEOUT_SECONDS", "0")
+	keyFile := filepath.Join(t.TempDir(), "encryption-key")
+	if err := os.WriteFile(keyFile, []byte("too-short\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ENCRYPTION_KEY_FILE", keyFile)
 	if _, err := LoadForwarding(); err == nil {
-		t.Fatal("LoadForwarding() expected timeout validation error")
+		t.Fatal("LoadForwarding() accepted malformed encryption key file")
 	}
 }
 
@@ -129,15 +127,21 @@ func TestLoadRetentionDefaultsAndValidation(t *testing.T) {
 		"API_LOG_CLEANUP_BATCH_SIZE",
 		"WORKER_HEARTBEAT_SECONDS",
 		"WORKER_HEARTBEAT_MAX_AGE_SECONDS",
+		"GO_JOBS_HEARTBEAT_SECONDS",
+		"GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS",
 	)
 	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
 	t.Setenv("ALL_MAIL_STATE_DIR", t.TempDir())
+	t.Setenv("GO_JOBS_HEARTBEAT_SECONDS", "1")
 	cfg, err := LoadRetention()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.RetentionDays != 30 || cfg.Interval != time.Hour || cfg.Retry != 30*time.Second || cfg.RunTimeout != time.Minute || cfg.BatchSize != 5000 {
 		t.Fatalf("Retention defaults = %#v", cfg)
+	}
+	if cfg.HeartbeatInterval != 15*time.Second {
+		t.Fatalf("legacy heartbeat alias affected retention: %#v", cfg)
 	}
 
 	t.Setenv("API_LOG_CLEANUP_RETRY_SECONDS", "0")
