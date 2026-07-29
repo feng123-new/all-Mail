@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import SettingsPage from '..';
 import { I18nProvider } from '../../../i18n';
 import { useAuthStore } from '../../../stores/authStore';
@@ -36,15 +37,14 @@ describe('SettingsPage API usage localization', () => {
 
     vi.clearAllMocks();
     vi.mocked(authContract.getTwoFactorStatus).mockReturnValue(
-      ok({ enabled: false, pending: false, legacyEnv: false }) as never,
+      ok({ enabled: false, pending: false }) as never,
     );
   });
 
   it('renders the API usage instructions in English', async () => {
     render(
       <I18nProvider initialLanguage="en-US" persist={false}>
-        <MemoryRouter
-        >
+        <MemoryRouter>
           <SettingsPage />
         </MemoryRouter>
       </I18nProvider>,
