@@ -65,6 +65,30 @@ void test('legacy combined secret bundle is split and removed atomically', async
   await assert.rejects(readFile(path.join(stateDir, LEGACY_SECRETS_FILENAME), 'utf8'));
 });
 
+void test('canonical one-shot admin values override a legacy bundle during alias migration', async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-legacy-admin-override-'));
+  await writeFile(path.join(stateDir, LEGACY_SECRETS_FILENAME), [
+    'JWT_SECRET=legacy-jwt-secret-that-is-at-least-thirty-two-characters',
+    'ENCRYPTION_KEY=0123456789abcdef0123456789abcdef',
+    'ADMIN_PASSWORD=unrelated-generated-admin-password',
+    '',
+  ].join('\n'), { mode: 0o600 });
+
+  await ensureRuntimeSecrets({
+    stateDir,
+    env: {
+      ADMIN_USERNAME: 'historical-domain-admin',
+      ADMIN_PASSWORD: 'historical-domain-admin-password',
+    },
+  });
+
+  const admin = parseEnvText(await readFile(path.join(stateDir, BOOTSTRAP_ADMIN_FILENAME), 'utf8'));
+  assert.deepEqual(admin, {
+    ADMIN_USERNAME: 'historical-domain-admin',
+    ADMIN_PASSWORD: 'historical-domain-admin-password',
+  });
+});
+
 void test('explicit runtime environment values are exported but not copied into the volume', async () => {
   const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-explicit-secrets-'));
   const result = await ensureRuntimeSecrets({
