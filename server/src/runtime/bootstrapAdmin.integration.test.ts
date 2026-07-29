@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp, readFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -70,6 +70,32 @@ void test(
             assert.equal(third.mustChangePassword, false);
             assert.equal(third.secretAvailable, false);
             await assert.rejects(access(bootstrapFile));
+
+            await prisma.admin.deleteMany();
+            const legacyPassword = 'legacy-custom-bootstrap-password';
+            await prisma.admin.create({
+                data: {
+                    username: 'custom-root',
+                    passwordHash: await bcrypt.hash(legacyPassword, 10),
+                    role: 'SUPER_ADMIN',
+                    status: 'ACTIVE',
+                    mustChangePassword: true,
+                },
+            });
+            await writeFile(bootstrapFile, [
+                'ADMIN_USERNAME=admin',
+                `ADMIN_PASSWORD=${legacyPassword}`,
+                '',
+            ].join('\n'), { mode: 0o600 });
+
+            const migrated = await bootstrapAdministrator(prisma, environment);
+            assert.equal(migrated.created, false);
+            assert.equal(migrated.username, 'custom-root');
+            assert.equal(migrated.mustChangePassword, true);
+            assert.equal(migrated.secretAvailable, true);
+            const rewritten = await readFile(bootstrapFile, 'utf8');
+            assert.match(rewritten, /ADMIN_USERNAME=custom-root/);
+            assert.match(rewritten, new RegExp(`ADMIN_PASSWORD=${legacyPassword}`));
         } finally {
             await prisma.$disconnect();
         }
