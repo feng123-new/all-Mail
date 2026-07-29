@@ -1,14 +1,25 @@
 name: ${COMPOSE_PROJECT_NAME:-all-mail}
 
-x-legacy-environment: &legacy-environment
+x-bootstrap-environment: &bootstrap-environment
   NODE_ENV: production
   PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
   ALL_MAIL_STATE_DIR: /var/lib/all-mail
   ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD: ${ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD:-false}
-  DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
-  REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:5432/${POSTGRES_DB:-allmail}
+  JWT_SECRET: ${JWT_SECRET:-}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+  ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+  DOMAIN_BOOTSTRAP_ADMIN_USERNAME: ${DOMAIN_BOOTSTRAP_ADMIN_USERNAME:-}
+  DOMAIN_BOOTSTRAP_ADMIN_PASSWORD: ${DOMAIN_BOOTSTRAP_ADMIN_PASSWORD:-}
+
+x-api-environment: &api-environment
+  NODE_ENV: production
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+  ALL_MAIL_STATE_DIR: /var/lib/all-mail
+  DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:5432/${POSTGRES_DB:-allmail}
+  REDIS_URL: redis://redis:6379
   ALLOW_LOCAL_RATE_LIMIT_FALLBACK: ${ALLOW_LOCAL_RATE_LIMIT_FALLBACK:-false}
-  CORS_ORIGIN: ${CORS_ORIGIN:-}
   JWT_SECRET: ${JWT_SECRET:-}
   JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-2h}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
@@ -54,13 +65,11 @@ services:
       dockerfile: Dockerfile.legacy
     command: ["init"]
     environment:
-      <<: *legacy-environment
+      <<: *bootstrap-environment
       ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE: /var/lib/all-mail-forwarding/encryption-key
       ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR: ${ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR:-false}
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     restart: "no"
     volumes:
@@ -81,7 +90,7 @@ services:
     command: ["migrate"]
     environment:
       ALL_MAIL_MIGRATION_DIR: /app/migrations
-      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:5432/${POSTGRES_DB:-allmail}
     depends_on:
       legacy-init:
         condition: service_completed_successfully
@@ -98,8 +107,8 @@ services:
       dockerfile: Dockerfile.legacy
     command: ["api"]
     environment:
-      <<: *legacy-environment
-      PORT: ${LEGACY_API_INTERNAL_PORT:-3100}
+      <<: *api-environment
+      PORT: 3100
     depends_on:
       go-migrate:
         condition: service_completed_successfully
@@ -127,25 +136,18 @@ services:
       dockerfile: Dockerfile
     command: ["api"]
     ports:
-      - "${APP_PUBLISH_HOST:-127.0.0.1}:${APP_PORT:-3002}:${APP_INTERNAL_PORT:-3000}"
+      - "${APP_PUBLISH_HOST:-127.0.0.1}:${APP_PORT:-3002}:3000"
     environment:
-      ALL_MAIL_ENV: production
-      GO_API_MODE: ${GO_API_MODE:-bridge}
-      PORT: ${APP_INTERNAL_PORT:-3000}
+      PORT: 3000
       ALL_MAIL_STATIC_DIR: /app/public
-      LEGACY_API_URL: http://legacy-api:${LEGACY_API_INTERNAL_PORT:-3100}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
-      REDIS_URL: redis://redis:${REDIS_INTERNAL_PORT:-6379}
+      LEGACY_API_URL: http://legacy-api:3100
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
       go-migrate:
         condition: service_completed_successfully
       legacy-api:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     restart: unless-stopped
     stop_grace_period: 30s
@@ -165,11 +167,9 @@ services:
       dockerfile: Dockerfile
     command: ["worker", "forwarding"]
     environment:
-      ALL_MAIL_ENV: production
       ALL_MAIL_STATE_DIR: /var/lib/all-mail
       ENCRYPTION_KEY_FILE: /var/lib/all-mail/encryption-key
-      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:5432/${POSTGRES_DB:-allmail}
       FORWARDING_WORKER_INTERVAL_SECONDS: ${FORWARDING_WORKER_INTERVAL_SECONDS:-30}
       FORWARDING_WORKER_BATCH_SIZE: ${FORWARDING_WORKER_BATCH_SIZE:-10}
       FORWARDING_RUN_TIMEOUT_SECONDS: ${FORWARDING_RUN_TIMEOUT_SECONDS:-120}
@@ -203,9 +203,8 @@ services:
       dockerfile: Dockerfile
     command: ["worker", "retention"]
     environment:
-      ALL_MAIL_ENV: production
       ALL_MAIL_STATE_DIR: /var/lib/all-mail
-      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:${POSTGRES_INTERNAL_PORT:-5432}/${POSTGRES_DB:-allmail}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:5432/${POSTGRES_DB:-allmail}
       API_LOG_RETENTION_DAYS: ${API_LOG_RETENTION_DAYS:-30}
       API_LOG_CLEANUP_INTERVAL_MINUTES: ${API_LOG_CLEANUP_INTERVAL_MINUTES:-60}
       API_LOG_CLEANUP_RETRY_SECONDS: ${API_LOG_CLEANUP_RETRY_SECONDS:-30}
@@ -235,24 +234,20 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "${REDIS_PUBLISH_HOST:-127.0.0.1}:${REDIS_PORT:-6380}:${REDIS_INTERNAL_PORT:-6379}"
     restart: unless-stopped
     networks:
       - app-network
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -p ${REDIS_INTERNAL_PORT:-6379} ping"]
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     volumes:
       - redis_data:/data
-    command: ["sh", "-c", "redis-server --appendonly yes --port ${REDIS_INTERNAL_PORT:-6379}"]
+    command: ["redis-server", "--appendonly", "yes", "--port", "6379"]
 
   postgres:
     image: postgres:16-alpine
-    ports:
-      - "${POSTGRES_PUBLISH_HOST:-127.0.0.1}:${POSTGRES_PORT:-15433}:${POSTGRES_INTERNAL_PORT:-5432}"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-allmail}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-allmail_dev_password}
@@ -261,14 +256,14 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-allmail} -p ${POSTGRES_INTERNAL_PORT:-5432}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-allmail} -p 5432"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    command: ["postgres", "-p", "${POSTGRES_INTERNAL_PORT:-5432}"]
+    command: ["postgres", "-p", "5432"]
 
 networks:
   app-network:
