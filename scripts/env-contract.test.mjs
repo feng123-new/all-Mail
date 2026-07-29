@@ -111,6 +111,7 @@ test("root release scripts have no Node production or rollback topology", async 
 	assert.equal(packageJson.scripts["start:npm:jobs"], undefined);
 	assert.equal(packageJson.scripts["docker:rollback:jobs"], undefined);
 	assert.doesNotMatch(packageJson.scripts["build:web"], /prepare-public/);
+	assert.match(packageJson.scripts["verify:release"], /npm run check:go/);
 	assert.match(packageJson.scripts["verify:release"], /npm run audit:prod/);
 	assert.match(packageJson.scripts["audit:prod"], /node scripts\/run-audit-prod\.mjs/);
 	assert.match(packageJson.scripts.check, /npm run verify:release/);

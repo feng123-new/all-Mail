@@ -127,6 +127,13 @@ func TestWorkerHeartbeatAdvancesDuringSlowRun(t *testing.T) {
 	if len(second) == 0 {
 		t.Fatal("heartbeat did not advance during active run")
 	}
+	final, err := os.ReadFile(HeartbeatPath(cfg.stateDir, cfg.name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(final), `"running":false`) {
+		t.Fatalf("final heartbeat = %s", final)
+	}
 }
 
 func TestWorkerStopsWhenHealthCheckFails(t *testing.T) {
@@ -160,6 +167,40 @@ func TestWorkerStopsWhenHealthCheckFails(t *testing.T) {
 	if checks.Load() < 2 {
 		t.Fatalf("health checks = %d, want initial and periodic checks", checks.Load())
 	}
+	content, readErr := os.ReadFile(HeartbeatPath(cfg.stateDir, cfg.name))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !containsAll(string(content), `"running":false`, errForwardingOwnerLockLost.Error()) {
+		t.Fatalf("final heartbeat = %s", content)
+	}
+}
+
+func TestWorkerPublishesShutdownTimeout(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := testRuntimeConfig(t, WorkerForwarding)
+	cfg.shutdownTimeout = 10 * time.Millisecond
+	release := make(chan struct{})
+	cfg.runOnce = func(context.Context, time.Time) (int64, error) {
+		<-release
+		return 0, nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- runWorker(ctx, cfg, discardLogger()) }()
+	waitForWorkerHeartbeatContains(t, cfg.stateDir, cfg.name, `"running":true`, time.Second)
+	cancel()
+	err := <-done
+	close(release)
+	if err == nil || !strings.Contains(err.Error(), "timed out waiting") {
+		t.Fatalf("runWorker() error = %v, want shutdown timeout", err)
+	}
+	content, readErr := os.ReadFile(HeartbeatPath(cfg.stateDir, cfg.name))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !containsAll(string(content), `"running":false`, "timed out waiting") {
+		t.Fatalf("final heartbeat = %s", content)
+	}
 }
 
 func TestWriteHeartbeatSupportsConcurrentPublishers(t *testing.T) {
@@ -191,6 +232,19 @@ func TestWriteHeartbeatSupportsConcurrentPublishers(t *testing.T) {
 	}
 	if !strings.Contains(string(content), `"worker":"retention"`) {
 		t.Fatalf("heartbeat = %s", content)
+	}
+}
+
+func TestPrepareWorkerStateRemovesPersistedHeartbeat(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := writeHeartbeat(stateDir, WorkerForwarding, workerSnapshot{Running: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareWorkerState(stateDir, WorkerForwarding); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(HeartbeatPath(stateDir, WorkerForwarding)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("persisted heartbeat still exists: %v", err)
 	}
 }
 

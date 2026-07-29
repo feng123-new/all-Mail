@@ -66,6 +66,9 @@ type runtimeConfig struct {
 var errForwardingOwnerLockLost = errors.New("forwarding owner lock connection lost")
 
 func RunForwarding(ctx context.Context, cfg config.ForwardingConfig, logger *slog.Logger) error {
+	if err := prepareWorkerState(cfg.StateDir, WorkerForwarding); err != nil {
+		return err
+	}
 	ownerLock, err := acquireForwardingOwner(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -110,6 +113,9 @@ func RunForwarding(ctx context.Context, cfg config.ForwardingConfig, logger *slo
 }
 
 func RunRetention(ctx context.Context, cfg config.RetentionConfig, logger *slog.Logger) error {
+	if err := prepareWorkerState(cfg.StateDir, WorkerRetention); err != nil {
+		return err
+	}
 	cleaner, err := newRetentionCleaner(cfg)
 	if err != nil {
 		return err
@@ -200,19 +206,58 @@ func runWorker(ctx context.Context, cfg runtimeConfig, logger *slog.Logger) erro
 		timer.Reset(delay)
 	}
 
-	waitForActive := func() error {
+	finishRun := func(outcome runOutcome, terminalErr error, schedule bool) {
+		if activeCancel != nil {
+			activeCancel()
+			activeCancel = nil
+		}
+		running = false
+		finishedAt := time.Now().UTC()
+		switch {
+		case terminalErr != nil:
+			state.markFailed(finishedAt, terminalErr)
+		case outcome.err != nil && ctx.Err() != nil && errors.Is(outcome.err, context.Canceled):
+			state.markStopped(finishedAt)
+		case outcome.err != nil:
+			state.markFailed(finishedAt, outcome.err)
+			logger.Error("Go worker run failed", "worker", cfg.name, "error", outcome.err, "retry_after", cfg.retry)
+			if schedule {
+				resetTimer(cfg.retry)
+			}
+		default:
+			state.markSucceeded(finishedAt, outcome.deleted)
+			logger.Info("Go worker run completed", "worker", cfg.name, "deleted", outcome.deleted)
+			if schedule {
+				resetTimer(cfg.interval)
+			}
+		}
+		if err := writeHeartbeat(cfg.stateDir, cfg.name, state.current()); err != nil {
+			logger.Error("failed to write worker heartbeat", "worker", cfg.name, "error", err)
+		}
+	}
+
+	waitForActive := func(terminalErr error) error {
 		if !running {
+			if terminalErr != nil {
+				finishRun(runOutcome{}, terminalErr, false)
+			}
 			return nil
 		}
 		if activeCancel != nil {
 			activeCancel()
 		}
 		select {
-		case <-results:
-			running = false
+		case outcome := <-results:
+			finishRun(outcome, terminalErr, false)
 			return nil
 		case <-time.After(cfg.shutdownTimeout):
-			return fmt.Errorf("timed out waiting for %s worker run to stop", cfg.name)
+			timeoutErr := fmt.Errorf("timed out waiting for %s worker run to stop", cfg.name)
+			stateErr := error(timeoutErr)
+			if terminalErr != nil {
+				stateErr = errors.Join(terminalErr, timeoutErr)
+			}
+			finishRun(runOutcome{}, stateErr, false)
+			return timeoutErr
 		}
 	}
 
@@ -234,7 +279,7 @@ func runWorker(ctx context.Context, cfg runtimeConfig, logger *slog.Logger) erro
 	for {
 		select {
 		case <-ctx.Done():
-			if err := waitForActive(); err != nil {
+			if err := waitForActive(nil); err != nil {
 				return err
 			}
 			logger.Info("Go worker runtime stopped", "worker", cfg.name)
@@ -243,32 +288,13 @@ func runWorker(ctx context.Context, cfg runtimeConfig, logger *slog.Logger) erro
 			startRun()
 		case <-healthTicks:
 			if err := checkHealth(); err != nil {
-				state.markFailed(time.Now().UTC(), err)
-				_ = writeHeartbeat(cfg.stateDir, cfg.name, state.current())
-				if shutdownErr := waitForActive(); shutdownErr != nil {
+				if shutdownErr := waitForActive(err); shutdownErr != nil {
 					return errors.Join(err, shutdownErr)
 				}
 				return err
 			}
 		case outcome := <-results:
-			if activeCancel != nil {
-				activeCancel()
-				activeCancel = nil
-			}
-			running = false
-			finishedAt := time.Now().UTC()
-			if outcome.err != nil && !(ctx.Err() != nil && errors.Is(outcome.err, context.Canceled)) {
-				state.markFailed(finishedAt, outcome.err)
-				logger.Error("Go worker run failed", "worker", cfg.name, "error", outcome.err, "retry_after", cfg.retry)
-				resetTimer(cfg.retry)
-			} else {
-				state.markSucceeded(finishedAt, outcome.deleted)
-				logger.Info("Go worker run completed", "worker", cfg.name, "deleted", outcome.deleted)
-				resetTimer(cfg.interval)
-			}
-			if err := writeHeartbeat(cfg.stateDir, cfg.name, state.current()); err != nil {
-				logger.Error("failed to write worker heartbeat", "worker", cfg.name, "error", err)
-			}
+			finishRun(outcome, nil, true)
 		case <-heartbeatTicker.C:
 			if err := writeHeartbeat(cfg.stateDir, cfg.name, state.current()); err != nil {
 				logger.Error("failed to write worker heartbeat", "worker", cfg.name, "error", err)
@@ -307,6 +333,14 @@ func (state *workerState) markFailed(at time.Time, err error) {
 	state.snapshot.LastError = err.Error()
 }
 
+func (state *workerState) markStopped(at time.Time) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.snapshot.Running = false
+	state.snapshot.StartedAt = nil
+	state.snapshot.LastCompletedAt = &at
+}
+
 func (state *workerState) current() workerSnapshot {
 	state.mu.RLock()
 	defer state.mu.RUnlock()
@@ -315,6 +349,16 @@ func (state *workerState) current() workerSnapshot {
 
 func HeartbeatPath(stateDir, worker string) string {
 	return filepath.Join(stateDir, "worker-"+worker+"-heartbeat.json")
+}
+
+func prepareWorkerState(stateDir, worker string) error {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return fmt.Errorf("create %s worker state directory: %w", worker, err)
+	}
+	if err := os.Remove(HeartbeatPath(stateDir, worker)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove persisted %s worker heartbeat: %w", worker, err)
+	}
+	return nil
 }
 
 func writeHeartbeat(stateDir, worker string, state workerSnapshot) error {
