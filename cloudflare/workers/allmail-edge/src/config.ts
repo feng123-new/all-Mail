@@ -6,8 +6,12 @@ export interface ResolvedEnv {
   ingressSigningSecret: string;
   ingressProvider: string;
   rawEmailObjectPrefix: string;
+  maxRawEmailBytes: number;
   rawEmailBucket?: R2BucketLike;
 }
+
+const DEFAULT_MAX_RAW_EMAIL_BYTES = 15 * 1024 * 1024;
+const CLOUDFLARE_MAX_RAW_EMAIL_BYTES = 25 * 1024 * 1024;
 
 function requireString(name: string, value: string | undefined): string {
   if (!value || !value.trim()) {
@@ -41,6 +45,17 @@ function validateIngressUrl(rawValue: string): URL {
   return url;
 }
 
+function parseMaxRawEmailBytes(value: string | undefined): number {
+  if (!value || !value.trim()) {
+    return DEFAULT_MAX_RAW_EMAIL_BYTES;
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > CLOUDFLARE_MAX_RAW_EMAIL_BYTES) {
+    throw new Error(`MAX_RAW_EMAIL_BYTES must be an integer between 1 and ${CLOUDFLARE_MAX_RAW_EMAIL_BYTES}`);
+  }
+  return parsed;
+}
+
 export function resolveEnv(env: WorkerEnv): ResolvedEnv {
   const ingressUrl = validateIngressUrl(requireString('INGRESS_URL', env.INGRESS_URL));
 
@@ -50,6 +65,7 @@ export function resolveEnv(env: WorkerEnv): ResolvedEnv {
     ingressSigningSecret: requireSecretString('INGRESS_SIGNING_SECRET', env.INGRESS_SIGNING_SECRET),
     ingressProvider: env.INGRESS_PROVIDER?.trim() || 'CLOUDFLARE_EMAIL_ROUTING',
     rawEmailObjectPrefix: normalizePrefix(env.RAW_EMAIL_OBJECT_PREFIX),
+    maxRawEmailBytes: parseMaxRawEmailBytes(env.MAX_RAW_EMAIL_BYTES),
     rawEmailBucket: env.RAW_EMAIL_BUCKET,
   };
 }

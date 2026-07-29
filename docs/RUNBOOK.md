@@ -287,12 +287,12 @@ Do not bypass the advisory owner lock.
 docker compose logs worker-retention --tail=300
 docker compose exec -T worker-retention allmail doctor worker retention
 docker compose exec -T worker-retention sh -lc \
-  'cat /var/lib/all-mail/worker-retention-heartbeat.json'
+  'cat /tmp/all-mail/worker-retention-heartbeat.json'
 ```
 
 ## Redis degraded
 
-`ALLOW_LOCAL_RATE_LIMIT_FALLBACK=false` is the supported production setting. Recover Redis, then recheck Fastify and Go readiness. A later security slice removes remaining production in-memory fallbacks.
+Production security state now fails closed. Redis loss makes administrator login protection, API-key rate limiting, OAuth state/status, and ingress replay reservation return 503 rather than using process-local maps. Recover Redis, then recheck Fastify and Go readiness; do not add a production fallback flag.
 
 ## CI bootstrap-flow failure
 
@@ -322,7 +322,6 @@ postgres_data
 redis_data
 legacy_runtime_data
 forwarding_runtime_data
-retention_runtime_data
 ```
 
 Before risky upgrades preserve:
@@ -331,7 +330,7 @@ Before risky upgrades preserve:
 - `runtime-secrets.env`;
 - `bootstrap-admin.env` when present;
 - a pre-upgrade backup of any `bootstrap-secrets.env`;
-- forwarding and retention state volumes;
+- the forwarding key volume; worker heartbeats are ephemeral under `/tmp/all-mail`;
 - exact revision and `.env` contract.
 
 Rollback with the target revision's deployment guide and restore the secret layout it expects. Never run initializers or workers from two revisions concurrently.

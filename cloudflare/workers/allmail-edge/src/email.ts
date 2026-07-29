@@ -178,6 +178,12 @@ async function resolveRawStorage(input: {
 }
 
 export async function buildIngressPayload(message: EmailMessageLike, env: ResolvedEnv): Promise<IngressReceiveInput> {
+  if (!Number.isSafeInteger(message.rawSize) || message.rawSize < 0) {
+    throw new Error('Inbound email raw size is invalid');
+  }
+  if (message.rawSize > env.maxRawEmailBytes) {
+    throw new Error(`Inbound email exceeds MAX_RAW_EMAIL_BYTES (${message.rawSize} > ${env.maxRawEmailBytes})`);
+  }
   const receivedAt = new Date();
   const routing = parseRoutingAddress(message.to);
   const rawEmail = await readRawEmail(message.raw);

@@ -26,6 +26,7 @@ type ForwardingConfig struct {
 	EncryptionKey     string
 	Interval          time.Duration
 	RunTimeout        time.Duration
+	LeaseDuration     time.Duration
 	BatchSize         int
 	ResendAPIBaseURL  string
 	HeartbeatInterval time.Duration
@@ -42,8 +43,10 @@ type RetentionConfig struct {
 	Retry             time.Duration
 	RunTimeout        time.Duration
 	BatchSize         int
+	MaxBatches        int
 	HeartbeatInterval time.Duration
 	HeartbeatMaxAge   time.Duration
+	ReadyTimeout      time.Duration
 	ShutdownTimeout   time.Duration
 }
 
@@ -104,6 +107,10 @@ func LoadForwarding() (ForwardingConfig, error) {
 	if err != nil {
 		return ForwardingConfig{}, err
 	}
+	leaseSeconds, err := envInt("FORWARDING_LEASE_SECONDS", 180)
+	if err != nil {
+		return ForwardingConfig{}, err
+	}
 	batchSize, err := envInt("FORWARDING_WORKER_BATCH_SIZE", 10)
 	if err != nil {
 		return ForwardingConfig{}, err
@@ -134,6 +141,7 @@ func LoadForwarding() (ForwardingConfig, error) {
 		EncryptionKey:     encryptionKey,
 		Interval:          time.Duration(intervalSeconds) * time.Second,
 		RunTimeout:        time.Duration(runTimeoutSeconds) * time.Second,
+		LeaseDuration:     time.Duration(leaseSeconds) * time.Second,
 		BatchSize:         batchSize,
 		ResendAPIBaseURL:  strings.TrimRight(env("RESEND_API_BASE_URL", "https://api.resend.com"), "/"),
 		HeartbeatInterval: time.Duration(heartbeatSeconds) * time.Second,
@@ -147,7 +155,7 @@ func LoadForwarding() (ForwardingConfig, error) {
 	if cfg.DatabaseURL == "" {
 		return ForwardingConfig{}, errors.New("DATABASE_URL is required for forwarding")
 	}
-	if cfg.Interval <= 0 || cfg.RunTimeout <= 0 {
+	if cfg.Interval <= 0 || cfg.RunTimeout <= 0 || cfg.LeaseDuration <= 0 {
 		return ForwardingConfig{}, errors.New("forwarding intervals and timeouts must be positive")
 	}
 	if cfg.BatchSize < 1 || cfg.BatchSize > 100 {
@@ -155,6 +163,16 @@ func LoadForwarding() (ForwardingConfig, error) {
 	}
 	if cfg.HeartbeatInterval <= 0 || cfg.HeartbeatMaxAge <= 0 || cfg.ReadyTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
 		return ForwardingConfig{}, errors.New("forwarding runtime durations must be positive")
+	}
+	if cfg.HeartbeatMaxAge < 2*cfg.HeartbeatInterval {
+		return ForwardingConfig{}, errors.New("WORKER_HEARTBEAT_MAX_AGE_SECONDS must be at least twice WORKER_HEARTBEAT_SECONDS")
+	}
+	minimumLease := cfg.RunTimeout + cfg.ShutdownTimeout + cfg.HeartbeatInterval
+	if cfg.LeaseDuration < minimumLease {
+		return ForwardingConfig{}, fmt.Errorf(
+			"FORWARDING_LEASE_SECONDS must cover run, shutdown, and heartbeat timeouts (minimum %s)",
+			minimumLease,
+		)
 	}
 	if err := validateAbsoluteURL("DATABASE_URL", cfg.DatabaseURL, "postgres", "postgresql"); err != nil {
 		return ForwardingConfig{}, err
@@ -186,11 +204,19 @@ func LoadRetention() (RetentionConfig, error) {
 	if err != nil {
 		return RetentionConfig{}, err
 	}
+	maxBatches, err := envInt("API_LOG_CLEANUP_MAX_BATCHES", 10)
+	if err != nil {
+		return RetentionConfig{}, err
+	}
 	heartbeatSeconds, err := envInt("WORKER_HEARTBEAT_SECONDS", 15)
 	if err != nil {
 		return RetentionConfig{}, err
 	}
 	heartbeatMaxAgeSeconds, err := envInt("WORKER_HEARTBEAT_MAX_AGE_SECONDS", 90)
+	if err != nil {
+		return RetentionConfig{}, err
+	}
+	readySeconds, err := envInt("READY_TIMEOUT_SECONDS", 5)
 	if err != nil {
 		return RetentionConfig{}, err
 	}
@@ -206,8 +232,10 @@ func LoadRetention() (RetentionConfig, error) {
 		Retry:             time.Duration(retrySeconds) * time.Second,
 		RunTimeout:        time.Duration(timeoutSeconds) * time.Second,
 		BatchSize:         batchSize,
+		MaxBatches:        maxBatches,
 		HeartbeatInterval: time.Duration(heartbeatSeconds) * time.Second,
 		HeartbeatMaxAge:   time.Duration(heartbeatMaxAgeSeconds) * time.Second,
+		ReadyTimeout:      time.Duration(readySeconds) * time.Second,
 		ShutdownTimeout:   time.Duration(shutdownSeconds) * time.Second,
 	}
 	if strings.TrimSpace(cfg.StateDir) == "" {
@@ -222,8 +250,17 @@ func LoadRetention() (RetentionConfig, error) {
 	if cfg.BatchSize < 1 || cfg.BatchSize > 100000 {
 		return RetentionConfig{}, errors.New("API_LOG_CLEANUP_BATCH_SIZE must be between 1 and 100000")
 	}
-	if cfg.HeartbeatInterval <= 0 || cfg.HeartbeatMaxAge <= 0 || cfg.ShutdownTimeout <= 0 {
+	if cfg.MaxBatches < 1 || cfg.MaxBatches > 100 {
+		return RetentionConfig{}, errors.New("API_LOG_CLEANUP_MAX_BATCHES must be between 1 and 100")
+	}
+	if cfg.HeartbeatInterval <= 0 || cfg.HeartbeatMaxAge <= 0 || cfg.ReadyTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
 		return RetentionConfig{}, errors.New("retention runtime durations must be positive")
+	}
+	if cfg.HeartbeatMaxAge < 2*cfg.HeartbeatInterval {
+		return RetentionConfig{}, errors.New("WORKER_HEARTBEAT_MAX_AGE_SECONDS must be at least twice WORKER_HEARTBEAT_SECONDS")
+	}
+	if cfg.Retry >= cfg.Interval {
+		return RetentionConfig{}, errors.New("API_LOG_CLEANUP_RETRY_SECONDS must be shorter than API_LOG_CLEANUP_INTERVAL_MINUTES")
 	}
 	if err := validateAbsoluteURL("DATABASE_URL", cfg.DatabaseURL, "postgres", "postgresql"); err != nil {
 		return RetentionConfig{}, err

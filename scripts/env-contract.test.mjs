@@ -55,6 +55,8 @@ test("the production environment has one canonical template", async () => {
 	assert.equal(keys.includes("ADMIN_USERNAME"), true);
 	assert.equal(keys.includes("ADMIN_PASSWORD"), true);
 	assert.equal(keys.includes("ADMIN_2FA_WINDOW"), true);
+	assert.equal(keys.includes("POSTGRES_PASSWORD"), true);
+	assert.match(template, /^POSTGRES_PASSWORD=$/m);
 	await assert.rejects(access(path.join(repoRoot, ".env.cloudflare.example")));
 	await assert.rejects(access(path.join(repoRoot, ".env.basic.example")));
 });
@@ -91,7 +93,8 @@ test("one-shot bootstrap and long-running API receive disjoint credentials", asy
 	assert.doesNotMatch(init, /\n\s+redis:\n|REDIS_URL/);
 	assert.doesNotMatch(app, /DATABASE_URL|REDIS_URL|GO_API_MODE|ALL_MAIL_ENV/);
 	assert.match(app, /TRUSTED_PROXY_CIDRS/);
-	assert.match(forwarding, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail\/encryption-key/);
+	assert.match(forwarding, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-secrets\/encryption-key/);
+	assert.match(forwarding, /forwarding_runtime_data:\/var\/lib\/all-mail-secrets:ro/);
 	assert.doesNotMatch(forwarding, /\n\s+ENCRYPTION_KEY:/);
 	assert.doesNotMatch(compose, /GO_JOBS_HEARTBEAT_SECONDS|GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS|ALL_MAIL_SECRET_STATE_DIR/);
 });
@@ -127,6 +130,9 @@ test("runtime and one-time administrator secrets use separate files", async () =
 	assert.match(entrypoint, /ALL_MAIL_RUNTIME_SECRETS_FILE/);
 	assert.match(entrypoint, /bootstrap_exports=\$\(run_as_allmail/);
 	assert.match(entrypoint, /flock -w 30/);
+	assert.match(entrypoint, /bootstrap_mode=require-existing/);
+	assert.match(entrypoint, /bootstrap_mode=init/);
+	assert.match(entrypoint, /--mode "\$bootstrap_mode"/);
 	assert.match(entrypoint, /eval "\$bootstrap_exports"/);
 	assert.doesNotMatch(entrypoint, /eval "\$\(run_as_allmail/);
 	assert.doesNotMatch(entrypoint, /ALL_MAIL_BOOTSTRAP_SECRETS_FILE|ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS/);
@@ -143,6 +149,8 @@ test("forwarding and retention remain independent Go services", async () => {
 	assert.match(compose, /allmail", "doctor", "worker", "forwarding"/);
 	assert.match(compose, /allmail", "doctor", "worker", "retention"/);
 	assert.doesNotMatch(compose, /\n[ ]{2}(?:go-jobs|legacy-jobs|jobs):/);
+	assert.doesNotMatch(compose, /retention_runtime_data/);
+	assert.match(compose, /ALL_MAIL_STATE_DIR: \/tmp\/all-mail/);
 });
 
 test("long-running compatibility API uses the unprivileged hardened runtime", async () => {
@@ -152,7 +160,8 @@ test("long-running compatibility API uses the unprivileged hardened runtime", as
 		readFile(path.join(repoRoot, "docker/entrypoint.sh"), "utf8"),
 	]);
 	assert.match(compose, /x-legacy-runtime:[\s\S]*?user: "10001:10001"/);
-	assert.match(compose, /legacy-api:[\s\S]*?<<: \*legacy-runtime/);
+	assert.match(compose, /x-legacy-long-runtime:[\s\S]*?<<: \*legacy-runtime/);
+	assert.match(compose, /legacy-api:[\s\S]*?<<: \*legacy-long-runtime/);
 	assert.match(dockerfile, /useradd --system --uid 10001/);
 	assert.match(dockerfile, /gosu/);
 	assert.match(entrypoint, /chown -R 10001:10001 "\$ALL_MAIL_STATE_DIR"/);

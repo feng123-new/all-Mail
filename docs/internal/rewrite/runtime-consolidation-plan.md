@@ -167,20 +167,16 @@ Each slice includes:
 
 Do not move only controllers while leaving hidden Fastify writes.
 
-## Remaining phase 3 — production Redis fail-closed
+## Completed phase 3 — production Redis fail-closed
 
-Selected Fastify security flows still have single-process local fallbacks when Redis becomes unavailable.
-
-Target:
+Completed:
 
 - administrator login-attempt state fails closed in production;
 - API-key rate limiting fails closed;
 - OAuth state/status fails closed;
 - ingress replay reservation fails closed;
 - local Maps remain development/test-only;
-- Redis outage and multi-replica consistency tests are mandatory.
-
-After this cut, remove `ALLOW_LOCAL_RATE_LIMIT_FALLBACK` from the production contract.
+- `ALLOW_LOCAL_RATE_LIMIT_FALLBACK` is removed from the production contract.
 
 ## Remaining phase 4 — configuration moves into durable state
 
@@ -199,16 +195,19 @@ Target sequence:
 5. support key rotation overlap;
 6. remove the environment fallbacks.
 
-## Remaining phase 5 — worker and rollback hardening
+## Remaining phase 5 — worker observability and rollback testing
 
-Follow-up worker work:
+Completed:
 
-- release or immediately requeue unprocessed claims when a forwarding pass terminates early;
-- relate lease duration to run timeout;
-- drain retention backlog in bounded consecutive batches;
+- unprocessed forwarding claims are released after an interrupted pass;
+- lease duration is validated against run, shutdown and heartbeat bounds;
+- retention drains backlog in bounded consecutive batches and probes PostgreSQL;
+- an old runtime rejects unknown migration-ledger entries.
+
+Follow-up work:
+
 - expose claimed/sent/failed/skipped/retried/claim-lost and queue-age metrics;
-- reject database migration ledger entries unknown to an older runtime unless explicit backward compatibility is declared;
-- test old-image/new-schema rollback behavior.
+- test representative old-image/new-schema rollback combinations in CI.
 
 ## Remaining phase 6 — converge migration authority
 
@@ -272,8 +271,7 @@ Remove `server/`, Prisma, `legacy-api`, `legacy-init`, and `Dockerfile.legacy` o
 
 ## Recommended PR sequence after the current stack
 
-1. production Redis fail-closed;
-2. explicit route registry plus first read-only Go route;
+1. explicit route registry plus first read-only Go route;
 3. API-key read/allocation slice;
 4. ingress persistence and endpoint-scoped secrets;
 5. outbound delivery and metrics;

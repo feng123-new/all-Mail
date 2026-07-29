@@ -171,3 +171,34 @@ void test('ingress replay protection rejects a second request with the same deli
         await restore();
     }
 });
+
+void test('ingress replay reservation fails closed without Redis in production mode', async () => {
+    const { createIngressReplayReserver } = await import('./auth.js');
+    const reserve = createIngressReplayReserver({
+        allowLocalFallback: false,
+        getRedisClient: () => null,
+    });
+
+    await assert.rejects(
+        () => reserve('ingress:replay:test', 60),
+        (error: unknown) => {
+            const appError = error as { code?: string; statusCode?: number };
+            assert.equal(appError.code, 'INGRESS_REPLAY_BACKEND_UNAVAILABLE');
+            assert.equal(appError.statusCode, 503);
+            return true;
+        },
+    );
+});
+
+void test('ingress replay reservation uses local state only when explicitly allowed', async () => {
+    const { createIngressReplayReserver } = await import('./auth.js');
+    const reserve = createIngressReplayReserver({
+        allowLocalFallback: true,
+        getRedisClient: () => null,
+        localStore: new Map(),
+        now: () => 1_000,
+    });
+
+    assert.equal(await reserve('ingress:replay:test', 60), true);
+    assert.equal(await reserve('ingress:replay:test', 60), false);
+});

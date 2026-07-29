@@ -51,11 +51,8 @@ export default {
           success: true,
           data: {
             worker: 'allmail-edge',
-            ingressUrl: env.ingressUrl.toString(),
-            ingressKeyId: env.ingressKeyId,
-            ingressProvider: env.ingressProvider,
-            rawEmailBucketBound: Boolean(env.rawEmailBucket),
-            rawEmailObjectPrefix: env.rawEmailObjectPrefix,
+            status: 'ok',
+            configured: Boolean(env.ingressUrl && env.ingressKeyId && env.ingressSigningSecret),
           },
         });
       } catch (error) {

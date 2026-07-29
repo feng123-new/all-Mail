@@ -39,7 +39,7 @@ Only `app` is published. PostgreSQL, Redis and Fastify remain private.
 cp .env.example .env
 ```
 
-Replace `POSTGRES_PASSWORD` and configure public URL, proxy CIDRs, OAuth fallbacks, or ingress values as needed.
+Set `POSTGRES_PASSWORD` before Compose evaluation. It must contain at least 24 URL-safe characters; `openssl rand -hex 24` is a suitable generator. Configure public URL, proxy CIDRs, OAuth fallbacks, or ingress values as needed.
 
 One-shot administrator inputs:
 
@@ -72,7 +72,7 @@ Expected sequence:
 2. `legacy-init` waits only for PostgreSQL.
 3. It migrates any old combined secret bundle into separate runtime/admin files.
 4. It loads or generates long-lived JWT/encryption secrets.
-5. It exports only the forwarding encryption key.
+5. It exports only the forwarding encryption key; long-running Fastify later requires the existing secret file and cannot regenerate it.
 6. It applies Prisma migrations.
 7. It acquires an administrator-bootstrap advisory lock and creates the first DB administrator only when none exists.
 8. `go-migrate` applies additive Go migrations.
@@ -130,7 +130,7 @@ docker compose exec legacy-api sh -lc '
 '
 ```
 
-Forwarding receives only its key file:
+Forwarding receives only its read-only key file at `/var/lib/all-mail-secrets/encryption-key`:
 
 ```bash
 docker compose exec worker-forwarding sh -lc '

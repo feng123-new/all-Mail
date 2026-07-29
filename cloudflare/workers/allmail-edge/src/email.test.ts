@@ -13,6 +13,7 @@ function createRawEmailStream(rawEmail: string): ReadableStream<Uint8Array> {
 }
 
 function createMessage(rawEmail: string): EmailMessageLike {
+  const rawBytes = new TextEncoder().encode(rawEmail);
   return {
     from: 'sender@example.org',
     to: 'inbox@example.com',
@@ -21,6 +22,7 @@ function createMessage(rawEmail: string): EmailMessageLike {
       subject: 'Worker test',
     }),
     raw: createRawEmailStream(rawEmail),
+    rawSize: rawBytes.byteLength,
     setReject() {
       // no-op for tests
     },
@@ -33,6 +35,7 @@ const env = {
   ingressSigningSecret: 'edge-signing-secret',
   ingressProvider: 'CLOUDFLARE_EMAIL_ROUTING',
   rawEmailObjectPrefix: 'allmail-edge/raw',
+  maxRawEmailBytes: 15 * 1024 * 1024,
 };
 
 void test('buildIngressPayload uses a stable delivery key when message-id is present', async () => {
@@ -62,6 +65,15 @@ void test('buildIngressPayload uses a stable delivery key when message-id is pre
 
   assert.equal(payloadA.deliveryKey, payloadB.deliveryKey);
   assert.match(payloadA.deliveryKey, /^[a-f0-9]{64}$/);
+});
+
+void test('buildIngressPayload rejects oversized email before reading the raw stream', async () => {
+  const message = createMessage('small body');
+  message.rawSize = 1024;
+  await assert.rejects(
+    buildIngressPayload(message, { ...env, maxRawEmailBytes: 100 }),
+    /MAX_RAW_EMAIL_BYTES/,
+  );
 });
 
 void test('buildIngressPayload marks raw storage as failed when the bucket write throws', async () => {

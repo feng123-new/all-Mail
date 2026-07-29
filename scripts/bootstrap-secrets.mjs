@@ -10,6 +10,10 @@ const RUNTIME_SECRET_KEYS = ['JWT_SECRET', 'ENCRYPTION_KEY'];
 export const RUNTIME_SECRETS_FILENAME = 'runtime-secrets.env';
 export const BOOTSTRAP_ADMIN_FILENAME = 'bootstrap-admin.env';
 export const LEGACY_SECRETS_FILENAME = 'bootstrap-secrets.env';
+export const SECRET_MODE_INIT = 'init';
+export const SECRET_MODE_REQUIRE_EXISTING = 'require-existing';
+
+const VALID_SECRET_MODES = new Set([SECRET_MODE_INIT, SECRET_MODE_REQUIRE_EXISTING]);
 
 function parseEnvValue(rawValue) {
   const value = rawValue.trim();
@@ -119,6 +123,17 @@ function generateRuntimeSecret(key) {
   }
 }
 
+function validateRuntimeSecrets(runtimeSecrets) {
+  const jwtSecret = String(runtimeSecrets.JWT_SECRET || '').trim();
+  const encryptionKey = String(runtimeSecrets.ENCRYPTION_KEY || '').trim();
+  if (jwtSecret.length < 32 || isMissing(jwtSecret)) {
+    throw new Error('JWT_SECRET must contain at least 32 non-placeholder characters');
+  }
+  if (encryptionKey.length !== 32 || isMissing(encryptionKey)) {
+    throw new Error('ENCRYPTION_KEY must contain exactly 32 non-placeholder characters');
+  }
+}
+
 async function writeAtomic(targetPath, content) {
   const temporaryPath = `${targetPath}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
   await writeFile(temporaryPath, content, { encoding: 'utf8', mode: 0o600 });
@@ -135,16 +150,45 @@ function selectEntries(source, keys) {
   return selected;
 }
 
-export async function ensureRuntimeSecrets({ stateDir, env }) {
-  validateBootstrapAdminEnvironment(env);
+export async function ensureRuntimeSecrets({ stateDir, env, mode = SECRET_MODE_INIT }) {
+  if (!VALID_SECRET_MODES.has(mode)) {
+    throw new Error(`Unsupported secret bootstrap mode: ${mode}`);
+  }
+  if (mode === SECRET_MODE_INIT) {
+    validateBootstrapAdminEnvironment(env);
+  }
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
   const runtimeSecretsFile = path.join(stateDir, RUNTIME_SECRETS_FILENAME);
   const bootstrapAdminFile = path.join(stateDir, BOOTSTRAP_ADMIN_FILENAME);
   const legacySecretsFile = path.join(stateDir, LEGACY_SECRETS_FILENAME);
 
-  const existingRuntime = (await pathExists(runtimeSecretsFile))
+  const runtimeSecretsExist = await pathExists(runtimeSecretsFile);
+  if (mode === SECRET_MODE_REQUIRE_EXISTING && !runtimeSecretsExist) {
+    throw new Error(`Runtime secret file is missing: ${runtimeSecretsFile}`);
+  }
+  const existingRuntime = runtimeSecretsExist
     ? parseEnvText(await readFile(runtimeSecretsFile, 'utf8'))
     : {};
+
+  if (mode === SECRET_MODE_REQUIRE_EXISTING) {
+    const runtimeSecrets = {
+      JWT_SECRET: !isMissing(env.JWT_SECRET) ? String(env.JWT_SECRET).trim() : existingRuntime.JWT_SECRET,
+      ENCRYPTION_KEY: !isMissing(env.ENCRYPTION_KEY) ? String(env.ENCRYPTION_KEY).trim() : existingRuntime.ENCRYPTION_KEY,
+    };
+    validateRuntimeSecrets(runtimeSecrets);
+    return {
+      mode,
+      runtimeSecretsFile,
+      bootstrapAdminFile,
+      legacySecretsFile,
+      createdKeys: [],
+      managedKeys: RUNTIME_SECRET_KEYS.filter((key) => isMissing(env[key])),
+      runtimeSecrets,
+      migratedLegacyBundle: false,
+      loginUrl: resolveLoginUrl(env),
+    };
+  }
+
   const legacySecrets = (await pathExists(legacySecretsFile))
     ? parseEnvText(await readFile(legacySecretsFile, 'utf8'))
     : {};
@@ -172,6 +216,8 @@ export async function ensureRuntimeSecrets({ stateDir, env }) {
     effectiveRuntime[key] = persistedRuntime[key];
     managedKeys.push(key);
   }
+
+  validateRuntimeSecrets(effectiveRuntime);
 
   await writeAtomic(
     runtimeSecretsFile,
@@ -205,6 +251,7 @@ export async function ensureRuntimeSecrets({ stateDir, env }) {
   }
 
   return {
+    mode,
     runtimeSecretsFile,
     bootstrapAdminFile,
     legacySecretsFile,
@@ -220,12 +267,14 @@ async function main() {
   const args = process.argv.slice(2);
   const stateDirIndex = args.indexOf('--state-dir');
   const formatIndex = args.indexOf('--format');
+  const modeIndex = args.indexOf('--mode');
   const stateDir = stateDirIndex !== -1
     ? path.resolve(args[stateDirIndex + 1])
     : path.resolve('.all-mail-runtime');
   const format = formatIndex !== -1 ? args[formatIndex + 1] : 'json';
+  const mode = modeIndex !== -1 ? args[modeIndex + 1] : SECRET_MODE_INIT;
 
-  const result = await ensureRuntimeSecrets({ stateDir, env: process.env });
+  const result = await ensureRuntimeSecrets({ stateDir, env: process.env, mode });
 
   if (format === 'shell') {
     console.log(`export ALL_MAIL_RUNTIME_SECRETS_FILE=${shellQuote(result.runtimeSecretsFile)}`);

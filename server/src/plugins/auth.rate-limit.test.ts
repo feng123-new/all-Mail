@@ -52,3 +52,26 @@ void test('api key rate limiting can use local fallback when explicitly allowed'
         }
     );
 });
+
+void test('api key rate limit decisions are not mistaken for Redis failures', async () => {
+    const { createApiKeyRateLimitEnforcer } = await import('./auth.js');
+    const enforceRateLimit = createApiKeyRateLimitEnforcer({
+        allowLocalFallback: true,
+        getRedisClient: () => ({
+            async incr() { return 2; },
+            async expire() { return 1; },
+        }),
+        localStore: new Map(),
+        now: () => 1_000,
+    });
+
+    await assert.rejects(
+        () => enforceRateLimit(1, 1),
+        (error: unknown) => {
+            const appError = error as { code?: string; statusCode?: number };
+            assert.equal(appError.code, 'RATE_LIMIT_EXCEEDED');
+            assert.equal(appError.statusCode, 429);
+            return true;
+        },
+    );
+});

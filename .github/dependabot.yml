@@ -1,0 +1,47 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+    groups:
+      server-dependencies:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      web-dependencies:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /cloudflare/workers/allmail-edge
+    schedule:
+      interval: weekly
+    groups:
+      edge-worker-dependencies:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+  - package-ecosystem: gomod
+    directory: /core
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 5

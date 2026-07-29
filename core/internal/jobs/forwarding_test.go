@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,10 @@ import (
 
 type fakeForwardingStore struct {
 	job       forwardingJob
+	jobs      map[int64]forwardingJob
+	claims    []claimedForwardJob
+	loadErrID int64
+	released  []claimedForwardJob
 	sent      bool
 	skipped   bool
 	failed    bool
@@ -22,10 +27,24 @@ type fakeForwardingStore struct {
 }
 
 func (s *fakeForwardingStore) Claim(context.Context, int, time.Time) ([]claimedForwardJob, error) {
-	return []claimedForwardJob{{ID: s.job.ID, ClaimToken: s.job.ClaimToken}}, nil
+	if s.claims != nil {
+		return append([]claimedForwardJob(nil), s.claims...), nil
+	}
+	return []claimedForwardJob{{ID: s.job.ID, ClaimToken: s.job.ClaimToken, PreviousStatus: "PENDING"}}, nil
 }
 
-func (s *fakeForwardingStore) Load(context.Context, int64, string) (forwardingJob, error) {
+func (s *fakeForwardingStore) Release(_ context.Context, claims []claimedForwardJob, _ time.Time) error {
+	s.released = append(s.released, claims...)
+	return nil
+}
+
+func (s *fakeForwardingStore) Load(_ context.Context, id int64, _ string) (forwardingJob, error) {
+	if id == s.loadErrID {
+		return forwardingJob{}, errors.New("load failed")
+	}
+	if s.jobs != nil {
+		return s.jobs[id], nil
+	}
 	return s.job, nil
 }
 
@@ -152,5 +171,33 @@ func TestForwardingWorkerDoesNotRetryTypedPermanentProviderFailure(t *testing.T)
 	}
 	if !store.failed || store.retryAt != nil {
 		t.Fatalf("failed=%v retryAt=%v", store.failed, store.retryAt)
+	}
+}
+
+func TestForwardingWorkerReleasesOnlyUnprocessedClaimsAfterFailure(t *testing.T) {
+	first := testForwardingJob()
+	second := testForwardingJob()
+	second.ID = 2
+	second.ClaimToken = "claim-token-2"
+	second.InboundMessageID = 20
+	store := &fakeForwardingStore{
+		jobs: map[int64]forwardingJob{
+			first.ID:  first,
+			second.ID: second,
+		},
+		claims: []claimedForwardJob{
+			{ID: first.ID, ClaimToken: first.ClaimToken, PreviousStatus: "PENDING"},
+			{ID: second.ID, ClaimToken: second.ClaimToken, PreviousStatus: "FAILED"},
+		},
+		loadErrID: second.ID,
+	}
+	worker := newForwardingWorker(store, &fakeSender{}, func(string) (string, error) { return "re_secret", nil }, discardLogger(), 10)
+
+	err := worker.runOnce(context.Background(), time.Now())
+	if err == nil || !strings.Contains(err.Error(), "load forwarding job 2") {
+		t.Fatalf("runOnce error = %v", err)
+	}
+	if len(store.released) != 1 || store.released[0].ID != second.ID || store.released[0].PreviousStatus != "FAILED" {
+		t.Fatalf("released claims = %#v", store.released)
 	}
 }

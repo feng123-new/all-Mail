@@ -12,6 +12,7 @@ import {
   LEGACY_SECRETS_FILENAME,
   parseEnvText,
   RUNTIME_SECRETS_FILENAME,
+  SECRET_MODE_REQUIRE_EXISTING,
 } from './bootstrap-secrets.mjs';
 
 const bootstrapScript = fileURLToPath(new URL('./bootstrap-secrets.mjs', import.meta.url));
@@ -259,4 +260,55 @@ void test('invalid one-shot admin values fail before any secret is persisted', a
     await assert.rejects(readFile(path.join(stateDir, RUNTIME_SECRETS_FILENAME), 'utf8'));
     await assert.rejects(readFile(path.join(stateDir, BOOTSTRAP_ADMIN_FILENAME), 'utf8'));
   }
+});
+
+
+void test('long-running mode requires an existing runtime secret file and never generates keys', async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-require-existing-missing-'));
+  await assert.rejects(
+    ensureRuntimeSecrets({ stateDir, env: {}, mode: SECRET_MODE_REQUIRE_EXISTING }),
+    /Runtime secret file is missing/,
+  );
+  await assert.rejects(readFile(path.join(stateDir, RUNTIME_SECRETS_FILENAME), 'utf8'));
+});
+
+void test('long-running mode reads existing secrets without rewriting or migrating state', async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-require-existing-'));
+  const runtimeFile = path.join(stateDir, RUNTIME_SECRETS_FILENAME);
+  const legacyFile = path.join(stateDir, LEGACY_SECRETS_FILENAME);
+  const runtimeContent = [
+    'JWT_SECRET=persisted-jwt-secret-that-is-at-least-thirty-two-characters',
+    'ENCRYPTION_KEY=0123456789abcdef0123456789abcdef',
+    '',
+  ].join('\n');
+  await writeFile(runtimeFile, runtimeContent, { mode: 0o600 });
+  await writeFile(legacyFile, 'ADMIN_PASSWORD=legacy-password\n', { mode: 0o600 });
+
+  const result = await ensureRuntimeSecrets({
+    stateDir,
+    env: {},
+    mode: SECRET_MODE_REQUIRE_EXISTING,
+  });
+
+  assert.equal(result.mode, SECRET_MODE_REQUIRE_EXISTING);
+  assert.deepEqual(result.createdKeys, []);
+  assert.equal(result.migratedLegacyBundle, false);
+  assert.equal(result.runtimeSecrets.ENCRYPTION_KEY, '0123456789abcdef0123456789abcdef');
+  assert.equal(await readFile(runtimeFile, 'utf8'), runtimeContent);
+  assert.equal(await readFile(legacyFile, 'utf8'), 'ADMIN_PASSWORD=legacy-password\n');
+});
+
+void test('long-running mode rejects incomplete persisted secrets instead of rotating them', async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-require-existing-invalid-'));
+  const runtimeFile = path.join(stateDir, RUNTIME_SECRETS_FILENAME);
+  await writeFile(runtimeFile, 'JWT_SECRET=valid-jwt-secret-that-is-at-least-thirty-two-characters\n', { mode: 0o600 });
+
+  await assert.rejects(
+    ensureRuntimeSecrets({ stateDir, env: {}, mode: SECRET_MODE_REQUIRE_EXISTING }),
+    /ENCRYPTION_KEY must contain exactly 32/,
+  );
+  assert.equal(
+    await readFile(runtimeFile, 'utf8'),
+    'JWT_SECRET=valid-jwt-secret-that-is-at-least-thirty-two-characters\n',
+  );
 });

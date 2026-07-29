@@ -20,7 +20,7 @@
     "all-mail": "bin/all-mail"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "docker:up": "./scripts/sanitize-runtime-env.sh docker compose up -d --build --wait --wait-timeout 240",

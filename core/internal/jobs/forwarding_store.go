@@ -13,8 +13,7 @@ import (
 )
 
 const (
-	forwardingLockKey       int64 = 0x414c4c4d465744
-	forwardingLeaseDuration       = 10 * time.Minute
+	forwardingLockKey int64 = 0x414c4c4d465744
 )
 
 type forwardingOwnerLock struct {
@@ -48,10 +47,14 @@ func (l *forwardingOwnerLock) Close(ctx context.Context) {
 }
 
 type postgresForwardingStore struct {
-	pool *pgxpool.Pool
+	pool          *pgxpool.Pool
+	leaseDuration time.Duration
 }
 
-func newPostgresForwardingStore(ctx context.Context, databaseURL string) (*postgresForwardingStore, error) {
+func newPostgresForwardingStore(ctx context.Context, databaseURL string, leaseDuration time.Duration) (*postgresForwardingStore, error) {
+	if leaseDuration <= 0 {
+		return nil, fmt.Errorf("forwarding lease duration must be positive")
+	}
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("create forwarding pool: %w", err)
@@ -60,7 +63,7 @@ func newPostgresForwardingStore(ctx context.Context, databaseURL string) (*postg
 		pool.Close()
 		return nil, fmt.Errorf("ping forwarding database: %w", err)
 	}
-	return &postgresForwardingStore{pool: pool}, nil
+	return &postgresForwardingStore{pool: pool, leaseDuration: leaseDuration}, nil
 }
 
 func (s *postgresForwardingStore) Close() {
@@ -74,7 +77,11 @@ func (s *postgresForwardingStore) Claim(ctx context.Context, limit int, now time
 	}
 	rows, err := s.pool.Query(ctx, `
 		WITH claimable AS (
-			SELECT id, status::text AS previous_status
+			SELECT id,
+				CASE
+					WHEN status = 'RUNNING'::"ForwardJobStatus" THEN 'FAILED'
+					ELSE status::text
+				END AS previous_status
 			FROM mailbox_forward_jobs
 			WHERE (
 				status IN ('PENDING'::"ForwardJobStatus", 'FAILED'::"ForwardJobStatus")
@@ -82,7 +89,7 @@ func (s *postgresForwardingStore) Claim(ctx context.Context, limit int, now time
 				AND next_attempt_at <= $1
 			) OR (
 				status = 'RUNNING'::"ForwardJobStatus"
-				AND COALESCE(lease_expires_at, updated_at + interval '10 minutes') <= $1
+				AND COALESCE(lease_expires_at, updated_at + make_interval(secs => $5::int)) <= $1
 			)
 			ORDER BY next_attempt_at ASC, created_at ASC, id ASC
 			LIMIT $2
@@ -95,7 +102,7 @@ func (s *postgresForwardingStore) Claim(ctx context.Context, limit int, now time
 			updated_at = $1
 		FROM claimable
 		WHERE job.id = claimable.id
-		RETURNING job.id, job.claim_token, claimable.previous_status`, now, limit, token, now.Add(forwardingLeaseDuration))
+		RETURNING job.id, job.claim_token, claimable.previous_status`, now, limit, token, now.Add(s.leaseDuration), int(s.leaseDuration/time.Second))
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +116,39 @@ func (s *postgresForwardingStore) Claim(ctx context.Context, limit int, now time
 		claimed = append(claimed, job)
 	}
 	return claimed, rows.Err()
+}
+
+func (s *postgresForwardingStore) Release(ctx context.Context, claims []claimedForwardJob, releasedAt time.Time) error {
+	if len(claims) == 0 {
+		return nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin forwarding claim release: %w", err)
+	}
+	defer tx.Rollback(context.Background())
+
+	for _, claim := range claims {
+		status := claim.PreviousStatus
+		if status != "PENDING" && status != "FAILED" {
+			status = "FAILED"
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE mailbox_forward_jobs
+			SET status = $3::"ForwardJobStatus",
+				claim_token = NULL,
+				lease_expires_at = NULL,
+				updated_at = $4
+			WHERE id = $1
+			  AND status = 'RUNNING'::"ForwardJobStatus"
+			  AND claim_token = $2`, claim.ID, claim.ClaimToken, status, releasedAt); err != nil {
+			return fmt.Errorf("release forwarding claim %d: %w", claim.ID, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit forwarding claim release: %w", err)
+	}
+	return nil
 }
 
 func (s *postgresForwardingStore) Load(ctx context.Context, id int64, token string) (forwardingJob, error) {

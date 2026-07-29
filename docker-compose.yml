@@ -5,7 +5,7 @@ x-bootstrap-environment: &bootstrap-environment
   PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
   ALL_MAIL_STATE_DIR: /var/lib/all-mail
   ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD: ${ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD:-false}
-  DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:5432/${POSTGRES_DB:-allmail}
+  DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
   JWT_SECRET: ${JWT_SECRET:-}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
   ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
@@ -14,12 +14,10 @@ x-bootstrap-environment: &bootstrap-environment
 
 x-api-environment: &api-environment
   NODE_ENV: production
-  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
   ALL_MAIL_STATE_DIR: /var/lib/all-mail
   BOOTSTRAP_ADMIN_SECRET_FILE: /var/lib/all-mail/bootstrap-admin.env
-  DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:5432/${POSTGRES_DB:-allmail}
+  DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
   REDIS_URL: redis://redis:6379
-  ALLOW_LOCAL_RATE_LIMIT_FALLBACK: ${ALLOW_LOCAL_RATE_LIMIT_FALLBACK:-false}
   JWT_SECRET: ${JWT_SECRET:-}
   JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-2h}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
@@ -53,11 +51,34 @@ x-legacy-runtime: &legacy-runtime
   <<: *allmail-hardening
   user: "10001:10001"
 
+x-go-runtime: &go-runtime
+  <<: *allmail-hardening
+  image: ${ALL_MAIL_GO_IMAGE:-all-mail-go}:${ALL_MAIL_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+x-legacy-long-runtime: &legacy-long-runtime
+  <<: *legacy-runtime
+  image: ${ALL_MAIL_LEGACY_IMAGE:-all-mail-legacy}:${ALL_MAIL_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: Dockerfile.legacy
+
+x-legacy-init-runtime: &legacy-init-runtime
+  image: ${ALL_MAIL_LEGACY_IMAGE:-all-mail-legacy}:${ALL_MAIL_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: Dockerfile.legacy
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+
 services:
   legacy-init:
-    build:
-      context: .
-      dockerfile: Dockerfile.legacy
+    <<: *legacy-init-runtime
     command: ["init"]
     environment:
       <<: *bootstrap-environment
@@ -72,20 +93,13 @@ services:
       - forwarding_runtime_data:/var/lib/all-mail-forwarding
     networks:
       - app-network
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-    security_opt:
-      - no-new-privileges:true
 
   go-migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *go-runtime
     command: ["migrate"]
     environment:
       ALL_MAIL_MIGRATION_DIR: /app/migrations
-      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:5432/${POSTGRES_DB:-allmail}
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
     depends_on:
       legacy-init:
         condition: service_completed_successfully
@@ -94,12 +108,9 @@ services:
     restart: "no"
     networks:
       - app-network
-    <<: *allmail-hardening
 
   legacy-api:
-    build:
-      context: .
-      dockerfile: Dockerfile.legacy
+    <<: *legacy-long-runtime
     command: ["api"]
     environment:
       <<: *api-environment
@@ -123,12 +134,9 @@ services:
       timeout: 10s
       retries: 5
       start_period: 45s
-    <<: *legacy-runtime
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *go-runtime
     command: ["api"]
     ports:
       - "${APP_PUBLISH_HOST:-127.0.0.1}:${APP_PORT:-3002}:3000"
@@ -154,20 +162,18 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
-    <<: *allmail-hardening
 
   worker-forwarding:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *go-runtime
     command: ["worker", "forwarding"]
     environment:
-      ALL_MAIL_STATE_DIR: /var/lib/all-mail
-      ENCRYPTION_KEY_FILE: /var/lib/all-mail/encryption-key
-      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:5432/${POSTGRES_DB:-allmail}
+      ALL_MAIL_STATE_DIR: /tmp/all-mail
+      ENCRYPTION_KEY_FILE: /var/lib/all-mail-secrets/encryption-key
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
       FORWARDING_WORKER_INTERVAL_SECONDS: ${FORWARDING_WORKER_INTERVAL_SECONDS:-30}
       FORWARDING_WORKER_BATCH_SIZE: ${FORWARDING_WORKER_BATCH_SIZE:-10}
       FORWARDING_RUN_TIMEOUT_SECONDS: ${FORWARDING_RUN_TIMEOUT_SECONDS:-120}
+      FORWARDING_LEASE_SECONDS: ${FORWARDING_LEASE_SECONDS:-180}
       RESEND_API_BASE_URL: ${RESEND_API_BASE_URL:-https://api.resend.com}
       WORKER_HEARTBEAT_SECONDS: ${WORKER_HEARTBEAT_SECONDS:-15}
       WORKER_HEARTBEAT_MAX_AGE_SECONDS: ${WORKER_HEARTBEAT_MAX_AGE_SECONDS:-90}
@@ -181,7 +187,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     volumes:
-      - forwarding_runtime_data:/var/lib/all-mail
+      - forwarding_runtime_data:/var/lib/all-mail-secrets:ro
     networks:
       - app-network
     healthcheck:
@@ -190,23 +196,22 @@ services:
       timeout: 10s
       retries: 5
       start_period: 45s
-    <<: *allmail-hardening
 
   worker-retention:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *go-runtime
     command: ["worker", "retention"]
     environment:
-      ALL_MAIL_STATE_DIR: /var/lib/all-mail
-      DATABASE_URL: postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:-allmail_dev_password}@postgres:5432/${POSTGRES_DB:-allmail}
+      ALL_MAIL_STATE_DIR: /tmp/all-mail
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
       API_LOG_RETENTION_DAYS: ${API_LOG_RETENTION_DAYS:-30}
       API_LOG_CLEANUP_INTERVAL_MINUTES: ${API_LOG_CLEANUP_INTERVAL_MINUTES:-60}
       API_LOG_CLEANUP_RETRY_SECONDS: ${API_LOG_CLEANUP_RETRY_SECONDS:-30}
       API_LOG_CLEANUP_TIMEOUT_SECONDS: ${API_LOG_CLEANUP_TIMEOUT_SECONDS:-60}
       API_LOG_CLEANUP_BATCH_SIZE: ${API_LOG_CLEANUP_BATCH_SIZE:-5000}
+      API_LOG_CLEANUP_MAX_BATCHES: ${API_LOG_CLEANUP_MAX_BATCHES:-10}
       WORKER_HEARTBEAT_SECONDS: ${WORKER_HEARTBEAT_SECONDS:-15}
       WORKER_HEARTBEAT_MAX_AGE_SECONDS: ${WORKER_HEARTBEAT_MAX_AGE_SECONDS:-90}
+      READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
       go-migrate:
@@ -215,8 +220,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
     stop_grace_period: 30s
-    volumes:
-      - retention_runtime_data:/var/lib/all-mail
     networks:
       - app-network
     healthcheck:
@@ -225,7 +228,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 45s
-    <<: *allmail-hardening
 
   redis:
     image: redis:7-alpine
@@ -245,7 +247,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-allmail}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-allmail_dev_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-allmail}
     restart: unless-stopped
     networks:
@@ -267,6 +269,5 @@ networks:
 volumes:
   legacy_runtime_data:
   forwarding_runtime_data:
-  retention_runtime_data:
   redis_data:
   postgres_data:

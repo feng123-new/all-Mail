@@ -107,6 +107,14 @@ The initial database administrator is created only by `legacy-init` after Prisma
 cp .env.example .env
 ```
 
+Set a strong URL-safe PostgreSQL password before Compose evaluation:
+
+```bash
+openssl rand -hex 24
+```
+
+`POSTGRES_PASSWORD` has no production default. Redis-backed login protection, API-key limits, OAuth state and ingress replay protection fail closed in production rather than falling back to process-local memory.
+
 For Cloudflare Email Routing, edit the same file and set `INGRESS_SIGNING_SECRET`, `INGRESS_ALLOWED_SKEW_SECONDS`, and the appropriate `TRUSTED_PROXY_CIDRS` for the reverse proxy directly connected to `app`.
 
 `ADMIN_USERNAME` and `ADMIN_PASSWORD` are one-shot initializer inputs. They are never passed to `legacy-api`. Leave `ADMIN_PASSWORD` blank to generate a strong temporary password.
@@ -174,6 +182,8 @@ docker compose exec legacy-api sh -lc \
 Set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only for short-lived controlled recovery. After login, the administrator is forced to change the password. A successful first rotation removes `bootstrap-admin.env`; rerunning `legacy-init` does not recreate it or create another administrator.
 
 Upgrades from the old `bootstrap-secrets.env` layout are migrated automatically. The old file is split and deleted after its values have been preserved.
+
+Only `legacy-init` may generate or migrate runtime secrets. The long-running API requires the existing `runtime-secrets.env` and exits if it is missing or incomplete.
 
 ## Trusted proxy contract
 

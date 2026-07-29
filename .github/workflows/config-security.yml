@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   environment-contract:
     runs-on: ubuntu-latest
@@ -17,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .node-version
       - name: Verify runtime and environment contracts
         run: ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs
 
@@ -30,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23.x'
+          go-version-file: .go-version
           cache-dependency-path: |
             core/go.mod
             core/go.sum
@@ -50,6 +54,8 @@ jobs:
 
   compose-boundary:
     runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
     steps:
       - uses: actions/checkout@v4
       - name: Prepare production environment
@@ -75,8 +81,10 @@ jobs:
               assert forbidden not in app_env, f'app still receives {forbidden}'
 
           forwarding_env = services['worker-forwarding'].get('environment', {})
-          assert forwarding_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail/encryption-key'
+          assert forwarding_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail-secrets/encryption-key'
           assert 'ENCRYPTION_KEY' not in forwarding_env
+
+          assert services['worker-retention'].get('volumes') in (None, []), 'retention heartbeat must stay ephemeral'
 
           init_deps = services['legacy-init'].get('depends_on', {})
           assert 'redis' not in init_deps, 'legacy-init still waits for Redis'

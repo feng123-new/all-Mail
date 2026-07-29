@@ -72,6 +72,7 @@ func TestLoadForwardingDefaultsAndSecretFile(t *testing.T) {
 	clearEnv(t,
 		"FORWARDING_WORKER_INTERVAL_SECONDS",
 		"FORWARDING_RUN_TIMEOUT_SECONDS",
+		"FORWARDING_LEASE_SECONDS",
 		"FORWARDING_WORKER_BATCH_SIZE",
 		"WORKER_HEARTBEAT_SECONDS",
 		"WORKER_HEARTBEAT_MAX_AGE_SECONDS",
@@ -98,11 +99,33 @@ func TestLoadForwardingDefaultsAndSecretFile(t *testing.T) {
 	if cfg.EncryptionKey != "0123456789abcdef0123456789abcdef" {
 		t.Fatalf("EncryptionKey = %q", cfg.EncryptionKey)
 	}
-	if cfg.Interval != 30*time.Second || cfg.RunTimeout != 120*time.Second || cfg.BatchSize != 10 {
+	if cfg.Interval != 30*time.Second || cfg.RunTimeout != 120*time.Second || cfg.LeaseDuration != 180*time.Second || cfg.BatchSize != 10 {
 		t.Fatalf("Forwarding defaults = %#v", cfg)
 	}
 	if cfg.HeartbeatInterval != 15*time.Second || cfg.HeartbeatMaxAge != 90*time.Second {
 		t.Fatalf("legacy heartbeat aliases affected config: %#v", cfg)
+	}
+}
+
+func TestLoadForwardingValidatesLeaseAndHeartbeatRelationships(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "encryption-key")
+	if err := os.WriteFile(keyFile, []byte("0123456789abcdef0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ENCRYPTION_KEY_FILE", keyFile)
+	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
+	t.Setenv("ALL_MAIL_STATE_DIR", t.TempDir())
+
+	t.Setenv("FORWARDING_LEASE_SECONDS", "120")
+	if _, err := LoadForwarding(); err == nil {
+		t.Fatal("LoadForwarding() accepted a lease shorter than the run and shutdown envelope")
+	}
+
+	t.Setenv("FORWARDING_LEASE_SECONDS", "180")
+	t.Setenv("WORKER_HEARTBEAT_SECONDS", "20")
+	t.Setenv("WORKER_HEARTBEAT_MAX_AGE_SECONDS", "30")
+	if _, err := LoadForwarding(); err == nil {
+		t.Fatal("LoadForwarding() accepted an undersized heartbeat max age")
 	}
 }
 
@@ -132,6 +155,8 @@ func TestLoadRetentionDefaultsAndValidation(t *testing.T) {
 		"API_LOG_CLEANUP_RETRY_SECONDS",
 		"API_LOG_CLEANUP_TIMEOUT_SECONDS",
 		"API_LOG_CLEANUP_BATCH_SIZE",
+		"API_LOG_CLEANUP_MAX_BATCHES",
+		"READY_TIMEOUT_SECONDS",
 		"WORKER_HEARTBEAT_SECONDS",
 		"WORKER_HEARTBEAT_MAX_AGE_SECONDS",
 		"GO_JOBS_HEARTBEAT_SECONDS",
@@ -144,7 +169,7 @@ func TestLoadRetentionDefaultsAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.RetentionDays != 30 || cfg.Interval != time.Hour || cfg.Retry != 30*time.Second || cfg.RunTimeout != time.Minute || cfg.BatchSize != 5000 {
+	if cfg.RetentionDays != 30 || cfg.Interval != time.Hour || cfg.Retry != 30*time.Second || cfg.RunTimeout != time.Minute || cfg.BatchSize != 5000 || cfg.MaxBatches != 10 || cfg.ReadyTimeout != 5*time.Second {
 		t.Fatalf("Retention defaults = %#v", cfg)
 	}
 	if cfg.HeartbeatInterval != 15*time.Second {
@@ -154,6 +179,11 @@ func TestLoadRetentionDefaultsAndValidation(t *testing.T) {
 	t.Setenv("API_LOG_CLEANUP_RETRY_SECONDS", "0")
 	if _, err := LoadRetention(); err == nil {
 		t.Fatal("LoadRetention() expected retry validation error")
+	}
+
+	t.Setenv("API_LOG_CLEANUP_RETRY_SECONDS", "3600")
+	if _, err := LoadRetention(); err == nil {
+		t.Fatal("LoadRetention() accepted retry equal to the normal interval")
 	}
 }
 

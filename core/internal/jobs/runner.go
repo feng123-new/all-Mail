@@ -75,7 +75,7 @@ func RunForwarding(ctx context.Context, cfg config.ForwardingConfig, logger *slo
 	}
 	defer ownerLock.Close(context.Background())
 
-	store, err := newPostgresForwardingStore(ctx, cfg.DatabaseURL)
+	store, err := newPostgresForwardingStore(ctx, cfg.DatabaseURL, cfg.LeaseDuration)
 	if err != nil {
 		return err
 	}
@@ -116,10 +116,11 @@ func RunRetention(ctx context.Context, cfg config.RetentionConfig, logger *slog.
 	if err := prepareWorkerState(cfg.StateDir, WorkerRetention); err != nil {
 		return err
 	}
-	cleaner, err := newRetentionCleaner(cfg)
+	cleaner, err := newRetentionCleaner(ctx, cfg)
 	if err != nil {
 		return err
 	}
+	defer cleaner.Close()
 	return runWorker(ctx, runtimeConfig{
 		name:              WorkerRetention,
 		stateDir:          cfg.StateDir,
@@ -128,10 +129,11 @@ func RunRetention(ctx context.Context, cfg config.RetentionConfig, logger *slog.
 		runTimeout:        cfg.RunTimeout,
 		heartbeatInterval: cfg.HeartbeatInterval,
 		shutdownTimeout:   cfg.ShutdownTimeout,
-		healthTimeout:     cfg.RunTimeout,
+		healthTimeout:     cfg.ReadyTimeout,
 		runOnce: func(runCtx context.Context, _ time.Time) (int64, error) {
 			return cleaner.Cleanup(runCtx)
 		},
+		healthCheck: cleaner.Ping,
 	}, logger)
 }
 

@@ -44,13 +44,3 @@ coverage
 !README.md
 .dockerignore
 docker-compose*.yml
-
-# Old backend files (no longer needed)
-main.js
-config.js
-routes/
-controllers/
-services/
-middlewares/
-utils/
-sql/
