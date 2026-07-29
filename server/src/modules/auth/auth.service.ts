@@ -114,15 +114,22 @@ export const authService = {
             throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password', 401);
         }
 
-        const adminTwoFactorSecret = admin.twoFactorEnabled
-            ? decryptAdmin2FaSecret(admin.twoFactorSecret)
-            : null;
-        if (admin.twoFactorEnabled && adminTwoFactorSecret && !verifyTotpCode(adminTwoFactorSecret, otp, env.ADMIN_2FA_WINDOW)) {
-            const newLockSeconds = await adminLoginAttempts.recordFailure(loginAttemptCacheKey);
-            if (newLockSeconds > 0) {
-                throw new AppError('ACCOUNT_LOCKED', formatLockMessage(newLockSeconds), 429);
+        if (admin.twoFactorEnabled) {
+            const adminTwoFactorSecret = decryptAdmin2FaSecret(admin.twoFactorSecret);
+            if (!adminTwoFactorSecret) {
+                throw new AppError(
+                    'TWO_FACTOR_CONFIGURATION_INVALID',
+                    'Invalid two-factor configuration',
+                    500,
+                );
             }
-            throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
+            if (!verifyTotpCode(adminTwoFactorSecret, otp, env.ADMIN_2FA_WINDOW)) {
+                const newLockSeconds = await adminLoginAttempts.recordFailure(loginAttemptCacheKey);
+                if (newLockSeconds > 0) {
+                    throw new AppError('ACCOUNT_LOCKED', formatLockMessage(newLockSeconds), 429);
+                }
+                throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
+            }
         }
 
         await adminLoginAttempts.clear(loginAttemptCacheKey);

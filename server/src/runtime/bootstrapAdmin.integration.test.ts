@@ -52,6 +52,23 @@ void test(
             assert.equal(admin.mustChangePassword, true);
             assert.equal(await bcrypt.compare(first.password, admin.passwordHash), true);
 
+            await assert.rejects(prisma.admin.update({
+                where: { id: admin.id },
+                data: {
+                    twoFactorEnabled: true,
+                    twoFactorSecret: null,
+                },
+            }));
+            const twoFactorIntegrity = await prisma.admin.findUniqueOrThrow({
+                where: { id: admin.id },
+                select: {
+                    twoFactorEnabled: true,
+                    twoFactorSecret: true,
+                },
+            });
+            assert.equal(twoFactorIntegrity.twoFactorEnabled, false);
+            assert.equal(twoFactorIntegrity.twoFactorSecret, null);
+
             const second = await bootstrapAdministrator(prisma, {
                 ...environment,
                 ADMIN_USERNAME: 'different-admin',

@@ -192,3 +192,35 @@ test("obsolete Node production runtime files remain deleted", async () => {
 		await assert.rejects(access(path.join(repoRoot, relativePath)), relativePath);
 	}
 });
+
+test("operator documentation uses canonical worker paths and redacts runtime secrets", async () => {
+	const files = await Promise.all([
+		"core/README.md",
+		"docs/DEPLOY.md",
+		"docs/RUNBOOK.md",
+		"docs/GO-MIGRATION.md",
+	].map((relativePath) => readFile(path.join(repoRoot, relativePath), "utf8")));
+	const combined = files.join("\n");
+	assert.doesNotMatch(combined, /\/var\/lib\/all-mail\/encryption-key/);
+	assert.doesNotMatch(combined, /\/var\/lib\/all-mail\/worker-forwarding-heartbeat\.json/);
+	assert.doesNotMatch(combined, /cat\s+\/var\/lib\/all-mail\/runtime-secrets\.env/);
+	assert.match(combined, /\/var\/lib\/all-mail-secrets\/encryption-key/);
+	assert.match(combined, /\/tmp\/all-mail\/worker-forwarding-heartbeat\.json/);
+	assert.match(combined, /runtime-secrets\.env[\s\S]*?<redacted>/);
+});
+
+test("compatibility API omits retired direct dependencies", async () => {
+	const packageJson = JSON.parse(await readFile(path.join(repoRoot, "server/package.json"), "utf8"));
+	for (const removed of [
+		"@fastify/rate-limit",
+		"@fastify/static",
+		"@fastify/swagger",
+		"@fastify/swagger-ui",
+		"pg",
+	]) {
+		assert.equal(packageJson.dependencies[removed], undefined, `${removed} remains a direct production dependency`);
+	}
+	assert.equal(packageJson.dependencies["pino-pretty"], undefined);
+	assert.equal(typeof packageJson.devDependencies["pino-pretty"], "string");
+	assert.equal(packageJson.devDependencies["@types/pg"], undefined);
+});

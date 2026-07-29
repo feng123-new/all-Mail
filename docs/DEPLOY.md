@@ -96,8 +96,10 @@ docker compose port app 3000
 Long-lived secrets:
 
 ```bash
-docker compose exec legacy-api sh -lc \
-  'test -r /var/lib/all-mail/runtime-secrets.env && cat /var/lib/all-mail/runtime-secrets.env'
+docker compose exec legacy-api sh -lc '
+  test -r /var/lib/all-mail/runtime-secrets.env
+  sed -n "s/=.*$/=<redacted>/p" /var/lib/all-mail/runtime-secrets.env
+'
 ```
 
 That file must contain only `JWT_SECRET` and `ENCRYPTION_KEY`; it must not contain administrator credentials.
@@ -134,7 +136,7 @@ Forwarding receives only its read-only key file at `/var/lib/all-mail-secrets/en
 
 ```bash
 docker compose exec worker-forwarding sh -lc '
-  test -r /var/lib/all-mail/encryption-key
+  test -r /var/lib/all-mail-secrets/encryption-key
   test -z "${ENCRYPTION_KEY:-}"
 '
 ```
@@ -244,6 +246,17 @@ Before upgrading:
 The initializer uses password-hash matching to recover the correct username for historical deployments that used non-default bootstrap username aliases.
 
 ## Update an existing deployment
+
+Before applying the new 2FA integrity constraint, confirm that no enabled administrator is missing its encrypted secret:
+
+```bash
+docker compose exec postgres psql \
+  -U "${POSTGRES_USER:-allmail}" \
+  -d "${POSTGRES_DB:-allmail}" \
+  -c 'SELECT id, username FROM admins WHERE two_factor_enabled = true AND two_factor_secret IS NULL'
+```
+
+The query must return no rows. If it finds a row, restore the administrator's valid encrypted secret or disable 2FA through a controlled recovery before running migrations. The migration intentionally fails instead of allowing an enabled-but-unverifiable account.
 
 ```bash
 docker compose up -d --build --wait --wait-timeout 300

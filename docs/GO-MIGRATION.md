@@ -119,7 +119,7 @@ After successful initial password rotation, Fastify removes `bootstrap-admin.env
 The forwarding worker accepts only:
 
 ```text
-ENCRYPTION_KEY_FILE=/var/lib/all-mail/encryption-key
+ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
 ```
 
 ## Public gateway least privilege

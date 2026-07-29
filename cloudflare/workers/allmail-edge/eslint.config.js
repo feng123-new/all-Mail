@@ -6,6 +6,18 @@ import { defineConfig, globalIgnores } from 'eslint/config';
 export default defineConfig([
   globalIgnores(['node_modules', 'dist']),
   {
+    files: ['bin/**/*.js'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: globals.node,
+    },
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  {
     files: ['src/**/*.ts'],
     extends: [js.configs.recommended, tseslint.configs.recommendedTypeChecked],
     languageOptions: {

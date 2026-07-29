@@ -120,6 +120,18 @@ function buildOAuthStatusKey(state: string): string {
 	return `admin:oauth:status:${state}`;
 }
 
+interface OAuthStateConsumer {
+	getdel(key: string): Promise<string | null>;
+}
+
+export async function consumeOAuthStateFromRedis(
+	redis: OAuthStateConsumer,
+	state: string,
+): Promise<OAuthStateRecord | null> {
+	const payload = await redis.getdel(buildOAuthStateKey(state));
+	return payload ? (JSON.parse(payload) as OAuthStateRecord) : null;
+}
+
 async function saveOAuthState(
 	state: string,
 	value: OAuthStateRecord,
@@ -152,13 +164,7 @@ async function takeOAuthState(state: string): Promise<OAuthStateRecord | null> {
 	const redis = getRedis();
 	if (redis) {
 		try {
-			const key = buildOAuthStateKey(state);
-			const payload = await redis.get(key);
-			if (!payload) {
-				return null;
-			}
-			await redis.del(key);
-			return JSON.parse(payload) as OAuthStateRecord;
+			return await consumeOAuthStateFromRedis(redis, state);
 		} catch (error) {
 			handleOAuthStateBackendFailure("take-state", error);
 		}
