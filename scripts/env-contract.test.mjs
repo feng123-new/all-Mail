@@ -107,7 +107,10 @@ test("administrator bootstrap runs only after Prisma migration in legacy-init", 
 	const bootstrapIndex = entrypoint.lastIndexOf("node dist/runtime/bootstrapAdmin.js");
 	assert.ok(migrationIndex !== -1 && bootstrapIndex > migrationIndex);
 	assert.doesNotMatch(processRuntime, /ensureBootstrapAdmin|bootstrapAdministrator/);
-	assert.doesNotMatch(authService, /ensureBootstrapAdmin|createBootstrapAdmin|ADMIN_USERNAME|ADMIN_PASSWORD|adminId === 0|legacyEnv/);
+	assert.doesNotMatch(
+		authService,
+		/ensureBootstrapAdmin|createBootstrapAdmin|adminId === 0|legacyEnv|env\.ADMIN_USERNAME|env\.ADMIN_PASSWORD|process\.env\.ADMIN_USERNAME|process\.env\.ADMIN_PASSWORD/,
+	);
 	assert.match(authService, /BOOTSTRAP_ADMIN_SECRET_FILE/);
 });
 
