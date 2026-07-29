@@ -65,7 +65,10 @@ prepare_runtime_state() {
 }
 
 prepare_runtime_state
-eval "$(run_as_allmail "$sanitize_runtime_env" node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR" --format shell)"
+bootstrap_lock_file="$ALL_MAIL_STATE_DIR/.bootstrap-secrets.lock"
+run_as_allmail sh -c 'umask 077; : >> "$1"; chmod 600 "$1"' sh "$bootstrap_lock_file"
+bootstrap_exports=$(run_as_allmail flock -w 30 "$bootstrap_lock_file" "$sanitize_runtime_env" node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR" --format shell)
+eval "$bootstrap_exports"
 
 if [ -n "${ALL_MAIL_GENERATED_RUNTIME_SECRETS:-}" ]; then
     printf '%s\n' "Generated runtime secrets in ${ALL_MAIL_RUNTIME_SECRETS_FILE}."

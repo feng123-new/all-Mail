@@ -54,4 +54,25 @@ void test('invalid explicit credentials fail instead of being silently rewritten
         }),
         /at least 8 characters/,
     );
+
+    for (const environment of [
+        { ADMIN_USERNAME: 'admin\ninjected=value', ADMIN_PASSWORD: 'valid-password' },
+        { ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'valid-password\ninjected=value' },
+        { ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: '\nvalid-password' },
+    ]) {
+        assert.throws(
+            () => resolveBootstrapCredential({}, environment),
+            /must not contain line breaks/,
+        );
+    }
+
+    for (const environment of [
+        { ADMIN_USERNAME: "'admin", ADMIN_PASSWORD: 'valid-password' },
+        { ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'valid-password"' },
+    ]) {
+        assert.throws(
+            () => resolveBootstrapCredential({}, environment),
+            /must not start or end with a quote/,
+        );
+    }
 });

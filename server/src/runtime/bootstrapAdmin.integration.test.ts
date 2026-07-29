@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -96,6 +96,18 @@ void test(
             const rewritten = await readFile(bootstrapFile, 'utf8');
             assert.match(rewritten, /ADMIN_USERNAME=custom-root/);
             assert.match(rewritten, new RegExp(`ADMIN_PASSWORD=${legacyPassword}`));
+
+            if (typeof process.getuid !== 'function' || process.getuid() !== 0) {
+                await chmod(bootstrapFile, 0o000);
+                try {
+                    await assert.rejects(
+                        bootstrapAdministrator(prisma, environment),
+                        (error) => error && typeof error === 'object' && 'code' in error && error.code === 'EACCES',
+                    );
+                } finally {
+                    await chmod(bootstrapFile, 0o600);
+                }
+            }
         } finally {
             await prisma.$disconnect();
         }

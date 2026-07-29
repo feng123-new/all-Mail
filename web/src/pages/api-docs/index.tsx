@@ -368,8 +368,8 @@ const apiDocsPageI18n = {
 	),
 	productionReminderBody: m(
 		"productionReminderBody",
-		"JWT_SECRET、ENCRYPTION_KEY、ADMIN_PASSWORD 必须通过外部环境变量注入，不要写死进仓库。",
-		"JWT_SECRET, ENCRYPTION_KEY, and ADMIN_PASSWORD must be injected through external environment variables. Do not hardcode them into the repository.",
+		"JWT_SECRET 和 ENCRYPTION_KEY 必须妥善保管；ADMIN_PASSWORD 仅用于一次性初始化，首次改密后不应继续保留。不要把任何凭证写死进仓库。",
+		"Protect JWT_SECRET and ENCRYPTION_KEY. ADMIN_PASSWORD is a one-shot initializer input and must not remain after the first password rotation. Never hardcode credentials in the repository.",
 	),
 	healthCheckTitle: m("healthCheckTitle", "健康检查", "Health check"),
 	beginnerFaqTitle: m("beginnerFaqTitle", "新手常见问题", "Beginner FAQ"),

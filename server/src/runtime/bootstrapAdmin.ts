@@ -49,10 +49,13 @@ function parseEnvText(content: string): Record<string, string> {
         if (separatorIndex <= 0) {
             continue;
         }
-        entries[line.slice(0, separatorIndex).trim()] = line
-            .slice(separatorIndex + 1)
-            .trim()
-            .replace(/^['"]|['"]$/g, '');
+        const value = line.slice(separatorIndex + 1).trim();
+        const first = value[0];
+        const last = value[value.length - 1];
+        entries[line.slice(0, separatorIndex).trim()] = value.length >= 2
+            && ((first === '"' && last === '"') || (first === "'" && last === "'"))
+            ? value.slice(1, -1)
+            : value;
     }
     return entries;
 }
@@ -61,8 +64,14 @@ async function pathExists(targetPath: string): Promise<boolean> {
     try {
         await access(targetPath, fsConstants.R_OK);
         return true;
-    } catch {
-        return false;
+    } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error
+            ? String(error.code)
+            : '';
+        if (code === 'ENOENT') {
+            return false;
+        }
+        throw error;
     }
 }
 
@@ -91,8 +100,14 @@ function validateCredential(credential: BootstrapCredential): BootstrapCredentia
     if (credential.username.length < 1 || credential.username.length > 50) {
         throw new Error('ADMIN_USERNAME must contain between 1 and 50 characters');
     }
+    if (/\r|\n/.test(credential.username)) {
+        throw new Error('ADMIN_USERNAME must not contain line breaks');
+    }
     if (credential.password.length < 8) {
         throw new Error('ADMIN_PASSWORD must contain at least 8 characters');
+    }
+    if (/\r|\n/.test(credential.password)) {
+        throw new Error('ADMIN_PASSWORD must not contain line breaks');
     }
     return credential;
 }
@@ -101,6 +116,22 @@ export function resolveBootstrapCredential(
     fileEntries: Record<string, string>,
     environment: NodeJS.ProcessEnv,
 ): BootstrapCredential {
+    for (const [name, value] of [
+        ['ADMIN_USERNAME', environment.ADMIN_USERNAME],
+        ['ADMIN_PASSWORD', environment.ADMIN_PASSWORD],
+    ] as const) {
+        if (typeof value !== 'string') {
+            continue;
+        }
+        if (/\r|\n/.test(value)) {
+            throw new Error(`${name} must not contain line breaks`);
+        }
+        const normalized = value.trim();
+        if (normalized && (/^['"]/.test(normalized) || /['"]$/.test(normalized))) {
+            throw new Error(`${name} must not start or end with a quote`);
+        }
+    }
+
     if (!isMissing(fileEntries.ADMIN_PASSWORD)) {
         return validateCredential({
             username: !isMissing(fileEntries.ADMIN_USERNAME)
@@ -181,7 +212,7 @@ export async function bootstrapAdministrator(
     const bootstrapFile = environment.BOOTSTRAP_ADMIN_SECRET_FILE?.trim() || DEFAULT_BOOTSTRAP_FILE;
 
     return prisma.$transaction(async (transaction) => {
-        await transaction.$queryRaw`
+        await transaction.$executeRaw`
             SELECT pg_advisory_xact_lock(
                 CAST(${BOOTSTRAP_LOCK_NAMESPACE} AS integer),
                 CAST(${BOOTSTRAP_LOCK_KEY} AS integer)

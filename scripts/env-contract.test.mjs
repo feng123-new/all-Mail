@@ -124,6 +124,10 @@ test("runtime and one-time administrator secrets use separate files", async () =
 	assert.match(secretScript, /bootstrap-secrets\.env/);
 	assert.match(secretScript, /rm\(legacySecretsFile/);
 	assert.match(entrypoint, /ALL_MAIL_RUNTIME_SECRETS_FILE/);
+	assert.match(entrypoint, /bootstrap_exports=\$\(run_as_allmail/);
+	assert.match(entrypoint, /flock -w 30/);
+	assert.match(entrypoint, /eval "\$bootstrap_exports"/);
+	assert.doesNotMatch(entrypoint, /eval "\$\(run_as_allmail/);
 	assert.doesNotMatch(entrypoint, /ALL_MAIL_BOOTSTRAP_SECRETS_FILE|ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS/);
 });
 

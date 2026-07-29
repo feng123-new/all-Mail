@@ -11,6 +11,18 @@ export const RUNTIME_SECRETS_FILENAME = 'runtime-secrets.env';
 export const BOOTSTRAP_ADMIN_FILENAME = 'bootstrap-admin.env';
 export const LEGACY_SECRETS_FILENAME = 'bootstrap-secrets.env';
 
+function parseEnvValue(rawValue) {
+  const value = rawValue.trim();
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return value.slice(1, -1);
+    }
+  }
+  return value;
+}
+
 export function parseEnvText(content) {
   const entries = {};
   for (const rawLine of content.split(/\r?\n/)) {
@@ -23,9 +35,9 @@ export function parseEnvText(content) {
       continue;
     }
     const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
+    const value = line.slice(separatorIndex + 1);
     if (key) {
-      entries[key] = value.replace(/^['"]|['"]$/g, '');
+      entries[key] = parseEnvValue(value);
     }
   }
   return entries;
@@ -55,12 +67,44 @@ function isMissing(value) {
   return PLACEHOLDER_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
+function validateBootstrapAdminEnvironment(env) {
+  const rawUsername = env.ADMIN_USERNAME == null ? '' : String(env.ADMIN_USERNAME);
+  const rawPassword = env.ADMIN_PASSWORD == null ? '' : String(env.ADMIN_PASSWORD);
+  if (/\r|\n/.test(rawUsername)) {
+    throw new Error('ADMIN_USERNAME must not contain line breaks');
+  }
+  if (/\r|\n/.test(rawPassword)) {
+    throw new Error('ADMIN_PASSWORD must not contain line breaks');
+  }
+  const username = !isMissing(rawUsername) ? rawUsername.trim() : '';
+  const password = !isMissing(rawPassword) ? rawPassword.trim() : '';
+  if (username.length > 50) {
+    throw new Error('ADMIN_USERNAME must contain at most 50 characters');
+  }
+  if (username && (/^['"]/.test(username) || /['"]$/.test(username))) {
+    throw new Error('ADMIN_USERNAME must not start or end with a quote');
+  }
+  if (password && password.length < 8) {
+    throw new Error('ADMIN_PASSWORD must contain at least 8 characters');
+  }
+  if (password && (/^['"]/.test(password) || /['"]$/.test(password))) {
+    throw new Error('ADMIN_PASSWORD must not start or end with a quote');
+  }
+}
+
+function errorCode(error) {
+  return error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+}
+
 async function pathExists(targetPath) {
   try {
     await access(targetPath, fsConstants.R_OK);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -92,8 +136,8 @@ function selectEntries(source, keys) {
 }
 
 export async function ensureRuntimeSecrets({ stateDir, env }) {
+  validateBootstrapAdminEnvironment(env);
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
-
   const runtimeSecretsFile = path.join(stateDir, RUNTIME_SECRETS_FILENAME);
   const bootstrapAdminFile = path.join(stateDir, BOOTSTRAP_ADMIN_FILENAME);
   const legacySecretsFile = path.join(stateDir, LEGACY_SECRETS_FILENAME);
@@ -134,15 +178,18 @@ export async function ensureRuntimeSecrets({ stateDir, env }) {
     formatEnvText('Auto-generated all-Mail runtime secrets', persistedRuntime),
   );
 
-  // Existing split state wins. During migration from the combined bundle, a
-  // canonical one-shot ADMIN_USERNAME/ADMIN_PASSWORD pair may override the old
-  // bundle. This is the safe upgrade path for installations that previously
-  // used DOMAIN_BOOTSTRAP_ADMIN_* values which were never written to the bundle.
-  const migratedAdmin = {
-    ...selectEntries(legacySecrets, ['ADMIN_USERNAME', 'ADMIN_PASSWORD']),
-    ...selectEntries(env, ['ADMIN_USERNAME', 'ADMIN_PASSWORD']),
-    ...selectEntries(existingAdmin, ['ADMIN_USERNAME', 'ADMIN_PASSWORD']),
-  };
+  // Only migrate administrator plaintext here. Fresh environment credentials
+  // are persisted by the database-locked bootstrap command, so later init runs
+  // cannot rematerialize an already consumed password. Existing split state
+  // wins; during legacy bundle migration, canonical one-shot inputs may replace
+  // old aliases that were never written to the combined bundle.
+  const migratedAdmin = !isMissing(legacySecrets.ADMIN_PASSWORD)
+    ? {
+        ...selectEntries(legacySecrets, ['ADMIN_USERNAME', 'ADMIN_PASSWORD']),
+        ...selectEntries(env, ['ADMIN_USERNAME', 'ADMIN_PASSWORD']),
+        ...selectEntries(existingAdmin, ['ADMIN_USERNAME', 'ADMIN_PASSWORD']),
+      }
+    : selectEntries(existingAdmin, ['ADMIN_USERNAME', 'ADMIN_PASSWORD']);
   if (!isMissing(legacySecrets.ADMIN_PASSWORD) && isMissing(migratedAdmin.ADMIN_USERNAME)) {
     migratedAdmin.ADMIN_USERNAME = 'admin';
   }
