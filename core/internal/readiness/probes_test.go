@@ -19,7 +19,7 @@ func TestBridgeReadinessRejectsMissingDependencies(t *testing.T) {
 		Redis:    func(context.Context, string) error { return nil },
 		Legacy:   func(context.Context, string) error { return nil },
 	}
-	report := prober.Check(context.Background(), config.Config{APIMode: config.APIModeBridge})
+	report := prober.Check(context.Background(), config.APIConfig{Mode: config.APIModeBridge})
 	if report.Ready {
 		t.Fatal("bridge readiness unexpectedly succeeded without dependencies")
 	}
@@ -37,8 +37,8 @@ func TestBridgeReadinessRunsAllProtocolProbes(t *testing.T) {
 		Redis:    func(context.Context, string) error { called["redis"]++; return nil },
 		Legacy:   func(context.Context, string) error { called["legacy"]++; return nil },
 	}
-	cfg := config.Config{
-		APIMode:      config.APIModeBridge,
+	cfg := config.APIConfig{
+		Mode:         config.APIModeBridge,
 		DatabaseURL:  "postgresql://user:password@postgres/database",
 		RedisURL:     "redis://redis:6379/0",
 		LegacyAPIURL: "http://legacy-api:3100",
@@ -57,14 +57,14 @@ func TestBridgeReadinessRunsAllProtocolProbes(t *testing.T) {
 func TestStaticReadinessRequiresBuiltIndex(t *testing.T) {
 	directory := t.TempDir()
 	prober := Prober{}
-	report := prober.Check(context.Background(), config.Config{APIMode: config.APIModeStatic, StaticDir: directory})
+	report := prober.Check(context.Background(), config.APIConfig{Mode: config.APIModeStatic, StaticDir: directory})
 	if report.Ready {
 		t.Fatal("static readiness succeeded without index.html")
 	}
 	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("ok"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	report = prober.Check(context.Background(), config.Config{APIMode: config.APIModeStatic, StaticDir: directory})
+	report = prober.Check(context.Background(), config.APIConfig{Mode: config.APIModeStatic, StaticDir: directory})
 	if !report.Ready {
 		t.Fatalf("report = %#v", report)
 	}

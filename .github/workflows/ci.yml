@@ -74,7 +74,14 @@ jobs:
             core/go.mod
             core/go.sum
 
-      - name: Install PostgreSQL client for migration tests
+      - name: Setup Node.js for Prisma integration
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install PostgreSQL client for test scaffolding
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
 
       - name: Check formatting
@@ -96,7 +103,20 @@ jobs:
           if-no-files-found: warn
 
       - name: Test with race detector
-        run: go test -race ./...
+        shell: bash
+        run: |
+          set +e
+          go test -race ./... 2>&1 | tee "$RUNNER_TEMP/go-race-tests.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Upload Go race-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-race-test-log
+          path: ${{ runner.temp }}/go-race-tests.log
+          if-no-files-found: error
 
       - name: Vet
         run: go vet ./...
@@ -104,7 +124,7 @@ jobs:
       - name: Build
         run: go build -trimpath -o ./allmail ./cmd/allmail
 
-      - name: Verify fresh and repeated migrations
+      - name: Verify fresh and repeated Go migrations
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_ci?sslmode=disable
           ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
@@ -131,34 +151,35 @@ jobs:
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
           test "$(psql "$DATABASE_URL" -Atqc "SELECT datetime_precision FROM information_schema.columns WHERE table_name = 'mailbox_forward_jobs' AND column_name = 'lease_expires_at'")" = "3"
 
-      - name: Verify Go API log retention worker
+      - name: Verify dedicated retention worker
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_ci?sslmode=disable
-          ALL_MAIL_STATE_DIR: ${{ runner.temp }}/allmail-go-jobs
-          API_LOG_RETENTION_OWNER: go
+          ALL_MAIL_STATE_DIR: ${{ runner.temp }}/allmail-retention
           API_LOG_RETENTION_DAYS: 30
           API_LOG_CLEANUP_INTERVAL_MINUTES: 60
+          API_LOG_CLEANUP_RETRY_SECONDS: 1
+          API_LOG_CLEANUP_TIMEOUT_SECONDS: 10
           API_LOG_CLEANUP_BATCH_SIZE: 5000
-          GO_JOBS_HEARTBEAT_SECONDS: 1
-          GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS: 10
+          WORKER_HEARTBEAT_SECONDS: 1
+          WORKER_HEARTBEAT_MAX_AGE_SECONDS: 10
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO api_logs (created_at)
           VALUES (now() - interval '45 days'), (now() - interval '5 days');
           SQL
           mkdir -p "$ALL_MAIL_STATE_DIR"
-          ./allmail jobs &
-          jobs_pid=$!
-          trap 'kill -TERM "$jobs_pid" 2>/dev/null || true' EXIT
+          ./allmail worker retention &
+          worker_pid=$!
+          trap 'kill -TERM "$worker_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 30); do
-            if grep -q '"lastSuccessAt"' "$ALL_MAIL_STATE_DIR/go-jobs-heartbeat.json" 2>/dev/null; then
+            if grep -q '"lastSuccessAt"' "$ALL_MAIL_STATE_DIR/worker-retention-heartbeat.json" 2>/dev/null; then
               break
             fi
             sleep 1
           done
-          ./allmail doctor jobs
-          kill -TERM "$jobs_pid"
-          wait "$jobs_pid"
+          ./allmail doctor worker retention
+          kill -TERM "$worker_pid"
+          wait "$worker_pid"
           trap - EXIT
           test "$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM api_logs WHERE created_at < now() - interval '30 days'")" = "0"
           test "$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM api_logs WHERE created_at >= now() - interval '30 days'")" = "1"
@@ -233,6 +254,20 @@ jobs:
           fi
           test "$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('runtime_migrations') IS NULL")" = "t"
 
+      - name: Install Prisma integration dependencies
+        run: ../scripts/sanitize-runtime-env.sh npm --prefix ../server ci
+
+      - name: Verify PostgreSQL forwarding state machine
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_forwarding_integration?sslmode=disable
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+          ALLMAIL_FORWARDING_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_forwarding_integration?sslmode=disable
+        run: |
+          createdb -h 127.0.0.1 -U postgres allmail_forwarding_integration
+          ../scripts/sanitize-runtime-env.sh npm --prefix ../server run db:migrate
+          ./allmail migrate
+          go test -run TestPostgresForwardingIntegration -count=1 ./internal/jobs
+
   web:
     name: web-lint-build
     runs-on: ubuntu-latest
@@ -260,7 +295,7 @@ jobs:
         run: ../scripts/sanitize-runtime-env.sh npm run test
 
       - name: Build
-        run: ../scripts/sanitize-runtime-env.sh npm run build && ../scripts/sanitize-runtime-env.sh node ../scripts/prepare-public.mjs
+        run: ../scripts/sanitize-runtime-env.sh npm run build
 
   server:
     name: server-lint-build
@@ -299,7 +334,20 @@ jobs:
           if-no-files-found: error
 
       - name: Test
-        run: ../scripts/sanitize-runtime-env.sh npm run test
+        shell: bash
+        run: |
+          set +e
+          ../scripts/sanitize-runtime-env.sh npm run test 2>&1 | tee "$RUNNER_TEMP/server-test.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Upload server test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-test-log
+          path: ${{ runner.temp }}/server-test.log
+          if-no-files-found: error
 
       - name: Build
         run: ../scripts/sanitize-runtime-env.sh npm run db:generate && ../scripts/sanitize-runtime-env.sh npm run build
@@ -390,28 +438,35 @@ jobs:
             ${{ runner.temp }}/docker-compose.log
           if-no-files-found: warn
 
-      - name: Verify consolidated service ownership
+      - name: Verify retired legacy runtimes
         shell: bash
         run: |
           docker compose ps -a
           test "$(docker compose exec -T legacy-api id -u)" = "10001"
-          if docker compose ps --services | grep -qx legacy-jobs; then
-            echo "legacy-jobs must not run in the default profile"
+          for retired in go-jobs legacy-jobs jobs; do
+            if docker compose config --services | grep -qx "$retired"; then
+              echo "retired service remains in Compose: $retired"
+              exit 1
+            fi
+          done
+          docker compose exec -T legacy-api sh -lc "test -r /var/lib/all-mail/bootstrap-secrets.env"
+          docker compose exec -T worker-forwarding sh -lc "test -r /var/lib/all-mail/encryption-key"
+          if docker compose exec -T app sh -lc 'command -v psql >/dev/null'; then
+            echo "Go runtime image must not include psql"
             exit 1
           fi
-          docker compose exec -T legacy-api sh -lc "test -r /var/lib/all-mail/bootstrap-secrets.env"
-          docker compose exec -T go-jobs sh -lc "test -r /var/lib/all-mail/encryption-key"
 
-      - name: Verify Go and legacy readiness
+      - name: Verify Go and compatibility API readiness
         run: |
           curl --fail --silent --show-error http://127.0.0.1:3002/health
           curl --fail --silent --show-error http://127.0.0.1:3002/readyz
           docker compose exec -T legacy-api node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
 
-      - name: Check runtime doctors
+      - name: Check independent worker doctors
         run: |
           docker compose exec -T app allmail doctor api
-          docker compose exec -T go-jobs allmail doctor jobs
+          docker compose exec -T worker-forwarding allmail doctor worker forwarding
+          docker compose exec -T worker-retention allmail doctor worker retention
 
       - name: Stop Docker stack
         if: always()

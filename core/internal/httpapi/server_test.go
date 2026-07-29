@@ -32,8 +32,8 @@ func TestHealthAndLegacyProxy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<html>ok</html>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{
-		APIMode:         config.APIModeBridge,
+	cfg := config.APIConfig{
+		Mode:            config.APIModeBridge,
 		StaticDir:       staticDir,
 		LegacyAPIURL:    legacy.URL,
 		ReadyTimeout:    time.Second,
@@ -63,8 +63,8 @@ func TestHealthAndLegacyProxy(t *testing.T) {
 }
 
 func TestReadinessRejectsMissingBridgeDependencies(t *testing.T) {
-	cfg := config.Config{
-		APIMode:      config.APIModeBridge,
+	cfg := config.APIConfig{
+		Mode:         config.APIModeBridge,
 		StaticDir:    t.TempDir(),
 		ReadyTimeout: time.Second,
 	}
@@ -88,13 +88,14 @@ func TestReadinessRejectsMissingBridgeDependencies(t *testing.T) {
 }
 
 func TestReadinessUsesInjectedProtocolProbes(t *testing.T) {
-	cfg := config.Config{
-		APIMode:      config.APIModeBridge,
-		StaticDir:    t.TempDir(),
-		DatabaseURL:  "postgresql://user:pass@postgres/database",
-		RedisURL:     "redis://redis:6379/0",
-		LegacyAPIURL: "http://legacy-api:3100",
-		ReadyTimeout: time.Second,
+	cfg := config.APIConfig{
+		Mode:            config.APIModeBridge,
+		StaticDir:       t.TempDir(),
+		DatabaseURL:     "postgresql://user:pass@postgres/database",
+		RedisURL:        "redis://redis:6379/0",
+		LegacyAPIURL:    "http://legacy-api:3100",
+		ReadyTimeout:    time.Second,
+		ShutdownTimeout: time.Second,
 	}
 	server, err := newWithProber(cfg, discardLogger(), readiness.Prober{
 		Postgres: func(context.Context, string) error { return nil },
@@ -113,8 +114,8 @@ func TestReadinessUsesInjectedProtocolProbes(t *testing.T) {
 }
 
 func TestMissingLegacyReturnsExplicitError(t *testing.T) {
-	cfg := config.Config{
-		APIMode:         config.APIModeStatic,
+	cfg := config.APIConfig{
+		Mode:            config.APIModeStatic,
 		StaticDir:       t.TempDir(),
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
@@ -136,7 +137,7 @@ func TestInvalidIncomingRequestIDIsReplaced(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("ok"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{APIMode: config.APIModeStatic, StaticDir: staticDir, ReadyTimeout: time.Second}
+	cfg := config.APIConfig{Mode: config.APIModeStatic, StaticDir: staticDir, ReadyTimeout: time.Second}
 	server, err := New(cfg, discardLogger())
 	if err != nil {
 		t.Fatal(err)

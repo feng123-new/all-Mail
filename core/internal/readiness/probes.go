@@ -42,10 +42,10 @@ func Default() Prober {
 	}
 }
 
-func (p Prober) Check(ctx context.Context, cfg config.Config) Report {
+func (p Prober) Check(ctx context.Context, cfg config.APIConfig) Report {
 	report := Report{Ready: true, Checks: map[string]string{}}
 
-	switch cfg.APIMode {
+	switch cfg.Mode {
 	case config.APIModeBridge:
 		p.runRequired(ctx, &report, "postgres", cfg.DatabaseURL, p.Postgres)
 		p.runRequired(ctx, &report, "redis", cfg.RedisURL, p.Redis)
@@ -60,7 +60,7 @@ func (p Prober) Check(ctx context.Context, cfg config.Config) Report {
 		}
 	default:
 		report.Ready = false
-		report.Checks["mode"] = fmt.Sprintf("unsupported mode %q", cfg.APIMode)
+		report.Checks["mode"] = fmt.Sprintf("unsupported mode %q", cfg.Mode)
 	}
 
 	return report

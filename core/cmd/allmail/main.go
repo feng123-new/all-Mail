@@ -18,10 +18,12 @@ import (
 
 const usageText = `Usage:
   allmail api
-  allmail jobs
+  allmail worker forwarding
+  allmail worker retention
   allmail migrate
   allmail doctor api
-  allmail doctor jobs
+  allmail doctor worker forwarding
+  allmail doctor worker retention
 `
 
 func main() {
@@ -32,47 +34,70 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	cfg, err := config.Load()
-	if err != nil {
-		logger.Error("invalid configuration", "error", err)
-		os.Exit(1)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	switch command {
 	case "api":
-		fatalIf(logger, cfg.ValidateFor("api"))
-		server, newErr := httpapi.New(cfg, logger)
-		if newErr != nil {
-			fatal(logger, newErr)
-		}
+		cfg, err := config.LoadAPI()
+		fatalIf(logger, err)
+		server, err := httpapi.New(cfg, logger)
+		fatalIf(logger, err)
 		fatalIf(logger, server.Run(ctx))
-	case "jobs":
-		fatalIf(logger, cfg.ValidateFor("jobs"))
-		fatalIf(logger, jobs.Run(ctx, cfg, logger))
+	case "worker":
+		if len(os.Args) < 3 {
+			fatal(logger, fmt.Errorf("usage: allmail worker forwarding|retention"))
+		}
+		switch os.Args[2] {
+		case jobs.WorkerForwarding:
+			cfg, err := config.LoadForwarding()
+			fatalIf(logger, err)
+			fatalIf(logger, jobs.RunForwarding(ctx, cfg, logger))
+		case jobs.WorkerRetention:
+			cfg, err := config.LoadRetention()
+			fatalIf(logger, err)
+			fatalIf(logger, jobs.RunRetention(ctx, cfg, logger))
+		default:
+			fatal(logger, fmt.Errorf("unknown worker %q; use forwarding or retention", os.Args[2]))
+		}
 	case "migrate":
-		fatalIf(logger, cfg.ValidateFor("migrate"))
+		cfg, err := config.LoadMigration()
+		fatalIf(logger, err)
 		migrationCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		fatalIf(logger, migrate.Run(migrationCtx, cfg, logger))
 	case "doctor":
 		if len(os.Args) < 3 {
-			fatal(logger, fmt.Errorf("usage: allmail doctor api|jobs"))
+			fatal(logger, fmt.Errorf("usage: allmail doctor api|worker"))
 		}
 		doctorCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		switch os.Args[2] {
 		case "api":
+			cfg, err := config.LoadAPI()
+			fatalIf(logger, err)
 			fatalIf(logger, doctor.API(doctorCtx, cfg))
-		case "jobs":
-			fatalIf(logger, cfg.ValidateFor("jobs"))
-			fatalIf(logger, doctor.Jobs(cfg))
+		case "worker":
+			if len(os.Args) < 4 {
+				fatal(logger, fmt.Errorf("usage: allmail doctor worker forwarding|retention"))
+			}
+			switch os.Args[3] {
+			case jobs.WorkerForwarding:
+				cfg, err := config.LoadForwarding()
+				fatalIf(logger, err)
+				fatalIf(logger, doctor.Forwarding(cfg))
+			case jobs.WorkerRetention:
+				cfg, err := config.LoadRetention()
+				fatalIf(logger, err)
+				fatalIf(logger, doctor.Retention(cfg))
+			default:
+				fatal(logger, fmt.Errorf("unknown doctor worker target %q", os.Args[3]))
+			}
 		default:
 			fatal(logger, fmt.Errorf("unknown doctor target %q", os.Args[2]))
 		}
 	default:
-		fatal(logger, fmt.Errorf("unknown command %q; use api, jobs, migrate or doctor", command))
+		fatal(logger, fmt.Errorf("unknown command %q; use api, worker, migrate or doctor", command))
 	}
 }
 

@@ -19,9 +19,22 @@ func TestCommandFromArgsRecognizesHelp(t *testing.T) {
 }
 
 func TestUsageDocumentsRuntimeCommands(t *testing.T) {
-	for _, expected := range []string{"allmail api", "allmail jobs", "allmail migrate", "allmail doctor api", "allmail doctor jobs"} {
+	for _, expected := range []string{
+		"allmail api",
+		"allmail worker forwarding",
+		"allmail worker retention",
+		"allmail migrate",
+		"allmail doctor api",
+		"allmail doctor worker forwarding",
+		"allmail doctor worker retention",
+	} {
 		if !strings.Contains(usageText, expected) {
 			t.Fatalf("usage is missing %q:\n%s", expected, usageText)
+		}
+	}
+	for _, retired := range []string{"allmail jobs", "allmail doctor jobs"} {
+		if strings.Contains(usageText, retired) {
+			t.Fatalf("usage still documents retired command %q:\n%s", retired, usageText)
 		}
 	}
 }

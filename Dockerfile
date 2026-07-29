@@ -17,7 +17,7 @@ RUN test -z "$(gofmt -l .)" \
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update -y \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata postgresql-client \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 allmail \
     && useradd --system --uid 10001 --gid allmail --home-dir /var/lib/all-mail --shell /usr/sbin/nologin allmail \

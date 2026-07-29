@@ -4,15 +4,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
+	"github.com/jackc/pgx/v5"
 )
 
 const migrationLockSQL = "SELECT pg_advisory_xact_lock(421337, 240728);"
@@ -24,59 +25,92 @@ type migration struct {
 	Checksum string
 }
 
-// Run applies pending Go-runtime migrations in one PostgreSQL session. The
-// generated script holds an advisory transaction lock, verifies checksums, and
-// adopts the pre-checksum ledger only after each migration's schema assertions
-// have passed.
-func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	if cfg.DatabaseURL == "" {
-		return fmt.Errorf("DATABASE_URL is required")
-	}
-	psql, err := exec.LookPath("psql")
-	if err != nil {
-		return fmt.Errorf("psql is required for migrations: %w", err)
-	}
-	migrations, err := loadMigrations(cfg.MigrationDir)
+// Run applies pending Go-runtime migrations in one PostgreSQL transaction. The
+// connection uses the simple protocol so a numbered migration may contain
+// multiple SQL statements and DO blocks without relying on a psql subprocess.
+func Run(ctx context.Context, cfg config.MigrationConfig, logger *slog.Logger) error {
+	migrations, err := loadMigrations(cfg.Directory)
 	if err != nil {
 		return err
 	}
-	script, err := buildScript(migrations)
+	connectionConfig, err := pgx.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse migration database URL: %w", err)
 	}
+	connectionConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	connection, err := pgx.ConnectConfig(ctx, connectionConfig)
+	if err != nil {
+		return fmt.Errorf("connect migration database: %w", err)
+	}
+	defer connection.Close(context.Background())
 
-	temporary, err := os.CreateTemp("", "allmail-go-migrations-*.sql")
+	transaction, err := connection.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("create migration script: %w", err)
+		return fmt.Errorf("begin migration transaction: %w", err)
 	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure migration script: %w", err)
+	defer transaction.Rollback(context.Background())
+
+	if _, err := transaction.Exec(ctx, migrationLockSQL); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
 	}
-	if _, err := temporary.WriteString(script); err != nil {
-		temporary.Close()
-		return fmt.Errorf("write migration script: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close migration script: %w", err)
+	if _, err := transaction.Exec(ctx, ledgerBootstrapSQL); err != nil {
+		return fmt.Errorf("initialize migration ledger: %w", err)
 	}
 
 	logger.Info("applying Go runtime migrations", "count", len(migrations))
-	command := exec.CommandContext(
-		ctx,
-		psql,
-		cfg.DatabaseURL,
-		"-X",
-		"--set=ON_ERROR_STOP=1",
-		"--file", temporaryPath,
-	)
-	command.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=10")
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	if err := command.Run(); err != nil {
-		return fmt.Errorf("Go runtime migrations failed: %w", err)
+	for _, item := range migrations {
+		var storedChecksum *string
+		err := transaction.QueryRow(
+			ctx,
+			"SELECT checksum FROM runtime_migrations WHERE name = $1",
+			item.Name,
+		).Scan(&storedChecksum)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			logger.Info("applying migration", "name", item.Name)
+			if _, err := transaction.Exec(ctx, item.SQL); err != nil {
+				return fmt.Errorf("apply migration %s: %w", item.Name, err)
+			}
+			if _, err := transaction.Exec(
+				ctx,
+				"INSERT INTO runtime_migrations (name, checksum) VALUES ($1, $2)",
+				item.Name,
+				item.Checksum,
+			); err != nil {
+				return fmt.Errorf("record migration %s: %w", item.Name, err)
+			}
+		case err != nil:
+			return fmt.Errorf("read migration ledger entry %s: %w", item.Name, err)
+		case storedChecksum == nil:
+			logger.Info("validating checksum-less migration ledger entry", "name", item.Name)
+			if _, err := transaction.Exec(ctx, item.SQL); err != nil {
+				return fmt.Errorf("validate legacy migration %s: %w", item.Name, err)
+			}
+			if _, err := transaction.Exec(
+				ctx,
+				"UPDATE runtime_migrations SET checksum = $1 WHERE name = $2 AND checksum IS NULL",
+				item.Checksum,
+				item.Name,
+			); err != nil {
+				return fmt.Errorf("adopt legacy migration %s: %w", item.Name, err)
+			}
+		case *storedChecksum != item.Checksum:
+			return fmt.Errorf(
+				"checksum mismatch for applied migration %s: database=%s file=%s",
+				item.Name,
+				*storedChecksum,
+				item.Checksum,
+			)
+		default:
+			logger.Info("migration already applied", "name", item.Name)
+		}
+	}
+
+	if _, err := transaction.Exec(ctx, "ALTER TABLE runtime_migrations ALTER COLUMN checksum SET NOT NULL"); err != nil {
+		return fmt.Errorf("finalize migration ledger: %w", err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit Go runtime migrations: %w", err)
 	}
 	return nil
 }
@@ -136,77 +170,6 @@ func validateMigrationSQL(name, sql string) error {
 		return fmt.Errorf("migration %s writes the migration ledger; the runner owns the ledger", name)
 	}
 	return nil
-}
-
-func buildScript(migrations []migration) (string, error) {
-	if len(migrations) == 0 {
-		return "", fmt.Errorf("at least one migration is required")
-	}
-	var builder strings.Builder
-	builder.WriteString("\\set ON_ERROR_STOP on\n")
-	builder.WriteString("BEGIN;\n")
-	builder.WriteString(migrationLockSQL)
-	builder.WriteString("\n")
-	builder.WriteString(ledgerBootstrapSQL)
-	builder.WriteString("\n")
-
-	for index, item := range migrations {
-		prefix := fmt.Sprintf("migration_%d", index)
-		name := quoteLiteral(item.Name)
-		checksum := quoteLiteral(item.Checksum)
-		fmt.Fprintf(
-			&builder,
-			"SELECT CASE WHEN EXISTS (SELECT 1 FROM runtime_migrations WHERE name = %s) THEN 'true' ELSE 'false' END AS %s_exists,\n"+
-				"       CASE WHEN COALESCE((SELECT checksum = %s FROM runtime_migrations WHERE name = %s), false) THEN 'true' ELSE 'false' END AS %s_matches,\n"+
-				"       CASE WHEN COALESCE((SELECT checksum IS NULL FROM runtime_migrations WHERE name = %s), false) THEN 'true' ELSE 'false' END AS %s_legacy\n\\gset\n",
-			name,
-			prefix,
-			checksum,
-			name,
-			prefix,
-			name,
-			prefix,
-		)
-		fmt.Fprintf(&builder, "\\if :%s_exists\n", prefix)
-		fmt.Fprintf(&builder, "\\if :%s_matches\n", prefix)
-		fmt.Fprintf(&builder, "\\echo migration %s already applied\n", item.Name)
-		builder.WriteString("\\else\n")
-		fmt.Fprintf(&builder, "\\if :%s_legacy\n", prefix)
-		fmt.Fprintf(&builder, "\\echo validating legacy ledger entry %s\n", item.Name)
-		writeIndentedSQL(&builder, item.SQL, "      ")
-		fmt.Fprintf(&builder, "      UPDATE runtime_migrations SET checksum = %s WHERE name = %s;\n", checksum, name)
-		builder.WriteString("\\else\n")
-		fmt.Fprintf(&builder, "\\echo checksum mismatch for migration %s\n", item.Name)
-		builder.WriteString("\\quit 3\n")
-		builder.WriteString("\\endif\n")
-		builder.WriteString("\\endif\n")
-		builder.WriteString("\\else\n")
-		fmt.Fprintf(&builder, "\\echo applying migration %s\n", item.Name)
-		writeIndentedSQL(&builder, item.SQL, "  ")
-		fmt.Fprintf(
-			&builder,
-			"  INSERT INTO runtime_migrations (name, checksum) VALUES (%s, %s);\n",
-			name,
-			checksum,
-		)
-		builder.WriteString("\\endif\n")
-	}
-
-	builder.WriteString("ALTER TABLE runtime_migrations ALTER COLUMN checksum SET NOT NULL;\n")
-	builder.WriteString("COMMIT;\n")
-	return builder.String(), nil
-}
-
-func writeIndentedSQL(builder *strings.Builder, sql, indent string) {
-	for _, line := range strings.Split(sql, "\n") {
-		builder.WriteString(indent)
-		builder.WriteString(line)
-		builder.WriteByte('\n')
-	}
-}
-
-func quoteLiteral(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 const ledgerBootstrapSQL = `

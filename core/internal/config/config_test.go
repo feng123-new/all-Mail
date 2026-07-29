@@ -4,197 +4,160 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
-func resetJobEnv(t *testing.T) {
+func clearEnv(t *testing.T, names ...string) {
 	t.Helper()
-	for _, name := range []string{
-		"API_LOG_RETENTION_OWNER",
-		"API_LOG_RETENTION_DAYS",
-		"API_LOG_CLEANUP_INTERVAL_MINUTES",
-		"API_LOG_CLEANUP_RETRY_SECONDS",
-		"API_LOG_CLEANUP_TIMEOUT_SECONDS",
-		"API_LOG_CLEANUP_BATCH_SIZE",
-		"FORWARDING_WORKER_OWNER",
-		"FORWARDING_WORKER_INTERVAL_SECONDS",
-		"FORWARDING_RUN_TIMEOUT_SECONDS",
-		"FORWARDING_WORKER_BATCH_SIZE",
-		"RESEND_API_BASE_URL",
-		"ALL_MAIL_SECRET_STATE_DIR",
-		"ENCRYPTION_KEY",
-		"ENCRYPTION_KEY_FILE",
-	} {
+	for _, name := range names {
 		t.Setenv(name, "")
 	}
 }
 
-func TestLoadDefaults(t *testing.T) {
-	resetJobEnv(t)
-	t.Setenv("PORT", "")
-	t.Setenv("GO_API_MODE", "")
+func TestLoadAPIRequiresBridgeDependencies(t *testing.T) {
+	clearEnv(t, "PORT", "GO_API_MODE", "LEGACY_API_URL", "DATABASE_URL", "REDIS_URL")
+	if _, err := LoadAPI(); err == nil {
+		t.Fatal("LoadAPI() expected missing bridge dependency error")
+	}
+}
+
+func TestLoadAPIBridgeAndStaticModes(t *testing.T) {
+	t.Setenv("GO_API_MODE", "bridge")
+	t.Setenv("LEGACY_API_URL", "http://legacy-api:3100")
+	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
+	t.Setenv("REDIS_URL", "redis://redis:6379/0")
+	cfg, err := LoadAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != APIModeBridge || cfg.Port != 3000 {
+		t.Fatalf("API config = %#v", cfg)
+	}
+
+	t.Setenv("GO_API_MODE", "static")
 	t.Setenv("LEGACY_API_URL", "")
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("REDIS_URL", "")
-	cfg, err := Load()
+	t.Setenv("ALL_MAIL_STATIC_DIR", t.TempDir())
+	cfg, err = LoadAPI()
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatal(err)
 	}
-	if cfg.Port != 3000 {
-		t.Fatalf("Port = %d, want 3000", cfg.Port)
-	}
-	if cfg.APIMode != APIModeBridge {
-		t.Fatalf("APIMode = %q, want bridge", cfg.APIMode)
-	}
-	if cfg.LogRetentionOwner != RuntimeOwnerLegacy {
-		t.Fatalf("LogRetentionOwner = %q, want legacy", cfg.LogRetentionOwner)
-	}
-	if cfg.ForwardingWorkerOwner != RuntimeOwnerLegacy {
-		t.Fatalf("ForwardingWorkerOwner = %q, want legacy", cfg.ForwardingWorkerOwner)
-	}
-	if cfg.ForwardingRunTimeout.Seconds() != 120 {
-		t.Fatalf("ForwardingRunTimeout = %s, want 120s", cfg.ForwardingRunTimeout)
-	}
-	if cfg.APILogCleanupRetry.Seconds() != 30 {
-		t.Fatalf("APILogCleanupRetry = %s, want 30s", cfg.APILogCleanupRetry)
-	}
-	if cfg.APILogCleanupTimeout.Seconds() != 60 {
-		t.Fatalf("APILogCleanupTimeout = %s, want 60s", cfg.APILogCleanupTimeout)
+	if cfg.Mode != APIModeStatic {
+		t.Fatalf("Mode = %q, want static", cfg.Mode)
 	}
 }
 
-func TestLoadRejectsInvalidLegacyURL(t *testing.T) {
-	resetJobEnv(t)
+func TestLoadAPIRejectsInvalidURLs(t *testing.T) {
+	t.Setenv("GO_API_MODE", "bridge")
 	t.Setenv("LEGACY_API_URL", "not-a-url")
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() expected an error")
+	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
+	t.Setenv("REDIS_URL", "redis://redis:6379")
+	if _, err := LoadAPI(); err == nil {
+		t.Fatal("LoadAPI() expected invalid legacy URL error")
+	}
+
+	t.Setenv("LEGACY_API_URL", "http://legacy-api:3100")
+	t.Setenv("DATABASE_URL", "http://postgres:5432/allmail")
+	if _, err := LoadAPI(); err == nil {
+		t.Fatal("LoadAPI() expected invalid database scheme error")
 	}
 }
 
-func TestLoadRejectsWrongDatabaseScheme(t *testing.T) {
-	resetJobEnv(t)
-	t.Setenv("DATABASE_URL", "http://127.0.0.1:5432/database")
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() expected an error")
-	}
-}
-
-func TestBridgeValidationRequiresAllDependencies(t *testing.T) {
-	cfg := Config{APIMode: APIModeBridge, LogRetentionOwner: RuntimeOwnerLegacy}
-	if err := cfg.ValidateFor("api"); err == nil {
-		t.Fatal("ValidateFor(api) expected an error")
-	}
-}
-
-func TestStaticValidationDoesNotRequireLegacy(t *testing.T) {
-	cfg := Config{APIMode: APIModeStatic, StaticDir: t.TempDir(), LogRetentionOwner: RuntimeOwnerLegacy}
-	if err := cfg.ValidateFor("api"); err != nil {
-		t.Fatalf("ValidateFor(api) error = %v", err)
-	}
-}
-
-func TestGoLogRetentionRequiresDatabase(t *testing.T) {
-	cfg := Config{
-		StateDir:          t.TempDir(),
-		LogRetentionOwner: RuntimeOwnerGo,
-	}
-	if err := cfg.ValidateFor("jobs"); err == nil {
-		t.Fatal("ValidateFor(jobs) expected an error")
-	}
-}
-
-func TestLoadRejectsInvalidLogRetentionOwner(t *testing.T) {
-	resetJobEnv(t)
-	t.Setenv("API_LOG_RETENTION_OWNER", "both")
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() expected an error")
-	}
-}
-
-func TestLoadRejectsInvalidCleanupRetry(t *testing.T) {
-	resetJobEnv(t)
-	t.Setenv("API_LOG_CLEANUP_RETRY_SECONDS", "0")
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() expected an error")
-	}
-}
-
-func TestLoadRejectsInvalidForwardingRunTimeout(t *testing.T) {
-	resetJobEnv(t)
-	t.Setenv("FORWARDING_RUN_TIMEOUT_SECONDS", "0")
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() expected an error")
-	}
-}
-
-func TestLoadReadsManagedEncryptionKeyFromSeparateSecretState(t *testing.T) {
-	resetJobEnv(t)
-	secretStateDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(secretStateDir, "bootstrap-secrets.env"), []byte("ENCRYPTION_KEY=managed-encryption-key-12345678\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("ALL_MAIL_SECRET_STATE_DIR", secretStateDir)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.EncryptionKey != "managed-encryption-key-12345678" {
-		t.Fatalf("EncryptionKey = %q", cfg.EncryptionKey)
-	}
-}
-
-func TestLoadReadsExportedEncryptionKeyFile(t *testing.T) {
-	resetJobEnv(t)
+func TestLoadForwardingDefaultsAndSecretFile(t *testing.T) {
+	clearEnv(t,
+		"FORWARDING_WORKER_INTERVAL_SECONDS",
+		"FORWARDING_RUN_TIMEOUT_SECONDS",
+		"FORWARDING_WORKER_BATCH_SIZE",
+		"WORKER_HEARTBEAT_SECONDS",
+		"WORKER_HEARTBEAT_MAX_AGE_SECONDS",
+		"GO_JOBS_HEARTBEAT_SECONDS",
+		"GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS",
+		"RESEND_API_BASE_URL",
+		"ALL_MAIL_SECRET_STATE_DIR",
+		"ENCRYPTION_KEY",
+	)
 	keyFile := filepath.Join(t.TempDir(), "encryption-key")
 	if err := os.WriteFile(keyFile, []byte("exported-encryption-key-1234567\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ENCRYPTION_KEY_FILE", keyFile)
+	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
+	t.Setenv("ALL_MAIL_STATE_DIR", t.TempDir())
 
-	cfg, err := Load()
+	cfg, err := LoadForwarding()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.EncryptionKey != "exported-encryption-key-1234567" {
 		t.Fatalf("EncryptionKey = %q", cfg.EncryptionKey)
 	}
-}
-
-func TestLoadRejectsInvalidForwardingOwner(t *testing.T) {
-	resetJobEnv(t)
-	t.Setenv("FORWARDING_WORKER_OWNER", "both")
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() expected an error")
+	if cfg.Interval != 30*time.Second || cfg.RunTimeout != 120*time.Second || cfg.BatchSize != 10 {
+		t.Fatalf("Forwarding defaults = %#v", cfg)
 	}
 }
 
-func TestLoadAcceptsDisabledForwardingOwner(t *testing.T) {
-	resetJobEnv(t)
-	t.Setenv("FORWARDING_WORKER_OWNER", "disabled")
-	cfg, err := Load()
+func TestLoadForwardingReadsManagedSecretAndRejectsInvalidTimeout(t *testing.T) {
+	secretStateDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(secretStateDir, "bootstrap-secrets.env"), []byte("ENCRYPTION_KEY=managed-encryption-key-12345678\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	clearEnv(t, "ENCRYPTION_KEY", "ENCRYPTION_KEY_FILE")
+	t.Setenv("ALL_MAIL_SECRET_STATE_DIR", secretStateDir)
+	t.Setenv("ALL_MAIL_STATE_DIR", t.TempDir())
+	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
+	cfg, err := LoadForwarding()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ForwardingWorkerOwner != RuntimeOwnerDisabled {
-		t.Fatalf("ForwardingWorkerOwner = %q, want disabled", cfg.ForwardingWorkerOwner)
+	if cfg.EncryptionKey != "managed-encryption-key-12345678" {
+		t.Fatalf("EncryptionKey = %q", cfg.EncryptionKey)
+	}
+
+	t.Setenv("FORWARDING_RUN_TIMEOUT_SECONDS", "0")
+	if _, err := LoadForwarding(); err == nil {
+		t.Fatal("LoadForwarding() expected timeout validation error")
 	}
 }
 
-func TestGoForwardingRequiresDatabaseAndEncryptionKey(t *testing.T) {
-	cfg := Config{
-		StateDir:              t.TempDir(),
-		LogRetentionOwner:     RuntimeOwnerLegacy,
-		ForwardingWorkerOwner: RuntimeOwnerGo,
+func TestLoadRetentionDefaultsAndValidation(t *testing.T) {
+	clearEnv(t,
+		"API_LOG_RETENTION_DAYS",
+		"API_LOG_CLEANUP_INTERVAL_MINUTES",
+		"API_LOG_CLEANUP_RETRY_SECONDS",
+		"API_LOG_CLEANUP_TIMEOUT_SECONDS",
+		"API_LOG_CLEANUP_BATCH_SIZE",
+		"WORKER_HEARTBEAT_SECONDS",
+		"WORKER_HEARTBEAT_MAX_AGE_SECONDS",
+	)
+	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
+	t.Setenv("ALL_MAIL_STATE_DIR", t.TempDir())
+	cfg, err := LoadRetention()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := cfg.ValidateFor("jobs"); err == nil {
-		t.Fatal("ValidateFor(jobs) expected a database error")
+	if cfg.RetentionDays != 30 || cfg.Interval != time.Hour || cfg.Retry != 30*time.Second || cfg.RunTimeout != time.Minute || cfg.BatchSize != 5000 {
+		t.Fatalf("Retention defaults = %#v", cfg)
 	}
-	cfg.DatabaseURL = "postgresql://example.invalid/allmail"
-	if err := cfg.ValidateFor("jobs"); err == nil {
-		t.Fatal("ValidateFor(jobs) expected an encryption key error")
+
+	t.Setenv("API_LOG_CLEANUP_RETRY_SECONDS", "0")
+	if _, err := LoadRetention(); err == nil {
+		t.Fatal("LoadRetention() expected retry validation error")
 	}
-	cfg.EncryptionKey = "test-encryption-key-1234567890ab"
-	if err := cfg.ValidateFor("jobs"); err != nil {
-		t.Fatalf("ValidateFor(jobs) error = %v", err)
+}
+
+func TestLoadMigrationRequiresDatabaseAndDirectory(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "ALL_MAIL_MIGRATION_DIR")
+	if _, err := LoadMigration(); err == nil {
+		t.Fatal("LoadMigration() expected database error")
+	}
+	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
+	t.Setenv("ALL_MAIL_MIGRATION_DIR", t.TempDir())
+	cfg, err := LoadMigration()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Directory == "" {
+		t.Fatal("migration directory is empty")
 	}
 }

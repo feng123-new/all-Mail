@@ -1,143 +1,148 @@
-# Advanced source runtime guide
+# Local development runtime guide
 
 ## Boundary
 
-This document covers the secondary Node source-runtime path.
+Production uses Docker Compose. This guide covers only local development surfaces:
 
-It starts:
+- the Fastify compatibility business API;
+- the Vite React frontend;
+- optional Dockerized PostgreSQL and Redis dependencies;
+- repository verification commands.
 
-- the compiled Fastify API;
-- the compiled Node jobs process;
-- optional Dockerized PostgreSQL and Redis dependencies.
-
-It does **not** start or validate:
-
-- the Go public listener;
-- Go readiness;
-- Go forwarding;
-- Go API-log retention;
-- the canonical one-shot `legacy-init -> go-migrate` sequence.
-
-Use [`DEPLOY.md`](./DEPLOY.md) for the supported production topology.
+There is no Node production jobs runtime, no Node SPA server, and no source command that reproduces the full production topology. Use [`DEPLOY.md`](./DEPLOY.md) for production.
 
 ## Appropriate uses
 
-Use this path for:
+- develop or debug Fastify business routes;
+- iterate on OAuth/provider behavior;
+- develop the React UI against a local API;
+- inspect existing PostgreSQL data in a controlled environment;
+- run lint, tests and builds before opening a PR.
 
-- Fastify business API development;
-- debugging legacy provider/OAuth behavior;
-- compatibility testing against an existing PostgreSQL database;
-- running the API outside Docker while iterating locally.
-
-Do not use source-runtime success as release evidence for the Go migration bridge.
+Do not treat API-only development success as proof that the Go listener, forwarding worker, retention worker or one-shot migration chain is healthy.
 
 ## Prerequisites
 
 | Dependency | Required | Notes |
 | --- | --- | --- |
-| Node.js 20+ | Yes | Builds/runs Fastify, React and compatibility jobs |
-| PostgreSQL | Yes | `DATABASE_URL` is required |
-| Redis | Strongly recommended | Missing/degraded Redis changes OAuth, replay and rate-limit behavior |
-| Env file | Yes | `server/.env` or root `.env` |
+| Node.js 20+ | Yes | Fastify and React development |
+| PostgreSQL | Yes for API work | `DATABASE_URL` is required |
+| Redis | Strongly recommended | OAuth, replay and rate-limit behavior depends on it |
+| Go 1.23+ | Yes for Go development | Listener, workers and migration tests |
 
-Env resolution order:
-
-1. `ALL_MAIL_ENV_FILE`;
-2. `server/.env`;
-3. root `.env`.
-
-Derivations:
-
-- `APP_PORT` can populate `PORT`;
-- `POSTGRES_*` can populate `DATABASE_URL`;
-- `REDIS_*` can populate `REDIS_URL`;
-- login output resolves `PUBLIC_BASE_URL`, then `ALL_MAIL_PUBLIC_BASE_URL`, then the first `CORS_ORIGIN`, then localhost.
-
-`ALL_MAIL_STATE_DIR` may be set in the selected env file or parent environment. It controls the initial bootstrap-secret path as well as child runtime state.
-
-## Hybrid mode
-
-Keep PostgreSQL and Redis in Docker while running the Node application from source:
+## Start PostgreSQL and Redis only
 
 ```bash
 docker compose up -d postgres redis
-./bin/all-mail install
-./bin/all-mail build
-./bin/all-mail start
 ```
 
-The startup script prints an explicit warning that this is not the canonical Go topology.
+Stop them without deleting data:
 
-## External infrastructure mode
+```bash
+docker compose stop postgres redis
+```
+
+The repository CLI exposes equivalent helpers:
+
+```bash
+./bin/all-mail deps up
+./bin/all-mail deps down
+```
+
+## Fastify business-API development
 
 ```bash
 cp server/.env.example server/.env
-./bin/all-mail install
-./bin/all-mail build
-./bin/all-mail start
+npm --prefix server install
+npm run dev:api
 ```
 
-Update OAuth callback URIs when changing `PORT`.
+The default development API port is `3000`. This process:
 
-## CLI commands
+- serves JSON business routes only;
+- does not serve the React SPA;
+- does not run forwarding or retention;
+- does not run the canonical `legacy-init -> go-migrate` production sequence.
+
+Apply Prisma migrations intentionally before API development when required:
 
 ```bash
-all-mail setup
+npm --prefix server run db:migrate
+```
+
+P3005 and P3009 remain database recovery events. The production one-shot repair switch belongs to Docker `legacy-init`, not to a standing local development command.
+
+## React development
+
+```bash
+npm --prefix web install --legacy-peer-deps
+npm run dev:web
+```
+
+Configure `web/.env` from `web/.env.example` so the Vite proxy targets the local API or the public Go listener you are testing.
+
+## Go development
+
+```bash
+cd core
+test -z "$(gofmt -l .)"
+go test -race ./...
+go vet ./...
+go build -trimpath ./cmd/allmail
+```
+
+Run a single Go component only when its dependencies are configured:
+
+```bash
+allmail api
+allmail worker forwarding
+allmail worker retention
+allmail migrate
+```
+
+For production-equivalent process ownership and secret mounts, use Docker Compose instead of manually launching all binaries.
+
+## Repository CLI
+
+```bash
 all-mail install
 all-mail build
 all-mail doctor --env-file /path/to/.env
 all-mail deps up
-all-mail up --docker-deps --env-file /path/to/.env --port 3102
-all-mail start --env-file /path/to/.env --port 3102
-all-mail deploy --env-file /path/to/.env --port 3102
+all-mail deps down
 all-mail check
+all-mail setup
 ```
 
-`all-mail up --docker-deps` starts only PostgreSQL and Redis through Compose, then runs the Node source topology.
+The CLI intentionally has no `start`, `up`, `deploy`, or jobs-rollback command. This prevents a second production topology from drifting beside Docker Compose.
 
-## Source-runtime verification
+## Verification
+
+API/frontend development checks:
 
 ```bash
-all-mail doctor --env-file /path/to/.env
-curl http://127.0.0.1:3000/health
+npm run test:runtime
+npm run test:server
+npm run test:web
+npm run lint
+npm run build
 ```
 
-This doctor checks source env resolution, TCP reachability and build artifacts. It does not call the Go `allmail doctor api|jobs` commands.
-
-For full repository verification:
+Full repository gate:
 
 ```bash
 ./bin/all-mail check
 ```
 
-CI remains the preferred proof for the canonical Docker stack.
-
-## Migration safety
-
-The source runtime runs Prisma migrations before starting Fastify and Node jobs.
-
-Prisma P3005 no longer automatically triggers `db push`. After reviewing and backing up the database, enable the compatibility path for one intentional run only:
+Production-equivalent smoke:
 
 ```bash
-ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true ./bin/all-mail start
+cp .env.example .env
+docker compose up -d --build --wait --wait-timeout 240
+docker compose exec -T app allmail doctor api
+docker compose exec -T worker-forwarding allmail doctor worker forwarding
+docker compose exec -T worker-retention allmail doctor worker retention
+docker compose down
 ```
 
-Do not persist that flag as a normal production setting.
-
-P3009 requires manual recovery.
-
-## Bootstrap secrets
-
-Source-generated secrets default to:
-
-```text
-.all-mail-runtime/bootstrap-secrets.env
-```
-
-Override with `ALL_MAIL_STATE_DIR` in the active env file or parent environment.
-
-The password stays out of stdout unless `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` is explicitly set.
-
-## Deprecation direction
-
-The source runtime exists because Fastify business routes are not yet ported. After business API migration and Node jobs deletion, this path should be reduced to development-only Fastify execution or removed entirely. The deletion gates are documented in [`internal/rewrite/runtime-consolidation-plan.md`](./internal/rewrite/runtime-consolidation-plan.md).
+CI remains the authoritative evidence because it also exercises real PostgreSQL forwarding transitions, migrations and the complete Docker startup chain.

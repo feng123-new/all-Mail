@@ -1,18 +1,12 @@
-import { access } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
-import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { z } from 'zod';
 
 import { env } from './config/env.js';
-import { isApiOrAdminPath, shouldServeSpaIndex } from './lib/http.js';
+import { isApiOrAdminPath } from './lib/http.js';
 import { checkReadiness } from './lib/readiness.js';
-import { ensurePrecompressedAssets } from './lib/static-compression.js';
 import { emailOAuthService } from './modules/email/email.oauth.service.js';
 import authPlugin from './plugins/auth.js';
 import errorPlugin from './plugins/error.js';
@@ -22,7 +16,6 @@ import { registerIngressRoutes } from './routes/ingress.assembly.js';
 import { registerPortalRoutes } from './routes/portal.assembly.js';
 import { ROUTE_PREFIXES } from './routes/prefixes.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const legacyOAuthCallbackQuerySchema = z.object({
     state: z.string().optional(),
     code: z.string().optional(),
@@ -109,65 +102,12 @@ export async function buildApp() {
         return reply.redirect(emailOAuthService.buildRedirectUrl(result));
     });
 
-    const staticRoot = join(__dirname, '../../public');
-    let hasStaticRoot = false;
-    try {
-        await access(staticRoot);
-        hasStaticRoot = true;
-    } catch {
-        fastify.log.info({ staticRoot }, 'Static asset directory not found; skipping SPA asset registration');
-    }
-
-    if (hasStaticRoot && env.NODE_ENV === 'production') {
-        try {
-            const compressionResult = await ensurePrecompressedAssets(staticRoot);
-            fastify.log.info({
-                staticFiles: compressionResult.files,
-                generatedCompressedFiles: compressionResult.generated,
-            }, 'Static precompression ready');
-        } catch (err) {
-            fastify.log.warn({ err }, 'Failed to precompress static assets');
-        }
-    }
-
-    if (hasStaticRoot) {
-        await fastify.register(fastifyStatic, {
-            root: staticRoot,
-            prefix: '/',
-            wildcard: false,
-            preCompressed: true,
-        });
-    }
-
     await registerAdminRoutes(fastify);
     await registerExternalApiRoutes(fastify);
     await registerPortalRoutes(fastify);
     await registerIngressRoutes(fastify);
 
     fastify.setNotFoundHandler(async (request, reply) => {
-        const path = request.url.split('?')[0];
-        const accepts = request.headers.accept;
-
-        if (isApiOrAdminPath(path)) {
-            return reply.status(404).send({
-                success: false,
-                requestId: request.id,
-                error: { code: 'NOT_FOUND' },
-            });
-        }
-
-        if (!shouldServeSpaIndex({ method: request.method, path, accept: accepts })) {
-            return reply.status(404).send({
-                success: false,
-                requestId: request.id,
-                error: { code: 'NOT_FOUND' },
-            });
-        }
-
-        if (hasStaticRoot) {
-            return reply.sendFile('index.html');
-        }
-
         return reply.status(404).send({
             success: false,
             requestId: request.id,

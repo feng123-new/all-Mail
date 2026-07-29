@@ -13,16 +13,18 @@ This checklist is the publication and release-readiness closure loop.
 
 - [ ] Re-scan tracked files for `.env`, tokens, OAuth outputs, screenshots and local runtime artifacts.
 - [ ] Confirm `.gitignore` excludes `oauth-temp/runtime/`, `gmail_oauth/runtime/`, `.dev.vars`, `.all-mail-runtime/` and local state.
-- [ ] Run the repository production audit: `npm run audit:prod`.
-- [ ] Review every advisory exception for exact GHSA ID, package scope, rationale and expiry date.
+- [ ] Run `npm run audit:prod`.
+- [ ] Review every advisory exception for exact GHSA ID, package scope, rationale and expiry.
 - [ ] Confirm no expired audit exception remains.
 - [ ] Confirm Docker bootstrap passwords are retrieved through `legacy-api`, not the public Go image.
+- [ ] Confirm only `worker-forwarding` mounts the isolated forwarding encryption key.
 - [ ] Confirm `legacy-api` runs as UID `10001` with read-only filesystem, dropped capabilities and `no-new-privileges`.
 
 ## P2 — engineering verification
 
 - [ ] Runtime contract tests pass: `npm run test:runtime`.
 - [ ] Go format/race/vet/build passes.
+- [ ] Real PostgreSQL forwarding integration passes.
 - [ ] Server lint/test/build passes.
 - [ ] Web lint/test/build passes.
 - [ ] Cloudflare Worker checks pass.
@@ -35,40 +37,43 @@ docker compose up -d --build --wait --wait-timeout 240
 docker compose ps -a
 curl --fail http://127.0.0.1:3002/readyz
 docker compose exec -T app allmail doctor api
-docker compose exec -T go-jobs allmail doctor jobs
+docker compose exec -T worker-forwarding allmail doctor worker forwarding
+docker compose exec -T worker-retention allmail doctor worker retention
 ```
 
 - [ ] `legacy-init` and `go-migrate` completed successfully.
-- [ ] `legacy-jobs` is absent from the default profile.
-- [ ] `release-gate` is green; both dependency audit and Docker smoke must succeed.
+- [ ] No `go-jobs`, `legacy-jobs`, or Node `jobs` service exists.
+- [ ] The Go runtime image does not contain `psql`.
+- [ ] `release-gate` is green; dependency audit and Docker smoke both succeeded.
 
 ## P3 — migration and release safety
 
 - [ ] Review Prisma and Go migrations for the release.
 - [ ] Confirm no applied Go migration was edited after checksum recording.
 - [ ] Confirm P3005 automatic `db push` remains disabled.
-- [ ] Document any intentional one-time use of `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true`.
+- [ ] Document intentional one-time use of `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true`.
 - [ ] Treat P3009 as manual recovery.
 - [ ] Verify PostgreSQL and runtime-volume backups before risky deployment.
-- [ ] Verify the Go-to-Node rollback profile remains realistic or remove it once its deletion gate is met.
-- [ ] Release notes name current capability owners and any ownership changes.
+- [ ] Verify rollback uses a previous known-good revision/image and matching persisted state.
+- [ ] Confirm workers from two revisions cannot run concurrently during rollout or rollback.
+- [ ] Release notes name current capability owners and ownership changes.
 
 ## P4 — runtime truthfulness
 
 - [ ] `README.md` identifies Go as the public listener and Fastify as the compatibility business API.
-- [ ] Default service list is `app`, `go-jobs`, `legacy-api`, `postgres`, `redis` plus one-shot init/migration services.
-- [ ] Source-runtime docs explicitly say they do not validate the Go topology.
+- [ ] Default long-running service list is `app`, `worker-forwarding`, `worker-retention`, `legacy-api`, `postgres`, and `redis`.
+- [ ] Local development docs do not claim production topology equivalence.
 - [ ] Cloudflare docs route ingress through the Go public listener.
-- [ ] `docs/DEPLOY.md`, `RUNBOOK.md`, `ENVIRONMENT.md` and `GO-MIGRATION.md` match Compose.
-- [ ] The staged deletion gates in `docs/internal/rewrite/runtime-consolidation-plan.md` are current.
+- [ ] `DEPLOY.md`, `RUNBOOK.md`, `ENVIRONMENT.md`, and `GO-MIGRATION.md` match Compose.
+- [ ] The remaining vertical route-port plan is current.
 
 ## P5 — repository presentation
 
 - [ ] Public-safe screenshots expose no live keys, full mailbox addresses or production domains.
 - [ ] `CHANGELOG.md` matches the state users encounter.
-- [ ] `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md` and `CODE_OF_CONDUCT.md` match current scope.
-- [ ] Remove dead templates and misleading compatibility entrypoints.
-- [ ] Do not present reserved Go tables as completed workers.
+- [ ] `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, and `CODE_OF_CONDUCT.md` match current scope.
+- [ ] Dead templates, static-hosting helpers and Node production entrypoints are absent.
+- [ ] Reserved Go tables are not presented as completed workers.
 
 ## P6 — release decision
 
@@ -82,7 +87,7 @@ docker compose exec -T go-jobs allmail doctor jobs
 2. Current Go/Fastify ownership boundary.
 3. Stable providers and mail flows.
 4. Deploy or upgrade instructions.
-5. Migration and rollback impact.
-6. Known compatibility code and its deletion gate.
+5. Migration and revision-rollback impact.
+6. Compatibility business API and remaining deletion gate.
 7. Security advisories or temporary exceptions.
 8. License and repository identity.

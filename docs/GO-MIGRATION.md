@@ -2,56 +2,51 @@
 
 ## Status and scope
 
-The Go runtime is merged into the default branch and is the canonical Docker entrypoint. It is still an incremental migration bridge, not a complete replacement for the Fastify/Prisma business API.
-
-Current request flow:
+The Go runtime is the canonical Docker entrypoint. The migration has completed for public HTTP ownership, SPA delivery, API-log retention and mailbox forwarding, but not for the full business API.
 
 ```text
 Browser / automation / Cloudflare Worker
                   |
              Go public API
               /       \
-        React SPA    legacy API proxy
+        React SPA    compatibility API proxy
                          |
                  Fastify / Prisma
 ```
 
-Go currently owns:
+Go owns:
 
-- the public HTTP listener;
-- React SPA delivery;
-- request IDs and security headers;
-- liveness, readiness and metrics;
+- the public HTTP listener and React SPA;
+- request IDs, security headers, liveness, readiness and metrics;
 - additive Go migrations;
-- API-log retention;
-- forwarding claim/send/update execution.
+- forwarding claim/send/retry/terminal transitions;
+- API-log retention.
 
-Fastify/Prisma currently remains authoritative for:
+Fastify/Prisma remains authoritative for:
 
 - admin and mailbox-portal authentication;
-- administrators, API keys, domains and mailbox records;
-- external mailbox provider and OAuth flows;
+- administrators, API keys, domains, aliases and mailboxes;
+- provider mailbox and OAuth flows;
 - ingress business handlers;
-- existing send, portal and automation API routes;
-- the legacy Prisma schema and migration history.
+- send, portal and automation API routes not yet ported;
+- the existing business-schema migration history.
 
-## Default service layout
+## Runtime layout
 
 ```text
-legacy-init    one-shot secret bootstrap, key export and Prisma migrations
-go-migrate     one-shot additive Go migrations
-app            Go public API and migration bridge
-go-jobs        Go API-log retention and forwarding workers
-legacy-api     Fastify/Prisma business API
-postgres       shared application database
-redis          OAuth state, rate-limit, replay and cache backend
+legacy-init         one-shot secret bootstrap and Prisma migrations
+go-migrate          one-shot additive Go migrations
+app                 Go public API, SPA and compatibility proxy
+worker-forwarding   independent Go forwarding runtime
+worker-retention    independent Go retention runtime
+legacy-api          internal Fastify/Prisma business API
+postgres            shared application database
+redis               OAuth state, rate-limit, replay and cache backend
 ```
 
-`legacy-jobs` is not part of the default service set. It is available only through the Compose `rollback` profile while the migrated workers still need an operational fallback.
+The TypeScript jobs process, combined `go-jobs` supervisor, rollback profile and runtime-owner switches have been removed. Each background state machine has one implementation in the current revision.
 
 ## Startup ordering
-
-The canonical sequence is:
 
 ```text
 postgres + redis healthy
@@ -62,80 +57,91 @@ legacy-init completes
           v
 go-migrate completes
           |
+          +-----------------------------+
+          |                             |
+          v                             v
+legacy-api healthy                  Go workers
+          |
           v
-legacy-api healthy
-       /       \
-      v         v
-    app       go-jobs
+         app
 ```
 
-This separates one-shot mutation work from long-running services:
+- `legacy-init` generates or reads persisted bootstrap secrets, exports only `ENCRYPTION_KEY` to the forwarding volume, and applies Prisma business migrations.
+- `go-migrate` applies checksummed Go migrations.
+- Long-running services never mutate schema during normal startup.
 
-- `legacy-init` generates or reads persisted bootstrap secrets, exports only `ENCRYPTION_KEY` into the isolated Go volume and applies Prisma migrations;
-- `go-migrate` applies checksummed Go migrations;
-- `legacy-api`, `app` and `go-jobs` do not mutate schema during ordinary process startup.
-
-The legacy `P3005 -> db push` compatibility repair is disabled by default. It can only run when an operator explicitly sets:
-
-```text
-ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true
-```
-
-Use that switch only for the documented legacy non-empty-database repair path after reviewing the target database.
-
-## Local workflow
-
-```bash
-git fetch origin
-git switch main
-cp .env.example .env
-docker compose up -d --build --wait --wait-timeout 240
-curl --fail http://127.0.0.1:3002/health
-curl --fail http://127.0.0.1:3002/readyz
-docker compose exec -T app allmail doctor api
-docker compose exec -T go-jobs allmail doctor jobs
-```
-
-The one-shot migrations can also be run explicitly:
-
-```bash
-docker compose run --rm legacy-init
-docker compose run --rm go-migrate
-```
-
-Do not rerun `legacy-init` with the P3005 repair switch enabled unless that compatibility repair is intentionally required.
+The legacy `P3005 -> db push` compatibility repair is disabled by default. It requires an explicit one-shot invocation with `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true` after reviewing and backing up the target database.
 
 ## Readiness contract
 
-`GO_API_MODE=bridge` is the default and requires:
+`GO_API_MODE=bridge` requires:
 
 - `DATABASE_URL`;
 - `REDIS_URL`;
 - `LEGACY_API_URL`.
 
-The Go `/readyz` endpoint performs protocol-level checks:
+The Go `/readyz` endpoint verifies:
 
-- PostgreSQL: connects with `pgx` and executes `SELECT current_database()`;
-- Redis: performs RESP `AUTH` when configured, optional `SELECT`, and `PING`, requiring `PONG`;
-- legacy API: calls `/readyz`, requiring HTTP 200, `success: true`, and `data.status: ready`.
-
-A missing dependency returns HTTP 503 with `required-but-not-configured`. A process that merely accepts TCP connections without speaking the expected protocol is not accepted.
+- PostgreSQL through `pgx` and `SELECT current_database()`;
+- Redis through RESP `AUTH`, optional `SELECT`, and `PING` requiring `PONG`;
+- the compatibility API through `/readyz`, HTTP 200, `success: true`, and `data.status: ready`.
 
 `GO_API_MODE=static` is an explicit frontend-only mode. It requires a built `index.html` and returns `GO_ROUTE_NOT_MIGRATED` for backend paths.
 
-## API-log retention ownership
+## Dedicated workers
 
-- `API_LOG_RETENTION_OWNER=go` enables the Go cleaner and disables the Node cleaner;
-- `API_LOG_RETENTION_OWNER=legacy` is reserved for an explicit rollback profile;
-- the Go cleaner uses `pgx`, a PostgreSQL transaction and an advisory transaction lock;
-- deletion is ordered and bounded by `API_LOG_CLEANUP_BATCH_SIZE`;
-- failed runs retry after `API_LOG_CLEANUP_RETRY_SECONDS`;
-- individual runs are bounded by `API_LOG_CLEANUP_TIMEOUT_SECONDS`.
+### Forwarding
+
+Command:
+
+```bash
+allmail worker forwarding
+```
+
+Doctor:
+
+```bash
+allmail doctor worker forwarding
+```
+
+Properties:
+
+- one PostgreSQL advisory ownership lock per runtime;
+- `FOR UPDATE SKIP LOCKED` claims;
+- random claim token and expiring lease;
+- claim-token comparison on every terminal update;
+- MOVE hides the message in the same transaction that marks the job sent;
+- stable `mailbox-forward/{jobId}/{inboundMessageId}` provider idempotency key;
+- 408, 429 and 5xx provider responses are retryable; ordinary 4xx responses are permanent;
+- every pass is bounded by `FORWARDING_RUN_TIMEOUT_SECONDS`.
 
 Configuration:
 
 ```text
-API_LOG_RETENTION_OWNER=go
+FORWARDING_WORKER_INTERVAL_SECONDS=30
+FORWARDING_WORKER_BATCH_SIZE=10
+FORWARDING_RUN_TIMEOUT_SECONDS=120
+```
+
+### API-log retention
+
+Command:
+
+```bash
+allmail worker retention
+```
+
+Doctor:
+
+```bash
+allmail doctor worker retention
+```
+
+The cleaner uses a `pgx` transaction, advisory transaction lock, ordered bounded deletion and `FOR UPDATE SKIP LOCKED`.
+
+Configuration:
+
+```text
 API_LOG_RETENTION_DAYS=30
 API_LOG_CLEANUP_INTERVAL_MINUTES=60
 API_LOG_CLEANUP_RETRY_SECONDS=30
@@ -143,80 +149,50 @@ API_LOG_CLEANUP_TIMEOUT_SECONDS=60
 API_LOG_CLEANUP_BATCH_SIZE=5000
 ```
 
-## Forwarding ownership
+### Heartbeat contract
 
-- `FORWARDING_WORKER_OWNER=go` enables Go claim/send/update;
-- `FORWARDING_WORKER_OWNER=legacy` is used only by the rollback profile;
-- `FORWARDING_WORKER_OWNER=disabled` pauses claims;
-- both implementations use the same PostgreSQL advisory ownership lock;
-- claims carry a random token and lease, and terminal updates compare the claim token;
-- MOVE hides the inbound message in the same transaction that marks the job sent;
-- retries preserve `mailbox-forward/{jobId}/{inboundMessageId}` as the provider idempotency key;
-- each Go forwarding run is bounded by `FORWARDING_RUN_TIMEOUT_SECONDS`;
-- Resend HTTP errors are classified by status: request timeout, rate limit and 5xx are retryable, ordinary 4xx errors are permanent.
-
-Configuration:
+Each worker writes an independent file atomically:
 
 ```text
-FORWARDING_WORKER_OWNER=go
-FORWARDING_WORKER_INTERVAL_SECONDS=30
-FORWARDING_WORKER_BATCH_SIZE=10
-FORWARDING_RUN_TIMEOUT_SECONDS=120
+worker-forwarding-heartbeat.json
+worker-retention-heartbeat.json
 ```
 
-The one-shot legacy initializer exports only the bootstrap-managed `ENCRYPTION_KEY` into the isolated Go runtime volume with mode `0600`. The Go process does not mount the legacy bootstrap file containing the admin password or JWT secret.
+The heartbeat records runtime identity, PID, update time, active-run start, last run/completion/success, consecutive failures, last error and retention deletion count where applicable.
 
-## Jobs heartbeat contract
+Doctors reject stale or future timestamps, dead PIDs, invalid identity, missing active-run start, runs beyond their deadline, and a latest failed run after the last success.
 
-`go-jobs` writes `/var/lib/all-mail/go-jobs-heartbeat.json` atomically. Each worker records:
+Shared heartbeat controls:
 
-- whether it is enabled;
-- whether a run is active;
-- active-run start time;
-- last run and completion time;
-- last success time;
-- consecutive failure count;
-- last error;
-- retention deletion count where applicable.
-
-`allmail doctor jobs` rejects:
-
-- stale heartbeat files;
-- invalid runtime identity;
-- missing worker state;
-- a running worker without `startedAt`;
-- a forwarding or retention run that exceeds its configured limit;
-- an enabled worker whose latest completed run failed after its last success.
-
-This prevents a global heartbeat ticker from hiding a worker that is internally stuck.
+```text
+WORKER_HEARTBEAT_SECONDS=15
+WORKER_HEARTBEAT_MAX_AGE_SECONDS=90
+```
 
 ## Migration guarantees
 
-The Go migration runner:
+The Go migration runner now uses one direct `pgx` connection and transaction. It:
 
-1. loads migration files in lexical order;
-2. rejects transaction control and direct migration-ledger writes inside migration files;
-3. computes a SHA-256 checksum for every migration;
-4. opens one `psql` session and one transaction;
-5. holds a PostgreSQL advisory transaction lock for the complete run;
-6. creates or validates `runtime_migrations`;
-7. skips a migration only when its stored checksum matches;
-8. rejects a previously applied migration whose checksum changed;
-9. adopts the old checksum-less ledger only after migration SQL and schema assertions succeed;
-10. records the checksum only after successful validation.
+1. loads numbered SQL files in lexical order;
+2. rejects migration-owned transaction control, psql meta-commands and direct ledger writes;
+3. computes SHA-256 checksums;
+4. holds a PostgreSQL advisory transaction lock for the complete run;
+5. creates or validates `runtime_migrations`;
+6. skips only exact checksum matches;
+7. rejects changed applied migrations;
+8. adopts checksum-less legacy ledger rows only after migration SQL and schema assertions succeed;
+9. records checksums and commits atomically.
 
-The migration runner intentionally still uses `psql`. Readiness and retention have moved to `pgx`, but the migration command keeps its existing, tested single-session transaction and meta-command control flow in this phase.
+The Go runtime image no longer installs or requires `psql`. Do not edit an applied migration; add a new numbered migration.
 
-Do not edit an applied migration after checksums have been recorded. Add a new numbered migration instead.
-
-## Validation commands
+## Validation evidence
 
 ```bash
 cd core
 test -z "$(gofmt -l .)"
 go test -race ./...
 go vet ./...
-go build -trimpath -o ./allmail ./cmd/allmail
+go build -trimpath ./cmd/allmail
 ```
 
 Docker validation:
@@ -226,68 +202,47 @@ cp .env.example .env
 docker compose config --quiet
 docker compose up -d --build --wait --wait-timeout 240
 docker compose exec -T app allmail doctor api
-docker compose exec -T go-jobs allmail doctor jobs
-test "$(docker compose exec -T legacy-api id -u)" = "10001"
+docker compose exec -T worker-forwarding allmail doctor worker forwarding
+docker compose exec -T worker-retention allmail doctor worker retention
 curl --fail http://127.0.0.1:3002/readyz
 ```
 
-GitHub Actions independently runs:
+CI also applies the complete Prisma schema and Go migrations to a real PostgreSQL database, then tests COPY, MOVE, retry, permanent failure, skip, lease reclamation, claim-token fencing and advisory-lock ownership through the actual Go forwarding store and provider client.
 
-- runtime contract tests;
-- Go format, race, vet, build and database tests;
-- web lint/test/build;
-- server lint/test/build;
-- Cloudflare Worker checks;
-- production dependency audit;
-- Docker Compose smoke and ownership checks;
-- a final `release-gate` that requires both audit and Docker smoke success.
-
-## Service ownership during migration
+## Current ownership
 
 | Capability | Current writer |
 | --- | --- |
-| Existing admin/domain/mailbox records | Fastify/Prisma |
-| Forwarding claim/send/update | `go-jobs`; `legacy-jobs` only under rollback profile |
-| API-log retention | `go-jobs`; `legacy-jobs` only under rollback profile |
-| Existing OAuth flows and API-key enforcement | Fastify/Redis |
-| Go sync cursor and job tables | Reserved for future Go handlers |
-| Public listener, SPA and health endpoints | Go `app` |
-| Cloudflare Email Worker | Existing TypeScript Worker |
+| Public listener, React SPA and health endpoints | Go `app` |
+| Forwarding claim/send/update | `worker-forwarding` |
+| API-log retention | `worker-retention` |
+| Admin/domain/mailbox business records | Fastify/Prisma |
+| OAuth and API-key enforcement | Fastify/Redis |
+| Cloudflare Email Worker | TypeScript Worker |
+| Reserved sync/delivery/outbox contracts | Not yet active |
 
-Never let Go and TypeScript mutate the same state machine concurrently. Move one capability at a time, add parity and failure-injection tests, then change the single writer.
-
-## Next ports
+## Next business ports
 
 Recommended order:
 
-1. outbound delivery jobs and attempt history;
-2. Gmail History and Microsoft Graph delta synchronization;
-3. IMAP UID/UIDVALIDITY synchronization;
-4. API-key external allocation/read endpoints;
-5. ingress replay protection and signed delivery;
-6. admin and mailbox-portal authentication last.
+1. read-only dashboard and status queries;
+2. external API-key allocation/read endpoints;
+3. ingress replay and signed delivery persistence;
+4. outbound delivery and attempt history;
+5. Gmail History, Microsoft Graph delta and IMAP UID synchronization;
+6. domain/mailbox write operations;
+7. admin and mailbox-portal authentication last.
 
-The `mailbox_sync_*`, `outbound_delivery_jobs`, `job_attempts`, `outbox_events`, OAuth-state, replay, rate-limit and login-attempt tables are contracts, not proof that those workers are active.
+Each slice must move authorization, validation, transaction boundaries, parity tests and failure-injection coverage together before its Fastify routes are removed.
 
 ## Rollback
 
-To transfer forwarding and retention back to Node:
+The current revision contains no hidden second background writer. Rollback means deploying a previous known-good tag, commit or image:
 
 ```bash
-docker compose stop go-jobs
-docker compose --profile rollback up -d legacy-jobs
-docker compose --profile rollback ps
-docker compose logs legacy-jobs --tail=200
+docker compose down
+git switch <known-good-tag-or-commit>
+docker compose up -d --build --wait --wait-timeout 240
 ```
 
-The rollback service forces both owner settings to `legacy`. Do not also leave a separate Go jobs container running.
-
-To return to Go:
-
-```bash
-docker compose --profile rollback stop legacy-jobs
-docker compose up -d go-jobs
-docker compose exec -T go-jobs allmail doctor jobs
-```
-
-The Go runtime tables are additive. Do not drop runtime tables while any Go worker can still write them. The existing Prisma migration history remains authoritative for legacy business tables until final database ownership cutover.
+Back up PostgreSQL and bootstrap-secret state before risky upgrades. Never run worker binaries from two revisions against the same state machine concurrently. Keep additive Go tables until their contents have been reviewed and no Go process can write them.
