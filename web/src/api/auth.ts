@@ -26,7 +26,7 @@ export const authApi = {
 		>("/admin/auth/change-password", { oldPassword, newPassword }),
 
 	getTwoFactorStatus: () =>
-		requestGet<{ enabled: boolean; pending: boolean; legacyEnv: boolean }>(
+		requestGet<{ enabled: boolean; pending: boolean }>(
 			"/admin/auth/2fa/status",
 		),
 
