@@ -449,7 +449,11 @@ jobs:
               exit 1
             fi
           done
-          docker compose exec -T legacy-api sh -lc "test -r /var/lib/all-mail/bootstrap-secrets.env"
+          docker compose exec -T legacy-api sh -lc '
+            test -r /var/lib/all-mail/runtime-secrets.env
+            test -r /var/lib/all-mail/bootstrap-admin.env
+            test ! -e /var/lib/all-mail/bootstrap-secrets.env
+          '
           docker compose exec -T worker-forwarding sh -lc "test -r /var/lib/all-mail/encryption-key"
           if docker compose exec -T app sh -lc 'command -v psql >/dev/null'; then
             echo "Go runtime image must not include psql"

@@ -115,9 +115,10 @@ test("administrator bootstrap runs only after Prisma migration in legacy-init", 
 });
 
 test("runtime and one-time administrator secrets use separate files", async () => {
-	const [secretScript, entrypoint] = await Promise.all([
+	const [secretScript, entrypoint, ciWorkflow] = await Promise.all([
 		readFile(path.join(repoRoot, "scripts/bootstrap-secrets.mjs"), "utf8"),
 		readFile(path.join(repoRoot, "docker/entrypoint.sh"), "utf8"),
+		readFile(path.join(repoRoot, ".github/workflows/ci.yml"), "utf8"),
 	]);
 	assert.match(secretScript, /runtime-secrets\.env/);
 	assert.match(secretScript, /bootstrap-admin\.env/);
@@ -129,6 +130,10 @@ test("runtime and one-time administrator secrets use separate files", async () =
 	assert.match(entrypoint, /eval "\$bootstrap_exports"/);
 	assert.doesNotMatch(entrypoint, /eval "\$\(run_as_allmail/);
 	assert.doesNotMatch(entrypoint, /ALL_MAIL_BOOTSTRAP_SECRETS_FILE|ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS/);
+	assert.match(ciWorkflow, /test -r \/var\/lib\/all-mail\/runtime-secrets\.env/);
+	assert.match(ciWorkflow, /test -r \/var\/lib\/all-mail\/bootstrap-admin\.env/);
+	assert.match(ciWorkflow, /test ! -e \/var\/lib\/all-mail\/bootstrap-secrets\.env/);
+	assert.doesNotMatch(ciWorkflow, /test -r \/var\/lib\/all-mail\/bootstrap-secrets\.env/);
 });
 
 test("forwarding and retention remain independent Go services", async () => {
