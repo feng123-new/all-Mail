@@ -14,7 +14,7 @@ The repository is **Docker-first**. The current backend is an incremental Go mig
 - Fastify/Prisma remains an internal compatibility business API for routes not yet ported;
 - PostgreSQL and Redis remain private shared state backends.
 
-There is one implementation for each background state machine. The TypeScript jobs runtime and in-revision rollback writer have been removed.
+There is one implementation for each background state machine. The TypeScript jobs runtime, in-revision rollback writer, and environment-backed administrator have been removed.
 
 ## Product shape
 
@@ -53,8 +53,9 @@ flowchart TD
     Forwarding --> Providers
     Retention[worker-retention] --> Postgres
 
-    LegacyInit[legacy-init one-shot] --> Postgres
-    LegacyInit --> Secrets[Persisted bootstrap secrets]
+    LegacyInit[legacy-init one-shot] --> RuntimeSecrets[runtime-secrets.env]
+    LegacyInit --> AdminSecret[bootstrap-admin.env]
+    LegacyInit --> Postgres
     GoMigrate[go-migrate one-shot] --> Postgres
     LegacyInit --> GoMigrate
     GoMigrate --> Legacy
@@ -63,7 +64,9 @@ flowchart TD
     GoMigrate --> Retention
 ```
 
-The Go gateway does not receive PostgreSQL or Redis credentials while it owns no native business route. Its readiness checks the built SPA and the internal compatibility API; Fastify's `/readyz` performs the database and Redis protocol checks.
+The Go gateway does not receive PostgreSQL or Redis credentials while it owns no native business route. Its readiness checks the built SPA and the internal compatibility API; Fastify's `/readyz` performs database and Redis protocol checks.
+
+The initial database administrator is created only by `legacy-init` after Prisma migrations. The long-running Fastify API receives no administrator username, initial password, or environment-managed 2FA secret.
 
 ### Long-running services
 
@@ -72,7 +75,7 @@ The Go gateway does not receive PostgreSQL or Redis credentials while it owns no
 | `app` | Go public gateway, React SPA, trusted-proxy boundary, readiness, metrics and compatibility API proxy |
 | `worker-forwarding` | Go forwarding claim, send, retry, lease and terminal state transitions |
 | `worker-retention` | Go API-log retention |
-| `legacy-api` | Internal Fastify/Prisma business API for routes not yet ported |
+| `legacy-api` | Internal Fastify/Prisma business API; authenticates database administrators only |
 | `postgres` | Application and runtime state; private to the Compose network |
 | `redis` | OAuth state, rate-limit, replay and cache support; private to the Compose network |
 
@@ -80,7 +83,7 @@ The Go gateway does not receive PostgreSQL or Redis credentials while it owns no
 
 | Service | Responsibility |
 | --- | --- |
-| `legacy-init` | Generate/persist bootstrap secrets, export only the forwarding encryption key and apply Prisma business migrations |
+| `legacy-init` | Split/migrate secrets, apply Prisma migrations, and create the initial database administrator under an advisory lock |
 | `go-migrate` | Apply checksummed additive Go migrations through one direct `pgx` transaction |
 
 ## Provider support
@@ -104,21 +107,23 @@ The Go gateway does not receive PostgreSQL or Redis credentials while it owns no
 cp .env.example .env
 ```
 
-For Cloudflare Email Routing, edit the same file and set `INGRESS_SIGNING_SECRET`, `INGRESS_ALLOWED_SKEW_SECONDS`, and the appropriate `TRUSTED_PROXY_CIDRS` for the reverse proxy directly connected to `app`. There is no second copied Cloudflare backend template.
+For Cloudflare Email Routing, edit the same file and set `INGRESS_SIGNING_SECRET`, `INGRESS_ALLOWED_SKEW_SECONDS`, and the appropriate `TRUSTED_PROXY_CIDRS` for the reverse proxy directly connected to `app`.
+
+`ADMIN_USERNAME` and `ADMIN_PASSWORD` are one-shot initializer inputs. They are never passed to `legacy-api`. Leave `ADMIN_PASSWORD` blank to generate a strong temporary password.
 
 ### 2. Start the canonical stack
 
 ```bash
-docker compose up -d --build --wait --wait-timeout 240
+docker compose up -d --build --wait --wait-timeout 300
 docker compose ps -a
 ```
 
 Expected behavior:
 
-- `legacy-init` exits successfully after bootstrap and Prisma migration work;
-- `go-migrate` exits successfully after Go migrations;
+- `legacy-init` exits after secret migration, Prisma migrations, and idempotent administrator bootstrap;
+- `go-migrate` exits after Go migrations;
 - `app`, `worker-forwarding`, `worker-retention`, `legacy-api`, `postgres` and `redis` remain healthy;
-- PostgreSQL and Redis are not published to the host by the production Compose file.
+- PostgreSQL and Redis are not published to the host.
 
 ### 3. Probe health
 
@@ -144,34 +149,60 @@ Example Go health response:
 }
 ```
 
-### 4. Retrieve a generated first-login password
+### 4. Retrieve and retire the one-time password
 
-`JWT_SECRET`, `ENCRYPTION_KEY` and `ADMIN_PASSWORD` may be blank on first boot. `legacy-init` generates missing values and persists them in the legacy runtime volume.
+Long-lived generated secrets are stored in:
 
-The password is not printed by default:
+```text
+/var/lib/all-mail/runtime-secrets.env
+```
+
+The initial administrator credential is stored separately:
+
+```text
+/var/lib/all-mail/bootstrap-admin.env
+```
+
+Retrieve it without printing all runtime secrets:
 
 ```bash
 docker compose exec legacy-api sh -lc \
-  "grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-secrets.env | cut -d= -f2-"
+  "grep '^ADMIN_USERNAME=' /var/lib/all-mail/bootstrap-admin.env && \
+   grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-admin.env"
 ```
 
-Set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only for short-lived recovery in a controlled terminal. Change a generated password immediately after first login.
+Set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only for short-lived controlled recovery. After login, the administrator is forced to change the password. A successful first rotation removes `bootstrap-admin.env`; rerunning `legacy-init` does not recreate it or create another administrator.
+
+Upgrades from the old `bootstrap-secrets.env` layout are migrated automatically. The old file is split and deleted after its values have been preserved.
 
 ## Trusted proxy contract
 
-The Go listener discards incoming `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, and `CF-Connecting-IP` values from untrusted socket peers. Only peers listed in the comma-separated `TRUSTED_PROXY_CIDRS` may supply a client IP or forwarded protocol. Go then overwrites the downstream headers with one canonical client identity, and the internal Fastify service trusts exactly one hop.
+The Go listener discards incoming `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, and `CF-Connecting-IP` values from untrusted socket peers. Only peers listed in `TRUSTED_PROXY_CIDRS` may supply a client IP or forwarded protocol. Go overwrites the downstream headers with one canonical identity, and internal Fastify trusts exactly one hop.
 
-Do not use a blanket trust setting. Keep `legacy-api` internal-only and list only the reverse proxy or tunnel peers that connect directly to `app`.
+Do not use blanket trust. Keep `legacy-api` internal-only and list only the proxy or tunnel peers connected directly to `app`.
 
 ## Local development infrastructure
 
-Production keeps PostgreSQL and Redis private. Local Fastify development explicitly publishes them through the overlay:
+Production keeps PostgreSQL and Redis private. Local development explicitly publishes them through the overlay:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
 ```
 
-Equivalent helper:
+Initialize a fresh local business database and administrator explicitly:
+
+```bash
+npm --prefix server run db:migrate
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD=change-me-now \
+BOOTSTRAP_ADMIN_SECRET_FILE=.all-mail-runtime/bootstrap-admin.env \
+npm --prefix server run bootstrap:admin
+npm run dev:api
+```
+
+`server/.env` contains long-lived API settings only; it does not contain administrator credentials.
+
+Equivalent dependency helper:
 
 ```bash
 ./bin/all-mail deps up
@@ -181,30 +212,29 @@ The overlay defaults to PostgreSQL `127.0.0.1:15433` and Redis `127.0.0.1:6380`.
 
 ## Rollback policy
 
-The current revision does not contain a second Node writer. This prevents silent state-machine drift and accidental concurrent ownership.
-
-Rollback means deploying the previous known-good Git revision or image together with the data state that revision expects:
+Rollback means deploying the previous known-good Git revision or image together with matching database and secret state:
 
 ```bash
 docker compose down
 git switch <known-good-tag-or-commit>
-docker compose up -d --build --wait --wait-timeout 240
+docker compose up -d --build --wait --wait-timeout 300
 ```
 
-Before a risky migration or upgrade, back up PostgreSQL and the legacy bootstrap-secret volume. Do not run binaries from two revisions against the same forwarding state machine at the same time.
+Before upgrading, back up PostgreSQL and the legacy runtime volume. This revision changes secret layout, so preserve `runtime-secrets.env`, `bootstrap-admin.env`, and a pre-upgrade backup of any old `bootstrap-secrets.env`. Do not run initializers or workers from two revisions concurrently.
 
 ## Development and verification entrypoints
 
 | Command | Purpose |
 | --- | --- |
 | `npm run dev:api` | Run only the Fastify compatibility API for local development |
+| `npm --prefix server run bootstrap:admin` | Explicitly bootstrap a fresh local database administrator |
 | `npm run dev:web` | Run the Vite frontend development server |
 | `./bin/all-mail deps up` | Start PostgreSQL and Redis through the development overlay |
 | `./bin/all-mail doctor` | Check local env resolution, infrastructure reachability and build artifacts |
 | `./bin/all-mail check` | Full repository lint/test/build/worker/audit gate |
 | `npm run test:runtime` | Runtime and environment-contract tests |
 
-The repository CLI deliberately does not expose a parallel Node production topology. Production startup remains Docker Compose.
+Production startup remains Docker Compose. The repository CLI does not expose a parallel Node production topology.
 
 ## Documentation map
 
@@ -212,7 +242,7 @@ The repository CLI deliberately does not expose a parallel Node production topol
 | --- | --- |
 | Deploy, update, smoke check and rollback | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
 | Day-2 operations and recovery | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
-| Environment variables and template ownership | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
+| Environment variables and secret ownership | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
 | Current Go/Fastify ownership and migration rules | [`docs/GO-MIGRATION.md`](docs/GO-MIGRATION.md) |
 | Local API/frontend development | [`docs/advanced-runtime.md`](docs/advanced-runtime.md) |
 | Remaining vertical business-route ports | [`docs/internal/rewrite/runtime-consolidation-plan.md`](docs/internal/rewrite/runtime-consolidation-plan.md) |
@@ -224,23 +254,23 @@ The repository CLI deliberately does not expose a parallel Node production topol
 
 ```text
 ├── core/                            # Go gateway, workers, migrations and runtime contracts
-├── server/                          # Compatibility Fastify/Prisma business API
+├── server/                          # Compatibility Fastify/Prisma business API and one-shot admin bootstrap
 ├── web/                             # React admin console and mailbox portal UI
 ├── cloudflare/workers/allmail-edge/ # Signed inbound email Worker
-├── docker/                          # Compatibility API bootstrap entrypoint
-├── scripts/                         # Verification and bootstrap helpers
+├── docker/                          # One-shot/bootstrap and compatibility API entrypoint
+├── scripts/                         # Secret migration, verification and helper tooling
 ├── docs/                            # Public operator docs and internal migration notes
 ├── Dockerfile                       # Go runtime plus built React SPA
-├── Dockerfile.legacy                # Compatibility Fastify API runtime
+├── Dockerfile.legacy                # Compatibility Fastify API and initializer runtime
 ├── docker-compose.yml               # Canonical production topology
 └── docker-compose.dev.yml           # Local PostgreSQL/Redis host-port overlay
 ```
 
 ## Remaining migration boundary
 
-Fastify/Prisma still owns admin and mailbox-portal authentication, OAuth, API keys, domain/mailbox management, provider mailbox operations, ingress business handling and the existing business-schema migration history.
+Fastify/Prisma still owns database-backed admin and mailbox-portal authentication, OAuth, API keys, domain/mailbox management, provider mailbox operations, ingress business handling and the existing business-schema migration history.
 
-Those capabilities must move to Go as vertical slices with authorization, validation, transaction, parity and failure-injection tests. They are intentionally not replaced by one unreviewable all-at-once rewrite.
+The removed environment administrator is not a fallback. Remaining capabilities must move to Go as vertical slices with authorization, validation, transaction, parity and failure-injection tests.
 
 ## License
 

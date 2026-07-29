@@ -1,7 +1,11 @@
+import { constants as fsConstants } from 'node:fs';
+import { access, readFile, rm } from 'node:fs/promises';
+
 import prisma from '../../lib/prisma.js';
 import { signToken, verifyToken } from '../../lib/jwt.js';
 import { decrypt, encrypt, hashPassword, verifyPassword } from '../../lib/crypto.js';
 import { env } from '../../config/env.js';
+import { logger } from '../../lib/logger.js';
 import { getRedis } from '../../lib/redis.js';
 import { AppError } from '../../plugins/error.js';
 import type { LoginInput, ChangePasswordInput, Verify2FaInput, Disable2FaInput } from './auth.schema.js';
@@ -50,7 +54,8 @@ async function getLockRemainingSeconds(cacheKey: string): Promise<number> {
                 return ttl;
             }
         } catch {
-            // Redis 异常时回退本地存储
+            // Redis failure currently falls back to local state. A later hardening
+            // slice makes this fail closed in production.
         }
     }
 
@@ -79,7 +84,7 @@ async function clearLoginAttempts(cacheKey: string): Promise<void> {
         try {
             await redis.del(buildRedisLoginAttemptKey(cacheKey), buildRedisLoginLockKey(cacheKey));
         } catch {
-            // Redis 异常时继续清理本地存储
+            // Continue clearing local compatibility state.
         }
     }
 
@@ -104,7 +109,7 @@ async function recordLoginFailure(cacheKey: string): Promise<number> {
             }
             return 0;
         } catch {
-            // Redis 异常时回退本地存储
+            // Continue with the current single-process compatibility fallback.
         }
     }
 
@@ -134,19 +139,6 @@ async function recordLoginFailure(cacheKey: string): Promise<number> {
     return 0;
 }
 
-function isLegacy2FaEnabled(): boolean {
-    return Boolean(env.ADMIN_2FA_SECRET);
-}
-
-function verifyLegacyTotpCode(token: string | undefined): boolean {
-    const legacySecret = env.ADMIN_2FA_SECRET;
-    if (!legacySecret) {
-        return true;
-    }
-
-    return verifyTotpCode(legacySecret, token, env.ADMIN_2FA_WINDOW);
-}
-
 function decryptAdmin2FaSecret(encryptedSecret: string | null | undefined): string | null {
     if (!encryptedSecret) {
         return null;
@@ -159,58 +151,44 @@ function decryptAdmin2FaSecret(encryptedSecret: string | null | undefined): stri
     }
 }
 
-function getBootstrapAdminCredentials(): { username: string; password: string } {
-    if (env.DOMAIN_BOOTSTRAP_ADMIN_USERNAME && env.DOMAIN_BOOTSTRAP_ADMIN_PASSWORD) {
-        return {
-            username: env.DOMAIN_BOOTSTRAP_ADMIN_USERNAME,
-            password: env.DOMAIN_BOOTSTRAP_ADMIN_PASSWORD,
-        };
+function parseBootstrapAdminUsername(content: string): string | null {
+    for (const rawLine of content.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) {
+            continue;
+        }
+        const separatorIndex = line.indexOf('=');
+        if (separatorIndex <= 0) {
+            continue;
+        }
+        if (line.slice(0, separatorIndex).trim() === 'ADMIN_USERNAME') {
+            return line.slice(separatorIndex + 1).trim().replace(/^['"]|['"]$/g, '');
+        }
     }
-
-    return {
-        username: env.ADMIN_USERNAME,
-        password: env.ADMIN_PASSWORD,
-    };
+    return null;
 }
 
-function shouldForceBootstrapPasswordChange(): boolean {
-    return String(process.env.ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS || process.env.ALL_MAIL_GENERATED_SECRETS || '')
-        .split(',')
-        .map((item) => item.trim())
-        .includes('ADMIN_PASSWORD');
-}
-
-async function createBootstrapAdmin(username: string, password: string) {
-    const passwordHash = await hashPassword(password);
-    return prisma.admin.create({
-        data: {
-            username: username.trim(),
-            passwordHash,
-            role: 'SUPER_ADMIN',
-            status: 'ACTIVE',
-            mustChangePassword: shouldForceBootstrapPasswordChange(),
-        },
-    });
+async function removeBootstrapAdminSecret(username: string): Promise<void> {
+    const file = env.BOOTSTRAP_ADMIN_SECRET_FILE;
+    try {
+        await access(file, fsConstants.R_OK);
+        const storedUsername = parseBootstrapAdminUsername(await readFile(file, 'utf8'));
+        if (storedUsername !== username) {
+            return;
+        }
+        await rm(file, { force: true });
+    } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error
+            ? String(error.code)
+            : '';
+        if (code === 'ENOENT') {
+            return;
+        }
+        logger.error({ err: error, file, username }, 'Failed to remove consumed bootstrap admin credential');
+    }
 }
 
 export const authService = {
-    async ensureBootstrapAdmin() {
-        const bootstrap = getBootstrapAdminCredentials();
-        if (!bootstrap.username || !bootstrap.password) {
-            return null;
-        }
-
-        const totalAdmins = await prisma.admin.count();
-        if (totalAdmins > 0) {
-            return null;
-        }
-
-        return createBootstrapAdmin(bootstrap.username, bootstrap.password);
-    },
-
-    /**
-     * 管理员登录
-     */
     async login(input: LoginInput, ip?: string) {
         const { username, password, otp } = input;
         const loginAttemptCacheKey = buildLoginAttemptCacheKey(username, ip);
@@ -219,7 +197,6 @@ export const authService = {
             throw new AppError('ACCOUNT_LOCKED', formatLockMessage(lockSeconds), 429);
         }
 
-        // 查询管理员
         const admin = await prisma.admin.findUnique({
             where: { username },
             select: {
@@ -234,44 +211,7 @@ export const authService = {
             },
         });
 
-        // 管理员不存在，检查是否是默认管理员
         if (!admin) {
-            const bootstrap = getBootstrapAdminCredentials();
-            if (username === bootstrap.username && password === bootstrap.password) {
-                if (!verifyLegacyTotpCode(otp)) {
-                    const newLockSeconds = await recordLoginFailure(loginAttemptCacheKey);
-                    if (newLockSeconds > 0) {
-                        throw new AppError('ACCOUNT_LOCKED', formatLockMessage(newLockSeconds), 429);
-                    }
-                    throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
-                }
-
-                // 如果是默认管理员但数据库不存在，自动创建
-                const newAdmin = await createBootstrapAdmin(username, password);
-
-                await clearLoginAttempts(loginAttemptCacheKey);
-
-                // 使用新创建的管理员信息生成 Token
-                const token = await signToken({
-                    sub: newAdmin.id.toString(),
-                    username: newAdmin.username,
-                    role: newAdmin.role,
-                }, {
-                    audience: ADMIN_JWT_AUDIENCE,
-                });
-
-                return {
-                    token,
-                    admin: {
-                        id: newAdmin.id,
-                        username: newAdmin.username,
-                        role: newAdmin.role,
-                        mustChangePassword: newAdmin.mustChangePassword,
-                        twoFactorEnabled: false,
-                    },
-                };
-            }
-
             const newLockSeconds = await recordLoginFailure(loginAttemptCacheKey);
             if (newLockSeconds > 0) {
                 throw new AppError('ACCOUNT_LOCKED', formatLockMessage(newLockSeconds), 429);
@@ -279,12 +219,10 @@ export const authService = {
             throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password', 401);
         }
 
-        // 检查状态
         if (admin.status !== 'ACTIVE') {
             throw new AppError('ACCOUNT_DISABLED', 'Account is disabled', 403);
         }
 
-        // 验证密码
         const isValid = await verifyPassword(password, admin.passwordHash);
         if (!isValid) {
             const newLockSeconds = await recordLoginFailure(loginAttemptCacheKey);
@@ -297,7 +235,6 @@ export const authService = {
         const adminTwoFactorSecret = admin.twoFactorEnabled
             ? decryptAdmin2FaSecret(admin.twoFactorSecret)
             : null;
-
         if (admin.twoFactorEnabled && adminTwoFactorSecret && !verifyTotpCode(adminTwoFactorSecret, otp, env.ADMIN_2FA_WINDOW)) {
             const newLockSeconds = await recordLoginFailure(loginAttemptCacheKey);
             if (newLockSeconds > 0) {
@@ -307,8 +244,6 @@ export const authService = {
         }
 
         await clearLoginAttempts(loginAttemptCacheKey);
-
-        // 更新登录信息
         await prisma.admin.update({
             where: { id: admin.id },
             data: {
@@ -317,7 +252,6 @@ export const authService = {
             },
         });
 
-        // 生成 Token
         const token = await signToken({
             sub: admin.id.toString(),
             username: admin.username,
@@ -338,20 +272,15 @@ export const authService = {
         };
     },
 
-    /**
-     * 修改密码
-     */
     async changePassword(adminId: number, input: ChangePasswordInput) {
         const { oldPassword, newPassword } = input;
-
-        // 环境变量管理员（id=0）不能修改密码
-        if (adminId === 0) {
-            throw new AppError('CANNOT_CHANGE', 'Cannot change password for default admin', 400);
-        }
-
         const admin = await prisma.admin.findUnique({
             where: { id: adminId },
-            select: { passwordHash: true },
+            select: {
+                username: true,
+                passwordHash: true,
+                mustChangePassword: true,
+            },
         });
 
         if (!admin) {
@@ -372,26 +301,17 @@ export const authService = {
             },
         });
 
+        if (admin.mustChangePassword) {
+            await removeBootstrapAdminSecret(admin.username);
+        }
+
         return {
             success: true,
             mustChangePassword: false,
         };
     },
 
-    /**
-     * 获取当前管理员信息
-     */
     async getMe(adminId: number) {
-        if (adminId === 0) {
-            return {
-                id: 0,
-                username: env.ADMIN_USERNAME,
-                role: 'SUPER_ADMIN',
-                mustChangePassword: false,
-                twoFactorEnabled: isLegacy2FaEnabled(),
-            };
-        }
-
         const admin = await prisma.admin.findUnique({
             where: { id: adminId },
             select: {
@@ -413,18 +333,7 @@ export const authService = {
         return admin;
     },
 
-    /**
-     * 2FA 状态
-     */
     async getTwoFactorStatus(adminId: number) {
-        if (adminId === 0) {
-            return {
-                enabled: isLegacy2FaEnabled(),
-                pending: false,
-                legacyEnv: isLegacy2FaEnabled(),
-            };
-        }
-
         const admin = await prisma.admin.findUnique({
             where: { id: adminId },
             select: {
@@ -441,18 +350,10 @@ export const authService = {
         return {
             enabled: admin.twoFactorEnabled,
             pending: Boolean(admin.twoFactorTempSecret),
-            legacyEnv: false,
         };
     },
 
-    /**
-     * 生成 2FA 绑定信息
-     */
     async setupTwoFactor(adminId: number) {
-        if (adminId === 0) {
-            throw new AppError('UNSUPPORTED', 'Default admin cannot configure 2FA in UI', 400);
-        }
-
         const admin = await prisma.admin.findUnique({
             where: { id: adminId },
             select: {
@@ -465,7 +366,6 @@ export const authService = {
         if (!admin) {
             throw new AppError('NOT_FOUND', 'Admin not found', 404);
         }
-
         if (admin.twoFactorEnabled) {
             throw new AppError('TWO_FACTOR_ENABLED', 'Two-factor already enabled', 400);
         }
@@ -473,9 +373,7 @@ export const authService = {
         const secret = generateBase32Secret();
         await prisma.admin.update({
             where: { id: admin.id },
-            data: {
-                twoFactorTempSecret: encrypt(secret),
-            },
+            data: { twoFactorTempSecret: encrypt(secret) },
         });
 
         return {
@@ -484,14 +382,7 @@ export const authService = {
         };
     },
 
-    /**
-     * 启用 2FA
-     */
     async enableTwoFactor(adminId: number, input: Verify2FaInput) {
-        if (adminId === 0) {
-            throw new AppError('UNSUPPORTED', 'Default admin cannot configure 2FA in UI', 400);
-        }
-
         const admin = await prisma.admin.findUnique({
             where: { id: adminId },
             select: {
@@ -504,7 +395,6 @@ export const authService = {
         if (!admin) {
             throw new AppError('NOT_FOUND', 'Admin not found', 404);
         }
-
         if (admin.twoFactorEnabled) {
             return { enabled: true };
         }
@@ -513,7 +403,6 @@ export const authService = {
         if (!tempSecret) {
             throw new AppError('TWO_FACTOR_SETUP_REQUIRED', 'Please generate setup secret first', 400);
         }
-
         if (!verifyTotpCode(tempSecret, input.otp, env.ADMIN_2FA_WINDOW)) {
             throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
         }
@@ -530,14 +419,7 @@ export const authService = {
         return { enabled: true };
     },
 
-    /**
-     * 禁用 2FA
-     */
-	async disableTwoFactor(adminId: number, input: Disable2FaInput) {
-        if (adminId === 0) {
-            throw new AppError('UNSUPPORTED', 'Default admin cannot disable legacy 2FA in UI', 400);
-        }
-
+    async disableTwoFactor(adminId: number, input: Disable2FaInput) {
         const admin = await prisma.admin.findUnique({
             where: { id: adminId },
             select: {
@@ -551,7 +433,6 @@ export const authService = {
         if (!admin) {
             throw new AppError('NOT_FOUND', 'Admin not found', 404);
         }
-
         if (!admin.twoFactorEnabled) {
             return { enabled: false };
         }
@@ -575,147 +456,120 @@ export const authService = {
             },
         });
 
-		return { enabled: false };
-	},
+        return { enabled: false };
+    },
 
-	async verifyStepUpTwoFactor(adminId: number, input: Verify2FaInput) {
-		if (adminId === 0) {
-			throw new AppError(
-				"UNSUPPORTED",
-				"Default admin cannot use this verification flow",
-				400,
-			);
-		}
+    async verifyStepUpTwoFactor(adminId: number, input: Verify2FaInput) {
+        const admin = await prisma.admin.findUnique({
+            where: { id: adminId },
+            select: {
+                id: true,
+                twoFactorEnabled: true,
+                twoFactorSecret: true,
+            },
+        });
 
-		const admin = await prisma.admin.findUnique({
-			where: { id: adminId },
-			select: {
-				id: true,
-				twoFactorEnabled: true,
-				twoFactorSecret: true,
-			},
-		});
+        if (!admin) {
+            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+        }
+        if (!admin.twoFactorEnabled) {
+            throw new AppError(
+                'TWO_FACTOR_REQUIRED',
+                'Enable two-factor authentication before revealing secrets',
+                403,
+            );
+        }
 
-		if (!admin) {
-			throw new AppError("NOT_FOUND", "Admin not found", 404);
-		}
+        const secret = decryptAdmin2FaSecret(admin.twoFactorSecret);
+        if (!secret || !verifyTotpCode(secret, input.otp, env.ADMIN_2FA_WINDOW)) {
+            throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
+        }
 
-		if (!admin.twoFactorEnabled) {
-			throw new AppError(
-				"TWO_FACTOR_REQUIRED",
-				"Enable two-factor authentication before revealing secrets",
-				403,
-			);
-		}
+        return { verified: true };
+    },
 
-		const secret = decryptAdmin2FaSecret(admin.twoFactorSecret);
-		if (!secret || !verifyTotpCode(secret, input.otp, env.ADMIN_2FA_WINDOW)) {
-			throw new AppError("INVALID_OTP", "Invalid two-factor code", 401);
-		}
+    async createExternalSecretRevealGrant(adminId: number) {
+        const admin = await prisma.admin.findUnique({
+            where: { id: adminId },
+            select: {
+                id: true,
+                username: true,
+                role: true,
+                twoFactorEnabled: true,
+            },
+        });
 
-		return { verified: true };
-	},
+        if (!admin) {
+            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+        }
+        if (!admin.twoFactorEnabled) {
+            throw new AppError(
+                'TWO_FACTOR_REQUIRED',
+                'Enable two-factor authentication before revealing secrets',
+                403,
+            );
+        }
 
-	async createExternalSecretRevealGrant(adminId: number) {
-		if (adminId === 0) {
-			throw new AppError(
-				'UNSUPPORTED',
-				'Default admin cannot use this verification flow',
-				400,
-			);
-		}
+        const expiresAtMs = Date.now() + EXTERNAL_SECRET_REVEAL_GRANT_TTL_MINUTES * 60 * 1000;
+        const grantToken = await signToken(
+            {
+                sub: String(admin.id),
+                role: admin.role,
+                username: admin.username,
+                purpose: EXTERNAL_SECRET_REVEAL_GRANT_PURPOSE,
+            },
+            {
+                audience: EXTERNAL_SECRET_REVEAL_GRANT_AUDIENCE,
+                expiresIn: `${EXTERNAL_SECRET_REVEAL_GRANT_TTL_MINUTES}m`,
+            },
+        );
 
-		const admin = await prisma.admin.findUnique({
-			where: { id: adminId },
-			select: {
-				id: true,
-				username: true,
-				role: true,
-				twoFactorEnabled: true,
-			},
-		});
+        return {
+            grantToken,
+            expiresAt: new Date(expiresAtMs).toISOString(),
+        };
+    },
 
-		if (!admin) {
-			throw new AppError('NOT_FOUND', 'Admin not found', 404);
-		}
+    async verifyExternalSecretRevealGrant(adminId: number, grantToken: string) {
+        const admin = await prisma.admin.findUnique({
+            where: { id: adminId },
+            select: {
+                id: true,
+                twoFactorEnabled: true,
+            },
+        });
 
-		if (!admin.twoFactorEnabled) {
-			throw new AppError(
-				'TWO_FACTOR_REQUIRED',
-				'Enable two-factor authentication before revealing secrets',
-				403,
-			);
-		}
+        if (!admin) {
+            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+        }
+        if (!admin.twoFactorEnabled) {
+            throw new AppError(
+                'TWO_FACTOR_REQUIRED',
+                'Enable two-factor authentication before revealing secrets',
+                403,
+            );
+        }
 
-		const expiresAtMs = Date.now() + EXTERNAL_SECRET_REVEAL_GRANT_TTL_MINUTES * 60 * 1000;
-		const grantToken = await signToken(
-			{
-				sub: String(admin.id),
-				role: admin.role,
-				username: admin.username,
-				purpose: EXTERNAL_SECRET_REVEAL_GRANT_PURPOSE,
-			},
-			{
-				audience: EXTERNAL_SECRET_REVEAL_GRANT_AUDIENCE,
-				expiresIn: `${EXTERNAL_SECRET_REVEAL_GRANT_TTL_MINUTES}m`,
-			},
-		);
+        const payload = await verifyToken(grantToken);
+        const audience = Array.isArray(payload?.aud)
+            ? payload.aud.map(String)
+            : payload?.aud
+                ? [String(payload.aud)]
+                : [];
 
-		return {
-			grantToken,
-			expiresAt: new Date(expiresAtMs).toISOString(),
-		};
-	},
+        if (
+            !payload
+            || payload.sub !== String(admin.id)
+            || !audience.includes(EXTERNAL_SECRET_REVEAL_GRANT_AUDIENCE)
+            || payload.purpose !== EXTERNAL_SECRET_REVEAL_GRANT_PURPOSE
+        ) {
+            throw new AppError(
+                'REVEAL_UNLOCK_EXPIRED',
+                'Reveal unlock expired or invalid',
+                401,
+            );
+        }
 
-	async verifyExternalSecretRevealGrant(adminId: number, grantToken: string) {
-		if (adminId === 0) {
-			throw new AppError(
-				'UNSUPPORTED',
-				'Default admin cannot use this verification flow',
-				400,
-			);
-		}
-
-		const admin = await prisma.admin.findUnique({
-			where: { id: adminId },
-			select: {
-				id: true,
-				twoFactorEnabled: true,
-			},
-		});
-
-		if (!admin) {
-			throw new AppError('NOT_FOUND', 'Admin not found', 404);
-		}
-
-		if (!admin.twoFactorEnabled) {
-			throw new AppError(
-				'TWO_FACTOR_REQUIRED',
-				'Enable two-factor authentication before revealing secrets',
-				403,
-			);
-		}
-
-		const payload = await verifyToken(grantToken);
-		const audience = Array.isArray(payload?.aud)
-			? payload.aud.map(String)
-			: payload?.aud
-				? [String(payload.aud)]
-				: [];
-
-		if (
-			!payload ||
-			payload.sub !== String(admin.id) ||
-			!audience.includes(EXTERNAL_SECRET_REVEAL_GRANT_AUDIENCE) ||
-			payload.purpose !== EXTERNAL_SECRET_REVEAL_GRANT_PURPOSE
-		) {
-			throw new AppError(
-				'REVEAL_UNLOCK_EXPIRED',
-				'Reveal unlock expired or invalid',
-				401,
-			);
-		}
-
-		return { verified: true };
-	},
+        return { verified: true };
+    },
 };

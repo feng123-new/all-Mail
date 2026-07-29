@@ -2,130 +2,174 @@
 
 ## Boundary
 
-This document is the authoritative deployment entry for `all-Mail`.
+This is the authoritative production startup, update, smoke-check and rollback guide.
 
-- Use this file for startup, update, smoke checks and rollback.
-- Use [`RUNBOOK.md`](./RUNBOOK.md) for day-2 troubleshooting.
-- Use [`ENVIRONMENT.md`](./ENVIRONMENT.md) for variable meaning.
-- Use [`GO-MIGRATION.md`](./GO-MIGRATION.md) for capability ownership.
+- Use [`RUNBOOK.md`](./RUNBOOK.md) for troubleshooting.
+- Use [`ENVIRONMENT.md`](./ENVIRONMENT.md) for variable and secret ownership.
+- Use [`GO-MIGRATION.md`](./GO-MIGRATION.md) for runtime ownership.
 - Use [`../CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) for Worker ingress.
 
-## Supported production path
+## Supported topology
 
 Docker Compose is the only supported production topology.
 
 Long-running services:
 
-- `app` — Go public gateway and React SPA;
-- `worker-forwarding` — independent Go forwarding runtime;
-- `worker-retention` — independent Go API-log retention runtime;
-- `legacy-api` — internal Fastify/Prisma business API;
-- `postgres`;
-- `redis`.
+```text
+app
+worker-forwarding
+worker-retention
+legacy-api
+postgres
+redis
+```
 
-One-shot startup services:
+One-shot services:
 
-- `legacy-init` — bootstrap secrets, forwarding-key export and Prisma migrations;
-- `go-migrate` — additive checksummed Go migrations.
+```text
+legacy-init
+go-migrate
+```
 
-Only `app` is published by the production Compose file. PostgreSQL, Redis, and `legacy-api` remain private to the Compose network.
+Only `app` is published. PostgreSQL, Redis and Fastify remain private.
 
-## Prerequisites
-
-- Docker Engine with `docker compose`;
-- Node.js 20+ only for repository-level local verification;
-- a root `.env` copied from `.env.example`.
-
-## Environment preparation
+## Prepare the environment
 
 ```bash
 cp .env.example .env
 ```
 
-Replace `POSTGRES_PASSWORD` and configure any public base URL, proxy CIDRs, OAuth fallback, or ingress secret required by the deployment.
+Replace `POSTGRES_PASSWORD` and configure public URL, proxy CIDRs, OAuth fallbacks, or ingress values as needed.
 
-Cloudflare ingress uses the same root template. Set:
-
-```env
-INGRESS_SIGNING_SECRET=<strong-random-value>
-INGRESS_ALLOWED_SKEW_SECONDS=300
-TRUSTED_PROXY_CIDRS=<direct-tunnel-or-reverse-proxy-cidrs>
-```
-
-Do not copy a second backend Cloudflare template; it has been removed.
-
-## Trusted proxy decision
-
-Direct local access requires no trusted CIDR:
+One-shot administrator inputs:
 
 ```env
-TRUSTED_PROXY_CIDRS=
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=
 ```
 
-When a reverse proxy or tunnel connects directly to `app`, list only that peer network. The Go gateway ignores forwarded client identity from every other peer and overwrites the headers sent to Fastify. Do not configure a blanket `0.0.0.0/0` or `::/0` trust range.
+Leave the password blank to generate a strong temporary password. These values are passed only to `legacy-init`, not the long-running API.
 
-## Startup sequence
+For a trusted tunnel/reverse proxy:
+
+```env
+TRUSTED_PROXY_CIDRS=<direct-peer-cidrs>
+```
+
+Never trust `0.0.0.0/0` or `::/0`.
+
+## Start
 
 ```bash
 docker compose config --quiet
-docker compose up -d --build --wait --wait-timeout 240
+docker compose up -d --build --wait --wait-timeout 300
 docker compose ps -a
 ```
 
 Expected sequence:
 
 1. PostgreSQL and Redis become healthy.
-2. `legacy-init` waits only for PostgreSQL, generates or reads bootstrap secrets, and runs Prisma migrations.
-3. `go-migrate` applies additive Go migrations.
-4. `legacy-api` starts as UID `10001` and verifies PostgreSQL and Redis.
-5. `app`, `worker-forwarding`, and `worker-retention` become healthy.
+2. `legacy-init` waits only for PostgreSQL.
+3. It migrates any old combined secret bundle into separate runtime/admin files.
+4. It loads or generates long-lived JWT/encryption secrets.
+5. It exports only the forwarding encryption key.
+6. It applies Prisma migrations.
+7. It acquires an administrator-bootstrap advisory lock and creates the first DB administrator only when none exists.
+8. `go-migrate` applies additive Go migrations.
+9. `legacy-api`, `app`, and both workers become healthy.
 
-Verify the service set:
+## Verify service and network ownership
 
 ```bash
 test "$(docker compose exec -T legacy-api id -u)" = "10001"
 for service in app worker-forwarding worker-retention legacy-api postgres redis; do
   docker compose ps --services --filter status=running | grep -qx "$service"
 done
-```
 
-Verify production network exposure:
-
-```bash
 docker compose port app 3000
 ! docker compose port postgres 5432
 ! docker compose port redis 6379
 ```
 
-`docker compose port app 3000` should report the configured public bind. PostgreSQL and Redis should report no published port.
+## Verify secret separation
 
-## Secret isolation
-
-`JWT_SECRET`, `ENCRYPTION_KEY`, and `ADMIN_PASSWORD` may be blank on first boot. `legacy-init` persists generated values in the protected legacy runtime volume.
-
-Retrieve the generated password:
+Long-lived secrets:
 
 ```bash
 docker compose exec legacy-api sh -lc \
-  "grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-secrets.env | cut -d= -f2-"
+  'test -r /var/lib/all-mail/runtime-secrets.env && cat /var/lib/all-mail/runtime-secrets.env'
 ```
 
-The forwarding worker receives only the file it needs:
+That file must contain only `JWT_SECRET` and `ENCRYPTION_KEY`; it must not contain administrator credentials.
+
+One-time administrator credential:
 
 ```bash
-docker compose exec worker-forwarding sh -lc \
-  'test -r /var/lib/all-mail/encryption-key && test "$(wc -c < /var/lib/all-mail/encryption-key)" -ge 32'
+docker compose exec legacy-api sh -lc \
+  "grep '^ADMIN_USERNAME=' /var/lib/all-mail/bootstrap-admin.env && \
+   grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-admin.env"
 ```
 
-Confirm that direct environment injection was removed:
+Removed old bundle:
 
 ```bash
-! docker compose exec worker-forwarding sh -lc 'test -n "${ENCRYPTION_KEY:-}"'
+docker compose exec legacy-api sh -lc \
+  'test ! -e /var/lib/all-mail/bootstrap-secrets.env'
 ```
 
-The retention worker mounts no forwarding secret volume.
+Long-running API isolation:
 
-## Health and smoke checks
+```bash
+docker compose exec legacy-api sh -lc '
+  test -z "${ADMIN_USERNAME:-}"
+  test -z "${ADMIN_PASSWORD:-}"
+  test -z "${DOMAIN_BOOTSTRAP_ADMIN_USERNAME:-}"
+  test -z "${DOMAIN_BOOTSTRAP_ADMIN_PASSWORD:-}"
+  test -z "${ADMIN_2FA_SECRET:-}"
+  test -n "${BOOTSTRAP_ADMIN_SECRET_FILE:-}"
+'
+```
+
+Forwarding receives only its key file:
+
+```bash
+docker compose exec worker-forwarding sh -lc '
+  test -r /var/lib/all-mail/encryption-key
+  test -z "${ENCRYPTION_KEY:-}"
+'
+```
+
+## First login and password retirement
+
+1. Retrieve the credential from `bootstrap-admin.env`.
+2. Log in through the public Go gateway.
+3. The returned administrator must have `mustChangePassword=true`.
+4. Change the password from the settings page before using other protected routes.
+5. Confirm the one-time file is gone:
+
+```bash
+docker compose exec legacy-api sh -lc \
+  'test ! -e /var/lib/all-mail/bootstrap-admin.env'
+```
+
+6. Confirm database state:
+
+```bash
+docker compose exec postgres psql \
+  -U "${POSTGRES_USER:-allmail}" \
+  -d "${POSTGRES_DB:-allmail}" \
+  -Atqc 'SELECT username, must_change_password FROM admins ORDER BY id'
+```
+
+Re-running the initializer must not create another administrator or restore plaintext:
+
+```bash
+docker compose run --rm legacy-init
+docker compose exec legacy-api sh -lc \
+  'test ! -e /var/lib/all-mail/bootstrap-admin.env'
+```
+
+## Health checks
 
 ```bash
 curl http://127.0.0.1:3002/health
@@ -139,13 +183,11 @@ docker compose exec -T legacy-api node -e \
   "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
 ```
 
-The Go readiness payload validates the built SPA plus the Fastify compatibility API. Fastify owns the PostgreSQL and Redis protocol checks. The public Go container therefore does not carry database or Redis credentials before native Go business routes exist.
-
-Each worker doctor validates its own process identity, heartbeat freshness, active-run deadline, and latest completion status.
+The public Go app has no database or Redis credentials. It checks the built SPA and Fastify readiness; Fastify owns PostgreSQL/Redis protocol checks.
 
 ## Proxy identity smoke
 
-From a direct client that is not in `TRUSTED_PROXY_CIDRS`, a spoofed header must not become the audit/login IP:
+From an untrusted direct client, forged headers must not become login/audit IP state:
 
 ```bash
 curl -H 'X-Forwarded-For: 203.0.113.99' \
@@ -153,41 +195,33 @@ curl -H 'X-Forwarded-For: 203.0.113.99' \
   http://127.0.0.1:3002/health
 ```
 
-For full verification, inspect the Fastify request/audit record after a login attempt and confirm it contains the actual direct peer, not the spoofed values. When testing through a trusted tunnel, confirm it contains the tunnel-provided client address.
+Use a controlled login attempt to verify persisted IP data reflects the direct peer or a trusted tunnel-provided identity.
 
 ## Local Fastify development
 
-Production does not publish PostgreSQL or Redis. Start the development overlay explicitly:
-
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
-```
-
-Then:
-
-```bash
 cp server/.env.example server/.env
+npm --prefix server run db:migrate
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD=change-me-now \
+BOOTSTRAP_ADMIN_SECRET_FILE=.all-mail-runtime/bootstrap-admin.env \
+npm --prefix server run bootstrap:admin
 npm run dev:api
 ```
 
-Equivalent dependency helpers:
-
-```bash
-./bin/all-mail deps up
-./bin/all-mail deps down
-```
+`server/.env` contains no administrator username/password. The bootstrap command is explicit and one-shot.
 
 ## Migration expectations
 
-- `legacy-init` is the only Docker role that runs Prisma migrations.
-- `go-migrate` is the only role that applies Go migration files.
-- Long-running services never run schema migrations during ordinary startup.
-- Applied Go migrations are checksummed; add a new migration rather than editing an applied file.
-- The Go migration runner uses direct `pgx`; the Go runtime image does not require `psql`.
-- Prisma P3009 requires manual recovery.
-- Prisma P3005 does not silently fall back to `db push`.
+- `legacy-init` is the only Docker role that runs Prisma migrations and administrator bootstrap.
+- `go-migrate` is the only role that applies numbered Go migrations.
+- Long-running services never mutate schema or create administrators at startup.
+- Applied Go migrations are checksummed and immutable.
+- P3009 requires manual recovery.
+- P3005 does not silently fall back to `db push`.
 
-For a reviewed legacy P3005 repair only:
+Reviewed P3005 compatibility repair only:
 
 ```bash
 docker compose run --rm \
@@ -195,41 +229,54 @@ docker compose run --rm \
   legacy-init
 ```
 
-The switch is deliberately absent from `.env.example`; do not make it a standing production default.
+## Upgrade from the old secret layout
 
-## Updating an existing deployment
+Before upgrading:
 
-1. Back up PostgreSQL and persisted runtime volumes.
-2. Pull the target revision.
-3. Review `.env.example`, migration files, removed aliases, and ownership changes.
-4. Remove obsolete keys from the real `.env`; they are no longer read.
-5. Recreate the canonical stack:
+1. back up PostgreSQL;
+2. preserve the legacy runtime volume containing `bootstrap-secrets.env`;
+3. record the current administrator username and whether the initial password is still pending;
+4. deploy and inspect `legacy-init` logs;
+5. verify `runtime-secrets.env` and, when appropriate, `bootstrap-admin.env`;
+6. verify the old bundle was removed only after split migration;
+7. complete password rotation if still pending.
+
+The initializer uses password-hash matching to recover the correct username for historical deployments that used non-default bootstrap username aliases.
+
+## Update an existing deployment
 
 ```bash
-docker compose up -d --build --wait --wait-timeout 240
-```
-
-6. Run the health, exposure, secret-isolation, and proxy checks above.
-7. Run repository verification when available:
-
-```bash
+docker compose up -d --build --wait --wait-timeout 300
 ./bin/all-mail check
 ```
 
-CI runs dependency audit and Docker smoke independently. The final `release-gate` requires both.
+Remove obsolete keys from the real `.env`:
+
+```text
+DOMAIN_BOOTSTRAP_ADMIN_USERNAME
+DOMAIN_BOOTSTRAP_ADMIN_PASSWORD
+ADMIN_2FA_SECRET
+```
+
+`ADMIN_USERNAME` and `ADMIN_PASSWORD` remain one-shot initializer inputs only.
 
 ## Rollback
 
-The current revision contains one implementation for each background state machine. There is no `legacy-jobs` profile and no owner switch.
-
-Rollback means returning to a known-good revision or image:
+Rollback is revision based:
 
 ```bash
 docker compose down
 git switch <known-good-tag-or-commit>
-docker compose up -d --build --wait --wait-timeout 240
+docker compose up -d --build --wait --wait-timeout 300
 ```
 
-When schema or persisted state changed, restore matching PostgreSQL and runtime-volume backups before startup. Use the deployment guide from the target revision because older revisions may require now-removed variables or service names.
+This revision changes secret-file layout. Preserve:
 
-Never run workers from two revisions against the same database at the same time. The PostgreSQL forwarding advisory lock is a final guard, not a substitute for a clean revision handover.
+```text
+runtime-secrets.env
+bootstrap-admin.env
+pre-upgrade backup of bootstrap-secrets.env
+PostgreSQL backup
+```
+
+Restore the layout expected by the target revision before startup. Do not run initializers or workers from two revisions against the same persisted state.

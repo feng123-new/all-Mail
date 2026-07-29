@@ -1,8 +1,8 @@
 # Go migration boundary
 
-## Status and scope
+## Status
 
-The Go runtime is the canonical Docker entrypoint. Migration is complete for public HTTP ownership, SPA delivery, API-log retention, and mailbox forwarding, but not for the full business API.
+The Go runtime is the canonical Docker entrypoint. Migration is complete for public HTTP ownership, SPA delivery, forwarding, and API-log retention, but not for the complete business API.
 
 ```text
 Browser / automation / Cloudflare Worker
@@ -16,27 +16,27 @@ Browser / automation / Cloudflare Worker
 
 Go owns:
 
-- the public listener, trusted-proxy normalization, React SPA, request IDs, security headers, liveness, readiness, and metrics;
+- public listener, trusted-proxy normalization, SPA, request IDs, security headers, liveness/readiness and metrics;
 - additive Go migrations;
-- forwarding claim/send/retry/terminal transitions;
+- forwarding;
 - API-log retention.
 
-Fastify/Prisma remains authoritative for authentication, OAuth, API keys, domain/mailbox administration, provider mailbox operations, ingress business handling, and the existing business-schema migration history.
+Fastify/Prisma owns database-backed authentication, OAuth, API keys, domain/mailbox administration, provider operations, ingress business handling, and business-schema migrations.
+
+The environment-backed administrator has been removed. Initial administrator creation is a one-shot initializer responsibility.
 
 ## Runtime layout
 
 ```text
-legacy-init         one-shot secret bootstrap and Prisma migrations
-go-migrate          one-shot additive Go migrations
+legacy-init         secrets + Prisma migrations + initial DB administrator
+go-migrate          additive checksummed Go migrations
 app                 Go public gateway, SPA and compatibility proxy
 worker-forwarding   independent Go forwarding runtime
 worker-retention    independent Go retention runtime
 legacy-api          internal Fastify/Prisma business API
-postgres            private application database
+postgres            private database
 redis               private OAuth/rate-limit/replay/cache backend
 ```
-
-The TypeScript jobs process, combined `go-jobs` supervisor, rollback profile, and runtime-owner switches have been removed.
 
 ## Startup ordering
 
@@ -44,10 +44,14 @@ The TypeScript jobs process, combined `go-jobs` supervisor, rollback profile, an
 postgres healthy
       |
       v
-legacy-init completes
+legacy-init
+  - split old secret bundle
+  - establish runtime secrets
+  - Prisma migrate
+  - advisory-locked admin bootstrap
       |
       v
-go-migrate completes
+go-migrate
       |
       +-----------------------------+
       |                             |
@@ -58,35 +62,80 @@ legacy-api healthy               Go workers
      app
 ```
 
-`legacy-init` no longer waits for or receives Redis. It generates/reads bootstrap secrets, exports only the forwarding encryption key, and applies Prisma migrations. `legacy-api` then performs the PostgreSQL and Redis readiness checks required by business routes.
+`legacy-init` does not depend on Redis. Long-running services do not migrate schema or create administrators.
 
-Long-running services do not mutate schema during ordinary startup.
+## Administrator ownership
+
+`legacy-init` accepts one-shot `ADMIN_USERNAME`/`ADMIN_PASSWORD`, or generates a password when blank. Under PostgreSQL advisory transaction lock `(421337, 240730)` it:
+
+1. inspects existing administrators;
+2. creates a `SUPER_ADMIN` only when none exist;
+3. marks it `mustChangePassword=true`;
+4. persists the one-time credential separately;
+5. never changes an existing administrator password.
+
+Fastify receives no administrator credentials. Login always resolves a positive database administrator ID that still exists and is active. Removed paths:
+
+```text
+ensureBootstrapAdmin()
+login-time account creation
+environment password authentication
+adminId=0 virtual administrator
+ADMIN_2FA_SECRET
+legacyEnv
+DOMAIN_BOOTSTRAP_ADMIN_*
+```
+
+Administrator 2FA is database-managed.
+
+## Secret-file ownership
+
+Long-lived:
+
+```text
+/var/lib/all-mail/runtime-secrets.env
+  JWT_SECRET
+  ENCRYPTION_KEY
+```
+
+One-time:
+
+```text
+/var/lib/all-mail/bootstrap-admin.env
+  ADMIN_USERNAME
+  ADMIN_PASSWORD
+```
+
+Removed/migrated:
+
+```text
+/var/lib/all-mail/bootstrap-secrets.env
+```
+
+The old combined file is split atomically and removed. Historical custom usernames are recovered by comparing the preserved password with pending administrator hashes.
+
+After successful initial password rotation, Fastify removes `bootstrap-admin.env`. Rerunning the initializer does not recreate plaintext or a second administrator.
+
+The forwarding worker accepts only:
+
+```text
+ENCRYPTION_KEY_FILE=/var/lib/all-mail/encryption-key
+```
 
 ## Public gateway least privilege
 
-The Go gateway currently owns no native business route, so it does not receive `DATABASE_URL` or `REDIS_URL`.
+The Go gateway owns no native business route yet, so it receives no `DATABASE_URL` or `REDIS_URL`.
 
 Its `/readyz` checks:
 
 1. the built React `index.html`;
-2. the internal Fastify `/readyz` protocol and payload.
+2. Fastify `/readyz` protocol/payload.
 
-Fastify `/readyz` verifies PostgreSQL and Redis. This preserves end-to-end readiness while removing shared-state credentials from the public container.
-
-The removed `GO_API_MODE=static|bridge` switch is not a compatibility alias. The production gateway always serves the SPA and requires `LEGACY_API_URL` until the remaining business routes are ported.
+Fastify verifies PostgreSQL and Redis.
 
 ## Trusted proxy contract
 
-`TRUSTED_PROXY_CIDRS` lists only reverse-proxy/tunnel peers that connect directly to Go.
-
-The gateway:
-
-- ignores forwarded identity from untrusted socket peers;
-- accepts `CF-Connecting-IP`, `X-Real-IP`, or the first valid `X-Forwarded-For` only from a trusted peer;
-- strips all inbound forwarding headers;
-- writes one canonical client IP, protocol, and host to Fastify.
-
-Fastify trusts exactly one proxy hop. The internal Fastify service remains unpublished. A blanket CIDR or `trustProxy: true` is outside the supported security model.
+`TRUSTED_PROXY_CIDRS` lists only direct tunnel/reverse-proxy peers. Go rejects forwarded identity from untrusted peers, strips all inbound forwarding headers, and writes one canonical client IP/protocol/host. Fastify trusts exactly one internal Go hop and is not host-published.
 
 ## Dedicated workers
 
@@ -97,110 +146,67 @@ allmail worker forwarding
 allmail doctor worker forwarding
 ```
 
-Properties:
+Guarantees include advisory single ownership, `FOR UPDATE SKIP LOCKED`, claim tokens, expiring leases, fenced terminal updates, transactional MOVE visibility, stable provider idempotency, structured retry classification, and bounded passes.
 
-- one PostgreSQL advisory ownership lock;
-- `FOR UPDATE SKIP LOCKED` claims;
-- random claim token and expiring lease;
-- claim-token comparison on terminal updates;
-- MOVE hides the message in the same transaction that marks the job sent;
-- stable `mailbox-forward/{jobId}/{inboundMessageId}` idempotency key;
-- 408, 429, and 5xx provider responses retry; ordinary 4xx responses are permanent;
-- every pass is bounded by `FORWARDING_RUN_TIMEOUT_SECONDS`.
-
-The worker accepts only:
-
-```text
-ENCRYPTION_KEY_FILE=/var/lib/all-mail/encryption-key
-```
-
-Direct `ENCRYPTION_KEY`, `ALL_MAIL_SECRET_STATE_DIR`, and bootstrap-file parsing are removed.
-
-### API-log retention
+### Retention
 
 ```bash
 allmail worker retention
 allmail doctor worker retention
 ```
 
-The cleaner uses a `pgx` transaction, advisory transaction lock, bounded ordered deletion, and `FOR UPDATE SKIP LOCKED`.
+Uses `pgx`, an advisory transaction lock, bounded ordered deletion and `FOR UPDATE SKIP LOCKED`.
 
-### Heartbeat contract
-
-Each worker writes its own atomic file:
-
-```text
-worker-forwarding-heartbeat.json
-worker-retention-heartbeat.json
-```
-
-Doctors reject invalid identity, dead PIDs, stale/future timestamps, missing active-run start time, runs beyond their deadline, and a latest failed run after the last success.
-
-Canonical controls:
+Each worker writes an independent atomic heartbeat. Canonical controls:
 
 ```text
 WORKER_HEARTBEAT_SECONDS=15
 WORKER_HEARTBEAT_MAX_AGE_SECONDS=90
 ```
 
-The old `GO_JOBS_HEARTBEAT_*` aliases are hard-deleted.
-
 ## Migration guarantees
 
-The Go migration runner uses one direct `pgx` connection and transaction. It:
+The Go migration runner uses one direct `pgx` transaction. It:
 
-1. loads numbered SQL files in lexical order;
-2. rejects transaction control, psql meta-commands, and direct ledger writes;
+1. loads numbered files lexically;
+2. rejects transaction control, psql meta-commands and direct ledger writes;
 3. computes SHA-256 checksums;
-4. holds a PostgreSQL advisory transaction lock;
-5. validates `runtime_migrations`;
+4. holds an advisory transaction lock;
+5. validates/adopts the ledger;
 6. skips only exact checksum matches;
-7. rejects changed applied migrations;
-8. adopts checksum-less legacy rows only after SQL/schema validation;
-9. records checksums and commits atomically.
+7. rejects modified applied files;
+8. records checksums atomically.
 
-The Go image does not include `psql`. Never edit an applied numbered migration.
+The Go image contains no `psql`. Never edit an applied numbered migration.
 
 ## Production networking
 
-`docker-compose.yml` publishes only `app`. PostgreSQL and Redis remain private. Local development ports belong to `docker-compose.dev.yml`:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
-```
-
-This separation is part of the runtime contract, not documentation-only guidance.
+`docker-compose.yml` publishes only `app`. Local dependency ports belong to `docker-compose.dev.yml`.
 
 ## Validation evidence
 
-```bash
-cd core
-test -z "$(gofmt -l .)"
-go test -race ./...
-go vet ./...
-go build -trimpath ./cmd/allmail
-```
+Repository gates cover:
 
-```bash
-cp .env.example .env
-docker compose config --quiet
-docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
-docker compose up -d --build --wait --wait-timeout 240
-docker compose exec -T app allmail doctor api
-docker compose exec -T worker-forwarding allmail doctor worker forwarding
-docker compose exec -T worker-retention allmail doctor worker retention
-```
-
-CI also tests real PostgreSQL migrations and forwarding COPY, MOVE, retry, permanent failure, skip, lease reclamation, claim fencing, owner-lock behavior, proxy-header spoofing, and Compose credential/exposure boundaries.
+- Go format/race/vet/build;
+- Fastify lint/test/build;
+- web lint/test/build;
+- runtime contracts;
+- real PostgreSQL migrations and forwarding state machine;
+- proxy spoof rejection;
+- Compose credential/exposure boundaries;
+- real PostgreSQL administrator bootstrap;
+- full Docker first-login, forced password rotation, plaintext deletion, and initializer idempotency.
 
 ## Current ownership
 
-| Capability | Current owner |
+| Capability | Owner |
 | --- | --- |
-| Public gateway, SPA, request/proxy identity | Go `app` |
+| Public gateway/SPA/proxy identity | Go `app` |
 | Forwarding | `worker-forwarding` |
-| API-log retention | `worker-retention` |
-| Business API and authentication | Fastify/Prisma |
+| Retention | `worker-retention` |
+| Initial administrator creation | `legacy-init` one-shot |
+| Administrator login/2FA/session | Fastify/Prisma database-backed |
+| Other business APIs | Fastify/Prisma |
 | Business schema migrations | Prisma in `legacy-init` |
 | Additive runtime migrations | `go-migrate` |
 | Cloudflare Email Worker | TypeScript Worker |
@@ -211,22 +217,15 @@ Recommended order:
 
 1. read-only dashboard/status routes;
 2. external API-key allocation/read routes;
-3. ingress replay and delivery persistence;
-4. outbound delivery/attempt history;
+3. ingress persistence;
+4. outbound delivery history;
 5. provider synchronization;
-6. domain/mailbox write operations;
-7. portal and administrator authentication last.
+6. domain/mailbox writes;
+7. portal authentication;
+8. administrator authentication last.
 
-Every slice must move authorization, validation, transaction boundaries, parity tests, and failure injection together.
+Every slice must move authorization, validation, transactions, parity tests and failure injection together.
 
 ## Rollback
 
-Rollback is revision based:
-
-```bash
-docker compose down
-git switch <known-good-tag-or-commit>
-docker compose up -d --build --wait --wait-timeout 240
-```
-
-Use the target revision's environment contract. Never run worker binaries from two revisions against the same state machine concurrently.
+Rollback is revision based. Preserve PostgreSQL plus both new secret files and a pre-upgrade copy of any old combined file. Restore the layout expected by the target revision. Never run initializers or workers from two revisions concurrently.

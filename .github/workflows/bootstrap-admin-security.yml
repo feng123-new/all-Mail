@@ -1,0 +1,198 @@
+name: Bootstrap administrator security
+
+on:
+  pull_request:
+    branches: [main, master, agent/config-security-hard-delete]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  server-contract:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: allmail_bootstrap_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d allmail_bootstrap_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_bootstrap_ci?sslmode=disable
+      ALLMAIL_BOOTSTRAP_ADMIN_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_bootstrap_ci?sslmode=disable
+      NODE_ENV: test
+      JWT_SECRET: bootstrap-ci-jwt-secret-1234567890abcdef
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
+      REDIS_URL: redis://127.0.0.1:6380
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install Fastify dependencies
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix server ci
+      - name: Generate Prisma client and migrate test database
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix server run db:generate
+          ./scripts/sanitize-runtime-env.sh npm --prefix server run db:migrate
+      - name: Lint and build the API runtime
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix server run lint
+          ./scripts/sanitize-runtime-env.sh npm --prefix server run build
+      - name: Verify one-shot bootstrap against PostgreSQL
+        working-directory: server
+        run: ../scripts/sanitize-runtime-env.sh node --test --import tsx src/runtime/bootstrapAdmin.integration.test.ts
+      - name: Verify all server unit tests
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix server run test
+
+  web-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install, lint, test and build frontend
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+          ./scripts/sanitize-runtime-env.sh npm --prefix web run lint
+          ./scripts/sanitize-runtime-env.sh npm --prefix web run test
+          ./scripts/sanitize-runtime-env.sh npm --prefix web run build
+
+  runtime-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify secret split and environment ownership
+        run: ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs
+      - name: Reject removed administrator compatibility paths
+        shell: bash
+        run: |
+          if grep -R -nE \
+            --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.yml' --include='*.yaml' \
+            --exclude='*.test.ts' --exclude='*.test.tsx' --exclude='*.test.mjs' \
+            'DOMAIN_BOOTSTRAP_ADMIN_USERNAME|DOMAIN_BOOTSTRAP_ADMIN_PASSWORD|ADMIN_2FA_SECRET|legacyEnv|ensureBootstrapAdmin|createBootstrapAdmin|adminId === 0' \
+            server web scripts docker docker-compose.yml .env.example; then
+            echo 'removed administrator compatibility path remains in production code'
+            exit 1
+          fi
+
+  docker-bootstrap-flow:
+    runs-on: ubuntu-latest
+    needs: [server-contract, web-contract, runtime-contract]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare canonical environment
+        run: cp .env.example .env
+      - name: Start canonical stack
+        shell: bash
+        run: |
+          set +e
+          docker compose up -d --build --wait --wait-timeout 300 2>&1 | tee "$RUNNER_TEMP/bootstrap-docker-start.log"
+          status=${PIPESTATUS[0]}
+          docker compose ps -a --no-trunc > "$RUNNER_TEMP/bootstrap-docker-ps.txt" 2>&1 || true
+          docker compose logs --no-color --timestamps > "$RUNNER_TEMP/bootstrap-docker.log" 2>&1 || true
+          exit "$status"
+      - name: Upload bootstrap Docker diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-admin-docker-diagnostics
+          path: |
+            ${{ runner.temp }}/bootstrap-docker-start.log
+            ${{ runner.temp }}/bootstrap-docker-ps.txt
+            ${{ runner.temp }}/bootstrap-docker.log
+          if-no-files-found: warn
+      - name: Verify secret files and API environment isolation
+        shell: bash
+        run: |
+          docker compose exec -T legacy-api sh -lc '
+            test -r /var/lib/all-mail/runtime-secrets.env
+            test -r /var/lib/all-mail/bootstrap-admin.env
+            test ! -e /var/lib/all-mail/bootstrap-secrets.env
+            test -z "${ADMIN_USERNAME:-}"
+            test -z "${ADMIN_PASSWORD:-}"
+            test -z "${DOMAIN_BOOTSTRAP_ADMIN_USERNAME:-}"
+            test -z "${DOMAIN_BOOTSTRAP_ADMIN_PASSWORD:-}"
+            test -z "${ADMIN_2FA_SECRET:-}"
+            test -n "${BOOTSTRAP_ADMIN_SECRET_FILE:-}"
+          '
+          docker compose exec -T legacy-api sh -lc \
+            '! grep -Eq "^(ADMIN_USERNAME|ADMIN_PASSWORD)=" /var/lib/all-mail/runtime-secrets.env'
+          test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT count(*) FROM admins')" = "1"
+          test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT must_change_password FROM admins LIMIT 1')" = "t"
+      - name: Log in through Go and rotate the one-time password
+        shell: bash
+        run: |
+          username=$(docker compose exec -T legacy-api sh -lc \
+            "grep '^ADMIN_USERNAME=' /var/lib/all-mail/bootstrap-admin.env | cut -d= -f2-")
+          password=$(docker compose exec -T legacy-api sh -lc \
+            "grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-admin.env | cut -d= -f2-")
+          test -n "$username"
+          test -n "$password"
+
+          headers="$RUNNER_TEMP/login-headers.txt"
+          body="$RUNNER_TEMP/login-body.json"
+          curl --fail --silent --show-error \
+            -D "$headers" -o "$body" \
+            -H 'Content-Type: application/json' \
+            --data "$(python3 -c 'import json,sys; print(json.dumps({"username":sys.argv[1],"password":sys.argv[2]}))' "$username" "$password")" \
+            http://127.0.0.1:3002/admin/auth/login
+          python3 - "$body" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as handle:
+              payload = json.load(handle)
+          assert payload['success'] is True
+          assert payload['data']['admin']['mustChangePassword'] is True
+          PY
+          token=$(tr -d '\r' < "$headers" | sed -n 's/^[Ss]et-[Cc]ookie: token=\([^;]*\).*/\1/p' | head -n1)
+          test -n "$token"
+
+          rotated='Rotated-Password-123!'
+          rotate_body="$RUNNER_TEMP/rotate-body.json"
+          curl --fail --silent --show-error \
+            -o "$rotate_body" \
+            -H 'Content-Type: application/json' \
+            -H "Cookie: token=$token" \
+            --data "$(python3 -c 'import json,sys; print(json.dumps({"oldPassword":sys.argv[1],"newPassword":sys.argv[2]}))' "$password" "$rotated")" \
+            http://127.0.0.1:3002/admin/auth/change-password
+          python3 - "$rotate_body" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as handle:
+              payload = json.load(handle)
+          assert payload['success'] is True
+          PY
+          docker compose exec -T legacy-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
+          test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT must_change_password FROM admins LIMIT 1')" = "f"
+      - name: Re-run initializer without recreating credentials or administrators
+        shell: bash
+        run: |
+          docker compose run --rm legacy-init
+          test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT count(*) FROM admins')" = "1"
+          docker compose exec -T legacy-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
+          docker compose exec -T legacy-api sh -lc 'test -r /var/lib/all-mail/runtime-secrets.env'
+      - name: Check runtime doctors
+        run: |
+          docker compose exec -T app allmail doctor api
+          docker compose exec -T worker-forwarding allmail doctor worker forwarding
+          docker compose exec -T worker-retention allmail doctor worker retention
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

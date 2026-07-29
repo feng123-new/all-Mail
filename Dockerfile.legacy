@@ -1,6 +1,6 @@
 FROM node:20-bookworm-slim AS base
 RUN apt-get update -y \
-    && apt-get install -y --no-install-recommends openssl ca-certificates gosu \
+    && apt-get install -y --no-install-recommends openssl ca-certificates gosu util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS server-deps

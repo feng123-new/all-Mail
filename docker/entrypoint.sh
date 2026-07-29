@@ -65,8 +65,14 @@ prepare_runtime_state() {
 }
 
 prepare_runtime_state
+bootstrap_lock_file="$ALL_MAIL_STATE_DIR/.bootstrap-secrets.lock"
+run_as_allmail sh -c 'umask 077; : >> "$1"; chmod 600 "$1"' sh "$bootstrap_lock_file"
+bootstrap_exports=$(run_as_allmail flock -w 30 "$bootstrap_lock_file" "$sanitize_runtime_env" node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR" --format shell)
+eval "$bootstrap_exports"
 
-eval "$(run_as_allmail "$sanitize_runtime_env" node /app/scripts/bootstrap-secrets.mjs --state-dir "$ALL_MAIL_STATE_DIR" --format shell)"
+if [ -n "${ALL_MAIL_GENERATED_RUNTIME_SECRETS:-}" ]; then
+    printf '%s\n' "Generated runtime secrets in ${ALL_MAIL_RUNTIME_SECRETS_FILE}."
+fi
 
 if [ "$runtime_role" = "init" ] && [ -n "${ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE:-}" ] && [ -n "${ENCRYPTION_KEY:-}" ]; then
     export_directory=$(dirname "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE")
@@ -82,72 +88,6 @@ if [ "$runtime_role" = "init" ] && [ -n "${ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE:-
     fi
     chmod 600 "$temporary_key_file"
     mv -f "$temporary_key_file" "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"
-fi
-
-if [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
-    printf '%s\n' "Generated bootstrap secrets in ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE}"
-fi
-
-admin_password_source=""
-case ",${ALL_MAIL_GENERATED_SECRETS:-}," in
-    *,ADMIN_PASSWORD,*)
-        admin_password_source="generated"
-        ;;
-    *)
-        case ",${ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS:-}," in
-            *,ADMIN_PASSWORD,*)
-                admin_password_source="state-file"
-                ;;
-            *)
-                if [ -n "${ADMIN_PASSWORD:-}" ]; then
-                    admin_password_source="env"
-                fi
-                ;;
-        esac
-        ;;
-esac
-
-if [ "${ALL_MAIL_CREATED_STATE_FILE:-0}" = "1" ] || [ -n "${ALL_MAIL_GENERATED_SECRETS:-}" ]; then
-    printf '%s\n' "First login URL: ${ALL_MAIL_LOGIN_URL}"
-    case "${ALL_MAIL_LOGIN_URL}" in
-        http://127.0.0.1:*|http://localhost:*|https://127.0.0.1:*|https://localhost:*)
-            printf '%s\n' 'NOTE: 127.0.0.1/localhost only works on the same machine. Replace it with your cloud server public IP, domain, or the correct local address when accessing remotely.'
-            ;;
-    esac
-    printf '%s\n' "Bootstrap admin username: ${ADMIN_USERNAME:-admin}"
-    if [ -n "${ADMIN_PASSWORD:-}" ]; then
-        if is_true "${ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD:-false}"; then
-            case "$admin_password_source" in
-                generated)
-                    printf '%s\n' "Temporary admin password: ${ADMIN_PASSWORD}"
-                    ;;
-                *)
-                    printf '%s\n' "Bootstrap admin password: ${ADMIN_PASSWORD}"
-                    ;;
-            esac
-            printf '%s\n' 'WARNING: Startup logs may retain this password. Disable ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD after recovery.'
-            if [ "$admin_password_source" = "generated" ]; then
-                printf '%s\n' 'You must log in and change it immediately before using the rest of the application.'
-                printf '%s\n' 'After the password is changed, this temporary password will no longer be valid.'
-            fi
-        else
-            case "$admin_password_source" in
-                generated|state-file)
-                    printf '%s\n' "Bootstrap admin password is stored in ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE}."
-                    printf '%s\n' 'Retrieve it from the runtime state file instead of startup logs.'
-                    printf '%s\n' "Example: docker compose exec legacy-api sh -lc \"grep '^ADMIN_PASSWORD=' ${ALL_MAIL_BOOTSTRAP_SECRETS_FILE} | cut -d= -f2-\""
-                    if [ "$admin_password_source" = "generated" ]; then
-                        printf '%s\n' 'You must log in and change this temporary password immediately before using the rest of the application.'
-                    fi
-                    ;;
-                env)
-                    printf '%s\n' 'Bootstrap admin password is configured via the container environment and is not echoed to startup logs.'
-                    printf '%s\n' 'Review ADMIN_PASSWORD in the env source used for this runtime.'
-                    printf '%s\n' 'Set ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true only if you explicitly want startup password output.'
-                    ;;
-            esac
-        fi
-    fi
 fi
 
 run_legacy_migrations() {
@@ -182,7 +122,8 @@ run_legacy_migrations() {
 
 if [ "$runtime_role" = "init" ]; then
     run_legacy_migrations
-    printf '%s\n' 'Legacy bootstrap and Prisma migrations completed.'
+    run_as_allmail "$sanitize_runtime_env" node dist/runtime/bootstrapAdmin.js
+    printf '%s\n' 'Runtime secrets, Prisma migrations, and administrator bootstrap completed.'
     exit 0
 fi
 

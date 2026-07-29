@@ -2,36 +2,11 @@
 
 ## Boundary
 
-Production uses `docker-compose.yml` by itself. This guide covers only local development surfaces:
+Production uses `docker-compose.yml`. This guide covers local Fastify/React/Go development with PostgreSQL and Redis published by `docker-compose.dev.yml`.
 
-- the Fastify compatibility business API;
-- the Vite React frontend;
-- PostgreSQL and Redis published through `docker-compose.dev.yml`;
-- repository verification commands.
+There is no Node production jobs runtime, Node SPA server, environment administrator, or source command that reproduces the full production topology.
 
-There is no Node production jobs runtime, Node SPA server, or source command that reproduces the full production topology. Use [`DEPLOY.md`](./DEPLOY.md) for production.
-
-## Appropriate uses
-
-- develop or debug Fastify business routes;
-- iterate on OAuth/provider behavior;
-- develop the React UI against a local API;
-- inspect PostgreSQL data in a controlled environment;
-- run lint, tests and builds before review.
-
-API-only development success is not proof that the Go gateway, forwarding worker, retention worker, proxy trust boundary, or one-shot migration chain is healthy.
-
-## Prerequisites
-
-| Dependency | Required | Notes |
-| --- | --- | --- |
-| Node.js 20+ | Yes | Fastify and React development |
-| Docker Compose | Recommended | Local PostgreSQL/Redis overlay |
-| Go 1.23+ | Yes for Go work | Gateway, workers and migration tests |
-
-## Start PostgreSQL and Redis
-
-Production keeps these services private. Local development publishes them explicitly:
+## Start dependencies
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
@@ -44,24 +19,11 @@ PostgreSQL 127.0.0.1:15433
 Redis      127.0.0.1:6380
 ```
 
-Stop without deleting data:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml stop postgres redis
-```
-
-Equivalent helpers:
+Equivalent:
 
 ```bash
 ./bin/all-mail deps up
 ./bin/all-mail deps down
-```
-
-Override local host ports only with:
-
-```env
-DEV_POSTGRES_PORT=15433
-DEV_REDIS_PORT=6380
 ```
 
 ## Fastify business-API development
@@ -69,24 +31,63 @@ DEV_REDIS_PORT=6380
 ```bash
 cp server/.env.example server/.env
 npm --prefix server install
-npm run dev:api
-```
-
-The default API port is `3000`. This process:
-
-- serves JSON business routes only;
-- does not serve the React SPA;
-- does not run forwarding or retention;
-- does not run the canonical `legacy-init -> go-migrate` production sequence;
-- receives traffic directly, so local tests should not assume the production one-hop Go proxy unless the Go gateway is also running.
-
-Apply Prisma migrations intentionally when required:
-
-```bash
 npm --prefix server run db:migrate
 ```
 
-P3005 and P3009 remain recovery events. The production repair switch belongs to an explicit Docker `legacy-init` invocation, not a standing local configuration.
+A fresh database needs one explicit one-shot administrator bootstrap:
+
+```bash
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD=change-me-now \
+BOOTSTRAP_ADMIN_SECRET_FILE=.all-mail-runtime/bootstrap-admin.env \
+npm --prefix server run bootstrap:admin
+```
+
+Then start the API:
+
+```bash
+npm run dev:api
+```
+
+The long-running API:
+
+- serves JSON business routes only;
+- does not serve React;
+- does not run workers or migrations;
+- does not create administrators;
+- does not receive administrator credentials;
+- authenticates database administrators only;
+- may remove `BOOTSTRAP_ADMIN_SECRET_FILE` after successful initial rotation.
+
+Do not add `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `DOMAIN_BOOTSTRAP_ADMIN_*`, or `ADMIN_2FA_SECRET` to `server/.env`.
+
+## Bootstrap development scenarios
+
+### Generated password
+
+```bash
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD= \
+BOOTSTRAP_ADMIN_SECRET_FILE=.all-mail-runtime/bootstrap-admin.env \
+npm --prefix server run bootstrap:admin
+```
+
+Read the protected file, log in, and change the password. A successful first rotation removes it.
+
+### Idempotency
+
+Running the command again when an administrator exists must not create a second row or modify the existing hash.
+
+### Old combined-file migration
+
+Docker `legacy-init` automatically migrates `bootstrap-secrets.env`. For local testing, run `scripts/bootstrap-secrets.mjs` against an isolated state directory before `bootstrap:admin` and verify:
+
+```text
+runtime-secrets.env
+bootstrap-admin.env
+```
+
+exist and the old combined file is gone.
 
 ## React development
 
@@ -95,7 +96,7 @@ npm --prefix web install
 npm run dev:web
 ```
 
-Configure `web/.env` from `web/.env.example` so the Vite proxy targets the local Fastify API or the public Go gateway being tested.
+Configure `web/.env` so Vite targets local Fastify or the Go gateway under test.
 
 ## Go development
 
@@ -107,7 +108,7 @@ go vet ./...
 go build -trimpath ./cmd/allmail
 ```
 
-Run a component only when its owned dependencies are configured:
+Components:
 
 ```bash
 allmail api
@@ -116,9 +117,7 @@ allmail worker retention
 allmail migrate
 ```
 
-The forwarding command requires `ENCRYPTION_KEY_FILE`; direct `ENCRYPTION_KEY` and legacy bootstrap-file fallback are intentionally unsupported.
-
-For proxy tests, set `TRUSTED_PROXY_CIDRS` only when a known reverse proxy connects directly to the listener. Direct local access should normally leave it empty.
+Forwarding requires `ENCRYPTION_KEY_FILE`. Direct key environment and legacy bootstrap-bundle fallback are unsupported.
 
 ## Repository CLI
 
@@ -132,7 +131,7 @@ all-mail check
 all-mail setup
 ```
 
-The CLI intentionally has no `start`, `up`, `deploy`, or jobs-rollback command. This prevents a second production topology from drifting beside Docker Compose.
+There is intentionally no source production `start`, `up`, `deploy`, or rollback worker command.
 
 ## Verification
 
@@ -151,11 +150,13 @@ Production-equivalent smoke:
 cp .env.example .env
 docker compose config --quiet
 docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
-docker compose up -d --build --wait --wait-timeout 240
+docker compose up -d --build --wait --wait-timeout 300
+docker compose exec -T legacy-api sh -lc \
+  'test -z "${ADMIN_USERNAME:-}" && test -z "${ADMIN_PASSWORD:-}"'
 docker compose exec -T app allmail doctor api
 docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 docker compose down
 ```
 
-CI remains authoritative because it also exercises real PostgreSQL forwarding transitions, migrations, proxy-header rejection, and the complete Docker startup chain.
+CI additionally exercises real PostgreSQL bootstrap idempotency and the full Docker login/password-rotation/plaintext-deletion flow.

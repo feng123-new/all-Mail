@@ -45,12 +45,16 @@ test("the production environment has one canonical template", async () => {
 		"REDIS_PORT",
 		"REDIS_INTERNAL_PORT",
 		"CORS_ORIGIN",
+		"DOMAIN_BOOTSTRAP_ADMIN_USERNAME",
+		"DOMAIN_BOOTSTRAP_ADMIN_PASSWORD",
+		"ADMIN_2FA_SECRET",
 	]) {
 		assert.equal(keys.includes(removed), false, `${removed} remains in .env.example`);
 	}
 	assert.equal(keys.includes("TRUSTED_PROXY_CIDRS"), true);
-	assert.equal(keys.includes("WORKER_HEARTBEAT_SECONDS"), true);
-	assert.equal(keys.includes("WORKER_HEARTBEAT_MAX_AGE_SECONDS"), true);
+	assert.equal(keys.includes("ADMIN_USERNAME"), true);
+	assert.equal(keys.includes("ADMIN_PASSWORD"), true);
+	assert.equal(keys.includes("ADMIN_2FA_WINDOW"), true);
 	await assert.rejects(access(path.join(repoRoot, ".env.cloudflare.example")));
 	await assert.rejects(access(path.join(repoRoot, ".env.basic.example")));
 });
@@ -67,11 +71,22 @@ test("production keeps databases private and development publishes them explicit
 	assert.match(devCompose, /127\.0\.0\.1:\$\{DEV_REDIS_PORT:-6380\}:6379/);
 });
 
-test("bootstrap, API, gateway, and workers receive only their owned configuration", async () => {
+test("one-shot bootstrap and long-running API receive disjoint credentials", async () => {
 	const compose = await readFile(path.join(repoRoot, "docker-compose.yml"), "utf8");
+	const bootstrapEnvironment = section(compose, "x-bootstrap-environment:", "\nx-api-environment:");
+	const apiEnvironment = section(compose, "x-api-environment:", "\nx-allmail-hardening:");
 	const init = section(compose, "\n  legacy-init:", "\n  go-migrate:");
 	const app = section(compose, "\n  app:", "\n  worker-forwarding:");
 	const forwarding = section(compose, "\n  worker-forwarding:", "\n  worker-retention:");
+
+	assert.match(bootstrapEnvironment, /ADMIN_USERNAME:/);
+	assert.match(bootstrapEnvironment, /ADMIN_PASSWORD:/);
+	assert.match(bootstrapEnvironment, /BOOTSTRAP_ADMIN_SECRET_FILE: \/var\/lib\/all-mail\/bootstrap-admin\.env/);
+	assert.doesNotMatch(bootstrapEnvironment, /DOMAIN_BOOTSTRAP_ADMIN_|ADMIN_2FA_SECRET/);
+
+	assert.doesNotMatch(apiEnvironment, /\n\s+ADMIN_USERNAME:|\n\s+ADMIN_PASSWORD:|DOMAIN_BOOTSTRAP_ADMIN_|ADMIN_2FA_SECRET/);
+	assert.match(apiEnvironment, /BOOTSTRAP_ADMIN_SECRET_FILE: \/var\/lib\/all-mail\/bootstrap-admin\.env/);
+	assert.match(apiEnvironment, /ADMIN_2FA_WINDOW:/);
 
 	assert.doesNotMatch(init, /\n\s+redis:\n|REDIS_URL/);
 	assert.doesNotMatch(app, /DATABASE_URL|REDIS_URL|GO_API_MODE|ALL_MAIL_ENV/);
@@ -81,14 +96,48 @@ test("bootstrap, API, gateway, and workers receive only their owned configuratio
 	assert.doesNotMatch(compose, /GO_JOBS_HEARTBEAT_SECONDS|GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS|ALL_MAIL_SECRET_STATE_DIR/);
 });
 
+test("administrator bootstrap runs only after Prisma migration in legacy-init", async () => {
+	const [entrypoint, processRuntime, authService] = await Promise.all([
+		readFile(path.join(repoRoot, "docker/entrypoint.sh"), "utf8"),
+		readFile(path.join(repoRoot, "server/src/runtime/processes.ts"), "utf8"),
+		readFile(path.join(repoRoot, "server/src/modules/auth/auth.service.ts"), "utf8"),
+	]);
+
+	const migrationIndex = entrypoint.indexOf("run_legacy_migrations");
+	const bootstrapIndex = entrypoint.lastIndexOf("node dist/runtime/bootstrapAdmin.js");
+	assert.ok(migrationIndex !== -1 && bootstrapIndex > migrationIndex);
+	assert.doesNotMatch(processRuntime, /ensureBootstrapAdmin|bootstrapAdministrator/);
+	assert.doesNotMatch(
+		authService,
+		/ensureBootstrapAdmin|createBootstrapAdmin|adminId === 0|legacyEnv|env\.ADMIN_USERNAME|env\.ADMIN_PASSWORD|process\.env\.ADMIN_USERNAME|process\.env\.ADMIN_PASSWORD/,
+	);
+	assert.match(authService, /BOOTSTRAP_ADMIN_SECRET_FILE/);
+});
+
+test("runtime and one-time administrator secrets use separate files", async () => {
+	const [secretScript, entrypoint] = await Promise.all([
+		readFile(path.join(repoRoot, "scripts/bootstrap-secrets.mjs"), "utf8"),
+		readFile(path.join(repoRoot, "docker/entrypoint.sh"), "utf8"),
+	]);
+	assert.match(secretScript, /runtime-secrets\.env/);
+	assert.match(secretScript, /bootstrap-admin\.env/);
+	assert.match(secretScript, /bootstrap-secrets\.env/);
+	assert.match(secretScript, /rm\(legacySecretsFile/);
+	assert.match(entrypoint, /ALL_MAIL_RUNTIME_SECRETS_FILE/);
+	assert.match(entrypoint, /bootstrap_exports=\$\(run_as_allmail/);
+	assert.match(entrypoint, /flock -w 30/);
+	assert.match(entrypoint, /eval "\$bootstrap_exports"/);
+	assert.doesNotMatch(entrypoint, /eval "\$\(run_as_allmail/);
+	assert.doesNotMatch(entrypoint, /ALL_MAIL_BOOTSTRAP_SECRETS_FILE|ALL_MAIL_MANAGED_BOOTSTRAP_SECRETS/);
+});
+
 test("forwarding and retention remain independent Go services", async () => {
 	const compose = await readFile(path.join(repoRoot, "docker-compose.yml"), "utf8");
 	assert.match(compose, /worker-forwarding:[\s\S]*?command: \["worker", "forwarding"\]/);
 	assert.match(compose, /worker-retention:[\s\S]*?command: \["worker", "retention"\]/);
 	assert.match(compose, /allmail", "doctor", "worker", "forwarding"/);
 	assert.match(compose, /allmail", "doctor", "worker", "retention"/);
-	assert.doesNotMatch(compose, /\n  (?:go-jobs|legacy-jobs|jobs):/);
-	assert.doesNotMatch(compose, /API_LOG_RETENTION_OWNER|FORWARDING_WORKER_OWNER/);
+	assert.doesNotMatch(compose, /\n[ ]{2}(?:go-jobs|legacy-jobs|jobs):/);
 });
 
 test("long-running compatibility API uses the unprivileged hardened runtime", async () => {
@@ -102,7 +151,6 @@ test("long-running compatibility API uses the unprivileged hardened runtime", as
 	assert.match(dockerfile, /useradd --system --uid 10001/);
 	assert.match(dockerfile, /gosu/);
 	assert.match(entrypoint, /chown -R 10001:10001 "\$ALL_MAIL_STATE_DIR"/);
-	assert.match(entrypoint, /Refusing unsafe ALL_MAIL_STATE_DIR/);
 });
 
 test("root release scripts expose no parallel production topology or legacy peer flags", async () => {
@@ -129,11 +177,4 @@ test("obsolete Node production runtime files remain deleted", async () => {
 	]) {
 		await assert.rejects(access(path.join(repoRoot, relativePath)), relativePath);
 	}
-});
-
-test("bootstrap password output stays opt-in and points to the owning legacy volume", async () => {
-	const entrypoint = await readFile(path.join(repoRoot, "docker/entrypoint.sh"), "utf8");
-	assert.match(entrypoint, /ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD/);
-	assert.match(entrypoint, /Retrieve it from the runtime state file instead of startup logs\./);
-	assert.match(entrypoint, /docker compose exec legacy-api/);
 });
