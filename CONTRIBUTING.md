@@ -4,98 +4,112 @@ Thanks for contributing to `all-Mail`.
 
 ## Scope
 
-This repository is the primary home of the `all-Mail` project.
-
-Please keep contributions aligned with the current product scope:
-
-- external mailbox provider management
-- domain mailbox operations
-- mailbox portal flows
-- ingress / sending / operational tooling
-- deployment and operator documentation
+Keep contributions aligned with external mailbox providers, domain mailboxes, portal flows, signed ingress, outbound sending, automation APIs, and operator tooling.
 
 ## Before opening a pull request
 
-1. Read `README.md` for project positioning and the canonical doc map.
-2. Read `docs/DEPLOY.md`, `docs/ENVIRONMENT.md`, and `docs/RUNBOOK.md` if your change affects setup, runtime behavior, or operator workflows.
-3. Read `PROVENANCE.md` only if your change touches repository-identity or release-governance wording.
-4. Prefer `all-Mail` terminology in product-facing text, docs, and helper scripts.
-5. Do not reintroduce historical upstream branding into the main README or current operator flows.
-6. Follow `CODE_OF_CONDUCT.md` in all project interactions.
+1. Read `README.md` and the canonical doc map.
+2. Read `docs/DEPLOY.md`, `docs/ENVIRONMENT.md`, and `docs/RUNBOOK.md` for runtime changes.
+3. Read `docs/GO-MIGRATION.md` before moving route, migration, or worker ownership.
+4. Prefer `all-Mail` terminology and do not reintroduce historical branding.
+5. Follow `CODE_OF_CONDUCT.md`.
 
-## Canonical local contributor flow
+## Canonical local flow
 
-### 1. Install dependencies
+Install:
 
 ```bash
 npm run install:all
-npm --prefix cloudflare/workers/allmail-edge ci
 ```
 
-### 2. Choose a runtime path
+Local PostgreSQL/Redis dependencies are explicit, because production keeps them private:
 
-- **Default**: follow `docs/DEPLOY.md` and use Docker Compose.
-- **Secondary**: use `docs/advanced-runtime.md` only when you intentionally need the compiled source-runtime path.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
+# or
+./bin/all-mail deps up
+```
 
-### 3. Build what the repo ships
+Build:
 
 ```bash
 ./bin/all-mail build
 ```
 
-This runs the repo-root build contract:
-
-- `build:server` → Prisma client generation + backend build
-- `build:web` → frontend build + `public/` preparation
-
-### 4. Verify before review
-
-Use repo-root verification commands as the default contributor contract:
+Verify:
 
 ```bash
 ./bin/all-mail doctor
 ./bin/all-mail check
 ```
 
-Notes:
+Go-specific changes must also pass:
 
-- `./bin/all-mail doctor` is the readiness check (env resolution, PostgreSQL, Redis, build artifacts).
-- `./bin/all-mail check` is the full local release gate (`lint + test + build:server + build:web + worker check + production dependency audits`).
-- If your shell exports `NODE_USE_ENV_PROXY` or `HTTP[S]_PROXY`, prefer the `./bin/all-mail ...` entrypoints because they sanitize those startup flags before Node/npm bootstraps.
-- If `./bin/all-mail doctor` cannot pass because your environment intentionally lacks running services, say that explicitly in your PR and still run the strongest truthful local gate available.
+```bash
+cd core
+test -z "$(gofmt -l .)"
+go test -race ./...
+go vet ./...
+go build -trimpath ./cmd/allmail
+```
+
+Runtime/security changes should validate both Compose models:
+
+```bash
+cp .env.example .env
+docker compose config --quiet
+docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+```
+
+## Configuration ownership rules
+
+- `.env.example` is the single production backend template.
+- Do not add a copied provider-specific backend template.
+- Internal file paths and container ports belong in Compose, not the operator template.
+- Do not add hidden aliases or silently ignore malformed canonical values.
+- Public `app` must not receive database/Redis credentials until a native Go business route requires them.
+- Forwarding receives `ENCRYPTION_KEY_FILE`, not the raw key environment variable.
+- PostgreSQL, Redis, and `legacy-api` remain unpublished in production.
+- Proxy trust must be an explicit direct-peer CIDR, never blanket trust.
+
+Changes that add, rename, or remove a variable must update:
+
+```text
+.env.example
+docker-compose.yml
+scripts/env-contract.test.mjs
+docs/ENVIRONMENT.md
+relevant service loader/tests
+```
 
 ## Pull request expectations
 
-- Keep changes scoped.
-- Explain why the change is needed.
-- Include verification evidence.
-- Acknowledge docs updates when setup, commands, or behavior changed.
-- Add rollback and migration notes when deploy/runtime behavior is affected.
-- Avoid mixing refactors, feature work, and operational cleanups in one PR when possible.
+- Keep one ownership boundary per PR where possible.
+- Explain old and new owners, data written, concurrency guard, and rollback.
+- Include tests and truthful verification evidence.
+- Update setup/operator docs when behavior changes.
+- Do not weaken race, migration, Docker, dependency, or proxy-security gates to make a PR green.
+- For stacked PRs, state the base branch and merge order explicitly.
 
-## Branding and repository identity rules
-
-- Use `all-Mail` as the primary project name.
-- Use `all-Mail Cloud` only when referring to the Cloudflare-oriented edge branch or deployment shape.
-- Use `allmail-edge` only for the worker/runtime identifier.
-- Keep repository-identity notes in `PROVENANCE.md` rather than scattering historical context through core docs.
-
-## Secrets and local runtime files
+## Secrets and local files
 
 Do not commit:
 
-- `.env` files with real secrets
-- OAuth runtime outputs
-- local screenshots and one-off migration artifacts
-- generated build output unless a release workflow explicitly requires it
+- real `.env` files or secrets;
+- OAuth runtime outputs;
+- tunnel tokens;
+- local screenshots with live data;
+- generated build output unless a release workflow requires it;
+- database dumps or runtime volumes.
 
 ## Review checklist
 
 Before requesting review, confirm:
 
-- `./bin/all-mail check` passed, or you documented the strongest truthful substitute
-- setup/behavior docs were updated if needed
-- rollback impact is described for release-affecting changes
-- migration impact is described for schema/deploy-flow changes
-
-Also make sure the repo still reads like a standalone `all-Mail` project, not a personal mixed workspace snapshot.
+- `./bin/all-mail check` passed, or the strongest truthful substitute is documented;
+- Go format/race/vet/build passed when Go changed;
+- production and development Compose models validate;
+- proxy/client-IP changes include spoofing tests;
+- setup/behavior docs were updated;
+- rollback and migration impact are described;
+- the repository still reads like a coherent standalone project.
