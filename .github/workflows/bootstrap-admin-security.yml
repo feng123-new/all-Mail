@@ -39,8 +39,8 @@ jobs:
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
       REDIS_URL: redis://127.0.0.1:6380
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -64,8 +64,8 @@ jobs:
   web-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -80,8 +80,8 @@ jobs:
   runtime-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
       - name: Verify secret split and environment ownership
@@ -104,7 +104,7 @@ jobs:
     env:
       POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Prepare canonical environment
         run: cp .env.example .env
       - name: Start canonical stack
@@ -118,7 +118,7 @@ jobs:
           exit "$status"
       - name: Upload bootstrap Docker diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bootstrap-admin-docker-diagnostics
           path: |
