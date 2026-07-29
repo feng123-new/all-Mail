@@ -1,0 +1,84 @@
+name: Configuration and proxy security
+
+on:
+  pull_request:
+    branches: [main, master, agent/config-security-hard-delete]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  environment-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify runtime and environment contracts
+        run: ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs
+
+  go-gateway-security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+      - name: Verify canonical config and proxy identity
+        run: go test -race ./internal/config ./internal/readiness ./internal/httpapi
+      - name: Reject removed configuration aliases
+        shell: bash
+        run: |
+          if grep -R -nE 'GO_JOBS_HEARTBEAT_SECONDS|GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS|ALL_MAIL_SECRET_STATE_DIR|ALL_MAIL_PUBLIC_BASE_URL|GO_API_MODE' .; then
+            echo 'removed Go configuration alias remains'
+            exit 1
+          fi
+
+  compose-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare production environment
+        run: cp .env.example .env
+      - name: Validate production and development Compose models
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+      - name: Inspect ownership and exposure model
+        shell: bash
+        run: |
+          docker compose config --format json > "$RUNNER_TEMP/compose.json"
+          python3 - "$RUNNER_TEMP/compose.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding='utf-8') as handle:
+              model = json.load(handle)
+          services = model['services']
+
+          app_env = services['app'].get('environment', {})
+          for forbidden in ('DATABASE_URL', 'REDIS_URL', 'GO_API_MODE', 'ALL_MAIL_ENV'):
+              assert forbidden not in app_env, f'app still receives {forbidden}'
+
+          forwarding_env = services['worker-forwarding'].get('environment', {})
+          assert forwarding_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail/encryption-key'
+          assert 'ENCRYPTION_KEY' not in forwarding_env
+
+          init_deps = services['legacy-init'].get('depends_on', {})
+          assert 'redis' not in init_deps, 'legacy-init still waits for Redis'
+
+          for name, target in (('postgres', 5432), ('redis', 6379)):
+              assert not services[name].get('ports'), f'{name} is published by production Compose'
+
+          assert services['app'].get('ports'), 'public Go app has no published port'
+          PY
