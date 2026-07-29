@@ -19,21 +19,6 @@
   "bin": {
     "all-mail": "bin/all-mail"
   },
-  "files": [
-    "bin",
-    "scripts",
-    "server",
-    "web",
-    "core",
-    "cloudflare/workers/allmail-edge",
-    "docker-compose.yml",
-    "Dockerfile",
-    "Dockerfile.legacy",
-    "README.md",
-    ".env.example",
-    ".env.cloudflare.example",
-    "server/.env.example"
-  ],
   "engines": {
     "node": ">=20.0.0"
   },
@@ -45,9 +30,9 @@
     "docker:deps:up": "node bin/all-mail.mjs deps up",
     "docker:deps:down": "node bin/all-mail.mjs deps down",
     "install:server": "./scripts/sanitize-runtime-env.sh npm --prefix server install",
-    "install:web": "./scripts/sanitize-runtime-env.sh npm --prefix web install --legacy-peer-deps",
+    "install:web": "./scripts/sanitize-runtime-env.sh npm --prefix web install",
     "install:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install",
-    "install:all": "./scripts/sanitize-runtime-env.sh npm --prefix server install && ./scripts/sanitize-runtime-env.sh npm --prefix web install --legacy-peer-deps && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install",
+    "install:all": "./scripts/sanitize-runtime-env.sh npm --prefix server install && ./scripts/sanitize-runtime-env.sh npm --prefix web install && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install",
     "build:server": "./scripts/sanitize-runtime-env.sh npm --prefix server run db:generate && ./scripts/sanitize-runtime-env.sh npm --prefix server run build",
     "build:web": "./scripts/sanitize-runtime-env.sh npm --prefix web run build",
     "build:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run build",

@@ -3,35 +3,24 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
-type APIMode string
-
-const (
-	APIModeBridge APIMode = "bridge"
-	APIModeStatic APIMode = "static"
-)
-
 type APIConfig struct {
-	Environment     string
-	Mode            APIMode
-	Port            int
-	StaticDir       string
-	LegacyAPIURL    string
-	DatabaseURL     string
-	RedisURL        string
-	ReadyTimeout    time.Duration
-	ShutdownTimeout time.Duration
+	Port              int
+	StaticDir         string
+	LegacyAPIURL      string
+	TrustedProxyCIDRs []netip.Prefix
+	ReadyTimeout      time.Duration
+	ShutdownTimeout   time.Duration
 }
 
 type ForwardingConfig struct {
-	Environment       string
 	StateDir          string
 	DatabaseURL       string
 	EncryptionKey     string
@@ -46,7 +35,6 @@ type ForwardingConfig struct {
 }
 
 type RetentionConfig struct {
-	Environment       string
 	StateDir          string
 	DatabaseURL       string
 	RetentionDays     int
@@ -77,16 +65,17 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	trustedProxyCIDRs, err := parseTrustedProxyCIDRs(os.Getenv("TRUSTED_PROXY_CIDRS"))
+	if err != nil {
+		return APIConfig{}, err
+	}
 	cfg := APIConfig{
-		Environment:     env("ALL_MAIL_ENV", env("NODE_ENV", "development")),
-		Mode:            APIMode(strings.ToLower(env("GO_API_MODE", string(APIModeBridge)))),
-		Port:            port,
-		StaticDir:       env("ALL_MAIL_STATIC_DIR", "/app/public"),
-		LegacyAPIURL:    strings.TrimSpace(os.Getenv("LEGACY_API_URL")),
-		DatabaseURL:     strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		RedisURL:        strings.TrimSpace(os.Getenv("REDIS_URL")),
-		ReadyTimeout:    time.Duration(readySeconds) * time.Second,
-		ShutdownTimeout: time.Duration(shutdownSeconds) * time.Second,
+		Port:              port,
+		StaticDir:         env("ALL_MAIL_STATIC_DIR", "/app/public"),
+		LegacyAPIURL:      strings.TrimSpace(os.Getenv("LEGACY_API_URL")),
+		TrustedProxyCIDRs: trustedProxyCIDRs,
+		ReadyTimeout:      time.Duration(readySeconds) * time.Second,
+		ShutdownTimeout:   time.Duration(shutdownSeconds) * time.Second,
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return APIConfig{}, errors.New("PORT must be between 1 and 65535")
@@ -94,36 +83,14 @@ func LoadAPI() (APIConfig, error) {
 	if cfg.ReadyTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
 		return APIConfig{}, errors.New("API runtime timeouts must be positive")
 	}
+	if strings.TrimSpace(cfg.StaticDir) == "" {
+		return APIConfig{}, errors.New("ALL_MAIL_STATIC_DIR is required")
+	}
+	if cfg.LegacyAPIURL == "" {
+		return APIConfig{}, errors.New("LEGACY_API_URL is required until all business routes are migrated")
+	}
 	if err := validateAbsoluteURL("LEGACY_API_URL", cfg.LegacyAPIURL, "http", "https"); err != nil {
 		return APIConfig{}, err
-	}
-	if err := validateAbsoluteURL("DATABASE_URL", cfg.DatabaseURL, "postgres", "postgresql"); err != nil {
-		return APIConfig{}, err
-	}
-	if err := validateAbsoluteURL("REDIS_URL", cfg.RedisURL, "redis", "rediss"); err != nil {
-		return APIConfig{}, err
-	}
-	switch cfg.Mode {
-	case APIModeBridge:
-		missing := make([]string, 0, 3)
-		if cfg.LegacyAPIURL == "" {
-			missing = append(missing, "LEGACY_API_URL")
-		}
-		if cfg.DatabaseURL == "" {
-			missing = append(missing, "DATABASE_URL")
-		}
-		if cfg.RedisURL == "" {
-			missing = append(missing, "REDIS_URL")
-		}
-		if len(missing) > 0 {
-			return APIConfig{}, fmt.Errorf("GO_API_MODE=bridge requires %s", strings.Join(missing, ", "))
-		}
-	case APIModeStatic:
-		if strings.TrimSpace(cfg.StaticDir) == "" {
-			return APIConfig{}, errors.New("GO_API_MODE=static requires ALL_MAIL_STATIC_DIR")
-		}
-	default:
-		return APIConfig{}, fmt.Errorf("unsupported GO_API_MODE %q; use bridge or static", cfg.Mode)
 	}
 	return cfg, nil
 }
@@ -141,11 +108,11 @@ func LoadForwarding() (ForwardingConfig, error) {
 	if err != nil {
 		return ForwardingConfig{}, err
 	}
-	heartbeatSeconds, err := envInt("WORKER_HEARTBEAT_SECONDS", envIntFallback("GO_JOBS_HEARTBEAT_SECONDS", 15))
+	heartbeatSeconds, err := envInt("WORKER_HEARTBEAT_SECONDS", 15)
 	if err != nil {
 		return ForwardingConfig{}, err
 	}
-	heartbeatMaxAgeSeconds, err := envInt("WORKER_HEARTBEAT_MAX_AGE_SECONDS", envIntFallback("GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS", 90))
+	heartbeatMaxAgeSeconds, err := envInt("WORKER_HEARTBEAT_MAX_AGE_SECONDS", 90)
 	if err != nil {
 		return ForwardingConfig{}, err
 	}
@@ -157,14 +124,13 @@ func LoadForwarding() (ForwardingConfig, error) {
 	if err != nil {
 		return ForwardingConfig{}, err
 	}
-	stateDir := env("ALL_MAIL_STATE_DIR", "/var/lib/all-mail")
-	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
-	secretStateDir := env("ALL_MAIL_SECRET_STATE_DIR", stateDir)
-	encryptionKey := loadEncryptionKey(secretStateDir)
+	encryptionKey, err := loadEncryptionKeyFile()
+	if err != nil {
+		return ForwardingConfig{}, err
+	}
 	cfg := ForwardingConfig{
-		Environment:       env("ALL_MAIL_ENV", env("NODE_ENV", "development")),
-		StateDir:          stateDir,
-		DatabaseURL:       databaseURL,
+		StateDir:          env("ALL_MAIL_STATE_DIR", "/var/lib/all-mail"),
+		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		EncryptionKey:     encryptionKey,
 		Interval:          time.Duration(intervalSeconds) * time.Second,
 		RunTimeout:        time.Duration(runTimeoutSeconds) * time.Second,
@@ -180,9 +146,6 @@ func LoadForwarding() (ForwardingConfig, error) {
 	}
 	if cfg.DatabaseURL == "" {
 		return ForwardingConfig{}, errors.New("DATABASE_URL is required for forwarding")
-	}
-	if cfg.EncryptionKey == "" {
-		return ForwardingConfig{}, errors.New("ENCRYPTION_KEY or ENCRYPTION_KEY_FILE is required for forwarding")
 	}
 	if cfg.Interval <= 0 || cfg.RunTimeout <= 0 {
 		return ForwardingConfig{}, errors.New("forwarding intervals and timeouts must be positive")
@@ -223,11 +186,11 @@ func LoadRetention() (RetentionConfig, error) {
 	if err != nil {
 		return RetentionConfig{}, err
 	}
-	heartbeatSeconds, err := envInt("WORKER_HEARTBEAT_SECONDS", envIntFallback("GO_JOBS_HEARTBEAT_SECONDS", 15))
+	heartbeatSeconds, err := envInt("WORKER_HEARTBEAT_SECONDS", 15)
 	if err != nil {
 		return RetentionConfig{}, err
 	}
-	heartbeatMaxAgeSeconds, err := envInt("WORKER_HEARTBEAT_MAX_AGE_SECONDS", envIntFallback("GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS", 90))
+	heartbeatMaxAgeSeconds, err := envInt("WORKER_HEARTBEAT_MAX_AGE_SECONDS", 90)
 	if err != nil {
 		return RetentionConfig{}, err
 	}
@@ -236,7 +199,6 @@ func LoadRetention() (RetentionConfig, error) {
 		return RetentionConfig{}, err
 	}
 	cfg := RetentionConfig{
-		Environment:       env("ALL_MAIL_ENV", env("NODE_ENV", "development")),
 		StateDir:          env("ALL_MAIL_STATE_DIR", "/var/lib/all-mail"),
 		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		RetentionDays:     retentionDays,
@@ -297,18 +259,58 @@ func (c APIConfig) LegacyURL() (*url.URL, error) {
 	return url.Parse(c.LegacyAPIURL)
 }
 
-func loadEncryptionKey(stateDir string) string {
-	if key := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY")); key != "" {
-		return key
-	}
-	if keyFile := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY_FILE")); keyFile != "" {
-		content, err := os.ReadFile(keyFile)
-		if err == nil {
-			return strings.TrimSpace(string(content))
+func (c APIConfig) TrustsProxy(address netip.Addr) bool {
+	for _, prefix := range c.TrustedProxyCIDRs {
+		if prefix.Contains(address) {
+			return true
 		}
-		return ""
 	}
-	return managedSecret(stateDir, "ENCRYPTION_KEY")
+	return false
+}
+
+func loadEncryptionKeyFile() (string, error) {
+	keyFile := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY_FILE"))
+	if keyFile == "" {
+		return "", errors.New("ENCRYPTION_KEY_FILE is required for forwarding")
+	}
+	content, err := os.ReadFile(keyFile)
+	if err != nil {
+		return "", fmt.Errorf("read ENCRYPTION_KEY_FILE: %w", err)
+	}
+	key := strings.TrimSpace(string(content))
+	if len(key) != 32 {
+		return "", errors.New("ENCRYPTION_KEY_FILE must contain exactly 32 characters")
+	}
+	return key, nil
+}
+
+func parseTrustedProxyCIDRs(raw string) ([]netip.Prefix, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	seen := make(map[netip.Prefix]struct{})
+	prefixes := make([]netip.Prefix, 0)
+	for _, item := range strings.Split(raw, ",") {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil {
+			return nil, fmt.Errorf("TRUSTED_PROXY_CIDRS contains invalid CIDR %q: %w", value, err)
+		}
+		prefix = prefix.Masked()
+		if prefix.Bits() == 0 {
+			return nil, fmt.Errorf("TRUSTED_PROXY_CIDRS must not trust all addresses with %q", value)
+		}
+		if _, ok := seen[prefix]; ok {
+			continue
+		}
+		seen[prefix] = struct{}{}
+		prefixes = append(prefixes, prefix)
+	}
+	return prefixes, nil
 }
 
 func validateAbsoluteURL(name, raw string, schemes ...string) error {
@@ -344,30 +346,4 @@ func envInt(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer: %w", name, err)
 	}
 	return value, nil
-}
-
-func envIntFallback(name string, fallback int) int {
-	value, err := envInt(name, fallback)
-	if err != nil {
-		return fallback
-	}
-	return value
-}
-
-func managedSecret(stateDir, name string) string {
-	content, err := os.ReadFile(filepath.Join(stateDir, "bootstrap-secrets.env"))
-	if err != nil {
-		return ""
-	}
-	for _, rawLine := range strings.Split(string(content), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 && strings.TrimSpace(parts[0]) == name {
-			return strings.Trim(strings.TrimSpace(parts[1]), "\"'")
-		}
-	}
-	return ""
 }

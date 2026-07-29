@@ -9,12 +9,12 @@
 
 The repository is **Docker-first**. The current backend is an incremental Go migration:
 
-- Go owns the public listener, React SPA, health/readiness, request IDs and metrics;
+- Go owns the public listener, React SPA, health/readiness, trusted-proxy normalization, request IDs and metrics;
 - independent Go processes own mailbox forwarding and API-log retention;
 - Fastify/Prisma remains an internal compatibility business API for routes not yet ported;
-- PostgreSQL and Redis remain shared state backends.
+- PostgreSQL and Redis remain private shared state backends.
 
-There is now one implementation for each background state machine. The TypeScript jobs runtime and in-revision rollback writer have been removed.
+There is one implementation for each background state machine. The TypeScript jobs runtime and in-revision rollback writer have been removed.
 
 ## Product shape
 
@@ -38,17 +38,15 @@ The screenshots are repository-tracked and sanitized for public documentation.
 
 ```mermaid
 flowchart TD
-    Operator[Operator] --> GoAPI[app: Go public API]
+    Operator[Operator] --> GoAPI[app: Go public gateway]
     Automation[Automation client] --> GoAPI
     Edge[Cloudflare Email Worker] --> GoAPI
 
     GoAPI --> SPA[React SPA]
     GoAPI --> Legacy[legacy-api: Fastify / Prisma business API]
-    GoAPI --> Postgres[(PostgreSQL)]
-    GoAPI --> Redis[(Redis)]
 
-    Legacy --> Postgres
-    Legacy --> Redis
+    Legacy --> Postgres[(PostgreSQL)]
+    Legacy --> Redis[(Redis)]
     Legacy --> Providers[Mailbox and sending providers]
 
     Forwarding[worker-forwarding] --> Postgres
@@ -65,16 +63,18 @@ flowchart TD
     GoMigrate --> Retention
 ```
 
+The Go gateway does not receive PostgreSQL or Redis credentials while it owns no native business route. Its readiness checks the built SPA and the internal compatibility API; Fastify's `/readyz` performs the database and Redis protocol checks.
+
 ### Long-running services
 
 | Service | Responsibility |
 | --- | --- |
-| `app` | Go public listener, React SPA, readiness, metrics and compatibility API proxy |
+| `app` | Go public gateway, React SPA, trusted-proxy boundary, readiness, metrics and compatibility API proxy |
 | `worker-forwarding` | Go forwarding claim, send, retry, lease and terminal state transitions |
 | `worker-retention` | Go API-log retention |
 | `legacy-api` | Internal Fastify/Prisma business API for routes not yet ported |
-| `postgres` | Application and runtime state |
-| `redis` | OAuth state, rate-limit, replay and cache support |
+| `postgres` | Application and runtime state; private to the Compose network |
+| `redis` | OAuth state, rate-limit, replay and cache support; private to the Compose network |
 
 ### One-shot services
 
@@ -98,21 +98,13 @@ flowchart TD
 
 ## Quick start
 
-### 1. Choose an environment template
-
-Default Docker deployment:
+### 1. Create the single production environment file
 
 ```bash
 cp .env.example .env
 ```
 
-Cloudflare Email Routing / signed ingress deployment:
-
-```bash
-cp .env.cloudflare.example .env
-```
-
-Replace the shipped ingress placeholder before enabling ingress.
+For Cloudflare Email Routing, edit the same file and set `INGRESS_SIGNING_SECRET`, `INGRESS_ALLOWED_SKEW_SECONDS`, and the appropriate `TRUSTED_PROXY_CIDRS` for the reverse proxy directly connected to `app`. There is no second copied Cloudflare backend template.
 
 ### 2. Start the canonical stack
 
@@ -125,7 +117,8 @@ Expected behavior:
 
 - `legacy-init` exits successfully after bootstrap and Prisma migration work;
 - `go-migrate` exits successfully after Go migrations;
-- `app`, `worker-forwarding`, `worker-retention`, `legacy-api`, `postgres` and `redis` remain healthy.
+- `app`, `worker-forwarding`, `worker-retention`, `legacy-api`, `postgres` and `redis` remain healthy;
+- PostgreSQL and Redis are not published to the host by the production Compose file.
 
 ### 3. Probe health
 
@@ -145,9 +138,8 @@ Example Go health response:
   "success": true,
   "data": {
     "status": "ok",
-    "runtime": "go-migration-bridge",
-    "apiMode": "bridge",
-    "legacyConfigured": true
+    "runtime": "go-gateway",
+    "compatibilityApiConfigured": true
   }
 }
 ```
@@ -164,6 +156,28 @@ docker compose exec legacy-api sh -lc \
 ```
 
 Set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only for short-lived recovery in a controlled terminal. Change a generated password immediately after first login.
+
+## Trusted proxy contract
+
+The Go listener discards incoming `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, and `CF-Connecting-IP` values from untrusted socket peers. Only peers listed in the comma-separated `TRUSTED_PROXY_CIDRS` may supply a client IP or forwarded protocol. Go then overwrites the downstream headers with one canonical client identity, and the internal Fastify service trusts exactly one hop.
+
+Do not use a blanket trust setting. Keep `legacy-api` internal-only and list only the reverse proxy or tunnel peers that connect directly to `app`.
+
+## Local development infrastructure
+
+Production keeps PostgreSQL and Redis private. Local Fastify development explicitly publishes them through the overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
+```
+
+Equivalent helper:
+
+```bash
+./bin/all-mail deps up
+```
+
+The overlay defaults to PostgreSQL `127.0.0.1:15433` and Redis `127.0.0.1:6380`.
 
 ## Rollback policy
 
@@ -185,6 +199,7 @@ Before a risky migration or upgrade, back up PostgreSQL and the legacy bootstrap
 | --- | --- |
 | `npm run dev:api` | Run only the Fastify compatibility API for local development |
 | `npm run dev:web` | Run the Vite frontend development server |
+| `./bin/all-mail deps up` | Start PostgreSQL and Redis through the development overlay |
 | `./bin/all-mail doctor` | Check local env resolution, infrastructure reachability and build artifacts |
 | `./bin/all-mail check` | Full repository lint/test/build/worker/audit gate |
 | `npm run test:runtime` | Runtime and environment-contract tests |
@@ -208,7 +223,7 @@ The repository CLI deliberately does not expose a parallel Node production topol
 ## Repository layout
 
 ```text
-├── core/                            # Go listener, workers, migrations and runtime contracts
+├── core/                            # Go gateway, workers, migrations and runtime contracts
 ├── server/                          # Compatibility Fastify/Prisma business API
 ├── web/                             # React admin console and mailbox portal UI
 ├── cloudflare/workers/allmail-edge/ # Signed inbound email Worker
@@ -217,7 +232,8 @@ The repository CLI deliberately does not expose a parallel Node production topol
 ├── docs/                            # Public operator docs and internal migration notes
 ├── Dockerfile                       # Go runtime plus built React SPA
 ├── Dockerfile.legacy                # Compatibility Fastify API runtime
-└── docker-compose.yml               # Canonical production topology
+├── docker-compose.yml               # Canonical production topology
+└── docker-compose.dev.yml           # Local PostgreSQL/Redis host-port overlay
 ```
 
 ## Remaining migration boundary

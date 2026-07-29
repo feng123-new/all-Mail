@@ -4,7 +4,7 @@
 
 This document is the authoritative variable contract for `all-Mail`.
 
-- Use [`DEPLOY.md`](./DEPLOY.md) for deployment steps.
+- Use [`DEPLOY.md`](./DEPLOY.md) for production startup and rollback.
 - Use [`RUNBOOK.md`](./RUNBOOK.md) for recovery.
 - Use [`GO-MIGRATION.md`](./GO-MIGRATION.md) for runtime ownership.
 - Use [`../CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) for Worker-specific settings.
@@ -13,33 +13,90 @@ This document is the authoritative variable contract for `all-Mail`.
 
 | Surface | Purpose |
 | --- | --- |
-| `.env.example` | Canonical default Docker template |
-| `.env.cloudflare.example` | Same Docker contract with an ingress-secret placeholder |
+| `.env.example` | The single canonical production Docker template |
+| `docker-compose.yml` | Canonical production topology; PostgreSQL and Redis remain private |
+| `docker-compose.dev.yml` | Local-development-only PostgreSQL and Redis host ports |
 | `server/.env.example` | Fastify business-API development only |
 | `web/.env.example` | Vite frontend development proxy settings |
-| `cloudflare/workers/allmail-edge/.dev.vars.example` | Worker-local variables |
-| `docker-compose.yml` | Canonical production wiring and internal file paths |
+| `cloudflare/workers/allmail-edge/.dev.vars.example` | Worker-local variables and secrets |
 | `core/internal/config/config.go` | Go command-specific validation |
 | `server/src/config/env.ts` | Fastify business-API validation |
 
-The root templates have the same key set. `.env.basic.example` and the Node production source-runtime template have been removed.
+The copied `.env.cloudflare.example`, `.env.basic.example`, and Node production source-runtime template have been removed. Cloudflare deployments start from `.env.example` and add ingress/tunnel values to that same file.
 
-## Runtime selection
+## Production and local development
 
-### Production
+Production:
 
-Docker Compose reads the root `.env` and starts:
+```bash
+cp .env.example .env
+docker compose up -d --build --wait --wait-timeout 240
+```
 
-- one-shot `legacy-init` and `go-migrate`;
-- long-running `app`, `worker-forwarding`, `worker-retention`, `legacy-api`, `postgres`, and `redis`.
+Production publishes only the Go listener. PostgreSQL and Redis use fixed container ports `5432` and `6379` inside the Compose network.
 
-### Local development
+Local Fastify development explicitly publishes those dependencies:
 
-- `server/.env.example` configures only the Fastify business API.
-- `web/.env.example` configures only the Vite frontend.
-- The repository CLI may derive `DATABASE_URL` and `REDIS_URL` for development checks, but it does not start a second Node production topology.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
+```
 
-## Bootstrap secrets
+Defaults:
+
+```text
+PostgreSQL 127.0.0.1:15433
+Redis      127.0.0.1:6380
+```
+
+Override only in local development with `DEV_POSTGRES_PORT` and `DEV_REDIS_PORT`.
+
+## Public gateway and trusted proxy
+
+| Variable | Default | Consumer | Notes |
+| --- | --- | --- | --- |
+| `COMPOSE_PROJECT_NAME` | `all-mail` | Compose | Project namespace |
+| `APP_PUBLISH_HOST` | `127.0.0.1` | Compose | Go listener bind address |
+| `APP_PORT` | `3002` | Compose | Host-facing Go listener port |
+| `TRUSTED_PROXY_CIDRS` | blank | Go `app` | Comma-separated direct reverse-proxy/tunnel peer CIDRs |
+| `READY_TIMEOUT_SECONDS` | `5` | Go API/forwarding | Readiness/owner-check bound |
+| `SHUTDOWN_TIMEOUT_SECONDS` | `15` | Go runtimes | Graceful shutdown bound |
+| `PUBLIC_BASE_URL` | blank | bootstrap/OAuth helpers | Externally reachable application base URL |
+
+`TRUSTED_PROXY_CIDRS` must list only the peers that connect directly to the Go listener. The gateway discards external `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, and `CF-Connecting-IP` values unless the socket peer belongs to this list. It then writes one canonical client identity to the internal Fastify API.
+
+The removed `GO_API_MODE` and `ALL_MAIL_ENV` variables are not aliases. The production Go listener always serves the built SPA and proxies business routes that have not yet moved.
+
+## PostgreSQL and Redis
+
+| Variable | Default | Consumers | Notes |
+| --- | --- | --- | --- |
+| `POSTGRES_USER` | `allmail` | Compose/init/workers/Fastify | Builds internal `DATABASE_URL` values |
+| `POSTGRES_PASSWORD` | `allmail_dev_password` | Compose/init/workers/Fastify | Replace outside development |
+| `POSTGRES_DB` | `allmail` | Compose/init/workers/Fastify | Database name |
+| `DATABASE_URL` | Compose-derived | Internal services/local Fastify | Not supplied to the public Go gateway |
+| `REDIS_URL` | Compose-derived | Fastify/local development | Not supplied to `legacy-init` or the Go gateway |
+| `ALLOW_LOCAL_RATE_LIMIT_FALLBACK` | `false` | Fastify | Transitional switch; keep false in production |
+| `DEV_POSTGRES_PORT` | `15433` | development overlay | Local host port only |
+| `DEV_REDIS_PORT` | `6380` | development overlay | Local host port only |
+
+Removed production variables:
+
+```text
+APP_INTERNAL_PORT
+LEGACY_API_INTERNAL_PORT
+POSTGRES_PUBLISH_HOST
+POSTGRES_PORT
+POSTGRES_INTERNAL_PORT
+REDIS_PUBLISH_HOST
+REDIS_PORT
+REDIS_INTERNAL_PORT
+CORS_ORIGIN
+ALL_MAIL_STATE_DIR
+```
+
+Fastify local development still uses `CORS_ORIGIN` in `server/.env`; it is not part of the production root contract because browser traffic is same-origin through Go.
+
+## Bootstrap and runtime secrets
 
 These may be blank on first Docker boot:
 
@@ -47,19 +104,21 @@ These may be blank on first Docker boot:
 - `ENCRYPTION_KEY`;
 - `ADMIN_PASSWORD`.
 
-`legacy-init` persists generated values at:
-
-```text
-/var/lib/all-mail/bootstrap-secrets.env
-```
-
-Only `ENCRYPTION_KEY` is exported to the forwarding volume:
+`legacy-init` persists generated values under the protected legacy runtime volume. Only the forwarding encryption key is exported to:
 
 ```text
 /var/lib/all-mail-forwarding/encryption-key
 ```
 
-The retention worker does not receive it. Retrieve a generated password with:
+The forwarding worker accepts only the Compose-owned file path:
+
+```text
+ENCRYPTION_KEY_FILE=/var/lib/all-mail/encryption-key
+```
+
+It no longer accepts `ENCRYPTION_KEY`, `ALL_MAIL_SECRET_STATE_DIR`, or direct access to `bootstrap-secrets.env`. The retention worker receives no encryption key.
+
+Retrieve the generated bootstrap password with:
 
 ```bash
 docker compose exec legacy-api sh -lc \
@@ -68,64 +127,32 @@ docker compose exec legacy-api sh -lc \
 
 `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=false` is the safe default.
 
-## Core networking
+## Authentication and bootstrap variables
 
-| Variable | Default | Consumers | Notes |
-| --- | --- | --- | --- |
-| `COMPOSE_PROJECT_NAME` | `all-mail` | Compose | Project namespace |
-| `APP_PUBLISH_HOST` | `127.0.0.1` | Compose | Public Go listener bind address |
-| `APP_PORT` | `3002` | Compose | Host-facing public port |
-| `APP_INTERNAL_PORT` | `3000` | `app` | Container port |
-| `LEGACY_API_INTERNAL_PORT` | `3100` | `legacy-api`, `app` | Internal Fastify port |
-| `GO_API_MODE` | `bridge` | `app` | `bridge` or frontend-only `static` |
-| `READY_TIMEOUT_SECONDS` | `5` | Go API/forwarding | Dependency and ownership probe bound |
-| `SHUTDOWN_TIMEOUT_SECONDS` | `15` | Go runtimes | Graceful shutdown bound |
-| `PUBLIC_BASE_URL` | blank | bootstrap/OAuth helpers | Externally reachable base URL |
-| `CORS_ORIGIN` | blank | Fastify | Comma-separated allowed origins |
-| `ALL_MAIL_STATE_DIR` | `/var/lib/all-mail` | wrappers/workers | Runtime state directory inside each service volume |
-| `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD` | `false` | initializer | Short-lived recovery only |
-
-## PostgreSQL and Redis
-
-| Variable | Default | Consumers | Notes |
-| --- | --- | --- | --- |
-| `POSTGRES_USER` | `allmail` | Compose | Builds Docker `DATABASE_URL` |
-| `POSTGRES_PASSWORD` | `allmail_dev_password` | Compose | Replace outside development |
-| `POSTGRES_DB` | `allmail` | Compose | Database name |
-| `POSTGRES_PUBLISH_HOST` | `127.0.0.1` | Compose | Host bind address |
-| `POSTGRES_PORT` | `15433` | Compose/dev tools | Host-facing port |
-| `POSTGRES_INTERNAL_PORT` | `5432` | Compose | Container port |
-| `DATABASE_URL` | derived | Go/Fastify/init | Required by database-backed runtimes |
-| `REDIS_PUBLISH_HOST` | `127.0.0.1` | Compose | Host bind address |
-| `REDIS_PORT` | `6380` | Compose/dev tools | Host-facing port |
-| `REDIS_INTERNAL_PORT` | `6379` | Compose | Container port |
-| `REDIS_URL` | derived | Go API/Fastify | Required by bridge readiness and Fastify state |
-| `ALLOW_LOCAL_RATE_LIMIT_FALLBACK` | `false` | Fastify | Keep false for production fail-closed behavior |
-
-## Migration controls
-
-| Variable | Default | Consumers | Notes |
-| --- | --- | --- | --- |
-| `ALL_MAIL_MIGRATION_DIR` | `/app/migrations` | `go-migrate` | Numbered Go SQL files |
-| `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR` | `false` | `legacy-init` | Explicit one-run P3005 repair only |
-| `ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE` | internal | `legacy-init` | Compose-owned forwarding-key export path |
-| `ENCRYPTION_KEY_FILE` | internal | `worker-forwarding` | Compose-owned isolated key path |
-
-The Go migration runner uses direct `pgx`; no `psql` binary is required in the Go image.
-
-## Authentication and bootstrap
-
-| Variable | Default | Consumers | Notes |
+| Variable | Default | Consumer | Notes |
 | --- | --- | --- | --- |
 | `JWT_SECRET` | generated when blank | Fastify | Minimum 32 characters |
 | `JWT_EXPIRES_IN` | `2h` | Fastify | Admin/mailbox token lifetime |
-| `ENCRYPTION_KEY` | generated when blank | Fastify/forwarding | Fastify requires exactly 32 characters |
-| `ADMIN_USERNAME` | `admin` | Fastify/bootstrap | Initial administrator |
-| `ADMIN_PASSWORD` | generated when blank | Fastify/bootstrap | Change after bootstrap when required |
+| `ENCRYPTION_KEY` | generated when blank | init/Fastify | Exactly 32 characters; forwarding receives a file copy |
+| `ADMIN_USERNAME` | `admin` | init/Fastify compatibility | Initial administrator |
+| `ADMIN_PASSWORD` | generated when blank | init/Fastify compatibility | Must be changed when marked temporary |
 | `ADMIN_LOGIN_MAX_ATTEMPTS` | `5` | Fastify | Login protection |
 | `ADMIN_LOGIN_LOCK_MINUTES` | `15` | Fastify | Lock duration |
-| `ADMIN_2FA_SECRET` | blank | Fastify | Optional Base32 TOTP secret |
+| `ADMIN_2FA_SECRET` | blank | Fastify compatibility | Environment-managed legacy TOTP path |
 | `ADMIN_2FA_WINDOW` | `1` | Fastify | Accepted TOTP window |
+
+`DOMAIN_BOOTSTRAP_ADMIN_USERNAME`, `DOMAIN_BOOTSTRAP_ADMIN_PASSWORD`, and environment-managed 2FA remain only until the stacked administrator-bootstrap PR lands. They are not new extension points.
+
+## Migration controls
+
+| Variable | Default | Consumer | Notes |
+| --- | --- | --- | --- |
+| `ALL_MAIL_MIGRATION_DIR` | `/app/migrations` | `go-migrate` | Compose-owned numbered Go SQL path |
+| `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR` | absent from normal template | explicit `legacy-init` repair | One intentional P3005 recovery only |
+| `ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE` | internal | `legacy-init` | Compose-owned forwarding-key export path |
+| `ENCRYPTION_KEY_FILE` | internal | `worker-forwarding` | Required file-secret path |
+
+The repair switch is intentionally not a standing `.env.example` setting. Invoke it only on the explicit one-shot recovery command documented in the runbook.
 
 ## Worker health
 
@@ -134,41 +161,43 @@ The Go migration runner uses direct `pgx`; no `psql` binary is required in the G
 | `WORKER_HEARTBEAT_SECONDS` | `15` | both Go workers | Atomic heartbeat cadence |
 | `WORKER_HEARTBEAT_MAX_AGE_SECONDS` | `90` | worker doctors | Maximum accepted heartbeat age |
 
-Each worker writes its own file and is diagnosed independently.
+Removed aliases:
+
+```text
+GO_JOBS_HEARTBEAT_SECONDS
+GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS
+API_LOG_RETENTION_OWNER
+FORWARDING_WORKER_OWNER
+```
+
+Invalid canonical values fail startup; they are never silently replaced through an old alias.
 
 ## API-log retention
 
-| Variable | Default | Consumers | Notes |
-| --- | --- | --- | --- |
-| `API_LOG_RETENTION_DAYS` | `30` | `worker-retention` | Expiration threshold |
-| `API_LOG_CLEANUP_INTERVAL_MINUTES` | `60` | `worker-retention` | Successful-run interval |
-| `API_LOG_CLEANUP_RETRY_SECONDS` | `30` | `worker-retention` | Failure retry delay |
-| `API_LOG_CLEANUP_TIMEOUT_SECONDS` | `60` | retention/doctor | Per-run limit |
-| `API_LOG_CLEANUP_BATCH_SIZE` | `5000` | `worker-retention` | Maximum rows per transaction |
+| Variable | Default | Consumer |
+| --- | --- | --- |
+| `API_LOG_RETENTION_DAYS` | `30` | `worker-retention` |
+| `API_LOG_CLEANUP_INTERVAL_MINUTES` | `60` | `worker-retention` |
+| `API_LOG_CLEANUP_RETRY_SECONDS` | `30` | `worker-retention` |
+| `API_LOG_CLEANUP_TIMEOUT_SECONDS` | `60` | retention/doctor |
+| `API_LOG_CLEANUP_BATCH_SIZE` | `5000` | `worker-retention` |
 
 ## Forwarding
 
-| Variable | Default | Consumers | Notes |
-| --- | --- | --- | --- |
-| `FORWARDING_WORKER_INTERVAL_SECONDS` | `30` | `worker-forwarding` | Claim cadence |
-| `FORWARDING_WORKER_BATCH_SIZE` | `10` | `worker-forwarding` | Valid range `1..100` |
-| `FORWARDING_RUN_TIMEOUT_SECONDS` | `120` | forwarding/doctor | Maximum duration of one pass |
-| `RESEND_API_BASE_URL` | `https://api.resend.com` | `worker-forwarding` | Controlled provider/test override |
-
-The obsolete `API_LOG_RETENTION_OWNER` and `FORWARDING_WORKER_OWNER` variables no longer exist. There is one writer per background capability.
+| Variable | Default | Consumer |
+| --- | --- | --- |
+| `FORWARDING_WORKER_INTERVAL_SECONDS` | `30` | `worker-forwarding` |
+| `FORWARDING_WORKER_BATCH_SIZE` | `10` | `worker-forwarding` |
+| `FORWARDING_RUN_TIMEOUT_SECONDS` | `120` | forwarding/doctor |
+| `RESEND_API_BASE_URL` | `https://api.resend.com` | `worker-forwarding` |
 
 ## Domain, ingress and provider OAuth
 
-| Variable | Default | Consumers | Notes |
-| --- | --- | --- | --- |
-| `DOMAIN_BOOTSTRAP_ADMIN_USERNAME` | blank | Fastify | Optional domain bootstrap helper |
-| `DOMAIN_BOOTSTRAP_ADMIN_PASSWORD` | blank | Fastify | Minimum eight characters when set |
-| `SEND_ENABLED_DOMAINS` | blank | Fastify | Optional allowlist |
-| `INGRESS_SIGNING_SECRET` | blank/placeholder | Fastify/Worker | Must match on both sides |
-| `INGRESS_ALLOWED_SKEW_SECONDS` | `300` | Fastify | Minimum `30` |
+Still-live compatibility variables:
 
-Optional provider fallbacks:
-
+- `SEND_ENABLED_DOMAINS`;
+- `INGRESS_SIGNING_SECRET`;
+- `INGRESS_ALLOWED_SKEW_SECONDS`;
 - `GOOGLE_OAUTH_CLIENT_ID`;
 - `GOOGLE_OAUTH_CLIENT_SECRET`;
 - `GOOGLE_OAUTH_REDIRECT_URI`;
@@ -179,8 +208,10 @@ Optional provider fallbacks:
 - `MICROSOFT_OAUTH_TENANT`;
 - `MICROSOFT_OAUTH_SCOPES`.
 
-Database-managed provider configuration takes precedence where supported. Worker-only values such as `INGRESS_URL`, `INGRESS_KEY_ID`, `RAW_EMAIL_BUCKET_NAME`, and `RAW_EMAIL_OBJECT_PREFIX` remain in the Worker template.
+Database-managed OAuth configuration takes precedence. These fallbacks remain until a separate migration copies existing environment configuration into the database.
+
+Worker-only values such as `INGRESS_URL`, `INGRESS_KEY_ID`, `RAW_EMAIL_BUCKET_NAME`, and `RAW_EMAIL_OBJECT_PREFIX` remain in the Worker `.dev.vars` template.
 
 ## Coverage rule
 
-Root templates cover production Docker. `server/.env.example`, `web/.env.example`, and Worker `.dev.vars.example` cover development surfaces only. Internal file-path variables are wired by Compose and should not be copied into user-facing templates.
+Every production variable must have one visible owner. Internal file paths and fixed container ports belong in Compose, not `.env.example`. Compatibility aliases require an explicit deletion date; hidden fallback names are not accepted.

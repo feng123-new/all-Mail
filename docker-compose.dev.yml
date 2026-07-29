@@ -1,0 +1,9 @@
+# Local-development-only host port publishing.
+# Production uses docker-compose.yml by itself and keeps PostgreSQL/Redis private.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${DEV_POSTGRES_PORT:-15433}:5432"
+  redis:
+    ports:
+      - "127.0.0.1:${DEV_REDIS_PORT:-6380}:6379"

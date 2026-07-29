@@ -16,6 +16,8 @@ import { registerIngressRoutes } from './routes/ingress.assembly.js';
 import { registerPortalRoutes } from './routes/portal.assembly.js';
 import { ROUTE_PREFIXES } from './routes/prefixes.js';
 
+export const FASTIFY_TRUST_PROXY_HOPS = 1;
+
 const legacyOAuthCallbackQuerySchema = z.object({
     state: z.string().optional(),
     code: z.string().optional(),
@@ -25,8 +27,8 @@ const legacyOAuthCallbackQuerySchema = z.object({
 
 export async function buildApp() {
     const fastify = Fastify({
+        trustProxy: FASTIFY_TRUST_PROXY_HOPS,
         requestIdHeader: 'x-request-id',
-        requestIdLogLabel: 'requestId',
         logger: env.NODE_ENV === 'development' ? {
             transport: {
                 target: 'pino-pretty',
