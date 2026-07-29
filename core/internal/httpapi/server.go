@@ -10,8 +10,10 @@ import (
 	"io/fs"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -31,6 +33,14 @@ type Server struct {
 	prober    readiness.Prober
 	requests  atomic.Uint64
 }
+
+type proxyMetadata struct {
+	ClientIP string
+	Proto    string
+	Host     string
+}
+
+type proxyMetadataContextKey struct{}
 
 func New(cfg config.APIConfig, logger *slog.Logger) (*Server, error) {
 	return newWithProber(cfg, logger, readiness.Default())
@@ -78,8 +88,8 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Info(
 			"Go API runtime listening",
 			"address", httpServer.Addr,
-			"api_mode", s.cfg.Mode,
-			"legacy_api", s.cfg.LegacyAPIURL,
+			"compatibility_api", s.cfg.LegacyAPIURL,
+			"trusted_proxy_cidrs", len(s.cfg.TrustedProxyCIDRs),
 		)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
@@ -101,10 +111,9 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"data": map[string]any{
-			"status":           "ok",
-			"runtime":          "go-migration-bridge",
-			"apiMode":          s.cfg.Mode,
-			"legacyConfigured": s.proxy != nil,
+			"status":                     "ok",
+			"runtime":                    "go-gateway",
+			"compatibilityApiConfigured": s.proxy != nil,
 		},
 	})
 }
@@ -131,7 +140,6 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		"success": report.Ready,
 		"data": map[string]any{
 			"status": state,
-			"mode":   s.cfg.Mode,
 			"checks": report.Checks,
 		},
 	})
@@ -139,10 +147,10 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	fmt.Fprintln(w, "# HELP allmail_go_uptime_seconds Go bridge process uptime.")
+	fmt.Fprintln(w, "# HELP allmail_go_uptime_seconds Go gateway process uptime.")
 	fmt.Fprintln(w, "# TYPE allmail_go_uptime_seconds gauge")
 	fmt.Fprintf(w, "allmail_go_uptime_seconds %.0f\n", time.Since(s.startedAt).Seconds())
-	fmt.Fprintln(w, "# HELP allmail_go_http_requests_total Requests observed by the Go bridge.")
+	fmt.Fprintln(w, "# HELP allmail_go_http_requests_total Requests observed by the Go gateway.")
 	fmt.Fprintln(w, "# TYPE allmail_go_http_requests_total counter")
 	fmt.Fprintf(w, "allmail_go_http_requests_total %d\n", s.requests.Load())
 }
@@ -154,8 +162,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 				"success":   false,
 				"requestId": requestID(r),
 				"error": map[string]string{
-					"code":    "GO_ROUTE_NOT_MIGRATED",
-					"message": "This route has not been migrated and LEGACY_API_URL is not configured.",
+					"code":    "COMPATIBILITY_API_NOT_CONFIGURED",
+					"message": "This business route still requires LEGACY_API_URL.",
 				},
 			})
 			return
@@ -210,7 +218,11 @@ func (s *Server) withCommonHeaders(next http.Handler) http.Handler {
 		if id == "" {
 			id = newRequestID()
 		}
+		metadata := s.resolveProxyMetadata(r)
+		stripForwardingHeaders(r.Header)
 		r.Header.Set("X-Request-Id", id)
+		r = r.WithContext(context.WithValue(r.Context(), proxyMetadataContextKey{}, metadata))
+
 		w.Header().Set("X-Request-Id", id)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
@@ -223,31 +235,110 @@ func (s *Server) withCommonHeaders(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) resolveProxyMetadata(r *http.Request) proxyMetadata {
+	peer, _ := remoteAddress(r.RemoteAddr)
+	client := peer
+	proto := "http"
+	if r.TLS != nil {
+		proto = "https"
+	}
+	if peer.IsValid() && s.cfg.TrustsProxy(peer) {
+		if candidate, ok := trustedForwardedClient(r.Header); ok {
+			client = candidate
+		}
+		if candidate := firstHeaderToken(r.Header.Get("X-Forwarded-Proto")); candidate == "http" || candidate == "https" {
+			proto = candidate
+		}
+	}
+	metadata := proxyMetadata{Proto: proto, Host: r.Host}
+	if client.IsValid() {
+		metadata.ClientIP = client.String()
+	}
+	return metadata
+}
+
 func newLegacyProxy(target *url.URL, logger *slog.Logger) *httputil.ReverseProxy {
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	originalDirector := proxy.Director
-	proxy.Director = func(request *http.Request) {
-		originalDirector(request)
-		request.Header.Set("X-All-Mail-Migration-Bridge", "go")
-	}
-	proxy.ModifyResponse = func(response *http.Response) error {
-		response.Header.Set("X-All-Mail-Migration-Bridge", "go")
-		return nil
-	}
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		logger.Error(
-			"legacy API proxy failed",
-			"request_id", requestID(r),
-			"path", r.URL.Path,
-			"error", err,
-		)
-		writeJSON(w, http.StatusBadGateway, map[string]any{
-			"success":   false,
-			"requestId": requestID(r),
-			"error":     map[string]string{"code": "LEGACY_API_UNAVAILABLE"},
-		})
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(request *httputil.ProxyRequest) {
+			request.SetURL(target)
+			request.Out.Host = request.In.Host
+			stripForwardingHeaders(request.Out.Header)
+			metadata, _ := request.In.Context().Value(proxyMetadataContextKey{}).(proxyMetadata)
+			if metadata.ClientIP != "" {
+				request.Out.Header.Set("X-Forwarded-For", metadata.ClientIP)
+				request.Out.Header.Set("X-Real-IP", metadata.ClientIP)
+			}
+			if metadata.Proto != "" {
+				request.Out.Header.Set("X-Forwarded-Proto", metadata.Proto)
+			}
+			if metadata.Host != "" {
+				request.Out.Header.Set("X-Forwarded-Host", metadata.Host)
+			}
+			request.Out.Header.Set("X-All-Mail-Migration-Bridge", "go")
+		},
+		ModifyResponse: func(response *http.Response) error {
+			response.Header.Set("X-All-Mail-Migration-Bridge", "go")
+			return nil
+		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			logger.Error(
+				"compatibility API proxy failed",
+				"request_id", requestID(r),
+				"path", r.URL.Path,
+				"error", err,
+			)
+			writeJSON(w, http.StatusBadGateway, map[string]any{
+				"success":   false,
+				"requestId": requestID(r),
+				"error":     map[string]string{"code": "COMPATIBILITY_API_UNAVAILABLE"},
+			})
+		},
 	}
 	return proxy
+}
+
+func stripForwardingHeaders(header http.Header) {
+	for _, name := range []string{
+		"Forwarded",
+		"X-Forwarded-For",
+		"X-Forwarded-Host",
+		"X-Forwarded-Proto",
+		"X-Real-IP",
+		"CF-Connecting-IP",
+	} {
+		header.Del(name)
+	}
+}
+
+func trustedForwardedClient(header http.Header) (netip.Addr, bool) {
+	for _, value := range []string{header.Get("CF-Connecting-IP"), header.Get("X-Real-IP")} {
+		if address, err := netip.ParseAddr(strings.TrimSpace(value)); err == nil {
+			return address.Unmap(), true
+		}
+	}
+	for _, value := range strings.Split(header.Get("X-Forwarded-For"), ",") {
+		if address, err := netip.ParseAddr(strings.TrimSpace(value)); err == nil {
+			return address.Unmap(), true
+		}
+	}
+	return netip.Addr{}, false
+}
+
+func firstHeaderToken(value string) string {
+	value, _, _ = strings.Cut(value, ",")
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func remoteAddress(remote string) (netip.Addr, error) {
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = strings.Trim(remote, "[]")
+	}
+	address, parseErr := netip.ParseAddr(host)
+	if parseErr != nil {
+		return netip.Addr{}, parseErr
+	}
+	return address.Unmap(), nil
 }
 
 func isBackendPath(path string) bool {
