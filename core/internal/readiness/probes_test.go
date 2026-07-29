@@ -1,105 +1,67 @@
 package readiness
 
 import (
-	"bufio"
 	"context"
-	"fmt"
-	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
 )
 
-func TestBridgeReadinessRejectsMissingDependencies(t *testing.T) {
-	prober := Prober{
-		Postgres: func(context.Context, string) error { return nil },
-		Redis:    func(context.Context, string) error { return nil },
-		Legacy:   func(context.Context, string) error { return nil },
-	}
-	report := prober.Check(context.Background(), config.APIConfig{Mode: config.APIModeBridge})
-	if report.Ready {
-		t.Fatal("bridge readiness unexpectedly succeeded without dependencies")
-	}
-	for _, name := range []string{"postgres", "redis", "legacyApi"} {
-		if report.Checks[name] != "required-but-not-configured" {
-			t.Fatalf("%s check = %q", name, report.Checks[name])
-		}
-	}
-}
-
-func TestBridgeReadinessRunsAllProtocolProbes(t *testing.T) {
-	called := map[string]int{}
-	prober := Prober{
-		Postgres: func(context.Context, string) error { called["postgres"]++; return nil },
-		Redis:    func(context.Context, string) error { called["redis"]++; return nil },
-		Legacy:   func(context.Context, string) error { called["legacy"]++; return nil },
-	}
-	cfg := config.APIConfig{
-		Mode:         config.APIModeBridge,
-		DatabaseURL:  "postgresql://user:password@postgres/database",
-		RedisURL:     "redis://redis:6379/0",
-		LegacyAPIURL: "http://legacy-api:3100",
-	}
+func TestReadinessRequiresStaticAssetsAndCompatibilityAPI(t *testing.T) {
+	prober := Prober{Legacy: func(context.Context, string) error { return nil }}
+	cfg := config.APIConfig{StaticDir: t.TempDir()}
 	report := prober.Check(context.Background(), cfg)
-	if !report.Ready {
-		t.Fatalf("report = %#v", report)
+	if report.Ready {
+		t.Fatal("readiness unexpectedly succeeded without required dependencies")
 	}
-	for _, name := range []string{"postgres", "redis", "legacy"} {
-		if called[name] != 1 {
-			t.Fatalf("%s probe calls = %d", name, called[name])
-		}
+	if report.Checks["staticAssets"] != "index.html unavailable" {
+		t.Fatalf("staticAssets check = %q", report.Checks["staticAssets"])
+	}
+	if report.Checks["compatibilityApi"] != "required-but-not-configured" {
+		t.Fatalf("compatibilityApi check = %q", report.Checks["compatibilityApi"])
 	}
 }
 
-func TestStaticReadinessRequiresBuiltIndex(t *testing.T) {
+func TestReadinessRunsCompatibilityProbe(t *testing.T) {
 	directory := t.TempDir()
-	prober := Prober{}
-	report := prober.Check(context.Background(), config.APIConfig{Mode: config.APIModeStatic, StaticDir: directory})
-	if report.Ready {
-		t.Fatal("static readiness succeeded without index.html")
-	}
 	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("ok"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	report = prober.Check(context.Background(), config.APIConfig{Mode: config.APIModeStatic, StaticDir: directory})
-	if !report.Ready {
-		t.Fatalf("report = %#v", report)
+	called := 0
+	prober := Prober{Legacy: func(context.Context, string) error { called++; return nil }}
+	report := prober.Check(context.Background(), config.APIConfig{
+		StaticDir:    directory,
+		LegacyAPIURL: "http://legacy-api:3100",
+	})
+	if !report.Ready || called != 1 {
+		t.Fatalf("report = %#v, calls = %d", report, called)
 	}
 }
 
-func TestRedisProbeRejectsPlainHTTPService(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		connection, acceptErr := listener.Accept()
-		if acceptErr != nil {
+func TestCompatibilityProbeRequiresProtocolValidPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/readyz" {
+			http.NotFound(w, r)
 			return
 		}
-		defer connection.Close()
-		reader := bufio.NewReader(connection)
-		_, _ = reader.ReadString('\n')
-		_, _ = fmt.Fprint(connection, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := checkRedis(ctx, "redis://"+listener.Addr().String()+"/0"); err == nil {
-		t.Fatal("Redis probe accepted a plain HTTP service")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"status":"ready"}}`))
+	}))
+	defer server.Close()
+	if err := checkLegacy(context.Background(), server.URL); err != nil {
+		t.Fatal(err)
 	}
-	<-done
-}
 
-func TestPostgresProbeRejectsNonPostgresURL(t *testing.T) {
-	if err := checkPostgres(context.Background(), "http://127.0.0.1:5432/database"); err == nil {
-		t.Fatal("PostgreSQL probe accepted an HTTP URL")
+	invalid := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"success":true,"data":{"status":"not-ready"}}`))
+	}))
+	defer invalid.Close()
+	if err := checkLegacy(context.Background(), invalid.URL); err == nil || !strings.Contains(err.Error(), "not-ready") {
+		t.Fatalf("invalid readiness error = %v", err)
 	}
 }
