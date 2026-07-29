@@ -4,7 +4,6 @@ import { buildApp } from '../app.js';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import prisma from '../lib/prisma.js';
-import { authService } from '../modules/auth/auth.service.js';
 
 interface RuntimeLogger {
     info: (...args: unknown[]) => void;
@@ -17,9 +16,6 @@ interface PrismaRuntimeClient {
 }
 
 interface ApiRuntimeDeps {
-    authService: {
-        ensureBootstrapAdmin(): Promise<{ username: string } | null>;
-    };
     buildApp: () => Promise<FastifyInstance>;
     logger: RuntimeLogger;
     port: number;
@@ -27,7 +23,6 @@ interface ApiRuntimeDeps {
 }
 
 const defaultApiRuntimeDeps: ApiRuntimeDeps = {
-    authService,
     buildApp,
     logger,
     port: env.PORT,
@@ -45,12 +40,6 @@ export function createApiRuntime(deps: ApiRuntimeDeps = defaultApiRuntimeDeps) {
             try {
                 await deps.prisma.$connect();
                 deps.logger.info('Database connected');
-
-                const bootstrapAdmin = await deps.authService.ensureBootstrapAdmin();
-                if (bootstrapAdmin) {
-                    deps.logger.info({ username: bootstrapAdmin.username }, 'Bootstrap admin initialized');
-                }
-
                 await app.listen({ port: deps.port, host: '0.0.0.0' });
                 deps.logger.info(`Server running at http://localhost:${deps.port}`);
                 started = true;
