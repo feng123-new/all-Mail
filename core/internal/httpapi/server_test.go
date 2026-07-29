@@ -185,11 +185,11 @@ func TestProxyAcceptsCanonicalClientIPOnlyFromTrustedPeer(t *testing.T) {
 	defer legacy.Close()
 
 	server, err := New(config.APIConfig{
-		StaticDir:        writeStaticIndex(t),
-		LegacyAPIURL:     legacy.URL,
+		StaticDir:         writeStaticIndex(t),
+		LegacyAPIURL:      legacy.URL,
 		TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
-		ReadyTimeout:     time.Second,
-		ShutdownTimeout:  time.Second,
+		ReadyTimeout:      time.Second,
+		ShutdownTimeout:   time.Second,
 	}, discardLogger())
 	if err != nil {
 		t.Fatal(err)
