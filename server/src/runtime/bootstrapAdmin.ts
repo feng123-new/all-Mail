@@ -181,7 +181,12 @@ export async function bootstrapAdministrator(
     const bootstrapFile = environment.BOOTSTRAP_ADMIN_SECRET_FILE?.trim() || DEFAULT_BOOTSTRAP_FILE;
 
     return prisma.$transaction(async (transaction) => {
-        await transaction.$queryRaw`SELECT pg_advisory_xact_lock(${BOOTSTRAP_LOCK_NAMESPACE}, ${BOOTSTRAP_LOCK_KEY})`;
+        await transaction.$queryRaw`
+            SELECT pg_advisory_xact_lock(
+                CAST(${BOOTSTRAP_LOCK_NAMESPACE} AS integer),
+                CAST(${BOOTSTRAP_LOCK_KEY} AS integer)
+            )
+        `;
 
         const admins = await transaction.admin.findMany({
             select: {
