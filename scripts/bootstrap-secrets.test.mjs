@@ -7,11 +7,11 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  ensureRuntimeSecrets,
+  parseEnvText,
   BOOTSTRAP_ADMIN_FILENAME,
   LEGACY_SECRETS_FILENAME,
   RUNTIME_SECRETS_FILENAME,
-  ensureRuntimeSecrets,
-  parseEnvText,
 } from './bootstrap-secrets.mjs';
 
 const bootstrapScript = fileURLToPath(new URL('./bootstrap-secrets.mjs', import.meta.url));

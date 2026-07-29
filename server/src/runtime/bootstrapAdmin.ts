@@ -131,6 +131,8 @@ export function resolveBootstrapCredential(
             throw new Error(`${name} must not start or end with a quote`);
         }
     }
+    const environmentUsername = environment.ADMIN_USERNAME?.trim() ?? '';
+    const environmentPassword = environment.ADMIN_PASSWORD?.trim() ?? '';
 
     if (!isMissing(fileEntries.ADMIN_PASSWORD)) {
         return validateCredential({
@@ -142,19 +144,19 @@ export function resolveBootstrapCredential(
         });
     }
 
-    if (!isMissing(environment.ADMIN_PASSWORD)) {
+    if (!isMissing(environmentPassword)) {
         return validateCredential({
-            username: !isMissing(environment.ADMIN_USERNAME)
-                ? environment.ADMIN_USERNAME!.trim()
+            username: !isMissing(environmentUsername)
+                ? environmentUsername
                 : 'admin',
-            password: environment.ADMIN_PASSWORD!.trim(),
+            password: environmentPassword,
             source: 'environment',
         });
     }
 
     return validateCredential({
-        username: !isMissing(environment.ADMIN_USERNAME)
-            ? environment.ADMIN_USERNAME!.trim()
+        username: !isMissing(environmentUsername)
+            ? environmentUsername
             : 'admin',
         password: randomBytes(18).toString('base64url'),
         source: 'generated',
@@ -162,8 +164,9 @@ export function resolveBootstrapCredential(
 }
 
 function resolveLoginUrl(environment: NodeJS.ProcessEnv): string {
-    const base = !isMissing(environment.PUBLIC_BASE_URL)
-        ? environment.PUBLIC_BASE_URL!.trim().replace(/\/+$/, '')
+    const publicBaseURL = environment.PUBLIC_BASE_URL?.trim() ?? '';
+    const base = !isMissing(publicBaseURL)
+        ? publicBaseURL.replace(/\/+$/, '')
         : `http://127.0.0.1:${environment.APP_PORT?.trim() || '3002'}`;
     return `${base}/login`;
 }
@@ -186,8 +189,7 @@ async function matchExistingBootstrapAdmin(
     if (requestedUsername) {
         const named = admins.find((admin) => admin.username === requestedUsername);
         if (
-            named
-            && named.mustChangePassword
+            named?.mustChangePassword
             && await bcrypt.compare(password, named.passwordHash)
         ) {
             return named;

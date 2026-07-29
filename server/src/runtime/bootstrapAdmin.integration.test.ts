@@ -50,7 +50,7 @@ void test(
                 },
             });
             assert.equal(admin.mustChangePassword, true);
-            assert.equal(await bcrypt.compare(first.password!, admin.passwordHash), true);
+            assert.equal(await bcrypt.compare(first.password, admin.passwordHash), true);
 
             const second = await bootstrapAdministrator(prisma, {
                 ...environment,

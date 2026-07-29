@@ -137,7 +137,7 @@ test("forwarding and retention remain independent Go services", async () => {
 	assert.match(compose, /worker-retention:[\s\S]*?command: \["worker", "retention"\]/);
 	assert.match(compose, /allmail", "doctor", "worker", "forwarding"/);
 	assert.match(compose, /allmail", "doctor", "worker", "retention"/);
-	assert.doesNotMatch(compose, /\n  (?:go-jobs|legacy-jobs|jobs):/);
+	assert.doesNotMatch(compose, /\n[ ]{2}(?:go-jobs|legacy-jobs|jobs):/);
 });
 
 test("long-running compatibility API uses the unprivileged hardened runtime", async () => {
