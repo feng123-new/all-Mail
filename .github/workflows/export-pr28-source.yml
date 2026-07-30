@@ -20,14 +20,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ ! -d .github/pr28-payload ]; then
+            echo 'PR28 source payload is already applied.'
+            exit 0
+          fi
           cat .github/pr28-payload/part-* > "$RUNNER_TEMP/pr28-payload.b64"
           test "$(wc -c < "$RUNNER_TEMP/pr28-payload.b64")" = "73572"
           echo '735bdcaa4d44927a71c8295116b6ea944662d85e5dc7de7f68b706f4edbb86fd  '"$RUNNER_TEMP/pr28-payload.b64" | sha256sum -c -
           base64 -d "$RUNNER_TEMP/pr28-payload.b64" > "$RUNNER_TEMP/pr28-payload.tar.gz"
           echo 'f831e149d89296571071ab6ca53b2fca144d0f9838a0b48d33d0406ae942db4a  '"$RUNNER_TEMP/pr28-payload.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/pr28-payload.tar.gz" -C .
+          git checkout HEAD -- .github/workflows/ci.yml .github/workflows/bootstrap-admin-security.yml
           rm -rf .github/pr28-payload
-          rm -f .github/workflows/export-pr28-source.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
