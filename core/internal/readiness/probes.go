@@ -18,7 +18,7 @@ import (
 type Probe func(context.Context, string) error
 
 type Prober struct {
-	Legacy Probe
+	BusinessAPI Probe
 }
 
 type Report struct {
@@ -27,7 +27,7 @@ type Report struct {
 }
 
 func Default() Prober {
-	return Prober{Legacy: checkLegacy}
+	return Prober{BusinessAPI: checkBusinessAPI}
 }
 
 func (p Prober) Check(ctx context.Context, cfg config.APIConfig) Report {
@@ -39,7 +39,7 @@ func (p Prober) Check(ctx context.Context, cfg config.APIConfig) Report {
 	} else {
 		report.Checks["staticAssets"] = "ok"
 	}
-	p.runRequired(ctx, &report, "compatibilityApi", cfg.LegacyAPIURL, p.Legacy)
+	p.runRequired(ctx, &report, "businessApi", cfg.BusinessAPIURL, p.BusinessAPI)
 	return report
 }
 
@@ -62,7 +62,7 @@ func (p Prober) runRequired(ctx context.Context, report *Report, name, target st
 	report.Checks[name] = "ok"
 }
 
-func checkLegacy(ctx context.Context, baseURL string) error {
+func checkBusinessAPI(ctx context.Context, baseURL string) error {
 	target, err := url.Parse(baseURL)
 	if err != nil {
 		return err
@@ -84,7 +84,7 @@ func checkLegacy(ctx context.Context, baseURL string) error {
 		return err
 	}
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("compatibility readiness returned %d: %s", response.StatusCode, compactOutput(body))
+		return fmt.Errorf("business API readiness returned %d: %s", response.StatusCode, compactOutput(body))
 	}
 	var envelope struct {
 		Success bool `json:"success"`
@@ -93,10 +93,10 @@ func checkLegacy(ctx context.Context, baseURL string) error {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return fmt.Errorf("decode compatibility readiness: %w", err)
+		return fmt.Errorf("decode business API readiness: %w", err)
 	}
 	if !envelope.Success || envelope.Data.Status != "ready" {
-		return fmt.Errorf("compatibility readiness reported status %q", envelope.Data.Status)
+		return fmt.Errorf("business API readiness reported status %q", envelope.Data.Status)
 	}
 	return nil
 }

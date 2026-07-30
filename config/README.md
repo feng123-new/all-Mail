@@ -13,6 +13,8 @@ Scopes in the manifest are process ownership, not documentation labels:
 
 The long-running API does not receive `SEND_ENABLED_DOMAINS`, provider OAuth credentials, or `INGRESS_SIGNING_SECRET`. After one successful initializer import and verification, populated compatibility values should be removed from the production `.env`.
 
-Internal container variables such as `DATABASE_URL`, `REDIS_URL`, `ALL_MAIL_STATE_DIR`, `ALL_MAIL_STATIC_DIR`, `LEGACY_API_URL`, and fixed secret-file paths are owned by Compose and are intentionally absent from the operator template.
+Internal container variables such as `DATABASE_URL`, `REDIS_URL`, `ALL_MAIL_STATE_DIR`, `ALL_MAIL_STATIC_DIR`, `BUSINESS_API_URL`, and fixed secret-file paths are owned by Compose and are intentionally absent from the operator template.
 
 Node.js 24 LTS is the repository runtime baseline. Docker, CI, and local version files must move together; Dependabot is configured not to advance the Docker image to a new Node major before an explicit LTS cutover.
+
+The `BUSINESS_API_URL` and image override variables are internal Compose inputs. The retired `LEGACY_API_URL` and `ALL_MAIL_LEGACY_IMAGE` names are rejected.

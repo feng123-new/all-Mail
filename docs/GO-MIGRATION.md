@@ -9,7 +9,7 @@ Browser / automation / Cloudflare Worker
                   |
              Go public gateway
               /       \
-        React SPA    compatibility API proxy
+        React SPA    business API proxy
                          |
                  Fastify / Prisma
 ```
@@ -28,12 +28,12 @@ The environment-backed administrator has been removed. Initial administrator cre
 ## Runtime layout
 
 ```text
-legacy-init         secrets + Prisma migrations + initial DB administrator
+business-init         secrets + Prisma migrations + initial DB administrator
 go-migrate          additive checksummed Go migrations
 app                 Go public gateway, SPA and compatibility proxy
 worker-forwarding   independent Go forwarding runtime
 worker-retention    independent Go retention runtime
-legacy-api          internal Fastify/Prisma business API
+business-api          internal Fastify/Prisma business API
 postgres            private database
 redis               private OAuth/rate-limit/replay/cache backend
 ```
@@ -44,7 +44,7 @@ redis               private OAuth/rate-limit/replay/cache backend
 postgres healthy
       |
       v
-legacy-init
+business-init
   - split old secret bundle
   - establish runtime secrets
   - Prisma migrate
@@ -56,17 +56,17 @@ go-migrate
       +-----------------------------+
       |                             |
       v                             v
-legacy-api healthy               Go workers
+business-api healthy               Go workers
       |
       v
      app
 ```
 
-`legacy-init` does not depend on Redis. Long-running services do not migrate schema or create administrators.
+`business-init` does not depend on Redis. Long-running services do not migrate schema or create administrators.
 
 ## Administrator ownership
 
-`legacy-init` accepts one-shot `ADMIN_USERNAME`/`ADMIN_PASSWORD`, or generates a password when blank. Under PostgreSQL advisory transaction lock `(421337, 240730)` it:
+`business-init` accepts one-shot `ADMIN_USERNAME`/`ADMIN_PASSWORD`, or generates a password when blank. Under PostgreSQL advisory transaction lock `(421337, 240730)` it:
 
 1. inspects existing administrators;
 2. creates a `SUPER_ADMIN` only when none exist;
@@ -205,10 +205,10 @@ Repository gates cover:
 | Public gateway/SPA/proxy identity | Go `app` |
 | Forwarding | `worker-forwarding` |
 | Retention | `worker-retention` |
-| Initial administrator creation | `legacy-init` one-shot |
+| Initial administrator creation | `business-init` one-shot |
 | Administrator login/2FA/session | Fastify/Prisma database-backed |
 | Other business APIs | Fastify/Prisma |
-| Business schema migrations | Prisma in `legacy-init` |
+| Business schema migrations | Prisma in `business-init` |
 | Additive runtime migrations | `go-migrate` |
 | Cloudflare Email Worker | TypeScript Worker |
 

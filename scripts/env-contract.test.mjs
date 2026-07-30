@@ -74,7 +74,7 @@ test("administrator bootstrap, config import, and secret files remain one-shot",
 		read("server/src/modules/auth/auth.service.ts"), read("scripts/bootstrap-secrets.mjs"),
 		read(".github/workflows/ci.yml"),
 	]);
-	const migrationIndex = entrypoint.indexOf("run_legacy_migrations");
+	const migrationIndex = entrypoint.indexOf("run_business_migrations");
 	const importIndex = entrypoint.indexOf("npm run config:import-env");
 	const bootstrapIndex = entrypoint.lastIndexOf("node dist/runtime/bootstrapAdmin.js");
 	assert.ok(migrationIndex >= 0 && importIndex > migrationIndex && bootstrapIndex > importIndex);
@@ -107,12 +107,12 @@ test("long-running business code no longer reads imported environment settings",
 });
 
 test("production images and root scripts retain the hardened topology", async () => {
-	const [compose, dockerfile, legacyDockerfile, entrypoint, packageJson] = await Promise.all([
-		read("docker-compose.yml"), read("Dockerfile"), read("Dockerfile.legacy"), read("docker/entrypoint.sh"),
+	const [compose, dockerfile, serverDockerfile, entrypoint, packageJson] = await Promise.all([
+		read("docker-compose.yml"), read("Dockerfile"), read("Dockerfile.server"), read("docker/entrypoint.sh"),
 		read("package.json").then(JSON.parse),
 	]);
-	assert.match(compose, /x-legacy-runtime:[\s\S]*?user: "10001:10001"/);
-	assert.match(legacyDockerfile, /FROM node:24-bookworm-slim[\s\S]*useradd --system --uid 10001[\s\S]*gosu/);
+	assert.match(compose, /x-server-runtime:[\s\S]*?user: "10001:10001"/);
+	assert.match(serverDockerfile, /FROM node:24-bookworm-slim[\s\S]*useradd --system --uid 10001[\s\S]*gosu/);
 	assert.match(dockerfile, /FROM node:24-bookworm-slim/);
 	assert.match(entrypoint, /chown -R 10001:10001 "\$ALL_MAIL_STATE_DIR"/);
 	assert.equal(packageJson.files, undefined);
@@ -141,7 +141,7 @@ test("operator documentation uses canonical paths and redacts secrets", async ()
 	assert.match(combined, /runtime-secrets\.env[\s\S]*?<redacted>/);
 });
 
-test("compatibility API omits retired direct dependencies", async () => {
+test("business API omits retired direct dependencies", async () => {
 	const pkg = JSON.parse(await read("server/package.json"));
 	for (const name of ["@fastify/rate-limit", "@fastify/static", "@fastify/swagger", "@fastify/swagger-ui", "pg"])
 		assert.equal(pkg.dependencies[name], undefined, name);
@@ -158,4 +158,24 @@ test("local tooling has no retired fallback and proxies every namespace", async 
 	assert.doesNotMatch(cli, /ALL_MAIL_ENV_FILE|POSTGRES_HOST|REDIS_HOST/);
 	for (const prefix of ["/admin", "/api", "/mail", "/ingress", "/oauth"])
 		assert.match(vite, new RegExp(`['\"]${prefix}['\"]`));
+});
+
+
+test("business runtime naming preserves the pre-rename physical secret volume", async () => {
+	const [compose, goConfig, entrypoint] = await Promise.all([
+		read("docker-compose.yml"),
+		read("core/internal/config/config.go"),
+		read("docker/entrypoint.sh"),
+	]);
+	assert.match(compose, /\n  business-init:/);
+	assert.match(compose, /\n  business-api:/);
+	assert.doesNotMatch(compose, /\n  legacy-(?:init|api):/);
+	assert.match(compose, /BUSINESS_API_URL: http:\/\/business-api:3100/);
+	assert.match(compose, /runtime_secrets_data:[\s\S]*name: "\$\{COMPOSE_PROJECT_NAME:-all-mail\}_legacy_runtime_data"/);
+	assert.doesNotMatch(compose, /ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR/);
+	assert.match(goConfig, /BUSINESS_API_URL/);
+	assert.doesNotMatch(goConfig, /LEGACY_API_URL/);
+	assert.match(entrypoint, /ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR/);
+	await access(path.join(repoRoot, "Dockerfile.server"));
+	await assert.rejects(access(path.join(repoRoot, "Dockerfile.legacy")));
 });

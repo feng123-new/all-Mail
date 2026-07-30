@@ -53,12 +53,12 @@ func newWithProber(cfg config.APIConfig, logger *slog.Logger, prober readiness.P
 		startedAt: time.Now(),
 		prober:    prober,
 	}
-	if cfg.LegacyAPIURL != "" {
-		target, err := cfg.LegacyURL()
+	if cfg.BusinessAPIURL != "" {
+		target, err := cfg.BusinessURL()
 		if err != nil {
 			return nil, err
 		}
-		server.proxy = newLegacyProxy(target, logger)
+		server.proxy = newBusinessProxy(target, logger)
 	}
 	return server, nil
 }
@@ -88,7 +88,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Info(
 			"Go API runtime listening",
 			"address", httpServer.Addr,
-			"compatibility_api", s.cfg.LegacyAPIURL,
+			"business_api", s.cfg.BusinessAPIURL,
 			"trusted_proxy_cidrs", len(s.cfg.TrustedProxyCIDRs),
 		)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -111,9 +111,9 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"data": map[string]any{
-			"status":                     "ok",
-			"runtime":                    "go-gateway",
-			"compatibilityApiConfigured": s.proxy != nil,
+			"status":                "ok",
+			"runtime":               "go-gateway",
+			"businessApiConfigured": s.proxy != nil,
 		},
 	})
 }
@@ -162,8 +162,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 				"success":   false,
 				"requestId": requestID(r),
 				"error": map[string]string{
-					"code":    "COMPATIBILITY_API_NOT_CONFIGURED",
-					"message": "This business route still requires LEGACY_API_URL.",
+					"code":    "BUSINESS_API_NOT_CONFIGURED",
+					"message": "This business route still requires BUSINESS_API_URL.",
 				},
 			})
 			return
@@ -257,7 +257,7 @@ func (s *Server) resolveProxyMetadata(r *http.Request) proxyMetadata {
 	return metadata
 }
 
-func newLegacyProxy(target *url.URL, logger *slog.Logger) *httputil.ReverseProxy {
+func newBusinessProxy(target *url.URL, logger *slog.Logger) *httputil.ReverseProxy {
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(request *httputil.ProxyRequest) {
 			request.SetURL(target)
@@ -282,7 +282,7 @@ func newLegacyProxy(target *url.URL, logger *slog.Logger) *httputil.ReverseProxy
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.Error(
-				"compatibility API proxy failed",
+				"business API proxy failed",
 				"request_id", requestID(r),
 				"path", r.URL.Path,
 				"error", err,
@@ -290,7 +290,7 @@ func newLegacyProxy(target *url.URL, logger *slog.Logger) *httputil.ReverseProxy
 			writeJSON(w, http.StatusBadGateway, map[string]any{
 				"success":   false,
 				"requestId": requestID(r),
-				"error":     map[string]string{"code": "COMPATIBILITY_API_UNAVAILABLE"},
+				"error":     map[string]string{"code": "BUSINESS_API_UNAVAILABLE"},
 			})
 		},
 	}

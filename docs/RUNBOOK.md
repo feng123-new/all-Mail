@@ -17,7 +17,7 @@ Long-running:
 app
 worker-forwarding
 worker-retention
-legacy-api
+business-api
 postgres
 redis
 ```
@@ -25,7 +25,7 @@ redis
 Completed one-shot:
 
 ```text
-legacy-init
+business-init
 go-migrate
 ```
 
@@ -38,7 +38,7 @@ curl --fail http://127.0.0.1:3002/readyz
 docker compose exec -T app allmail doctor api
 docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
-test "$(docker compose exec -T legacy-api id -u)" = "10001"
+test "$(docker compose exec -T business-api id -u)" = "10001"
 ! docker compose port postgres 5432
 ! docker compose port redis 6379
 ```
@@ -46,9 +46,9 @@ test "$(docker compose exec -T legacy-api id -u)" = "10001"
 Logs:
 
 ```bash
-docker compose logs legacy-init --tail=300
+docker compose logs business-init --tail=300
 docker compose logs go-migrate --tail=300
-docker compose logs legacy-api --tail=300
+docker compose logs business-api --tail=300
 docker compose logs app --tail=300
 docker compose logs worker-forwarding --tail=300
 docker compose logs worker-retention --tail=300
@@ -59,9 +59,9 @@ docker compose logs worker-retention --tail=300
 Investigate the first failed stage:
 
 1. PostgreSQL/Redis;
-2. `legacy-init`;
+2. `business-init`;
 3. `go-migrate`;
-4. `legacy-api`;
+4. `business-api`;
 5. `app` or an independent worker.
 
 Do not restart downstream services while an earlier one-shot stage is failed.
@@ -75,7 +75,7 @@ docker compose exec redis redis-cli -p 6379 ping
 
 Local host access requires `docker-compose.dev.yml`.
 
-## `legacy-init` failed
+## `business-init` failed
 
 The initializer owns:
 
@@ -88,7 +88,7 @@ The initializer owns:
 It waits only for PostgreSQL.
 
 ```bash
-docker compose logs legacy-init --tail=400
+docker compose logs business-init --tail=400
 ```
 
 ### Prisma P3005
@@ -97,8 +97,8 @@ After inspection and backup, run the explicit one-shot compatibility repair only
 
 ```bash
 docker compose run --rm \
-  -e ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true \
-  legacy-init
+  -e ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR=true \
+  business-init
 ```
 
 Do not persist the switch.
@@ -158,7 +158,7 @@ Removed legacy file:
 Inspect names without printing values:
 
 ```bash
-docker compose exec legacy-api sh -lc '
+docker compose exec business-api sh -lc '
   ls -l /var/lib/all-mail
   sed -n "s/=.*$/=<redacted>/p" /var/lib/all-mail/runtime-secrets.env
   test ! -e /var/lib/all-mail/bootstrap-secrets.env
@@ -170,7 +170,7 @@ docker compose exec legacy-api sh -lc '
 ### Initial password is still required
 
 ```bash
-docker compose exec legacy-api sh -lc \
+docker compose exec business-api sh -lc \
   "grep '^ADMIN_USERNAME=' /var/lib/all-mail/bootstrap-admin.env && \
    grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-admin.env"
 ```
@@ -178,7 +178,7 @@ docker compose exec legacy-api sh -lc \
 After successful first password rotation:
 
 ```bash
-docker compose exec legacy-api sh -lc \
+docker compose exec business-api sh -lc \
   'test ! -e /var/lib/all-mail/bootstrap-admin.env'
 ```
 
@@ -202,7 +202,7 @@ If logs report a pending administrator with no recoverable file:
 This is a configuration regression. It must report empty values:
 
 ```bash
-docker compose exec legacy-api sh -lc '
+docker compose exec business-api sh -lc '
   test -z "${ADMIN_USERNAME:-}"
   test -z "${ADMIN_PASSWORD:-}"
   test -z "${DOMAIN_BOOTSTRAP_ADMIN_USERNAME:-}"
@@ -261,8 +261,8 @@ The public app checks SPA assets and Fastify readiness. It has no PostgreSQL/Red
 ## Fastify unhealthy
 
 ```bash
-docker compose logs legacy-api --tail=300
-docker compose exec -T legacy-api node -e \
+docker compose logs business-api --tail=300
+docker compose exec -T business-api node -e \
   "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(console.error)"
 ```
 
@@ -333,7 +333,7 @@ Persisted volumes:
 ```text
 postgres_data
 redis_data
-legacy_runtime_data
+runtime_secrets_data
 forwarding_runtime_data
 ```
 

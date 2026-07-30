@@ -48,7 +48,7 @@ x-allmail-hardening: &allmail-hardening
   cap_drop:
     - ALL
 
-x-legacy-runtime: &legacy-runtime
+x-server-runtime: &server-runtime
   <<: *allmail-hardening
   user: "10001:10001"
 
@@ -59,18 +59,18 @@ x-go-runtime: &go-runtime
     context: .
     dockerfile: Dockerfile
 
-x-legacy-long-runtime: &legacy-long-runtime
-  <<: *legacy-runtime
-  image: ${ALL_MAIL_LEGACY_IMAGE:-all-mail-legacy}:${ALL_MAIL_IMAGE_TAG:-local}
+x-business-api-runtime: &business-api-runtime
+  <<: *server-runtime
+  image: ${ALL_MAIL_SERVER_IMAGE:-all-mail-server}:${ALL_MAIL_IMAGE_TAG:-local}
   build:
     context: .
-    dockerfile: Dockerfile.legacy
+    dockerfile: Dockerfile.server
 
-x-legacy-init-runtime: &legacy-init-runtime
-  image: ${ALL_MAIL_LEGACY_IMAGE:-all-mail-legacy}:${ALL_MAIL_IMAGE_TAG:-local}
+x-business-init-runtime: &business-init-runtime
+  image: ${ALL_MAIL_SERVER_IMAGE:-all-mail-server}:${ALL_MAIL_IMAGE_TAG:-local}
   build:
     context: .
-    dockerfile: Dockerfile.legacy
+    dockerfile: Dockerfile.server
   read_only: true
   tmpfs:
     - /tmp:size=64m,mode=1777
@@ -78,19 +78,18 @@ x-legacy-init-runtime: &legacy-init-runtime
     - no-new-privileges:true
 
 services:
-  legacy-init:
-    <<: *legacy-init-runtime
+  business-init:
+    <<: *business-init-runtime
     command: ["init"]
     environment:
       <<: *bootstrap-environment
       ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE: /var/lib/all-mail-forwarding/encryption-key
-      ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR: ${ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR:-false}
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"
     volumes:
-      - legacy_runtime_data:/var/lib/all-mail
+      - runtime_secrets_data:/var/lib/all-mail
       - forwarding_runtime_data:/var/lib/all-mail-forwarding
     networks:
       - app-network
@@ -102,7 +101,7 @@ services:
       ALL_MAIL_MIGRATION_DIR: /app/migrations
       DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
     depends_on:
-      legacy-init:
+      business-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
@@ -110,8 +109,8 @@ services:
     networks:
       - app-network
 
-  legacy-api:
-    <<: *legacy-long-runtime
+  business-api:
+    <<: *business-api-runtime
     command: ["api"]
     environment:
       <<: *api-environment
@@ -126,7 +125,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     volumes:
-      - legacy_runtime_data:/var/lib/all-mail
+      - runtime_secrets_data:/var/lib/all-mail
     networks:
       - app-network
     healthcheck:
@@ -144,14 +143,14 @@ services:
     environment:
       PORT: 3000
       ALL_MAIL_STATIC_DIR: /app/public
-      LEGACY_API_URL: http://legacy-api:3100
+      BUSINESS_API_URL: http://business-api:3100
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
       go-migrate:
         condition: service_completed_successfully
-      legacy-api:
+      business-api:
         condition: service_healthy
     restart: unless-stopped
     stop_grace_period: 30s
@@ -268,7 +267,8 @@ networks:
     driver: bridge
 
 volumes:
-  legacy_runtime_data:
+  runtime_secrets_data:
+    name: "${COMPOSE_PROJECT_NAME:-all-mail}_legacy_runtime_data"
   forwarding_runtime_data:
   redis_data:
   postgres_data:

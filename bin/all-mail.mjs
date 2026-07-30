@@ -30,7 +30,7 @@ Usage:
 
 Commands:
   install   Install server, web, and Cloudflare Worker dependencies
-  build     Build the compatibility API and React frontend
+  build     Build the business API and React frontend
   doctor    Check env resolution, infrastructure reachability, and build artifacts
   deps      Start or stop PostgreSQL + Redis with docker-compose.dev.yml
   check     Run the full repository release gate
@@ -244,7 +244,7 @@ async function runDoctor(options) {
     }
 
     const artifacts = [
-      [path.join(serverDir, 'dist', 'index.js'), 'Compatibility API build artifacts'],
+      [path.join(serverDir, 'dist', 'index.js'), 'Business API build artifacts'],
       [path.join(webDir, 'dist', 'index.html'), 'React frontend build artifacts'],
     ];
     for (const [artifact, label] of artifacts) {

@@ -308,7 +308,7 @@ async function main(): Promise<void> {
                 console.log('WARNING: startup logs may retain this password; disable ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD immediately.');
             } else {
                 console.log(`Bootstrap admin password is stored in ${bootstrapFile}.`);
-                console.log(`Example: docker compose exec legacy-api sh -lc "grep '^ADMIN_PASSWORD=' ${bootstrapFile} | cut -d= -f2-"`);
+                console.log(`Example: docker compose exec business-api sh -lc "grep '^ADMIN_PASSWORD=' ${bootstrapFile} | cut -d= -f2-"`);
             }
             console.log('You must change the temporary password before using the rest of the application.');
             return;

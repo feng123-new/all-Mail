@@ -6,6 +6,8 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- renamed migration-era runtime services and configuration to business ownership names, while preserving the existing physical runtime-secret volume for in-place upgrades
+
 - moved provider OAuth credentials, domain send approval, and ingress signing secrets from the long-running API environment into encrypted or audited PostgreSQL state
 - added an idempotent initializer-only compatibility importer with explicit conflict detection and unknown-domain rejection
 - made ingress authentication require an endpoint-scoped encrypted secret while preserving safe deployment checks for already imported endpoints

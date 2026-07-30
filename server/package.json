@@ -1,7 +1,7 @@
 {
     "name": "all-mail-server",
     "version": "2.0.0",
-    "description": "all-Mail compatibility business API - Fastify + TypeScript + Prisma",
+    "description": "all-Mail business API - Fastify + TypeScript + Prisma",
     "type": "module",
     "main": "dist/index.js",
     "scripts": {
@@ -17,7 +17,7 @@
         "config:import-env": "node dist/runtime/importEnvironmentConfig.js",
         "db:generate": "prisma generate",
         "db:push": "prisma db push",
-        "db:repair:legacy-p3005": "prisma db execute --file prisma/legacy-p3005-repair.sql --schema prisma/schema.prisma",
+        "db:repair:p3005": "prisma db execute --file prisma/p3005-repair.sql --schema prisma/schema.prisma",
         "db:migrate": "prisma migrate deploy",
         "db:studio": "prisma studio",
         "ingress:ensure": "tsx scripts/ensure-ingress-endpoint.ts",

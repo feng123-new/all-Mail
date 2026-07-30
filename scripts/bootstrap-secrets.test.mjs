@@ -102,7 +102,7 @@ void test('concurrent clean initialization exports one consistent runtime key se
 });
 
 void test('legacy combined secret bundle is split and removed atomically', async () => {
-  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-legacy-secrets-'));
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-server-secrets-'));
   await writeFile(path.join(stateDir, LEGACY_SECRETS_FILENAME), [
     'JWT_SECRET=legacy-jwt-secret-that-is-at-least-thirty-two-characters',
     'ENCRYPTION_KEY=0123456789abcdef0123456789abcdef',
@@ -130,7 +130,7 @@ void test('legacy combined secret bundle is split and removed atomically', async
 });
 
 void test('canonical one-shot admin values override a legacy bundle during alias migration', async () => {
-  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-legacy-admin-override-'));
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'all-mail-server-admin-override-'));
   await writeFile(path.join(stateDir, LEGACY_SECRETS_FILENAME), [
     'JWT_SECRET=legacy-jwt-secret-that-is-at-least-thirty-two-characters',
     'ENCRYPTION_KEY=0123456789abcdef0123456789abcdef',

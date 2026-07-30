@@ -5,12 +5,12 @@ This directory contains the canonical Go runtime for `all-Mail`.
 Current ownership:
 
 - `allmail api` owns the public listener, React SPA, request IDs, trusted-proxy normalization, readiness and metrics;
-- unmigrated business paths are proxied to the internal Fastify compatibility API;
+- unmigrated business paths are proxied to the internal Fastify business API;
 - `allmail worker forwarding` owns mailbox forwarding;
 - `allmail worker retention` owns API-log retention;
 - `allmail migrate` owns checksummed additive Go migrations.
 
-The Go gateway deliberately does not receive PostgreSQL or Redis credentials while it owns no native business route. Its readiness verifies built static assets plus the compatibility API's protocol-backed `/readyz` response.
+The Go gateway deliberately does not receive PostgreSQL or Redis credentials while it owns no native business route. Its readiness verifies built static assets plus the business API's protocol-backed `/readyz` response.
 
 ## Verification
 

@@ -80,7 +80,7 @@ Running the command again when an administrator exists must not create a second 
 
 ### Old combined-file migration
 
-Docker `legacy-init` automatically migrates `bootstrap-secrets.env`. For local testing, run `scripts/bootstrap-secrets.mjs` against an isolated state directory before `bootstrap:admin` and verify:
+Docker `business-init` automatically migrates `bootstrap-secrets.env`. For local testing, run `scripts/bootstrap-secrets.mjs` against an isolated state directory before `bootstrap:admin` and verify:
 
 ```text
 runtime-secrets.env
@@ -151,7 +151,7 @@ cp .env.example .env
 docker compose config --quiet
 docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
 docker compose up -d --build --wait --wait-timeout 300
-docker compose exec -T legacy-api sh -lc \
+docker compose exec -T business-api sh -lc \
   'test -z "${ADMIN_USERNAME:-}" && test -z "${ADMIN_PASSWORD:-}"'
 docker compose exec -T app allmail doctor api
 docker compose exec -T worker-forwarding allmail doctor worker forwarding
