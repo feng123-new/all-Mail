@@ -2,42 +2,52 @@
 
 ## Status
 
-The Go runtime is the canonical Docker entrypoint. Migration is complete for public HTTP ownership, SPA delivery, forwarding, and API-log retention, but not for the complete business API.
+The Go runtime is the canonical public Docker entrypoint. Migration is complete for public HTTP ownership, SPA delivery, route governance, forwarding, API-log retention, and the first database-backed Dashboard read slice. The complete business API is not yet migrated.
 
 ```text
 Browser / automation / Cloudflare Worker
                   |
-             Go public gateway
-              /       \
-        React SPA    business API proxy
-                         |
-                 Fastify / Prisma
+                  v
+             app (Go gateway)
+              /      |       \
+        React SPA    |        remaining business routes
+                     |                 |
+                     v                 v
+            go-business-api       business-api
+            private Go reads      Fastify / Prisma
+                     \                 /
+                      v               v
+                         PostgreSQL
 ```
 
 Go owns:
 
-- public listener, trusted-proxy normalization, SPA, request IDs, security headers, liveness/readiness and metrics;
-- the canonical route ownership manifest, route-family classification, and migration telemetry;
+- the public listener, trusted-proxy normalization, SPA, request IDs, security headers, liveness/readiness, and metrics;
+- the method-aware route ownership manifest and bounded migration telemetry;
+- the private `go-business-api` service for migrated database-backed handlers;
+- authenticated Dashboard statistics, API trend, and operation-log reads;
 - additive Go migrations;
 - forwarding;
 - API-log retention.
 
-Fastify/Prisma owns database-backed authentication, OAuth, API keys, domain/mailbox administration, provider operations, ingress business handling, and business-schema migrations.
-
-The environment-backed administrator has been removed. Initial administrator creation is a one-shot initializer responsibility.
+Fastify/Prisma still owns administrator login and 2FA, OAuth, API keys, domain/mailbox administration, provider operations, ingress, Dashboard log deletion, and business-schema migrations.
 
 ## Runtime layout
 
 ```text
 business-init       secrets + Prisma migrations + durable imports + initial DB administrator
+                    + exports least-privilege JWT/encryption files
 go-migrate          additive checksummed Go migrations
-app                 Go public gateway, SPA and manifest-routed business proxy
+app                 public Go gateway, SPA, method-aware private-upstream routing
+go-business-api     private Go database-backed business handlers
+business-api        private Fastify/Prisma remaining business handlers
 worker-forwarding   independent Go forwarding runtime
 worker-retention    independent Go retention runtime
-business-api        internal Fastify/Prisma business API
 postgres            private database
 redis               private OAuth/rate-limit/replay/cache backend
 ```
+
+Only `app` is host-published. `go-business-api`, `business-api`, PostgreSQL, and Redis are private to the Compose network.
 
 ## Startup ordering
 
@@ -48,6 +58,8 @@ postgres healthy
 business-init
   - split old secret bundle
   - establish runtime secrets
+  - export forwarding encryption key
+  - export Go-business JWT key
   - Prisma migrate
   - durable environment import
   - advisory-locked admin bootstrap
@@ -55,44 +67,22 @@ business-init
       v
 go-migrate
       |
-      +-----------------------------+
-      |                             |
-      v                             v
-business-api healthy               Go workers
-      |
-      v
-     app
+      +------------------------------+
+      |              |               |
+      v              v               v
+business-api   go-business-api     Go workers
+      \              /
+       +-------------+
+              |
+              v
+             app
 ```
 
-`business-init` does not depend on Redis. Long-running services do not migrate schema or create administrators.
-
-## Administrator ownership
-
-`business-init` accepts one-shot `ADMIN_USERNAME`/`ADMIN_PASSWORD`, or generates a password when blank. Under PostgreSQL advisory transaction lock `(421337, 240730)` it:
-
-1. inspects existing administrators;
-2. creates a `SUPER_ADMIN` only when none exist;
-3. marks it `mustChangePassword=true`;
-4. persists the one-time credential separately;
-5. never changes an existing administrator password.
-
-Fastify receives no administrator credentials. Login always resolves a positive database administrator ID that still exists and is active. Removed paths:
-
-```text
-ensureBootstrapAdmin()
-login-time account creation
-environment password authentication
-adminId=0 virtual administrator
-ADMIN_2FA_SECRET
-legacyEnv
-DOMAIN_BOOTSTRAP_ADMIN_*
-```
-
-Administrator 2FA is database-managed.
+Long-running services do not migrate schema or create administrators.
 
 ## Secret-file ownership
 
-Long-lived:
+Long-lived Node business state remains:
 
 ```text
 /var/lib/all-mail/runtime-secrets.env
@@ -100,7 +90,7 @@ Long-lived:
   ENCRYPTION_KEY
 ```
 
-One-time:
+One-time administrator state remains:
 
 ```text
 /var/lib/all-mail/bootstrap-admin.env
@@ -108,27 +98,53 @@ One-time:
   ADMIN_PASSWORD
 ```
 
-Removed/migrated:
+The removed combined bundle remains:
 
 ```text
 /var/lib/all-mail/bootstrap-secrets.env
 ```
 
-The old combined file is split atomically and removed. Historical custom usernames are recovered by comparing the preserved password with pending administrator hashes.
-
-After successful initial password rotation, Fastify removes `bootstrap-admin.env`. Rerunning the initializer does not recreate plaintext or a second administrator.
-
-The forwarding worker accepts only:
+The initializer exports only the minimum secrets required by Go roles:
 
 ```text
-ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
+worker-forwarding:
+  ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
+
+go-business-api:
+  JWT_SECRET_FILE=/var/lib/all-mail-secrets/jwt-secret
+```
+
+The public `app` receives neither file. `go-business-api` does not receive Redis, the encryption key, ingress secrets, OAuth credentials, or provider credentials during the Dashboard phase.
+
+After successful initial password rotation, Fastify removes `bootstrap-admin.env`. Rerunning the initializer does not recreate plaintext or a second administrator. Operator inspection must redact values, for example:
+
+```bash
+docker compose exec -T business-api sh -lc '
+  sed -n "s/=.*$/=<redacted>/p" /var/lib/all-mail/runtime-secrets.env
+'
 ```
 
 ## Public gateway least privilege
 
-The Go gateway owns no database-backed business handler yet, so it receives no `DATABASE_URL`, `REDIS_URL`, JWT secret, or encryption key.
+`app` receives only static assets, trusted-proxy settings, timeouts, the route manifest, and two internal upstream URLs:
 
-It loads `config/route-ownership.json` before listening. The manifest is the only routing ownership authority and contains stable route-family IDs, current owners, path match semantics, and migration state. The process refuses a missing or invalid manifest and refuses a contract that does not keep the system endpoints and SPA fallback on Go.
+```text
+BUSINESS_API_URL=http://business-api:3100
+GO_BUSINESS_API_URL=http://go-business-api:3200
+```
+
+It receives no `DATABASE_URL`, `REDIS_URL`, JWT secret, or encryption key. The manifest determines ownership; these URLs are transport targets, not mutable ownership switches.
+
+Manifest version 2 supports HTTP-method-specific ownership. The current split is:
+
+```text
+GET /admin/dashboard/stats       -> go-business-api
+GET /admin/dashboard/api-trend   -> go-business-api
+GET /admin/dashboard/logs        -> go-business-api
+
+DELETE /admin/dashboard/logs/:id -> business-api
+POST /admin/dashboard/logs/batch-delete -> business-api
+```
 
 Every response carries:
 
@@ -137,116 +153,159 @@ X-All-Mail-Route-Owner
 X-All-Mail-Route-Family
 ```
 
-The migration-era `X-All-Mail-Migration-Bridge` header is removed.
+See [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md).
 
-Its `/readyz` checks:
+## Private Go business service
 
-1. the route ownership manifest was loaded and validated at startup;
+`go-business-api` is a separate process in the existing Go image:
+
+```bash
+allmail business-api
+allmail doctor business-api
+```
+
+Its Dashboard authentication boundary mirrors the existing Fastify behavior:
+
+1. read the `token` cookie or Bearer token;
+2. require HS256;
+3. verify signature, expiry, optional not-before, and `admin-console` audience;
+4. require a positive administrator subject;
+5. reload the administrator from PostgreSQL;
+6. reject removed or disabled administrators;
+7. reject `mustChangePassword=true` outside the password-change flow.
+
+It uses a bounded PostgreSQL pool with UTC session timezone. Query parameters are bounded, query contexts are cancelled after a configured timeout, and `/readyz` performs a real PostgreSQL protocol check.
+
+## Dashboard response contract
+
+Migrated reads preserve the existing envelope:
+
+```json
+{"success":true,"data":{}}
+```
+
+Errors preserve:
+
+```json
+{"success":false,"requestId":"...","error":{"code":"...","details":null}}
+```
+
+Behavioral guarantees include:
+
+- `days` is limited to 1–90;
+- `page` is positive;
+- `pageSize` is limited to 1–100;
+- operation-log action filters are bounded;
+- trend rows include zero-count dates;
+- dates are calculated in UTC;
+- operation logs are ordered by time and ID;
+- missing API-key/email names remain `-`;
+- metadata request IDs are preserved.
+
+The Fastify read handlers remain temporarily for revision rollback. Delete them only after route metrics show zero Fastify traffic for the agreed observation window.
+
+## Aggregate readiness
+
+Public `/readyz` requires:
+
+1. a valid method-aware route manifest;
 2. the built React `index.html`;
-3. Fastify `/readyz` protocol/payload.
+3. Fastify `business-api` readiness;
+4. private `go-business-api` readiness.
 
-Fastify verifies PostgreSQL and Redis.
+Fastify checks PostgreSQL and Redis. The private Go service checks PostgreSQL. A failed required upstream makes the public gateway not ready.
 
-The `/metrics` endpoint exports bounded route-family ownership, inflight, request, status-class, duration, and proxy-error series. Raw paths, users, domains, mailboxes, request IDs, and secrets are not metric labels. See [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md).
+## Metrics
+
+The public `/metrics` endpoint exports route owner, declared methods, request count, bounded method/status labels, inflight requests, latency histogram, and proxy errors by private upstream.
+
+Allowed method labels are:
+
+```text
+GET POST PUT PATCH DELETE HEAD OPTIONS OTHER
+```
+
+Arbitrary client methods collapse to `OTHER`. Raw paths, users, domains, mailboxes, request IDs, secrets, and exact error text are never labels.
 
 ## Trusted proxy contract
 
-`TRUSTED_PROXY_CIDRS` lists only direct tunnel/reverse-proxy peers. Go rejects forwarded identity from untrusted peers, strips all inbound forwarding headers, and writes one canonical client IP/protocol/host. Fastify trusts exactly one internal Go hop and is not host-published.
+`TRUSTED_PROXY_CIDRS` lists only direct tunnel/reverse-proxy peers. `app` rejects forwarded identity from untrusted peers, strips inbound forwarding and ownership headers, and writes one canonical client IP, protocol, host, route owner, and route family. Both private upstreams are not host-published.
 
 ## Dedicated workers
 
-### Forwarding
+Forwarding:
 
 ```bash
 allmail worker forwarding
 allmail doctor worker forwarding
 ```
 
-Guarantees include advisory single ownership, `FOR UPDATE SKIP LOCKED`, claim tokens, configurable expiring leases, immediate release of unprocessed claims after an interrupted pass, fenced terminal updates, transactional MOVE visibility, stable provider idempotency, structured retry classification, and bounded passes.
+The forwarding heartbeat lives at:
 
-### Retention
+```text
+/tmp/all-mail/worker-forwarding-heartbeat.json
+```
+
+Retention:
 
 ```bash
 allmail worker retention
 allmail doctor worker retention
 ```
 
-Uses a persistent `pgxpool`, periodic database health probes, an advisory transaction lock, bounded consecutive batches, ordered deletion and `FOR UPDATE SKIP LOCKED`.
-
-Each worker writes an independent atomic heartbeat. Canonical controls:
-
-```text
-WORKER_HEARTBEAT_SECONDS=15
-WORKER_HEARTBEAT_MAX_AGE_SECONDS=90
-```
+Both workers use independent atomic heartbeats, advisory ownership, bounded passes, shutdown draining, and PostgreSQL protocol checks where applicable.
 
 ## Migration guarantees
 
-The Go migration runner uses one direct `pgx` transaction. It:
+The Go migration runner uses one direct `pgx` transaction. It loads numbered files lexically, rejects transaction control and direct ledger writes, computes SHA-256 checksums, holds an advisory transaction lock, validates/adopts the ledger, rejects modified or unknown migrations, and records checksums atomically. The Go image contains no `psql`.
 
-1. loads numbered files lexically;
-2. rejects transaction control, psql meta-commands and direct ledger writes;
-3. computes SHA-256 checksums;
-4. holds an advisory transaction lock;
-5. validates/adopts the ledger;
-6. skips only exact checksum matches;
-7. rejects modified applied files;
-8. rejects ledger entries unknown to the current image so an old runtime cannot silently start on a newer schema;
-9. records checksums atomically.
-
-The Go image contains no `psql`. Never edit an applied numbered migration.
-
-## Production networking
-
-`docker-compose.yml` publishes only `app`. Local dependency ports belong to `docker-compose.dev.yml`.
+Prisma still owns the complete business schema in `business-init`; transferring that authority is a later migration gate.
 
 ## Validation evidence
 
 Repository gates cover:
 
-- Go format/race/vet/build and `govulncheck`;
-- route manifest schema, prefix coverage, longest-prefix classification, bounded metrics, and removed migration headers;
-- Fastify lint/test/build;
-- web lint/test/build;
-- runtime contracts;
-- real PostgreSQL migrations and forwarding state machine;
-- proxy spoof rejection;
-- Compose credential/exposure boundaries;
-- real PostgreSQL administrator bootstrap;
-- full Docker first-login, forced password rotation, plaintext deletion, initializer idempotency, and route-manifest startup.
+- Go format, race, vet, build, and `govulncheck`;
+- method-aware manifest parsing, ambiguity rejection, prefix coverage, bounded metrics, and ownership-header spoof rejection;
+- administrator JWT and database-state parity for Dashboard reads;
+- Dashboard validation and response fixtures;
+- Fastify, Web, and Worker checks;
+- real PostgreSQL migrations, retention, and forwarding state machine;
+- Compose credential, Secret, and network boundaries;
+- full Docker bootstrap, login, forced password rotation, plaintext deletion, initializer idempotency, both private upstreams, and all runtime doctors.
 
 ## Current ownership
 
 | Capability | Owner |
 | --- | --- |
-| Public gateway/SPA/proxy identity | Go `app` |
-| Route-family ownership and migration telemetry | Go `app` + committed manifest |
+| Public gateway, SPA, proxy identity | Go `app` |
+| Route/method ownership and telemetry | Go `app` + committed manifest |
+| Dashboard read APIs | private `go-business-api` |
+| Dashboard log deletion | Fastify/Prisma `business-api` |
 | Forwarding | `worker-forwarding` |
 | Retention | `worker-retention` |
 | Initial administrator creation | `business-init` one-shot |
-| Administrator login/2FA/session | Fastify/Prisma database-backed |
-| Other business APIs | Fastify/Prisma |
+| Administrator login, 2FA, JWT issuance | Fastify/Prisma |
+| API Key, OAuth, ingress, domain/mailbox/provider operations | Fastify/Prisma |
 | Business schema migrations | Prisma in `business-init` |
 | Additive runtime migrations | `go-migrate` |
 | Cloudflare Email Worker | TypeScript Worker |
 
 ## Next ports
 
-The route ownership and telemetry foundation is complete. The manifest marks `admin-dashboard` as the active observation candidate.
+Recommended order:
 
-Recommended vertical order:
+1. Dashboard log deletion with audit/transaction parity;
+2. API-key authentication, Redis rate limits, allocation, and external APIs;
+3. ingress persistence and outbound history;
+4. provider synchronization, domain, mailbox, alias, and sending operations;
+5. mailbox-portal authentication;
+6. administrator authentication and OAuth state last;
+7. business-schema authority and encrypted-data cutover;
+8. zero-traffic observation, then Node/Prisma deletion.
 
-1. read-only dashboard/status routes;
-2. external API-key allocation/read routes;
-3. ingress persistence;
-4. outbound delivery history;
-5. provider synchronization;
-6. domain/mailbox writes;
-7. portal authentication;
-8. administrator authentication last.
-
-Every slice must move authorization, validation, transactions, parity tests, failure injection, manifest ownership, Docker smoke coverage, and revision rollback together.
+Every slice must move authorization, validation, transactions, parity, failure injection, method-aware manifest ownership, Docker smoke, and revision rollback together.
 
 ## Rollback
 
-Rollback is revision based. Preserve PostgreSQL plus both new secret files and a pre-upgrade copy of any old combined file. Restore the layout expected by the target revision. Never run initializers or workers from two revisions concurrently. Route ownership is never rolled back with a mutable environment flag; deploy the prior revision instead.
+Rollback is revision based. Preserve PostgreSQL, the runtime secret volume, the forwarding encryption-key volume, and the Go-business JWT volume. Stop the complete revision before starting an older one. Route ownership is never rolled back with an environment flag; deploy the prior known-good revision instead. Never run initializers or workers from two revisions concurrently.
