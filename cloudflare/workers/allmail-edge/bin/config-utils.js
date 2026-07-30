@@ -69,7 +69,9 @@ function requireHttpsUrl(name, rawValue) {
   try {
     url = new URL(rawValue.trim());
   } catch (error) {
-    throw new Error(`${name} must be an absolute URL: ${error instanceof Error ? error.message : error}`);
+    throw new Error(`${name} must be an absolute URL: ${error instanceof Error ? error.message : error}`, {
+      cause: error,
+    });
   }
   if (url.protocol !== 'https:') {
     throw new Error(`${name} must use https`);
