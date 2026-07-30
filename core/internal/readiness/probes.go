@@ -18,7 +18,8 @@ import (
 type Probe func(context.Context, string) error
 
 type Prober struct {
-	BusinessAPI Probe
+	BusinessAPI   Probe
+	GoBusinessAPI Probe
 }
 
 type Report struct {
@@ -27,10 +28,13 @@ type Report struct {
 }
 
 func Default() Prober {
-	return Prober{BusinessAPI: checkBusinessAPI}
+	return Prober{
+		BusinessAPI:   checkServiceReadiness,
+		GoBusinessAPI: checkServiceReadiness,
+	}
 }
 
-func (p Prober) Check(ctx context.Context, cfg config.APIConfig) Report {
+func (p Prober) Check(ctx context.Context, cfg config.APIConfig, goBusinessAPIURL string) Report {
 	report := Report{Ready: true, Checks: map[string]string{}}
 	index := filepath.Join(cfg.StaticDir, "index.html")
 	if info, err := os.Stat(index); err != nil || info.IsDir() {
@@ -40,6 +44,7 @@ func (p Prober) Check(ctx context.Context, cfg config.APIConfig) Report {
 		report.Checks["staticAssets"] = "ok"
 	}
 	p.runRequired(ctx, &report, "businessApi", cfg.BusinessAPIURL, p.BusinessAPI)
+	p.runRequired(ctx, &report, "goBusinessApi", goBusinessAPIURL, p.GoBusinessAPI)
 	return report
 }
 
@@ -62,7 +67,7 @@ func (p Prober) runRequired(ctx context.Context, report *Report, name, target st
 	report.Checks[name] = "ok"
 }
 
-func checkBusinessAPI(ctx context.Context, baseURL string) error {
+func checkServiceReadiness(ctx context.Context, baseURL string) error {
 	target, err := url.Parse(baseURL)
 	if err != nil {
 		return err
@@ -84,7 +89,7 @@ func checkBusinessAPI(ctx context.Context, baseURL string) error {
 		return err
 	}
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("business API readiness returned %d: %s", response.StatusCode, compactOutput(body))
+		return fmt.Errorf("service readiness returned %d: %s", response.StatusCode, compactOutput(body))
 	}
 	var envelope struct {
 		Success bool `json:"success"`
@@ -93,10 +98,10 @@ func checkBusinessAPI(ctx context.Context, baseURL string) error {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return fmt.Errorf("decode business API readiness: %w", err)
+		return fmt.Errorf("decode service readiness: %w", err)
 	}
 	if !envelope.Success || envelope.Data.Status != "ready" {
-		return fmt.Errorf("business API readiness reported status %q", envelope.Data.Status)
+		return fmt.Errorf("service readiness reported status %q", envelope.Data.Status)
 	}
 	return nil
 }

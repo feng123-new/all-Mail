@@ -27,14 +27,16 @@ import (
 )
 
 type Server struct {
-	cfg          config.APIConfig
-	logger       *slog.Logger
-	startedAt    time.Time
-	proxy        *httputil.ReverseProxy
-	prober       readiness.Prober
-	routes       *routeownership.Manifest
-	routeMetrics *routeMetrics
-	requests     atomic.Uint64
+	cfg              config.APIConfig
+	goBusinessAPIURL string
+	logger           *slog.Logger
+	startedAt        time.Time
+	businessProxy    *httputil.ReverseProxy
+	goBusinessProxy  *httputil.ReverseProxy
+	prober           readiness.Prober
+	routes           *routeownership.Manifest
+	routeMetrics     *routeMetrics
+	requests         atomic.Uint64
 }
 
 type proxyMetadata struct {
@@ -46,10 +48,19 @@ type proxyMetadata struct {
 type proxyMetadataContextKey struct{}
 
 func New(cfg config.APIConfig, logger *slog.Logger) (*Server, error) {
-	return newWithProber(cfg, logger, readiness.Default())
+	goBusinessAPIURL, err := config.LoadGoBusinessAPIURL()
+	if err != nil {
+		return nil, err
+	}
+	return newWithProber(cfg, goBusinessAPIURL, logger, readiness.Default())
 }
 
-func newWithProber(cfg config.APIConfig, logger *slog.Logger, prober readiness.Prober) (*Server, error) {
+func newWithProber(
+	cfg config.APIConfig,
+	goBusinessAPIURL string,
+	logger *slog.Logger,
+	prober readiness.Prober,
+) (*Server, error) {
 	routes, err := routeownership.LoadDefault()
 	if err != nil {
 		return nil, err
@@ -58,19 +69,37 @@ func newWithProber(cfg config.APIConfig, logger *slog.Logger, prober readiness.P
 		return nil, err
 	}
 	server := &Server{
-		cfg:          cfg,
-		logger:       logger,
-		startedAt:    time.Now(),
-		prober:       prober,
-		routes:       routes,
-		routeMetrics: newRouteMetrics(routes),
+		cfg:              cfg,
+		goBusinessAPIURL: goBusinessAPIURL,
+		logger:           logger,
+		startedAt:        time.Now(),
+		prober:           prober,
+		routes:           routes,
+		routeMetrics:     newRouteMetrics(routes),
 	}
 	if cfg.BusinessAPIURL != "" {
 		target, err := cfg.BusinessURL()
 		if err != nil {
 			return nil, err
 		}
-		server.proxy = newBusinessProxy(target, logger, server.routeMetrics)
+		server.businessProxy = newBusinessProxy(
+			target,
+			routeownership.OwnerBusinessAPI,
+			logger,
+			server.routeMetrics,
+		)
+	}
+	if goBusinessAPIURL != "" {
+		target, err := url.Parse(goBusinessAPIURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse GO_BUSINESS_API_URL: %w", err)
+		}
+		server.goBusinessProxy = newBusinessProxy(
+			target,
+			routeownership.OwnerGoBusinessAPI,
+			logger,
+			server.routeMetrics,
+		)
 	}
 	return server, nil
 }
@@ -101,6 +130,7 @@ func (s *Server) Run(ctx context.Context) error {
 			"Go API runtime listening",
 			"address", httpServer.Addr,
 			"business_api", s.cfg.BusinessAPIURL,
+			"go_business_api", s.goBusinessAPIURL,
 			"trusted_proxy_cidrs", len(s.cfg.TrustedProxyCIDRs),
 			"route_manifest_version", s.routes.Snapshot().Version,
 			"route_manifest_sha256", s.routes.Digest(),
@@ -128,7 +158,8 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 		"data": map[string]any{
 			"status":                  "ok",
 			"runtime":                 "go-gateway",
-			"businessApiConfigured":   s.proxy != nil,
+			"businessApiConfigured":   s.businessProxy != nil,
+			"goBusinessApiConfigured": s.goBusinessProxy != nil,
 			"routeManifestVersion":    snapshot.Version,
 			"routeManifestSHA256":     snapshot.SHA256,
 			"routeManifestRouteCount": len(snapshot.Routes),
@@ -147,7 +178,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ReadyTimeout)
 	defer cancel()
 
-	report := s.prober.Check(ctx, s.cfg)
+	report := s.prober.Check(ctx, s.cfg, s.goBusinessAPIURL)
 	report.Checks["routeOwnership"] = "ok"
 	status := http.StatusOK
 	state := "ready"
@@ -178,24 +209,45 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	route, ok := routeFromContext(r.Context())
 	if !ok {
-		route = s.routes.Match(r.URL.Path)
+		route = s.routes.Match(r.Method, r.URL.Path)
 	}
-	if route.Owner == routeownership.OwnerBusinessAPI {
-		if s.proxy == nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-				"success":   false,
-				"requestId": requestID(r),
-				"error": map[string]string{
-					"code":    "BUSINESS_API_NOT_CONFIGURED",
-					"message": "This route family still requires BUSINESS_API_URL.",
-				},
-			})
-			return
-		}
-		s.proxy.ServeHTTP(w, r)
+
+	switch route.Owner {
+	case routeownership.OwnerBusinessAPI:
+		s.proxyRoute(w, r, route, s.businessProxy, "BUSINESS_API_NOT_CONFIGURED", "This route family still requires BUSINESS_API_URL.")
+	case routeownership.OwnerGoBusinessAPI:
+		s.proxyRoute(w, r, route, s.goBusinessProxy, "GO_BUSINESS_API_NOT_CONFIGURED", "This route family requires GO_BUSINESS_API_URL.")
+	case routeownership.OwnerGo:
+		s.serveSPA(w, r)
+	default:
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"success":   false,
+			"requestId": requestID(r),
+			"error":     map[string]string{"code": "ROUTE_OWNER_INVALID"},
+		})
+	}
+}
+
+func (s *Server) proxyRoute(
+	w http.ResponseWriter,
+	r *http.Request,
+	route routeownership.Route,
+	proxy *httputil.ReverseProxy,
+	missingCode string,
+	missingMessage string,
+) {
+	if proxy == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"success":   false,
+			"requestId": requestID(r),
+			"error": map[string]string{
+				"code":    missingCode,
+				"message": missingMessage,
+			},
+		})
 		return
 	}
-	s.serveSPA(w, r)
+	proxy.ServeHTTP(w, r)
 }
 
 func (s *Server) serveSPA(w http.ResponseWriter, r *http.Request) {
@@ -281,7 +333,12 @@ func (s *Server) resolveProxyMetadata(r *http.Request) proxyMetadata {
 	return metadata
 }
 
-func newBusinessProxy(target *url.URL, logger *slog.Logger, metrics *routeMetrics) *httputil.ReverseProxy {
+func newBusinessProxy(
+	target *url.URL,
+	upstream routeownership.Owner,
+	logger *slog.Logger,
+	metrics *routeMetrics,
+) *httputil.ReverseProxy {
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(request *httputil.ProxyRequest) {
 			request.SetURL(target)
@@ -305,16 +362,21 @@ func newBusinessProxy(target *url.URL, logger *slog.Logger, metrics *routeMetric
 				metrics.proxyError(route)
 			}
 			logger.Error(
-				"business API proxy failed",
+				"private business API proxy failed",
 				"request_id", requestID(r),
+				"upstream", upstream,
 				"route_family", route.ID,
 				"path", r.URL.Path,
 				"error", err,
 			)
+			code := "BUSINESS_API_UNAVAILABLE"
+			if upstream == routeownership.OwnerGoBusinessAPI {
+				code = "GO_BUSINESS_API_UNAVAILABLE"
+			}
 			writeJSON(w, http.StatusBadGateway, map[string]any{
 				"success":   false,
 				"requestId": requestID(r),
-				"error":     map[string]string{"code": "BUSINESS_API_UNAVAILABLE"},
+				"error":     map[string]string{"code": code},
 			})
 		},
 	}

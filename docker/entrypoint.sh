@@ -64,6 +64,24 @@ prepare_runtime_state() {
     fi
 }
 
+export_secret_file() {
+    target_file=$1
+    secret_value=$2
+    export_directory=$(dirname "$target_file")
+    mkdir -p "$export_directory"
+    if [ "$(id -u)" -eq 0 ]; then
+        chown 10001:10001 "$export_directory"
+    fi
+    temporary_file="${target_file}.tmp.$$"
+    umask 077
+    printf '%s\n' "$secret_value" > "$temporary_file"
+    if [ "$(id -u)" -eq 0 ]; then
+        chown 10001:10001 "$temporary_file"
+    fi
+    chmod 600 "$temporary_file"
+    mv -f "$temporary_file" "$target_file"
+}
+
 prepare_runtime_state
 export ALL_MAIL_RUNTIME_ROLE="$runtime_role"
 run_as_allmail "$sanitize_runtime_env" node /app/scripts/validate-production-config.mjs
@@ -82,20 +100,13 @@ if [ -n "${ALL_MAIL_GENERATED_RUNTIME_SECRETS:-}" ]; then
     printf '%s\n' "Generated runtime secrets in ${ALL_MAIL_RUNTIME_SECRETS_FILE}."
 fi
 
-if [ "$runtime_role" = "init" ] && [ -n "${ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE:-}" ] && [ -n "${ENCRYPTION_KEY:-}" ]; then
-    export_directory=$(dirname "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE")
-    mkdir -p "$export_directory"
-    if [ "$(id -u)" -eq 0 ]; then
-        chown 10001:10001 "$export_directory"
+if [ "$runtime_role" = "init" ]; then
+    if [ -n "${ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE:-}" ] && [ -n "${ENCRYPTION_KEY:-}" ]; then
+        export_secret_file "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE" "$ENCRYPTION_KEY"
     fi
-    temporary_key_file="${ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE}.tmp.$$"
-    umask 077
-    printf '%s\n' "$ENCRYPTION_KEY" > "$temporary_key_file"
-    if [ "$(id -u)" -eq 0 ]; then
-        chown 10001:10001 "$temporary_key_file"
+    if [ -n "${ALL_MAIL_EXPORT_JWT_SECRET_FILE:-}" ] && [ -n "${JWT_SECRET:-}" ]; then
+        export_secret_file "$ALL_MAIL_EXPORT_JWT_SECRET_FILE" "$JWT_SECRET"
     fi
-    chmod 600 "$temporary_key_file"
-    mv -f "$temporary_key_file" "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"
 fi
 
 run_business_migrations() {
@@ -132,7 +143,7 @@ if [ "$runtime_role" = "init" ]; then
     run_business_migrations
     run_as_allmail "$sanitize_runtime_env" npm run config:import-env
     run_as_allmail "$sanitize_runtime_env" node dist/runtime/bootstrapAdmin.js
-    printf '%s\n' 'Runtime secrets, Prisma migrations, durable configuration import, and administrator bootstrap completed.'
+    printf '%s\n' 'Runtime secrets, Prisma migrations, durable configuration import, administrator bootstrap, and private Go secret export completed.'
     exit 0
 fi
 

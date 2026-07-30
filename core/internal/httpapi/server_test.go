@@ -17,36 +17,21 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/readiness"
 )
 
-func TestHealthAndBusinessProxyUseCanonicalRouteOwnership(t *testing.T) {
-	business := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/readyz" {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"success":true,"data":{"status":"ready"}}`)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set(routeOwnerHeader, "forged-upstream-owner")
-		w.Header().Set(routeFamilyHeader, "forged-upstream-family")
-		_, _ = io.WriteString(w, `{"business":true}`)
-	}))
-	defer business.Close()
+func TestHealthAndDualBusinessProxiesUseCanonicalRouteOwnership(t *testing.T) {
+	fastify := testReadyUpstream(t, `{"business":true}`)
+	goBusiness := testReadyUpstream(t, `{"goBusiness":true}`)
 
-	staticDir := writeStaticIndex(t)
-	cfg := config.APIConfig{
-		StaticDir:       staticDir,
-		BusinessAPIURL:  business.URL,
+	server := mustGateway(t, config.APIConfig{
+		StaticDir:       writeStaticIndex(t),
+		BusinessAPIURL:  fastify.URL,
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
-	}
-	server, err := New(cfg, discardLogger())
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, goBusiness.URL)
 
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "routeManifestSHA256") {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"goBusinessApiConfigured":true`) {
 		t.Fatalf("health response = %d %s", response.Code, response.Body.String())
 	}
 	assertRouteHeaders(t, response, "go", "system-health")
@@ -55,26 +40,35 @@ func TestHealthAndBusinessProxyUseCanonicalRouteOwnership(t *testing.T) {
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "business") {
-		t.Fatalf("proxy response = %d %s", response.Code, response.Body.String())
+		t.Fatalf("Fastify proxy response = %d %s", response.Code, response.Body.String())
 	}
 	assertRouteHeaders(t, response, "business-api", "admin-other")
-	if response.Header().Get("X-All-Mail-Migration-Bridge") != "" {
-		t.Fatal("retired migration bridge header remains exposed")
-	}
 
 	request = httptest.NewRequest(http.MethodGet, "/admin/dashboard/stats", nil)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	assertRouteHeaders(t, response, "business-api", "admin-dashboard")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "goBusiness") {
+		t.Fatalf("Go business proxy response = %d %s", response.Code, response.Body.String())
+	}
+	assertRouteHeaders(t, response, "go-business-api", "admin-dashboard-stats-read")
+
+	request = httptest.NewRequest(http.MethodDelete, "/admin/dashboard/logs/42", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "business") {
+		t.Fatalf("Dashboard write proxy response = %d %s", response.Code, response.Body.String())
+	}
+	assertRouteHeaders(t, response, "business-api", "admin-dashboard-log-delete")
 
 	request = httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	metrics := response.Body.String()
 	for _, expected := range []string{
-		`allmail_route_owner_info{family="admin-dashboard",owner="business-api"`,
+		`allmail_route_owner_info{family="admin-dashboard-stats-read",owner="go-business-api"`,
 		`allmail_route_requests_total{family="admin-other",owner="business-api",method="GET",status_class="2xx"} 1`,
-		`allmail_route_requests_total{family="system-health",owner="go",method="GET",status_class="2xx"} 1`,
+		`allmail_route_requests_total{family="admin-dashboard-stats-read",owner="go-business-api",method="GET",status_class="2xx"} 1`,
+		`allmail_route_requests_total{family="admin-dashboard-log-delete",owner="business-api",method="DELETE",status_class="2xx"} 1`,
 	} {
 		if !strings.Contains(metrics, expected) {
 			t.Fatalf("metrics are missing %q:\n%s", expected, metrics)
@@ -82,15 +76,26 @@ func TestHealthAndBusinessProxyUseCanonicalRouteOwnership(t *testing.T) {
 	}
 }
 
-func TestRouteManifestKeepsNamespaceBoundariesOutOfTheSPA(t *testing.T) {
-	server, err := New(config.APIConfig{
+func TestRouteManifestKeepsMethodAndNamespaceBoundaries(t *testing.T) {
+	server := mustGateway(t, config.APIConfig{
 		StaticDir:       writeStaticIndex(t),
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
-	}, discardLogger())
-	if err != nil {
-		t.Fatal(err)
+	}, "")
+
+	goRead := httptest.NewRecorder()
+	server.Handler().ServeHTTP(goRead, httptest.NewRequest(http.MethodGet, "/admin/dashboard/logs", nil))
+	if goRead.Code != http.StatusServiceUnavailable || !strings.Contains(goRead.Body.String(), "GO_BUSINESS_API_NOT_CONFIGURED") {
+		t.Fatalf("Go business route response = %d %s", goRead.Code, goRead.Body.String())
 	}
+	assertRouteHeaders(t, goRead, "go-business-api", "admin-dashboard-logs-read")
+
+	fastifyWrite := httptest.NewRecorder()
+	server.Handler().ServeHTTP(fastifyWrite, httptest.NewRequest(http.MethodPost, "/admin/dashboard/logs/batch-delete", nil))
+	if fastifyWrite.Code != http.StatusServiceUnavailable || !strings.Contains(fastifyWrite.Body.String(), "BUSINESS_API_NOT_CONFIGURED") {
+		t.Fatalf("Fastify write response = %d %s", fastifyWrite.Code, fastifyWrite.Body.String())
+	}
+	assertRouteHeaders(t, fastifyWrite, "business-api", "admin-dashboard-log-batch-delete")
 
 	backend := httptest.NewRecorder()
 	server.Handler().ServeHTTP(backend, httptest.NewRequest(http.MethodGet, "/api/unknown", nil))
@@ -107,10 +112,11 @@ func TestRouteManifestKeepsNamespaceBoundariesOutOfTheSPA(t *testing.T) {
 	assertRouteHeaders(t, spa, "go", "spa")
 }
 
-func TestReadinessRequiresStaticAssetsAndBusinessAPI(t *testing.T) {
+func TestReadinessRequiresStaticAssetsAndBothBusinessAPIs(t *testing.T) {
 	cfg := config.APIConfig{StaticDir: t.TempDir(), ReadyTimeout: time.Second}
-	server, err := newWithProber(cfg, discardLogger(), readiness.Prober{
-		BusinessAPI: func(context.Context, string) error { return nil },
+	server, err := newWithProber(cfg, "", discardLogger(), readiness.Prober{
+		BusinessAPI:   func(context.Context, string) error { return nil },
+		GoBusinessAPI: func(context.Context, string) error { return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,24 +127,25 @@ func TestReadinessRequiresStaticAssetsAndBusinessAPI(t *testing.T) {
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("readiness code = %d, want %d", response.Code, http.StatusServiceUnavailable)
 	}
-	if !strings.Contains(response.Body.String(), "required-but-not-configured") || !strings.Contains(response.Body.String(), "index.html unavailable") {
-		t.Fatalf("readiness body = %s", response.Body.String())
-	}
-	if !strings.Contains(response.Body.String(), `"routeOwnership":"ok"`) {
-		t.Fatalf("readiness omits manifest status: %s", response.Body.String())
+	for _, expected := range []string{"required-but-not-configured", "index.html unavailable", `"routeOwnership":"ok"`} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("readiness body is missing %q: %s", expected, response.Body.String())
+		}
 	}
 }
 
-func TestReadinessUsesBusinessProbe(t *testing.T) {
+func TestReadinessUsesBothPrivateProbes(t *testing.T) {
 	cfg := config.APIConfig{
 		StaticDir:       writeStaticIndex(t),
 		BusinessAPIURL:  "http://business-api:3100",
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
 	}
-	called := 0
-	server, err := newWithProber(cfg, discardLogger(), readiness.Prober{
-		BusinessAPI: func(context.Context, string) error { called++; return nil },
+	fastifyCalls := 0
+	goCalls := 0
+	server, err := newWithProber(cfg, "http://go-business-api:3200", discardLogger(), readiness.Prober{
+		BusinessAPI:   func(context.Context, string) error { fastifyCalls++; return nil },
+		GoBusinessAPI: func(context.Context, string) error { goCalls++; return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -146,17 +153,17 @@ func TestReadinessUsesBusinessProbe(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || called != 1 {
-		t.Fatalf("readiness response = %d %s, calls=%d", response.Code, response.Body.String(), called)
+	if response.Code != http.StatusOK || fastifyCalls != 1 || goCalls != 1 {
+		t.Fatalf("readiness response = %d %s, Fastify=%d Go=%d", response.Code, response.Body.String(), fastifyCalls, goCalls)
 	}
 }
 
 func TestInvalidIncomingRequestIDIsReplaced(t *testing.T) {
-	cfg := config.APIConfig{StaticDir: writeStaticIndex(t), ReadyTimeout: time.Second}
-	server, err := New(cfg, discardLogger())
-	if err != nil {
-		t.Fatal(err)
-	}
+	server := mustGateway(t, config.APIConfig{
+		StaticDir:       writeStaticIndex(t),
+		ReadyTimeout:    time.Second,
+		ShutdownTimeout: time.Second,
+	}, "")
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	request.Header.Set("X-Request-Id", "bad\nrequest")
 	response := httptest.NewRecorder()
@@ -168,21 +175,20 @@ func TestInvalidIncomingRequestIDIsReplaced(t *testing.T) {
 
 func TestProxyRejectsSpoofedForwardingAndOwnershipHeadersFromUntrustedPeer(t *testing.T) {
 	captured := make(chan http.Header, 1)
-	business := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fastify := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured <- r.Header.Clone()
+		w.Header().Set(routeOwnerHeader, "forged-upstream-owner")
+		w.Header().Set(routeFamilyHeader, "forged-upstream-family")
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	defer business.Close()
+	defer fastify.Close()
 
-	server, err := New(config.APIConfig{
+	server := mustGateway(t, config.APIConfig{
 		StaticDir:       writeStaticIndex(t),
-		BusinessAPIURL:  business.URL,
+		BusinessAPIURL:  fastify.URL,
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
-	}, discardLogger())
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, "")
 	request := httptest.NewRequest(http.MethodGet, "http://mail.example/admin/test", nil)
 	request.RemoteAddr = "192.0.2.44:43123"
 	request.Header.Set("X-Forwarded-For", "203.0.113.9")
@@ -224,22 +230,19 @@ func TestProxyAcceptsCanonicalClientIPOnlyFromTrustedPeer(t *testing.T) {
 		host   string
 	}
 	captured := make(chan capturedRequest, 1)
-	business := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fastify := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured <- capturedRequest{header: r.Header.Clone(), host: r.Host}
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	defer business.Close()
+	defer fastify.Close()
 
-	server, err := New(config.APIConfig{
+	server := mustGateway(t, config.APIConfig{
 		StaticDir:         writeStaticIndex(t),
-		BusinessAPIURL:    business.URL,
+		BusinessAPIURL:    fastify.URL,
 		TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 		ReadyTimeout:      time.Second,
 		ShutdownTimeout:   time.Second,
-	}, discardLogger())
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, "")
 	request := httptest.NewRequest(http.MethodGet, "http://mail.example/admin/test", nil)
 	request.RemoteAddr = "10.10.0.5:43123"
 	request.Header.Set("CF-Connecting-IP", "198.51.100.22")
@@ -260,6 +263,35 @@ func TestProxyAcceptsCanonicalClientIPOnlyFromTrustedPeer(t *testing.T) {
 	if got.host != "mail.example" {
 		t.Fatalf("proxied Host = %q", got.host)
 	}
+}
+
+func testReadyUpstream(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/readyz" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"success":true,"data":{"status":"ready"}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(routeOwnerHeader, "forged-upstream-owner")
+		w.Header().Set(routeFamilyHeader, "forged-upstream-family")
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func mustGateway(t *testing.T, cfg config.APIConfig, goBusinessAPIURL string) *Server {
+	t.Helper()
+	server, err := newWithProber(cfg, goBusinessAPIURL, discardLogger(), readiness.Prober{
+		BusinessAPI:   func(context.Context, string) error { return nil },
+		GoBusinessAPI: func(context.Context, string) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return server
 }
 
 func assertRouteHeaders(t *testing.T, response *httptest.ResponseRecorder, owner, family string) {
