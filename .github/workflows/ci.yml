@@ -61,6 +61,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       PGPASSWORD: postgres
     defaults:
@@ -266,6 +275,18 @@ jobs:
 
       - name: Install Prisma integration dependencies
         run: ../scripts/sanitize-runtime-env.sh npm --prefix ../server ci
+
+      - name: Verify API-key and external-route state machine
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_go_business_integration?sslmode=disable
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+          ALLMAIL_GO_BUSINESS_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_go_business_integration?sslmode=disable
+          ALLMAIL_GO_BUSINESS_TEST_REDIS_URL: redis://127.0.0.1:6379/11
+        run: |
+          createdb -h 127.0.0.1 -U postgres allmail_go_business_integration
+          ../scripts/sanitize-runtime-env.sh npm --prefix ../server run db:migrate
+          ./allmail migrate
+          go test -run TestPostgresAPIKeyAndExternalRouteIntegration -count=1 ./internal/businessapi
 
       - name: Verify PostgreSQL forwarding state machine
         env:
@@ -477,10 +498,12 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:3002/health
           curl --fail --silent --show-error http://127.0.0.1:3002/readyz
           docker compose exec -T business-api node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
+          docker compose exec -T go-business-api allmail doctor business-api
 
       - name: Check independent worker doctors
         run: |
           docker compose exec -T app allmail doctor api
+          docker compose exec -T go-business-api allmail doctor business-api
           docker compose exec -T worker-forwarding allmail doctor worker forwarding
           docker compose exec -T worker-retention allmail doctor worker retention
 

@@ -154,7 +154,7 @@ jobs:
             test -r /var/lib/all-mail-secrets/jwt-secret
             test -z "${JWT_SECRET:-}"
             test -z "${ENCRYPTION_KEY:-}"
-            test -z "${REDIS_URL:-}"
+            test "${REDIS_URL:-}" = "redis://redis:6379"
           '
           docker compose exec -T app sh -lc '
             test -z "${DATABASE_URL:-}"
@@ -244,6 +244,97 @@ jobs:
             http://127.0.0.1:3002/admin/dashboard/logs/999999999)
           test "$write_status" = "200"
           grep -qi '^X-All-Mail-Route-Owner: business-api' "$write_headers"
+
+          admin_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT id FROM admins ORDER BY id LIMIT 1')
+          group_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc \
+            "INSERT INTO email_groups (name) VALUES ('ci-primary') RETURNING id")
+          email_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc \
+            "INSERT INTO email_accounts (email, provider, auth_type, status, group_id) VALUES ('pool-ci@example.com', 'GMAIL', 'GOOGLE_OAUTH', 'ACTIVE', $group_id) RETURNING id")
+          domain_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc \
+            "INSERT INTO domains (name, status, can_receive, can_send, created_by_admin_id) VALUES ('ci.example', 'ACTIVE', TRUE, TRUE, $admin_id) RETURNING id")
+          mailbox_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc \
+            "INSERT INTO domain_mailboxes (domain_id, local_part, address, status, provisioning_mode, batch_tag) VALUES ($domain_id, 'pool', 'pool@ci.example', 'ACTIVE', 'API_POOL', 'ci-batch') RETURNING id")
+          docker compose exec -T postgres psql -U allmail -d allmail -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO inbound_messages (domain_id, mailbox_id, matched_address, final_address, delivery_key, from_address, to_address, subject, text_preview, received_at) VALUES ($domain_id, $mailbox_id, 'pool@ci.example', 'pool@ci.example', 'ci-delivery', 'sender@example.net', 'pool@ci.example', 'CI verification 654321', 'verification code 654321', CURRENT_TIMESTAMP)"
+
+          create_key_body=$(python3 -c 'import json,sys; print(json.dumps({"name":"ci-go-key","rateLimit":100,"permissions":{"all":True},"allowedGroupIds":[int(sys.argv[1])],"allowedEmailIds":[int(sys.argv[2])],"allowedDomainIds":[int(sys.argv[3])]}))' "$group_id" "$email_id" "$domain_id")
+          api_key_headers="$RUNNER_TEMP/api-key-create-headers.txt"
+          api_key_body="$RUNNER_TEMP/api-key-create.json"
+          curl --fail --silent --show-error -D "$api_key_headers" -o "$api_key_body" \
+            -H 'Content-Type: application/json' -H "Cookie: token=$token" \
+            --data "$create_key_body" http://127.0.0.1:3002/admin/api-keys
+          grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$api_key_headers"
+          raw_api_key=$(python3 - "$api_key_body" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as handle:
+              payload = json.load(handle)
+          assert payload['success'] is True
+          print(payload['data']['key'])
+          PY
+          )
+          test -n "$raw_api_key"
+
+          for route in \
+            '/api/get-email?group=ci-primary' \
+            '/api/list-emails?group=ci-primary' \
+            '/api/pool-stats?group=ci-primary' \
+            '/api/domain-mail/get-mailbox?domain=ci.example&batchTag=ci-batch' \
+            '/api/domain-mail/messages/latest?email=pool@ci.example'; do
+            api_headers="$RUNNER_TEMP/$(printf '%s' "$route" | tr '/?=&@' '_____').headers"
+            api_body="$RUNNER_TEMP/$(printf '%s' "$route" | tr '/?=&@' '_____').json"
+            curl --fail --silent --show-error -D "$api_headers" -o "$api_body" \
+              -H "X-API-Key: $raw_api_key" "http://127.0.0.1:3002$route"
+            grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$api_headers"
+            python3 - "$api_body" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as handle:
+              payload = json.load(handle)
+          assert payload['success'] is True
+          PY
+          done
+
+          regex_headers="$RUNNER_TEMP/domain-regex-headers.txt"
+          curl --globoff --fail --silent --show-error -D "$regex_headers" -o /dev/null \
+            -H "X-API-Key: $raw_api_key" \
+            'http://127.0.0.1:3002/api/domain-mail/messages/text?email=pool@ci.example&match=([0-9]{6})'
+          grep -qi '^X-All-Mail-Route-Owner: business-api' "$regex_headers"
+
+          denied_body="$RUNNER_TEMP/denied-key-create.json"
+          curl --fail --silent --show-error -o "$denied_body" \
+            -H 'Content-Type: application/json' -H "Cookie: token=$token" \
+            --data '{"name":"ci-denied-key","rateLimit":20,"permissions":{"list_emails":true}}' \
+            http://127.0.0.1:3002/admin/api-keys
+          denied_key=$(python3 - "$denied_body" <<'PY'
+          import json, sys
+          print(json.load(open(sys.argv[1], encoding='utf-8'))['data']['key'])
+          PY
+          )
+          denied_headers="$RUNNER_TEMP/denied-call-headers.txt"
+          denied_response="$RUNNER_TEMP/denied-call.json"
+          denied_status=$(curl --silent --show-error -D "$denied_headers" -o "$denied_response" -w '%{http_code}' \
+            -H "X-API-Key: $denied_key" http://127.0.0.1:3002/api/get-email)
+          test "$denied_status" = "403"
+          grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$denied_headers"
+          grep -q 'FORBIDDEN_PERMISSION' "$denied_response"
+
+          limited_body="$RUNNER_TEMP/limited-key-create.json"
+          curl --fail --silent --show-error -o "$limited_body" \
+            -H 'Content-Type: application/json' -H "Cookie: token=$token" \
+            --data '{"name":"ci-limited-key","rateLimit":1,"permissions":{"list_emails":true}}' \
+            http://127.0.0.1:3002/admin/api-keys
+          limited_key=$(python3 - "$limited_body" <<'PY'
+          import json, sys
+          print(json.load(open(sys.argv[1], encoding='utf-8'))['data']['key'])
+          PY
+          )
+          curl --fail --silent --show-error -o /dev/null -H "X-API-Key: $limited_key" \
+            http://127.0.0.1:3002/api/list-emails
+          limited_response="$RUNNER_TEMP/limited-call.json"
+          limited_status=$(curl --silent --show-error -o "$limited_response" -w '%{http_code}' \
+            -H "X-API-Key: $limited_key" http://127.0.0.1:3002/api/list-emails)
+          test "$limited_status" = "429"
+          grep -q 'RATE_LIMIT_EXCEEDED' "$limited_response"
+          test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc "SELECT COUNT(*) FROM api_logs WHERE api_key_id = (SELECT id FROM api_keys WHERE name = 'ci-go-key')")" -ge 5
       - name: Re-run initializer without recreating credentials or administrators
         shell: bash
         run: |
