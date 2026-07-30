@@ -21,6 +21,7 @@ func TestCommandFromArgsRecognizesHelp(t *testing.T) {
 func TestUsageDocumentsRuntimeCommands(t *testing.T) {
 	for _, expected := range []string{
 		"allmail api",
+		"allmail routes",
 		"allmail worker forwarding",
 		"allmail worker retention",
 		"allmail migrate",
