@@ -30,7 +30,7 @@
         "@prisma/client": "^6.19.3",
         "bcryptjs": "^3.0.3",
         "dotenv": "^17.4.2",
-        "fastify": "^5.10.0",
+        "fastify": "^5.11.0",
         "fastify-plugin": "^6.0.0",
         "ioredis": "^5.11.1",
         "jose": "^6.2.5",
