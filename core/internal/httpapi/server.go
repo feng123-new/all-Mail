@@ -23,15 +23,18 @@ import (
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
 	"github.com/feng123-new/all-Mail/core/internal/readiness"
+	"github.com/feng123-new/all-Mail/core/internal/routeownership"
 )
 
 type Server struct {
-	cfg       config.APIConfig
-	logger    *slog.Logger
-	startedAt time.Time
-	proxy     *httputil.ReverseProxy
-	prober    readiness.Prober
-	requests  atomic.Uint64
+	cfg          config.APIConfig
+	logger       *slog.Logger
+	startedAt    time.Time
+	proxy        *httputil.ReverseProxy
+	prober       readiness.Prober
+	routes       *routeownership.Manifest
+	routeMetrics *routeMetrics
+	requests     atomic.Uint64
 }
 
 type proxyMetadata struct {
@@ -47,18 +50,27 @@ func New(cfg config.APIConfig, logger *slog.Logger) (*Server, error) {
 }
 
 func newWithProber(cfg config.APIConfig, logger *slog.Logger, prober readiness.Prober) (*Server, error) {
+	routes, err := routeownership.LoadDefault()
+	if err != nil {
+		return nil, err
+	}
+	if err := validateGatewayManifest(routes); err != nil {
+		return nil, err
+	}
 	server := &Server{
-		cfg:       cfg,
-		logger:    logger,
-		startedAt: time.Now(),
-		prober:    prober,
+		cfg:          cfg,
+		logger:       logger,
+		startedAt:    time.Now(),
+		prober:       prober,
+		routes:       routes,
+		routeMetrics: newRouteMetrics(routes),
 	}
 	if cfg.BusinessAPIURL != "" {
 		target, err := cfg.BusinessURL()
 		if err != nil {
 			return nil, err
 		}
-		server.proxy = newBusinessProxy(target, logger)
+		server.proxy = newBusinessProxy(target, logger, server.routeMetrics)
 	}
 	return server, nil
 }
@@ -70,7 +82,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/readyz", s.readyz)
 	mux.HandleFunc("/metrics", s.metrics)
 	mux.HandleFunc("/", s.route)
-	return s.withCommonHeaders(mux)
+	return s.withCommonHeaders(s.observeRoutes(mux))
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -90,6 +102,8 @@ func (s *Server) Run(ctx context.Context) error {
 			"address", httpServer.Addr,
 			"business_api", s.cfg.BusinessAPIURL,
 			"trusted_proxy_cidrs", len(s.cfg.TrustedProxyCIDRs),
+			"route_manifest_version", s.routes.Snapshot().Version,
+			"route_manifest_sha256", s.routes.Digest(),
 		)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
@@ -108,12 +122,16 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+	snapshot := s.routes.Snapshot()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"data": map[string]any{
-			"status":                "ok",
-			"runtime":               "go-gateway",
-			"businessApiConfigured": s.proxy != nil,
+			"status":                  "ok",
+			"runtime":                 "go-gateway",
+			"businessApiConfigured":   s.proxy != nil,
+			"routeManifestVersion":    snapshot.Version,
+			"routeManifestSHA256":     snapshot.SHA256,
+			"routeManifestRouteCount": len(snapshot.Routes),
 		},
 	})
 }
@@ -130,6 +148,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	report := s.prober.Check(ctx, s.cfg)
+	report.Checks["routeOwnership"] = "ok"
 	status := http.StatusOK
 	state := "ready"
 	if !report.Ready {
@@ -153,17 +172,22 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintln(w, "# HELP allmail_go_http_requests_total Requests observed by the Go gateway.")
 	fmt.Fprintln(w, "# TYPE allmail_go_http_requests_total counter")
 	fmt.Fprintf(w, "allmail_go_http_requests_total %d\n", s.requests.Load())
+	s.routeMetrics.writePrometheus(w)
 }
 
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {
-	if isBackendPath(r.URL.Path) {
+	route, ok := routeFromContext(r.Context())
+	if !ok {
+		route = s.routes.Match(r.URL.Path)
+	}
+	if route.Owner == routeownership.OwnerBusinessAPI {
 		if s.proxy == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 				"success":   false,
 				"requestId": requestID(r),
 				"error": map[string]string{
 					"code":    "BUSINESS_API_NOT_CONFIGURED",
-					"message": "This business route still requires BUSINESS_API_URL.",
+					"message": "This route family still requires BUSINESS_API_URL.",
 				},
 			})
 			return
@@ -257,7 +281,7 @@ func (s *Server) resolveProxyMetadata(r *http.Request) proxyMetadata {
 	return metadata
 }
 
-func newBusinessProxy(target *url.URL, logger *slog.Logger) *httputil.ReverseProxy {
+func newBusinessProxy(target *url.URL, logger *slog.Logger, metrics *routeMetrics) *httputil.ReverseProxy {
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(request *httputil.ProxyRequest) {
 			request.SetURL(target)
@@ -274,16 +298,16 @@ func newBusinessProxy(target *url.URL, logger *slog.Logger) *httputil.ReversePro
 			if metadata.Host != "" {
 				request.Out.Header.Set("X-Forwarded-Host", metadata.Host)
 			}
-			request.Out.Header.Set("X-All-Mail-Migration-Bridge", "go")
-		},
-		ModifyResponse: func(response *http.Response) error {
-			response.Header.Set("X-All-Mail-Migration-Bridge", "go")
-			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			route, ok := routeFromContext(r.Context())
+			if ok {
+				metrics.proxyError(route)
+			}
 			logger.Error(
 				"business API proxy failed",
 				"request_id", requestID(r),
+				"route_family", route.ID,
 				"path", r.URL.Path,
 				"error", err,
 			)
@@ -339,16 +363,6 @@ func remoteAddress(remote string) (netip.Addr, error) {
 		return netip.Addr{}, parseErr
 	}
 	return address.Unmap(), nil
-}
-
-func isBackendPath(path string) bool {
-	prefixes := []string{"/admin", "/api", "/mail/api", "/ingress", "/oauth"}
-	for _, prefix := range prefixes {
-		if path == prefix || strings.HasPrefix(path, prefix+"/") {
-			return true
-		}
-	}
-	return false
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
