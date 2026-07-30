@@ -14,6 +14,11 @@ import (
 	"strings"
 )
 
+const (
+	ManifestFileEnvironment = "ALL_MAIL_ROUTE_OWNERSHIP_FILE"
+	DefaultManifestFile     = "/app/config/route-ownership.json"
+)
+
 type Owner string
 
 const (
@@ -65,6 +70,27 @@ type Snapshot struct {
 }
 
 var routeIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+func ResolveFile() string {
+	if configured := strings.TrimSpace(os.Getenv(ManifestFileEnvironment)); configured != "" {
+		return configured
+	}
+	for _, candidate := range []string{
+		DefaultManifestFile,
+		"config/route-ownership.json",
+		"../config/route-ownership.json",
+		"../../../config/route-ownership.json",
+	} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return DefaultManifestFile
+}
+
+func LoadDefault() (*Manifest, error) {
+	return LoadFile(ResolveFile())
+}
 
 func LoadFile(filePath string) (*Manifest, error) {
 	content, err := os.ReadFile(filePath)
