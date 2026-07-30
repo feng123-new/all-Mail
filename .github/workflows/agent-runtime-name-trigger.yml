@@ -25,6 +25,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # This second branch push ensures GitHub has already indexed the trigger workflow.
           python3 - <<'PY'
           from pathlib import Path
 
