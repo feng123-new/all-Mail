@@ -100,7 +100,10 @@ test("operator documentation uses canonical paths and redacts secrets", async ()
 	const combined = (await Promise.all([
 		"core/README.md", "docs/DEPLOY.md", "docs/RUNBOOK.md", "docs/GO-MIGRATION.md",
 	].map(read))).join("\n");
-	assert.doesNotMatch(combined, /\/var\/lib\/all-mail\/encryption-key|worker-forwarding-heartbeat\.json|cat\s+\/var\/lib\/all-mail\/runtime-secrets\.env/);
+	assert.doesNotMatch(
+		combined,
+		/\/var\/lib\/all-mail\/encryption-key|\/var\/lib\/all-mail\/worker-forwarding-heartbeat\.json|cat\s+\/var\/lib\/all-mail\/runtime-secrets\.env/,
+	);
 	assert.match(combined, /\/var\/lib\/all-mail-secrets\/encryption-key/);
 	assert.match(combined, /\/tmp\/all-mail\/worker-forwarding-heartbeat\.json/);
 	assert.match(combined, /runtime-secrets\.env[\s\S]*?<redacted>/);
