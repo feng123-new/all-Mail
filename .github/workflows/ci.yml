@@ -21,10 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
 
@@ -38,7 +38,7 @@ jobs:
 
       - name: Upload runtime test log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: runtime-test-log
           path: ${{ runner.temp }}/runtime-tests.log
@@ -68,10 +68,10 @@ jobs:
         working-directory: core
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: .go-version
           cache-dependency-path: |
@@ -79,7 +79,7 @@ jobs:
             core/go.sum
 
       - name: Setup Node.js for Prisma integration
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -98,7 +98,7 @@ jobs:
 
       - name: Upload Go formatting diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gofmt-diagnostics
           path: |
@@ -116,7 +116,7 @@ jobs:
 
       - name: Upload Go race-test diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: go-race-test-log
           path: ${{ runner.temp }}/go-race-tests.log
@@ -286,10 +286,10 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -315,10 +315,10 @@ jobs:
         working-directory: server
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -337,7 +337,7 @@ jobs:
 
       - name: Upload server lint log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-lint-log
           path: ${{ runner.temp }}/server-lint.log
@@ -353,7 +353,7 @@ jobs:
 
       - name: Upload server test log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-test-log
           path: ${{ runner.temp }}/server-test.log
@@ -370,10 +370,10 @@ jobs:
         working-directory: cloudflare/workers/allmail-edge
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -390,10 +390,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
 
@@ -407,7 +407,7 @@ jobs:
 
       - name: Upload production audit log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: production-audit-log
           path: ${{ runner.temp }}/production-audit.log
@@ -421,7 +421,7 @@ jobs:
       POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Prepare default env file
         run: cp .env.example .env
@@ -441,7 +441,7 @@ jobs:
 
       - name: Upload Docker diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-smoke-diagnostics
           path: |
