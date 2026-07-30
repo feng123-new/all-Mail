@@ -14,6 +14,7 @@
 | Day-2 troubleshooting and recovery | [`RUNBOOK.md`](./RUNBOOK.md) |
 | Environment variables and template ownership | [`ENVIRONMENT.md`](./ENVIRONMENT.md) |
 | Go/Fastify ownership and migration guarantees | [`GO-MIGRATION.md`](./GO-MIGRATION.md) |
+| Route-family ownership, metrics, and cutover procedure | [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md) |
 | Local API/frontend development | [`advanced-runtime.md`](./advanced-runtime.md) |
 | External mailbox operator guide | [`external-email-management-guide.md`](./external-email-management-guide.md) |
 | Open-source release readiness | [`open-source-release-checklist.md`](./open-source-release-checklist.md) |
