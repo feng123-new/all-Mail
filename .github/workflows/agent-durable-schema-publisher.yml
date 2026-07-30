@@ -1,8 +1,8 @@
 name: Agent durable schema publisher
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [agent/durable-config-migration]
   workflow_dispatch:
 
 permissions:
@@ -10,14 +10,23 @@ permissions:
 
 jobs:
   publish:
-    if: github.event_name == 'workflow_dispatch' || github.event.action == 'ready_for_review'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: agent/durable-config-migration
           fetch-depth: 0
+      - name: Detect schema marker
+        id: marker
+        shell: bash
+        run: |
+          if test -f .agent/apply-durable-schema; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Apply Prisma durable-config fields
+        if: steps.marker.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -43,8 +52,9 @@ jobs:
               text = text.replace(old, new, 1)
           path.write_text(text)
           PY
+          rm -rf .agent
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add server/prisma/schema.prisma
+          git add -A
           git commit -m 'feat(config): model durable configuration fields'
           git push origin HEAD:agent/durable-config-migration
