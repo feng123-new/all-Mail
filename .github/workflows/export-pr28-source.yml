@@ -1,0 +1,23 @@
+name: Export PR28 source
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/go-business-api-key-external
+      - name: Archive source
+        run: tar --exclude=.git -czf "$RUNNER_TEMP/pr28-source.tar.gz" .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pr28-source
+          path: ${{ runner.temp }}/pr28-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
