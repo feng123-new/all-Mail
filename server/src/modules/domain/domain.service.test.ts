@@ -75,3 +75,23 @@ void test(
 		}
 	},
 );
+
+void test(
+	"domainService requires super-administrator authority for send approval",
+	async () => {
+		const { domainService } = await import("./domain.service.js");
+
+		await assert.rejects(
+			domainService.create(
+				{
+					name: "send-approval.example.com",
+					canReceive: true,
+					canSend: true,
+					isCatchAllEnabled: false,
+				},
+				1,
+			),
+			/Only a super administrator can approve outbound sending/,
+		);
+	},
+);

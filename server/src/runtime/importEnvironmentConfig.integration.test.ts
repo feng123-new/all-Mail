@@ -104,3 +104,141 @@ void test(
         }
     },
 );
+
+void test(
+    'environment configuration import rejects unsafe values and rolls back partial durable state',
+    { skip: !databaseUrl },
+    async () => {
+        const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const domainName = `rollback-${suffix}.example.com`;
+        const missingDomainName = `missing-${suffix}.example.com`;
+        const username = `config-rollback-${suffix}`.slice(0, 50);
+        const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+        const [{ importEnvironmentConfiguration }, { domainService }, { decrypt }] = await Promise.all([
+            import('./importEnvironmentConfig.js'),
+            import('../modules/domain/domain.service.js'),
+            import('../lib/crypto.js'),
+        ]);
+
+        try {
+            const admin = await prisma.admin.create({
+                data: {
+                    username,
+                    passwordHash: 'not-used-in-config-rollback-test',
+                    role: 'SUPER_ADMIN',
+                    status: 'ACTIVE',
+                },
+            });
+            const domain = await prisma.domain.create({
+                data: {
+                    name: domainName,
+                    displayName: 'environment import rollback test',
+                    canReceive: true,
+                    canSend: false,
+                    isCatchAllEnabled: false,
+                    createdByAdminId: admin.id,
+                },
+            });
+
+            await prisma.providerOAuthConfig.create({
+                data: {
+                    provider: MailProvider.OUTLOOK,
+                    clientId: `database-client-${suffix}`,
+                },
+            });
+            await assert.rejects(
+                importEnvironmentConfiguration(prisma, {
+                    MICROSOFT_OAUTH_CLIENT_ID: `environment-client-${suffix}`,
+                    MICROSOFT_OAUTH_CLIENT_SECRET: `environment-secret-${suffix}`,
+                    MICROSOFT_OAUTH_REDIRECT_URI: 'https://mail.example.com/admin/oauth/microsoft/callback',
+                }),
+                /conflicts with the legacy environment values/,
+            );
+            const preserved = await prisma.providerOAuthConfig.findUniqueOrThrow({
+                where: { provider: MailProvider.OUTLOOK },
+            });
+            assert.equal(preserved.clientId, `database-client-${suffix}`);
+            assert.equal(preserved.clientSecret, null);
+            assert.equal(preserved.redirectUri, null);
+
+            await prisma.providerOAuthConfig.delete({ where: { provider: MailProvider.OUTLOOK } });
+            const partialClientId = `partial-client-${suffix}`;
+            await prisma.providerOAuthConfig.create({
+                data: {
+                    provider: MailProvider.OUTLOOK,
+                    clientId: partialClientId,
+                    scopes: 'offline_access custom.scope',
+                },
+            });
+            const completedPartial = await importEnvironmentConfiguration(prisma, {
+                MICROSOFT_OAUTH_CLIENT_ID: partialClientId,
+                MICROSOFT_OAUTH_CLIENT_SECRET: `partial-secret-${suffix}`,
+                MICROSOFT_OAUTH_REDIRECT_URI: 'https://mail.example.com/admin/oauth/microsoft/callback',
+                MICROSOFT_OAUTH_TENANT: 'common',
+            });
+            assert.deepEqual(completedPartial.oauthImported, [MailProvider.OUTLOOK]);
+            const completed = await prisma.providerOAuthConfig.findUniqueOrThrow({
+                where: { provider: MailProvider.OUTLOOK },
+            });
+            assert.equal(completed.clientId, partialClientId);
+            assert.equal(decrypt(completed.clientSecret as string), `partial-secret-${suffix}`);
+            assert.equal(completed.scopes, 'offline_access custom.scope');
+            assert.equal(completed.tenant, 'common');
+
+            await prisma.providerOAuthConfig.delete({ where: { provider: MailProvider.OUTLOOK } });
+            await assert.rejects(
+                importEnvironmentConfiguration(prisma, {
+                    MICROSOFT_OAUTH_CLIENT_ID: `environment-client-${suffix}`,
+                    MICROSOFT_OAUTH_CLIENT_SECRET: `environment-secret-${suffix}`,
+                    MICROSOFT_OAUTH_REDIRECT_URI: 'https://mail.example.com/admin/oauth/microsoft/callback',
+                    SEND_ENABLED_DOMAINS: `${domainName},${missingDomainName}`,
+                }),
+                /contains unknown domains/,
+            );
+            assert.equal(
+                await prisma.providerOAuthConfig.findUnique({
+                    where: { provider: MailProvider.OUTLOOK },
+                }),
+                null,
+            );
+            const approval = await prisma.$queryRaw<Array<{ send_approved: boolean }>>`
+                SELECT send_approved
+                FROM domains
+                WHERE id = ${domain.id}
+            `;
+            assert.equal(approval[0].send_approved, false);
+
+            await assert.rejects(
+                domainService.update(domain.id, { canSend: true }),
+                /Only a super administrator can approve outbound sending/,
+            );
+            const approved = await domainService.update(domain.id, { canSend: true }, true);
+            assert.equal(approved.canSend, true);
+            const regularAdminEdit = await domainService.update(domain.id, {
+                displayName: 'approved domain edited by regular admin',
+                canSend: true,
+            });
+            assert.equal(regularAdminEdit.displayName, 'approved domain edited by regular admin');
+
+            await assert.rejects(
+                importEnvironmentConfiguration(prisma, {
+                    GOOGLE_OAUTH_CLIENT_ID: `google-client-${suffix}`,
+                    GOOGLE_OAUTH_CLIENT_SECRET: `google-secret-${suffix}`,
+                    GOOGLE_OAUTH_REDIRECT_URI: 'not-an-absolute-url',
+                }),
+                /must be an absolute URL/,
+            );
+            await assert.rejects(
+                importEnvironmentConfiguration(prisma, {
+                    INGRESS_SIGNING_SECRET: 'too-short',
+                }),
+                /must contain at least 16 characters/,
+            );
+        } finally {
+            await prisma.providerOAuthConfig.deleteMany({ where: { provider: MailProvider.OUTLOOK } });
+            await prisma.domain.deleteMany({ where: { name: domainName } });
+            await prisma.admin.deleteMany({ where: { username } });
+            await prisma.$disconnect();
+        }
+    },
+);

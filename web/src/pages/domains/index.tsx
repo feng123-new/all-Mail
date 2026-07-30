@@ -89,8 +89,8 @@ const domainsI18n = {
 	addDomain: defineMessage("domains.addDomain", "新增域名", "Add domain"),
 	sendEnabledDomainsHint: defineMessage(
 		"domains.sendEnabledDomainsHint",
-		"是否允许某个域名开启发件能力，最终由服务端环境变量 SEND_ENABLED_DOMAINS 控制。未列入允许名单的域名会保持收件专用。",
-		"Whether a domain may enable sending is ultimately controlled by the server-side SEND_ENABLED_DOMAINS environment variable. Domains that are not on the allowlist remain inbound-only.",
+		"域名发件能力必须先持久化批准，可由初始化导入或超级管理员授予。",
+		"Outbound sending requires durable approval imported during initialization or granted by a super administrator.",
 	),
 	columnDomain: defineMessage("domains.columnDomain", "域名", "Domain"),
 	columnDisplayName: defineMessage(
@@ -188,8 +188,8 @@ const domainsI18n = {
 	canSend: defineMessage("domains.canSend", "允许发件", "Allow outbound mail"),
 	sendHint: defineMessage(
 		"domains.sendHint",
-		"只有服务端 `SEND_ENABLED_DOMAINS` 中列出的域名才能保存为“允许发件”。",
-		"Only domains listed in the server-side `SEND_ENABLED_DOMAINS` setting can be saved as send-enabled.",
+		"只有已批准的域名才能保存为“允许发件”；新的批准需要超级管理员。",
+		"Only approved domains can be saved as send-enabled; new approval requires a super administrator.",
 	),
 	pending: defineMessage("domains.pending", "待验证", "Pending"),
 	active: defineMessage("domains.active", "启用", "Active"),

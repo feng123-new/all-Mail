@@ -1,10 +1,10 @@
-import { createCipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { PrismaClient, Status } from '@prisma/client';
 
-interface Options {
+export interface Options {
     check: boolean;
     global: boolean;
     domainName?: string;
@@ -13,7 +13,7 @@ interface Options {
     provider: string;
 }
 
-interface MinimalEnv {
+export interface MinimalEnv {
     DATABASE_URL: string;
     INGRESS_SIGNING_SECRET?: string;
     ENCRYPTION_KEY?: string;
@@ -21,6 +21,12 @@ interface MinimalEnv {
 
 interface StoredIngressSecret {
     signing_secret_encrypted: string | null;
+}
+
+interface LockedIngressSecret extends StoredIngressSecret {
+    id: number;
+    key_id: string;
+    signing_key_hash: string | null;
 }
 
 const scriptDir = import.meta.dirname;
@@ -174,16 +180,46 @@ function buildSigningKeyHash(secret: string): string {
     return createHash('sha256').update(secret).digest('hex');
 }
 
-function encryptIngressSecret(secret: string, encryptionKey: string): string {
+function validateIngressSecret(secret: string): void {
+    if (secret.length < 16) {
+        throw new Error('INGRESS_SIGNING_SECRET must contain at least 16 characters');
+    }
+    const lowered = secret.toLowerCase();
+    if (['replace-with-', 'changeme-', 'example-'].some((prefix) => lowered.startsWith(prefix))) {
+        throw new Error('INGRESS_SIGNING_SECRET must not be a placeholder value');
+    }
+}
+
+function deriveEncryptionKey(encryptionKey: string): Buffer {
     if (encryptionKey.length !== 32) {
         throw new Error('ENCRYPTION_KEY must contain exactly 32 characters');
     }
+    return createHash('sha256').update(encryptionKey).digest();
+}
+
+function encryptIngressSecret(secret: string, encryptionKey: string): string {
     const iv = randomBytes(16);
-    const key = createHash('sha256').update(encryptionKey).digest();
-    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const cipher = createCipheriv('aes-256-gcm', deriveEncryptionKey(encryptionKey), iv);
     let encrypted = cipher.update(secret, 'utf8', 'hex');
     encrypted += cipher.final('hex');
     return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${encrypted}`;
+}
+
+function decryptIngressSecret(encryptedText: string, encryptionKey: string): string {
+    const parts = encryptedText.split(':');
+    if (parts.length !== 3) {
+        throw new Error('Stored ingress signing secret has an invalid encrypted format');
+    }
+    const [ivHex, authTagHex, encrypted] = parts;
+    const decipher = createDecipheriv(
+        'aes-256-gcm',
+        deriveEncryptionKey(encryptionKey),
+        Buffer.from(ivHex, 'hex'),
+    );
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
 }
 
 async function readStoredIngressSecret(
@@ -220,7 +256,11 @@ async function resolveDomain(prisma: PrismaClient, domainName?: string) {
     return domain;
 }
 
-async function runCheck(prisma: PrismaClient, env: MinimalEnv, options: Options): Promise<number> {
+export async function runCheck(
+    prisma: PrismaClient,
+    env: MinimalEnv,
+    options: Options,
+): Promise<number> {
     const endpoint = await prisma.ingressEndpoint.findUnique({
         where: { keyId: options.keyId },
         select: {
@@ -245,9 +285,20 @@ async function runCheck(prisma: PrismaClient, env: MinimalEnv, options: Options)
     const encryptedSecret = endpoint
         ? await readStoredIngressSecret(prisma, endpoint.id)
         : null;
+    let encryptedSecretValid: boolean | null = null;
+    if (encryptedSecret && env.ENCRYPTION_KEY) {
+        try {
+            const decryptedSecret = decryptIngressSecret(encryptedSecret, env.ENCRYPTION_KEY);
+            encryptedSecretValid = endpoint?.signingKeyHash === buildSigningKeyHash(decryptedSecret)
+                && (!env.INGRESS_SIGNING_SECRET || decryptedSecret === env.INGRESS_SIGNING_SECRET);
+        } catch {
+            encryptedSecretValid = false;
+        }
+    }
     const report = {
         exists: Boolean(endpoint),
         encryptedSigningSecretConfigured: Boolean(encryptedSecret),
+        encryptedSigningSecretValid: encryptedSecretValid,
         active: endpoint?.status === Status.ACTIVE,
         keyId: options.keyId,
         expectedDomain: options.domainName ?? null,
@@ -271,6 +322,7 @@ async function runCheck(prisma: PrismaClient, env: MinimalEnv, options: Options)
         || !domainMatches
         || !signingHashMatches
         || !encryptedSecret
+        || (env.ENCRYPTION_KEY !== undefined && encryptedSecretValid !== true)
     ) {
         return 1;
     }
@@ -278,82 +330,103 @@ async function runCheck(prisma: PrismaClient, env: MinimalEnv, options: Options)
     return 0;
 }
 
-async function runEnsure(prisma: PrismaClient, env: MinimalEnv, options: Options): Promise<void> {
+export async function runEnsure(
+    prisma: PrismaClient,
+    env: MinimalEnv,
+    options: Options,
+): Promise<void> {
     if (!env.INGRESS_SIGNING_SECRET) {
         throw new Error('INGRESS_SIGNING_SECRET must be configured before ensuring ingress endpoint');
     }
+    validateIngressSecret(env.INGRESS_SIGNING_SECRET);
 
     const domain = await resolveDomain(prisma, options.domainName);
     const signingKeyHash = buildSigningKeyHash(env.INGRESS_SIGNING_SECRET);
-    const existing = await prisma.ingressEndpoint.findUnique({
-        where: { keyId: options.keyId },
-        select: { id: true, signingKeyHash: true },
-    });
-    const existingEncryptedSecret = existing
-        ? await readStoredIngressSecret(prisma, existing.id)
-        : null;
-    const canReuseStoredSecret = Boolean(
-        existing
-        && existing.signingKeyHash === signingKeyHash
-        && existingEncryptedSecret,
-    );
-
-    if (!canReuseStoredSecret && !env.ENCRYPTION_KEY) {
-        throw new Error(
-            'ENCRYPTION_KEY is required when creating an ingress endpoint or rotating its signing secret',
-        );
-    }
-
-    const endpoint = await prisma.ingressEndpoint.upsert({
-        where: { keyId: options.keyId },
-        create: {
-            domainId: domain?.id ?? null,
-            keyId: options.keyId,
-            name: options.name,
-            provider: options.provider,
-            signingKeyHash,
-            status: Status.ACTIVE,
-        },
-        update: {
-            domainId: domain?.id ?? null,
-            name: options.name,
-            provider: options.provider,
-            signingKeyHash,
-            status: Status.ACTIVE,
-        },
-        select: {
-            id: true,
-            keyId: true,
-            name: true,
-            provider: true,
-            status: true,
-            domain: {
-                select: {
-                    name: true,
-                },
-            },
-            signingKeyHash: true,
-        },
-    });
-
-    if (!canReuseStoredSecret) {
-        const encryptedSecret = encryptIngressSecret(
-            env.INGRESS_SIGNING_SECRET,
-            env.ENCRYPTION_KEY as string,
-        );
-        await prisma.$executeRaw`
-            UPDATE ingress_endpoints
-            SET signing_secret_encrypted = ${encryptedSecret},
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ${endpoint.id}
+    const result = await prisma.$transaction(async (transaction) => {
+        const rows = await transaction.$queryRaw<LockedIngressSecret[]>`
+            SELECT id, key_id, signing_key_hash, signing_secret_encrypted
+            FROM ingress_endpoints
+            WHERE key_id = ${options.keyId}
+            FOR UPDATE
         `;
-    }
+        const existing = rows[0] || null;
+        if (existing?.signing_secret_encrypted && env.ENCRYPTION_KEY) {
+            let existingSecret: string;
+            try {
+                existingSecret = decryptIngressSecret(
+                    existing.signing_secret_encrypted,
+                    env.ENCRYPTION_KEY,
+                );
+            } catch {
+                throw new Error('ENCRYPTION_KEY cannot decrypt the stored ingress signing secret');
+            }
+            if (existing.signing_key_hash !== buildSigningKeyHash(existingSecret)) {
+                throw new Error('Stored ingress signing hash does not match its encrypted secret');
+            }
+        }
+
+        const canReuseStoredSecret = Boolean(
+            existing
+            && existing.signing_key_hash === signingKeyHash
+            && existing.signing_secret_encrypted,
+        );
+        if (!canReuseStoredSecret && !env.ENCRYPTION_KEY) {
+            throw new Error(
+                'ENCRYPTION_KEY is required when creating an ingress endpoint or rotating its signing secret',
+            );
+        }
+        const encryptedSecret = canReuseStoredSecret
+            ? null
+            : encryptIngressSecret(env.INGRESS_SIGNING_SECRET as string, env.ENCRYPTION_KEY as string);
+
+        const updated = await transaction.ingressEndpoint.upsert({
+            where: { keyId: options.keyId },
+            create: {
+                domainId: domain?.id ?? null,
+                keyId: options.keyId,
+                name: options.name,
+                provider: options.provider,
+                signingKeyHash,
+                status: Status.ACTIVE,
+            },
+            update: {
+                domainId: domain?.id ?? null,
+                name: options.name,
+                provider: options.provider,
+                signingKeyHash,
+                status: Status.ACTIVE,
+            },
+            select: {
+                id: true,
+                keyId: true,
+                name: true,
+                provider: true,
+                status: true,
+                domain: {
+                    select: {
+                        name: true,
+                    },
+                },
+                signingKeyHash: true,
+            },
+        });
+
+        if (encryptedSecret) {
+            await transaction.$executeRaw`
+                UPDATE ingress_endpoints
+                SET signing_secret_encrypted = ${encryptedSecret},
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ${updated.id}
+            `;
+        }
+        return { endpoint: updated, reusedStoredSecret: canReuseStoredSecret };
+    });
 
     console.log(JSON.stringify({
         ensured: true,
         encryptedSigningSecretConfigured: true,
-        reusedStoredSecret: canReuseStoredSecret,
-        endpoint,
+        reusedStoredSecret: result.reusedStoredSecret,
+        endpoint: result.endpoint,
     }, null, 2));
 }
 
@@ -381,7 +454,9 @@ async function main() {
     }
 }
 
-main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+    main().catch((error) => {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+    });
+}

@@ -35,14 +35,22 @@ const domainRoutes: FastifyPluginAsync = async (fastify) => {
 		if (!adminId) {
 			throw new AppError("UNAUTHORIZED", "Authentication required", 401);
 		}
-		const result = await domainService.create(input, adminId);
+		const result = await domainService.create(
+			input,
+			adminId,
+			request.user?.role === "SUPER_ADMIN",
+		);
 		return { success: true, data: result };
 	});
 
 	fastify.patch("/:id(^\\d+$)", async (request) => {
 		const { id } = request.params as { id: string };
 		const input = updateDomainSchema.parse(request.body);
-		const result = await domainService.update(Number.parseInt(id, 10), input);
+		const result = await domainService.update(
+			Number.parseInt(id, 10),
+			input,
+			request.user?.role === "SUPER_ADMIN",
+		);
 		return { success: true, data: result };
 	});
 

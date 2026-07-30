@@ -61,6 +61,19 @@ async function approveSendCapability(
 	`;
 }
 
+function requireSendApprovalAuthority(
+	canSend: boolean | undefined,
+	canApproveSend: boolean,
+): void {
+	if (canSend === true && !canApproveSend) {
+		throw new AppError(
+			"DOMAIN_SEND_APPROVAL_REQUIRED",
+			"Only a super administrator can approve outbound sending for a domain",
+			403,
+		);
+	}
+}
+
 function buildDomainWhere(input: ListDomainInput): Prisma.DomainWhereInput {
 	const where: Prisma.DomainWhereInput = {};
 	if (input.status) {
@@ -219,7 +232,12 @@ export const domainService = {
 		};
 	},
 
-	async create(input: CreateDomainInput, createdByAdminId: number) {
+	async create(
+		input: CreateDomainInput,
+		createdByAdminId: number,
+		canApproveSend = false,
+	) {
+		requireSendApprovalAuthority(input.canSend, canApproveSend);
 		const name = normalizeDomainName(input.name);
 		const existing = await prisma.domain.findUnique({ where: { name } });
 		if (existing) {
@@ -265,7 +283,7 @@ export const domainService = {
 				},
 			});
 			if (input.canSend) {
-				await approveSendCapability(tx, created.id, "admin-create");
+				await approveSendCapability(tx, created.id, "super-admin-create");
 			}
 			return created;
 		});
@@ -273,11 +291,22 @@ export const domainService = {
 		return toDomainSummary(domain);
 	},
 
-	async update(id: number, input: UpdateDomainInput) {
+	async update(
+		id: number,
+		input: UpdateDomainInput,
+		canApproveSend = false,
+	) {
 		const existing = await prisma.domain.findUnique({ where: { id } });
 		if (!existing) {
 			throw new AppError("DOMAIN_NOT_FOUND", "Domain not found", 404);
 		}
+		const sendAlreadyApproved = input.canSend === true
+			? await isSendApproved(prisma, id)
+			: false;
+		requireSendApprovalAuthority(
+			input.canSend,
+			canApproveSend || sendAlreadyApproved,
+		);
 
 		const domain = await prisma.$transaction(async (tx) => {
 			const updated = await tx.domain.update({
@@ -314,8 +343,8 @@ export const domainService = {
 					},
 				},
 			});
-			if (input.canSend === true && !(await isSendApproved(tx, id))) {
-				await approveSendCapability(tx, id, "admin-update");
+			if (input.canSend === true && !sendAlreadyApproved) {
+				await approveSendCapability(tx, id, "super-admin-update");
 			}
 			return updated;
 		});
