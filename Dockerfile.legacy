@@ -24,6 +24,7 @@ ENV NODE_ENV=production \
 
 RUN groupadd --system --gid 10001 allmail \
     && useradd --system --uid 10001 --gid allmail --home-dir /var/lib/all-mail --shell /usr/sbin/nologin allmail \
+    && command -v gosu >/dev/null \
     && mkdir -p /app/server /app/scripts /app/config /var/lib/all-mail \
     && chown -R allmail:allmail /app /var/lib/all-mail
 
