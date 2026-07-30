@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, master]
+    branches: [main]
   push:
-    branches: [main, master]
+    branches: [main]
   merge_group:
   workflow_dispatch:
 
@@ -454,14 +454,14 @@ jobs:
         shell: bash
         run: |
           docker compose ps -a
-          test "$(docker compose exec -T legacy-api id -u)" = "10001"
+          test "$(docker compose exec -T business-api id -u)" = "10001"
           for retired in go-jobs legacy-jobs jobs; do
             if docker compose config --services | grep -qx "$retired"; then
               echo "retired service remains in Compose: $retired"
               exit 1
             fi
           done
-          docker compose exec -T legacy-api sh -lc '
+          docker compose exec -T business-api sh -lc '
             test -r /var/lib/all-mail/runtime-secrets.env
             test -r /var/lib/all-mail/bootstrap-admin.env
             test ! -e /var/lib/all-mail/bootstrap-secrets.env
@@ -472,11 +472,11 @@ jobs:
             exit 1
           fi
 
-      - name: Verify Go and compatibility API readiness
+      - name: Verify Go and business API readiness
         run: |
           curl --fail --silent --show-error http://127.0.0.1:3002/health
           curl --fail --silent --show-error http://127.0.0.1:3002/readyz
-          docker compose exec -T legacy-api node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
+          docker compose exec -T business-api node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
 
       - name: Check independent worker doctors
         run: |

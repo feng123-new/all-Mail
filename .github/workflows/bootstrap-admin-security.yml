@@ -2,9 +2,9 @@ name: Bootstrap administrator security
 
 on:
   pull_request:
-    branches: [main, master, agent/config-security-hard-delete]
+    branches: [main]
   push:
-    branches: [main, master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -107,6 +107,14 @@ jobs:
       - uses: actions/checkout@v7
       - name: Prepare canonical environment
         run: cp .env.example .env
+      - name: Seed the pre-rename physical runtime-secret volume
+        shell: bash
+        run: |
+          docker volume create all-mail_legacy_runtime_data
+          docker run --rm \
+            -v all-mail_legacy_runtime_data:/state \
+            postgres:16-alpine \
+            sh -lc 'printf preserved > /state/pre-rename-volume-marker'
       - name: Start canonical stack
         shell: bash
         run: |
@@ -129,7 +137,7 @@ jobs:
       - name: Verify secret files and API environment isolation
         shell: bash
         run: |
-          docker compose exec -T legacy-api sh -lc '
+          docker compose exec -T business-api sh -lc '
             test -r /var/lib/all-mail/runtime-secrets.env
             test -r /var/lib/all-mail/bootstrap-admin.env
             test ! -e /var/lib/all-mail/bootstrap-secrets.env
@@ -140,16 +148,16 @@ jobs:
             test -z "${ADMIN_2FA_SECRET:-}"
             test -n "${BOOTSTRAP_ADMIN_SECRET_FILE:-}"
           '
-          docker compose exec -T legacy-api sh -lc \
+          docker compose exec -T business-api sh -lc \
             '! grep -Eq "^(ADMIN_USERNAME|ADMIN_PASSWORD)=" /var/lib/all-mail/runtime-secrets.env'
           test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT count(*) FROM admins')" = "1"
           test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT must_change_password FROM admins LIMIT 1')" = "t"
       - name: Log in through Go and rotate the one-time password
         shell: bash
         run: |
-          username=$(docker compose exec -T legacy-api sh -lc \
+          username=$(docker compose exec -T business-api sh -lc \
             "grep '^ADMIN_USERNAME=' /var/lib/all-mail/bootstrap-admin.env | cut -d= -f2-")
-          password=$(docker compose exec -T legacy-api sh -lc \
+          password=$(docker compose exec -T business-api sh -lc \
             "grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-admin.env | cut -d= -f2-")
           test -n "$username"
           test -n "$password"
@@ -185,15 +193,16 @@ jobs:
               payload = json.load(handle)
           assert payload['success'] is True
           PY
-          docker compose exec -T legacy-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
+          docker compose exec -T business-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
           test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT must_change_password FROM admins LIMIT 1')" = "f"
       - name: Re-run initializer without recreating credentials or administrators
         shell: bash
         run: |
-          docker compose run --rm legacy-init
+          docker compose run --rm business-init
           test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT count(*) FROM admins')" = "1"
-          docker compose exec -T legacy-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
-          docker compose exec -T legacy-api sh -lc 'test -r /var/lib/all-mail/runtime-secrets.env'
+          docker compose exec -T business-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
+          docker compose exec -T business-api sh -lc 'test -r /var/lib/all-mail/runtime-secrets.env'
+          test "$(docker compose exec -T business-api cat /var/lib/all-mail/pre-rename-volume-marker)" = "preserved"
       - name: Check runtime doctors
         run: |
           docker compose exec -T app allmail doctor api
