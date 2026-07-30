@@ -1,15 +1,15 @@
 name: Publish PR28 source
 
 on:
-  push:
-    branches: [agent/go-business-api-key-external]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   publish:
-    if: github.event.head_commit.message == 'chore(pr28): stage atomic source payload'
+    if: github.head_ref == 'agent/go-business-api-key-external'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
