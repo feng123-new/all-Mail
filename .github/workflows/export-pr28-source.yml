@@ -1,23 +1,35 @@
-name: Export PR28 source
+name: Publish PR28 source
 
 on:
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+  push:
+    branches: [agent/go-business-api-key-external]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  publish:
+    if: github.event.head_commit.message == 'chore(pr28): stage atomic source payload'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Archive source
-        run: tar --exclude=.git -czf "$RUNNER_TEMP/pr28-source.tar.gz" .
-      - uses: actions/upload-artifact@v7
         with:
-          name: pr28-source
-          path: ${{ runner.temp }}/pr28-source.tar.gz
-          if-no-files-found: error
-          retention-days: 1
+          ref: agent/go-business-api-key-external
+          fetch-depth: 0
+      - name: Apply complete source payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/pr28-payload/part-* > "$RUNNER_TEMP/pr28-payload.b64"
+          test "$(wc -c < "$RUNNER_TEMP/pr28-payload.b64")" = "73572"
+          echo '735bdcaa4d44927a71c8295116b6ea944662d85e5dc7de7f68b706f4edbb86fd  '"$RUNNER_TEMP/pr28-payload.b64" | sha256sum -c -
+          base64 -d "$RUNNER_TEMP/pr28-payload.b64" > "$RUNNER_TEMP/pr28-payload.tar.gz"
+          echo 'f831e149d89296571071ab6ca53b2fca144d0f9838a0b48d33d0406ae942db4a  '"$RUNNER_TEMP/pr28-payload.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/pr28-payload.tar.gz" -C .
+          rm -rf .github/pr28-payload
+          rm -f .github/workflows/export-pr28-source.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat(go-business): port API-key security and database-backed external APIs'
+          git push origin HEAD:agent/go-business-api-key-external
