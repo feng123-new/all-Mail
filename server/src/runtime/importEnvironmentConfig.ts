@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
-import { MailProvider, PrismaClient } from '@prisma/client';
+import { MailProvider } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 
 import { decrypt, encrypt } from '../lib/crypto.js';
 import prisma from '../lib/prisma.js';
@@ -53,8 +54,6 @@ function buildOAuthImportConfig(
         ? normalized(environment.MICROSOFT_OAUTH_TENANT)
         : null;
 
-    // The shipped template includes callback and scope defaults. They are not
-    // an import request unless at least one credential field is populated.
     if (!clientId && !clientSecret) {
         return null;
     }
