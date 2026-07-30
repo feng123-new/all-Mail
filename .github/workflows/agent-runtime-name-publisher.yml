@@ -1,0 +1,336 @@
+name: Agent runtime naming publisher
+
+on:
+  pull_request:
+    branches: [main]
+    types: [ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'agent/retire-migration-era-names'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/retire-migration-era-names
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+      - name: Apply reviewed runtime naming and archive transformations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+          import subprocess
+
+          root = Path('.')
+
+          def git_mv(source: str, target: str) -> None:
+              source_path = Path(source)
+              if source_path.exists():
+                  Path(target).parent.mkdir(parents=True, exist_ok=True)
+                  subprocess.run(['git', 'mv', source, target], check=True)
+
+          git_mv('Dockerfile.legacy', 'Dockerfile.server')
+          git_mv('server/prisma/legacy-p3005-repair.sql', 'server/prisma/p3005-repair.sql')
+
+          archive_dir = Path('docs/internal/archive/2026-go-rewrite')
+          archive_dir.mkdir(parents=True, exist_ok=True)
+          rewrite_dir = Path('docs/internal/rewrite')
+          if rewrite_dir.exists():
+              for source in sorted(rewrite_dir.glob('*.md')):
+                  git_mv(str(source), str(archive_dir / source.name))
+
+          replacements = [
+              ('compatibility business API', 'business API'),
+              ('Compatibility business API', 'Business API'),
+              ('Dockerfile.legacy', 'Dockerfile.server'),
+              ('legacy-init', 'business-init'),
+              ('legacy-api', 'business-api'),
+              ('LEGACY_API_URL', 'BUSINESS_API_URL'),
+              ('LegacyAPIURL', 'BusinessAPIURL'),
+              ('LegacyURL', 'BusinessURL'),
+              ('newLegacyProxy', 'newBusinessProxy'),
+              ('checkLegacy', 'checkBusinessAPI'),
+              ('compatibilityApiConfigured', 'businessApiConfigured'),
+              ('compatibilityApi', 'businessApi'),
+              ('COMPATIBILITY_API_NOT_CONFIGURED', 'BUSINESS_API_NOT_CONFIGURED'),
+              ('COMPATIBILITY_API_UNAVAILABLE', 'BUSINESS_API_UNAVAILABLE'),
+              ('compatibility API', 'business API'),
+              ('Compatibility API', 'Business API'),
+              ('compatibility readiness', 'business API readiness'),
+              ('compatibility_api', 'business_api'),
+              ('ALL_MAIL_LEGACY_IMAGE', 'ALL_MAIL_SERVER_IMAGE'),
+              ('all-mail-legacy', 'all-mail-server'),
+              ('x-legacy-runtime', 'x-server-runtime'),
+              ('&legacy-runtime', '&server-runtime'),
+              ('*legacy-runtime', '*server-runtime'),
+              ('x-legacy-long-runtime', 'x-business-api-runtime'),
+              ('&legacy-long-runtime', '&business-api-runtime'),
+              ('*legacy-long-runtime', '*business-api-runtime'),
+              ('x-legacy-init-runtime', 'x-business-init-runtime'),
+              ('&legacy-init-runtime', '&business-init-runtime'),
+              ('*legacy-init-runtime', '*business-init-runtime'),
+              ('legacy_runtime_data', 'runtime_secrets_data'),
+              ('ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR', 'ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR'),
+              ('run_legacy_migrations', 'run_business_migrations'),
+              ('db:repair:legacy-p3005', 'db:repair:p3005'),
+              ('legacy-p3005-repair.sql', 'p3005-repair.sql'),
+              ('legacyDockerfile', 'serverDockerfile'),
+              ('docs/internal/rewrite/runtime-consolidation-plan.md', 'docs/internal/runtime-migration-roadmap.md'),
+              ('docs/internal/rewrite/post-pr9-runtime-retirement.md', 'docs/internal/runtime-migration-roadmap.md'),
+              ('./rewrite/runtime-consolidation-plan.md', './runtime-migration-roadmap.md'),
+          ]
+
+          tracked = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          for relative in tracked:
+              if not relative:
+                  continue
+              path = Path(relative)
+              if str(path).startswith('docs/internal/archive/2026-go-rewrite/'):
+                  continue
+              if relative == '.github/workflows/agent-runtime-name-publisher.yml':
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              original = text
+              for old, new in replacements:
+                  text = text.replace(old, new)
+              if relative.startswith('core/') and path.suffix == '.go':
+                  text = text.replace('Legacy Probe', 'BusinessAPI Probe')
+                  text = text.replace('Legacy:', 'BusinessAPI:')
+                  text = text.replace('.Legacy', '.BusinessAPI')
+              if text != original:
+                  path.write_text(text, encoding='utf-8')
+
+          compose_path = Path('docker-compose.yml')
+          compose = compose_path.read_text(encoding='utf-8')
+          compose = re.sub(
+              r'^\s*ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR:.*\n',
+              '',
+              compose,
+              flags=re.MULTILINE,
+          )
+          compose = compose.replace(
+              '  runtime_secrets_data:\n',
+              '  runtime_secrets_data:\n    name: "${COMPOSE_PROJECT_NAME:-all-mail}_legacy_runtime_data"\n',
+          )
+          compose_path.write_text(compose, encoding='utf-8')
+
+          entrypoint_path = Path('docker/entrypoint.sh')
+          entrypoint = entrypoint_path.read_text(encoding='utf-8')
+          entrypoint = entrypoint.replace(
+              'P3005 detected; running the explicitly enabled legacy repair and db push path.',
+              'P3005 detected; running the explicitly enabled Prisma repair and db push path.',
+          )
+          entrypoint = entrypoint.replace(
+              'Prisma reported P3005 for a non-empty legacy database.',
+              'Prisma reported P3005 for a non-empty existing database.',
+          )
+          entrypoint_path.write_text(entrypoint, encoding='utf-8')
+
+          retired_path = Path('config/retired-env.json')
+          retired = json.loads(retired_path.read_text(encoding='utf-8'))
+          for name in [
+              'LEGACY_API_URL',
+              'ALL_MAIL_LEGACY_IMAGE',
+              'ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR',
+          ]:
+              if name not in retired['variables']:
+                  retired['variables'].append(name)
+          retired['variables'] = sorted(retired['variables'])
+          retired_path.write_text(json.dumps(retired, indent=2) + '\n', encoding='utf-8')
+
+          config_readme = Path('config/README.md')
+          config_text = config_readme.read_text(encoding='utf-8')
+          config_text = config_text.replace('BUSINESS_API_URL', 'BUSINESS_API_URL')
+          config_text += (
+              '\nThe `BUSINESS_API_URL` and image override variables are internal Compose inputs. '
+              'The retired `LEGACY_API_URL` and `ALL_MAIL_LEGACY_IMAGE` names are rejected.\n'
+          )
+          config_readme.write_text(config_text, encoding='utf-8')
+
+          internal_readme = '''# Internal Documentation Boundary
+
+This subtree is for maintainer-facing design, migration, and operational reference material.
+
+## Current internal sections
+
+| Path | Purpose |
+| --- | --- |
+| [`runtime-migration-roadmap.md`](./runtime-migration-roadmap.md) | Current ownership map and deletion gates for completing the Go business-route migration |
+| [`archive/2026-go-rewrite/`](./archive/2026-go-rewrite/) | Historical PR plans, status reports, and superseded rewrite notes |
+| [`desktop/`](./desktop/) | Desktop-product explorations and solution planning |
+| [`ops/`](./ops/) | OpenCode/OpenClaw integration notes and maintainer-side ops references |
+| [`standards/`](./standards/) | Internal naming and convention guidance |
+| [`superpowers/`](./superpowers/) | Historical specs and implementation plans generated during maintainer workflows |
+
+Operator-facing deployment, recovery, and validation guidance belongs in the `docs/` root.
+'''
+          Path('docs/internal/README.md').write_text(internal_readme, encoding='utf-8')
+
+          archive_readme = '''# 2026 Go Rewrite Archive
+
+This directory preserves historical migration plans and status snapshots. These files describe the repository at the time they were written and may intentionally contain retired service names, variables, and rollback paths.
+
+Use [`../../runtime-migration-roadmap.md`](../../runtime-migration-roadmap.md) for the current architecture and remaining deletion gates.
+'''
+          (archive_dir / 'README.md').write_text(archive_readme, encoding='utf-8')
+
+          roadmap = '''# Runtime Migration Roadmap
+
+## Current production topology
+
+```text
+client / reverse proxy
+        |
+        v
+app (Go gateway + React)
+        |
+        v
+business-api (Fastify + Prisma business routes)
+
+business-init -> go-migrate -> long-running services
+worker-forwarding and worker-retention are independent Go processes
+```
+
+The active service and configuration names describe ownership rather than migration age:
+
+- `business-api` owns database-backed business HTTP routes;
+- `business-init` owns Prisma migration, durable configuration import, runtime-secret initialization, and first-administrator bootstrap;
+- `BUSINESS_API_URL` is the internal Go-to-Fastify upstream;
+- `Dockerfile.server` builds both business roles;
+- `runtime_secrets_data` is the logical Compose volume. Its explicit physical name remains `${COMPOSE_PROJECT_NAME}_legacy_runtime_data` so upgrades reuse existing JWT and encryption secrets.
+
+## Remaining vertical migrations
+
+1. Add a machine-readable route ownership manifest and proxy metrics.
+2. Move dashboard and operational read APIs to Go with response-parity fixtures.
+3. Move API-key authentication, permissions, rate limits, and external read APIs.
+4. Move ingress validation, replay protection, persistence, and outbound history.
+5. Move domain, mailbox, alias, provider, and sending operations.
+6. Move mailbox-portal and administrator authentication, including 2FA and OAuth state.
+7. Transfer business-schema migration authority from Prisma to Go.
+8. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.
+
+## Final Node/Prisma deletion gates
+
+The `server/` runtime, Prisma engine, `business-api`, `business-init`, and `Dockerfile.server` may be removed only when all of the following are true:
+
+- no production route is owned by Fastify;
+- gateway proxy traffic remains zero for the agreed observation window;
+- fresh install, in-place upgrade, backup restore, and rollback no longer require Node;
+- Go owns the complete business schema and migration ledger;
+- all historical encrypted values remain readable after the cutover;
+- the final image and SBOM contain no Node runtime or Prisma engine.
+
+Until those gates are met, the business runtime is active production code rather than removable redundancy.
+'''
+          Path('docs/internal/runtime-migration-roadmap.md').write_text(roadmap, encoding='utf-8')
+
+          changelog_path = Path('CHANGELOG.md')
+          changelog = changelog_path.read_text(encoding='utf-8')
+          marker = '## [Unreleased]\n'
+          bullet = (
+              '\n- renamed migration-era runtime services and configuration to business ownership names, '
+              'while preserving the existing physical runtime-secret volume for in-place upgrades\n'
+          )
+          if bullet.strip() not in changelog:
+              changelog = changelog.replace(marker, marker + bullet, 1)
+          changelog_path.write_text(changelog, encoding='utf-8')
+
+          env_test_path = Path('scripts/env-contract.test.mjs')
+          env_test = env_test_path.read_text(encoding='utf-8')
+          extra_test = r'''
+
+test("business runtime naming preserves the pre-rename physical secret volume", async () => {
+	const [compose, goConfig, entrypoint] = await Promise.all([
+		read("docker-compose.yml"),
+		read("core/internal/config/config.go"),
+		read("docker/entrypoint.sh"),
+	]);
+	assert.match(compose, /\n  business-init:/);
+	assert.match(compose, /\n  business-api:/);
+	assert.doesNotMatch(compose, /\n  legacy-(?:init|api):/);
+	assert.match(compose, /BUSINESS_API_URL: http:\/\/business-api:3100/);
+	assert.match(compose, /runtime_secrets_data:[\s\S]*name: "\$\{COMPOSE_PROJECT_NAME:-all-mail\}_legacy_runtime_data"/);
+	assert.doesNotMatch(compose, /ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR/);
+	assert.match(goConfig, /BUSINESS_API_URL/);
+	assert.doesNotMatch(goConfig, /LEGACY_API_URL/);
+	assert.match(entrypoint, /ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR/);
+	await access(path.join(repoRoot, "Dockerfile.server"));
+	await assert.rejects(access(path.join(repoRoot, "Dockerfile.legacy")));
+});
+'''
+          if 'business runtime naming preserves the pre-rename physical secret volume' not in env_test:
+              env_test += extra_test
+          env_test_path.write_text(env_test, encoding='utf-8')
+
+          config_security_path = Path('.github/workflows/config-security.yml')
+          workflow = config_security_path.read_text(encoding='utf-8')
+          workflow = workflow.replace('branches: [main, master, agent/config-security-hard-delete]', 'branches: [main]')
+          workflow = workflow.replace('branches: [main, master]', 'branches: [main]')
+          workflow = workflow.replace(
+              "assert services['app'].get('ports'), 'public Go app has no published port'",
+              "assert services['app'].get('ports'), 'public Go app has no published port'\n"
+              "          assert model['volumes']['runtime_secrets_data']['name'] == 'all-mail_legacy_runtime_data'",
+          )
+          config_security_path.write_text(workflow, encoding='utf-8')
+
+          for workflow_name in ['.github/workflows/ci.yml', '.github/workflows/bootstrap-admin-security.yml']:
+              path = Path(workflow_name)
+              text = path.read_text(encoding='utf-8')
+              text = text.replace('branches: [main, master]', 'branches: [main]')
+              path.write_text(text, encoding='utf-8')
+
+          bootstrap_workflow = Path('.github/workflows/bootstrap-admin-security.yml')
+          bootstrap = bootstrap_workflow.read_text(encoding='utf-8')
+          prepare = '      - name: Prepare canonical environment\n        run: cp .env.example .env\n'
+          volume_setup = '''      - name: Seed the pre-rename physical runtime-secret volume
+        shell: bash
+        run: |
+          docker volume create all-mail_legacy_runtime_data
+          docker run --rm \
+            -v all-mail_legacy_runtime_data:/state \
+            postgres:16-alpine \
+            sh -lc 'printf preserved > /state/pre-rename-volume-marker'
+'''
+          if 'Seed the pre-rename physical runtime-secret volume' not in bootstrap:
+              bootstrap = bootstrap.replace(prepare, prepare + volume_setup, 1)
+          verify_line = "          docker compose exec -T business-api sh -lc 'test -r /var/lib/all-mail/runtime-secrets.env'\n"
+          marker_check = "          test \"$(docker compose exec -T business-api cat /var/lib/all-mail/pre-rename-volume-marker)\" = \"preserved\"\n"
+          if marker_check.strip() not in bootstrap and verify_line in bootstrap:
+              bootstrap = bootstrap.replace(verify_line, verify_line + marker_check, 1)
+          bootstrap_workflow.write_text(bootstrap, encoding='utf-8')
+
+          publisher = Path('.github/workflows/agent-runtime-name-publisher.yml')
+          if publisher.exists():
+              publisher.unlink()
+          PY
+
+          gofmt -w core
+          ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs
+          (
+            cd core
+            go test ./internal/config ./internal/readiness ./internal/httpapi
+          )
+          POSTGRES_PASSWORD=ci-postgres-password-0123456789abcdef docker compose config --quiet
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'refactor(runtime): retire migration-era names'
+          git push origin HEAD:agent/retire-migration-era-names
