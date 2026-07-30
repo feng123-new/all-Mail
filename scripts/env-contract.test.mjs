@@ -25,37 +25,21 @@ function section(content, start, end) {
 }
 
 test("the production environment has one canonical template", async () => {
-	const template = await readFile(path.join(repoRoot, ".env.example"), "utf8");
+	const [template, activeContract, retiredContract] = await Promise.all([
+		readFile(path.join(repoRoot, ".env.example"), "utf8"),
+		readFile(path.join(repoRoot, "config/runtime-env.json"), "utf8").then(JSON.parse),
+		readFile(path.join(repoRoot, "config/retired-env.json"), "utf8").then(JSON.parse),
+	]);
 	const keys = parseEnvKeys(template);
 
-	for (const removed of [
-		"GO_API_MODE",
-		"ALL_MAIL_ENV",
-		"ALL_MAIL_STATE_DIR",
-		"ALL_MAIL_PUBLIC_BASE_URL",
-		"ALL_MAIL_SECRET_STATE_DIR",
-		"GO_JOBS_HEARTBEAT_SECONDS",
-		"GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS",
-		"APP_INTERNAL_PORT",
-		"LEGACY_API_INTERNAL_PORT",
-		"POSTGRES_PUBLISH_HOST",
-		"POSTGRES_PORT",
-		"POSTGRES_INTERNAL_PORT",
-		"REDIS_PUBLISH_HOST",
-		"REDIS_PORT",
-		"REDIS_INTERNAL_PORT",
-		"CORS_ORIGIN",
-		"DOMAIN_BOOTSTRAP_ADMIN_USERNAME",
-		"DOMAIN_BOOTSTRAP_ADMIN_PASSWORD",
-		"ADMIN_2FA_SECRET",
-	]) {
+	assert.deepEqual(
+		keys,
+		activeContract.variables.map(({ name }) => name).sort(),
+		".env.example drifted from config/runtime-env.json",
+	);
+	for (const removed of retiredContract.variables) {
 		assert.equal(keys.includes(removed), false, `${removed} remains in .env.example`);
 	}
-	assert.equal(keys.includes("TRUSTED_PROXY_CIDRS"), true);
-	assert.equal(keys.includes("ADMIN_USERNAME"), true);
-	assert.equal(keys.includes("ADMIN_PASSWORD"), true);
-	assert.equal(keys.includes("ADMIN_2FA_WINDOW"), true);
-	assert.equal(keys.includes("POSTGRES_PASSWORD"), true);
 	assert.match(template, /^POSTGRES_PASSWORD=$/m);
 	await assert.rejects(access(path.join(repoRoot, ".env.cloudflare.example")));
 	await assert.rejects(access(path.join(repoRoot, ".env.basic.example")));
@@ -223,4 +207,18 @@ test("compatibility API omits retired direct dependencies", async () => {
 	assert.equal(packageJson.dependencies["pino-pretty"], undefined);
 	assert.equal(typeof packageJson.devDependencies["pino-pretty"], "string");
 	assert.equal(packageJson.devDependencies["@types/pg"], undefined);
+});
+
+test("local tooling contains no retired database fallback and proxies every business namespace", async () => {
+	const [ingressScript, repositoryCli, viteConfig] = await Promise.all([
+		readFile(path.join(repoRoot, "server/scripts/ensure-ingress-endpoint.ts"), "utf8"),
+		readFile(path.join(repoRoot, "bin/all-mail.mjs"), "utf8"),
+		readFile(path.join(repoRoot, "web/vite.config.ts"), "utf8"),
+	]);
+
+	assert.doesNotMatch(ingressScript, /POSTGRES_PORT|allmail_dev_password/);
+	assert.doesNotMatch(repositoryCli, /ALL_MAIL_ENV_FILE|POSTGRES_HOST|REDIS_HOST/);
+	for (const prefix of ["/admin", "/api", "/mail", "/ingress", "/oauth"]) {
+		assert.match(viteConfig, new RegExp(`['\"]${prefix}['\"]`));
+	}
 });
