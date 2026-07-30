@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "description": "Canonical public route-family ownership for the all-Mail gateway. Ownership changes are reviewed source changes, never environment toggles.",
+  "routes": [
+    {
+      "id": "system-health",
+      "owner": "go",
+      "match": "exact",
+      "path": "/health",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "system-liveness",
+      "owner": "go",
+      "match": "exact",
+      "path": "/livez",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "system-readiness",
+      "owner": "go",
+      "match": "exact",
+      "path": "/readyz",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "system-metrics",
+      "owner": "go",
+      "match": "exact",
+      "path": "/metrics",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "admin-auth",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/auth",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-administrators",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/admins",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-api-keys",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/api-keys",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-emails",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/emails",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-oauth",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/oauth",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-email-groups",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/email-groups",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-dashboard",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/dashboard",
+      "migrationStage": "observing",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-domains",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/domains",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-domain-mailboxes",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/domain-mailboxes",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-domain-messages",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/domain-messages",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-forwarding-jobs",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/forwarding-jobs",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-mailbox-users",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/mailbox-users",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-send",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/send",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "admin-other",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "external-domain-mail",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/api/domain-mail",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "external-api",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/api",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "mailbox-portal",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/mail/api",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "ingress-domain-mail",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/ingress/domain-mail",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "ingress-other",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/ingress",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "oauth-compatibility",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/oauth",
+      "migrationStage": "pending",
+      "targetOwner": "go"
+    },
+    {
+      "id": "spa",
+      "owner": "go",
+      "match": "fallback",
+      "path": "/",
+      "migrationStage": "complete"
+    }
+  ]
+}
