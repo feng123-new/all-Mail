@@ -1,0 +1,27 @@
+name: Agent source export config A
+
+on:
+  push:
+    branches: [agent/config-runtime-contract]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Package source checkout
+        shell: bash
+        run: tar --exclude=.git -czf "$RUNNER_TEMP/all-mail-config-a-source.tar.gz" .
+      - name: Upload source checkout
+        uses: actions/upload-artifact@v7
+        with:
+          name: all-mail-config-a-source-${{ github.sha }}
+          path: ${{ runner.temp }}/all-mail-config-a-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
