@@ -43,28 +43,32 @@ func TestPostgresAPIKeyAndExternalRouteIntegration(t *testing.T) {
 
 	var adminID int64
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO admins (username, password_hash, role, status, must_change_password)
-		VALUES ('go-admin', 'unused', 'SUPER_ADMIN', 'ACTIVE', FALSE)
+		INSERT INTO admins (username, password_hash, role, status, must_change_password, updated_at)
+		VALUES ('go-admin', 'unused', 'SUPER_ADMIN', 'ACTIVE', FALSE, CURRENT_TIMESTAMP)
 		RETURNING id
 	`).Scan(&adminID); err != nil {
 		t.Fatal(err)
 	}
 	var groupID int64
-	if err := pool.QueryRow(ctx, `INSERT INTO email_groups (name) VALUES ('primary') RETURNING id`).Scan(&groupID); err != nil {
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO email_groups (name, updated_at)
+		VALUES ('primary', CURRENT_TIMESTAMP)
+		RETURNING id
+	`).Scan(&groupID); err != nil {
 		t.Fatal(err)
 	}
 	var emailID int64
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO email_accounts (email, provider, auth_type, status, group_id)
-		VALUES ('pool@example.com', 'GMAIL', 'GOOGLE_OAUTH', 'ACTIVE', $1)
+		INSERT INTO email_accounts (email, provider, auth_type, status, group_id, updated_at)
+		VALUES ('pool@example.com', 'GMAIL', 'GOOGLE_OAUTH', 'ACTIVE', $1, CURRENT_TIMESTAMP)
 		RETURNING id
 	`, groupID).Scan(&emailID); err != nil {
 		t.Fatal(err)
 	}
 	var domainID int64
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO domains (name, status, can_receive, can_send, created_by_admin_id)
-		VALUES ('example.org', 'ACTIVE', TRUE, TRUE, $1)
+		INSERT INTO domains (name, status, can_receive, can_send, created_by_admin_id, updated_at)
+		VALUES ('example.org', 'ACTIVE', TRUE, TRUE, $1, CURRENT_TIMESTAMP)
 		RETURNING id
 	`, adminID).Scan(&domainID); err != nil {
 		t.Fatal(err)
@@ -72,8 +76,8 @@ func TestPostgresAPIKeyAndExternalRouteIntegration(t *testing.T) {
 	var mailboxID int64
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO domain_mailboxes (
-			domain_id, local_part, address, status, provisioning_mode, batch_tag
-		) VALUES ($1, 'pool', 'pool@example.org', 'ACTIVE', 'API_POOL', 'batch-a')
+			domain_id, local_part, address, status, provisioning_mode, batch_tag, updated_at
+		) VALUES ($1, 'pool', 'pool@example.org', 'ACTIVE', 'API_POOL', 'batch-a', CURRENT_TIMESTAMP)
 		RETURNING id
 	`, domainID).Scan(&mailboxID); err != nil {
 		t.Fatal(err)
@@ -81,9 +85,10 @@ func TestPostgresAPIKeyAndExternalRouteIntegration(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO inbound_messages (
 			domain_id, mailbox_id, matched_address, final_address, delivery_key,
-			from_address, to_address, subject, text_preview, received_at
+			from_address, to_address, subject, text_preview, received_at, updated_at
 		) VALUES ($1, $2, 'pool@example.org', 'pool@example.org', 'delivery-1',
-			'sender@example.net', 'pool@example.org', 'integration message', 'hello', CURRENT_TIMESTAMP)
+			'sender@example.net', 'pool@example.org', 'integration message', 'hello',
+			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, domainID, mailboxID); err != nil {
 		t.Fatal(err)
 	}
