@@ -27,16 +27,16 @@ import (
 )
 
 type Server struct {
-	cfg                config.APIConfig
-	goBusinessAPIURL   string
-	logger             *slog.Logger
-	startedAt          time.Time
-	businessProxy      *httputil.ReverseProxy
-	goBusinessProxy    *httputil.ReverseProxy
-	prober             readiness.Prober
-	routes             *routeownership.Manifest
-	routeMetrics       *routeMetrics
-	requests           atomic.Uint64
+	cfg              config.APIConfig
+	goBusinessAPIURL string
+	logger           *slog.Logger
+	startedAt        time.Time
+	businessProxy    *httputil.ReverseProxy
+	goBusinessProxy  *httputil.ReverseProxy
+	prober           readiness.Prober
+	routes           *routeownership.Manifest
+	routeMetrics     *routeMetrics
+	requests         atomic.Uint64
 }
 
 type proxyMetadata struct {
