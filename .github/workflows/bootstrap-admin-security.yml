@@ -150,6 +150,18 @@ jobs:
           '
           docker compose exec -T business-api sh -lc \
             '! grep -Eq "^(ADMIN_USERNAME|ADMIN_PASSWORD)=" /var/lib/all-mail/runtime-secrets.env'
+          docker compose exec -T go-business-api sh -lc '
+            test -r /var/lib/all-mail-secrets/jwt-secret
+            test -z "${JWT_SECRET:-}"
+            test -z "${ENCRYPTION_KEY:-}"
+            test -z "${REDIS_URL:-}"
+          '
+          docker compose exec -T app sh -lc '
+            test -z "${DATABASE_URL:-}"
+            test -z "${JWT_SECRET:-}"
+            test -z "${JWT_SECRET_FILE:-}"
+            test -z "${REDIS_URL:-}"
+          '
           test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT count(*) FROM admins')" = "1"
           test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT must_change_password FROM admins LIMIT 1')" = "t"
       - name: Log in through Go and rotate the one-time password
@@ -179,6 +191,16 @@ jobs:
           token=$(tr -d '\r' < "$headers" | sed -n 's/^[Ss]et-[Cc]ookie: token=\([^;]*\).*/\1/p' | head -n1)
           test -n "$token"
 
+          blocked_headers="$RUNNER_TEMP/dashboard-blocked-headers.txt"
+          blocked_body="$RUNNER_TEMP/dashboard-blocked.json"
+          status=$(curl --silent --show-error \
+            -D "$blocked_headers" -o "$blocked_body" -w '%{http_code}' \
+            -H "Cookie: token=$token" \
+            http://127.0.0.1:3002/admin/dashboard/stats)
+          test "$status" = "403"
+          grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$blocked_headers"
+          grep -q 'PASSWORD_CHANGE_REQUIRED' "$blocked_body"
+
           rotated='Rotated-Password-123!'
           rotate_body="$RUNNER_TEMP/rotate-body.json"
           curl --fail --silent --show-error \
@@ -195,6 +217,33 @@ jobs:
           PY
           docker compose exec -T business-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
           test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT must_change_password FROM admins LIMIT 1')" = "f"
+
+          for route in \
+            '/admin/dashboard/stats' \
+            '/admin/dashboard/api-trend?days=7' \
+            '/admin/dashboard/logs?page=1&pageSize=20'; do
+            dashboard_headers="$RUNNER_TEMP/$(printf '%s' "$route" | tr '/?=&' '____').headers"
+            dashboard_body="$RUNNER_TEMP/$(printf '%s' "$route" | tr '/?=&' '____').json"
+            curl --fail --silent --show-error \
+              -D "$dashboard_headers" -o "$dashboard_body" \
+              -H "Cookie: token=$token" \
+              "http://127.0.0.1:3002$route"
+            grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$dashboard_headers"
+            python3 - "$dashboard_body" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as handle:
+              payload = json.load(handle)
+          assert payload['success'] is True
+          PY
+          done
+
+          write_headers="$RUNNER_TEMP/dashboard-write-headers.txt"
+          write_status=$(curl --silent --show-error \
+            -D "$write_headers" -o /dev/null -w '%{http_code}' \
+            -X DELETE -H "Cookie: token=$token" \
+            http://127.0.0.1:3002/admin/dashboard/logs/999999999)
+          test "$write_status" = "200"
+          grep -qi '^X-All-Mail-Route-Owner: business-api' "$write_headers"
       - name: Re-run initializer without recreating credentials or administrators
         shell: bash
         run: |
@@ -202,10 +251,12 @@ jobs:
           test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT count(*) FROM admins')" = "1"
           docker compose exec -T business-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
           docker compose exec -T business-api sh -lc 'test -r /var/lib/all-mail/runtime-secrets.env'
+          docker compose exec -T go-business-api sh -lc 'test -r /var/lib/all-mail-secrets/jwt-secret'
           test "$(docker compose exec -T business-api cat /var/lib/all-mail/pre-rename-volume-marker)" = "preserved"
       - name: Check runtime doctors
         run: |
           docker compose exec -T app allmail doctor api
+          docker compose exec -T go-business-api allmail doctor business-api
           docker compose exec -T worker-forwarding allmail doctor worker forwarding
           docker compose exec -T worker-retention allmail doctor worker retention
       - name: Stop stack
