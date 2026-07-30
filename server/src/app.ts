@@ -18,7 +18,7 @@ import { ROUTE_PREFIXES } from './routes/prefixes.js';
 
 export const FASTIFY_TRUST_PROXY_HOPS = 1;
 
-const legacyOAuthCallbackQuerySchema = z.object({
+const oauthCompatibilityCallbackQuerySchema = z.object({
     state: z.string().optional(),
     code: z.string().optional(),
     error: z.string().optional(),
@@ -92,8 +92,8 @@ export async function buildApp() {
             });
     });
 
-    fastify.get(ROUTE_PREFIXES.legacyOauth, async (request, reply) => {
-        const query = legacyOAuthCallbackQuerySchema.parse(request.query);
+    fastify.get(ROUTE_PREFIXES.oauthCompatibility, async (request, reply) => {
+        const query = oauthCompatibilityCallbackQuerySchema.parse(request.query);
         const result = await emailOAuthService.completeAuthorization({
             provider: 'OUTLOOK',
             state: query.state,
