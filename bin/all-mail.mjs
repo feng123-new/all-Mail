@@ -64,9 +64,14 @@ function parseEnvText(content) {
       continue;
     }
     const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
+    const rawValue = line.slice(separatorIndex + 1).trim();
     if (key) {
-      entries[key] = value.replace(/^['"]|['"]$/g, '');
+      const first = rawValue[0];
+      const last = rawValue[rawValue.length - 1];
+      entries[key] = rawValue.length >= 2
+        && ((first === '"' && last === '"') || (first === "'" && last === "'"))
+        ? rawValue.slice(1, -1)
+        : rawValue;
     }
   }
   return entries;
@@ -84,7 +89,6 @@ async function pathExists(targetPath) {
 async function resolveEnvFile(explicitEnvFile) {
   const candidates = [
     explicitEnvFile ? path.resolve(explicitEnvFile) : null,
-    process.env.ALL_MAIL_ENV_FILE ? path.resolve(process.env.ALL_MAIL_ENV_FILE) : null,
     path.join(serverDir, '.env'),
     path.join(repoRoot, '.env'),
   ].filter(Boolean);
@@ -99,15 +103,23 @@ async function resolveEnvFile(explicitEnvFile) {
 
 function normalizeEnv(fileEnv) {
   const normalizedEnv = { ...fileEnv };
-  if (!normalizedEnv.DATABASE_URL && normalizedEnv.POSTGRES_USER && normalizedEnv.POSTGRES_PASSWORD && normalizedEnv.POSTGRES_DB) {
-    const host = normalizedEnv.POSTGRES_HOST || '127.0.0.1';
+  if (
+    !normalizedEnv.DATABASE_URL
+    && normalizedEnv.POSTGRES_USER
+    && normalizedEnv.POSTGRES_PASSWORD
+    && normalizedEnv.POSTGRES_DB
+  ) {
     const port = normalizedEnv.DEV_POSTGRES_PORT || '15433';
-    normalizedEnv.DATABASE_URL = `postgresql://${normalizedEnv.POSTGRES_USER}:${normalizedEnv.POSTGRES_PASSWORD}@${host}:${port}/${normalizedEnv.POSTGRES_DB}`;
+    const databaseUrl = new URL('postgresql://127.0.0.1');
+    databaseUrl.username = normalizedEnv.POSTGRES_USER;
+    databaseUrl.password = normalizedEnv.POSTGRES_PASSWORD;
+    databaseUrl.port = port;
+    databaseUrl.pathname = `/${normalizedEnv.POSTGRES_DB}`;
+    normalizedEnv.DATABASE_URL = databaseUrl.toString();
   }
   if (!normalizedEnv.REDIS_URL) {
-    const host = normalizedEnv.REDIS_HOST || '127.0.0.1';
     const port = normalizedEnv.DEV_REDIS_PORT || '6380';
-    normalizedEnv.REDIS_URL = `redis://${host}:${port}`;
+    normalizedEnv.REDIS_URL = `redis://127.0.0.1:${port}`;
   }
   return normalizedEnv;
 }
@@ -205,7 +217,7 @@ async function runDoctor(options) {
   try {
     const envFile = await resolveEnvFile(options.envFile);
     if (!envFile) {
-      throw new Error('No env file found. Copy .env.example to .env or create server/.env for API development.');
+      throw new Error('No env file found. Use --env-file, copy .env.example to .env, or create server/.env for API development.');
     }
     results.push({ level: 'ok', message: `Using env file: ${envFile}` });
     const fileEnv = normalizeEnv(parseEnvText(await readFile(envFile, 'utf8')));
@@ -225,7 +237,10 @@ async function runDoctor(options) {
       await testTcpReachability(redisUrl.hostname, redisPort, 'Redis');
       results.push({ level: 'ok', message: `Redis reachable at ${redisUrl.hostname}:${redisPort}` });
     } else {
-      results.push({ level: 'warn', message: 'REDIS_URL is not configured; OAuth state and rate-limit behavior can degrade.' });
+      results.push({
+        level: 'warn',
+        message: 'REDIS_URL is not configured; production security state fails closed and affected requests will return 503.',
+      });
     }
 
     const artifacts = [

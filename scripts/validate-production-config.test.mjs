@@ -10,7 +10,6 @@ function validEnv(overrides = {}) {
     REDIS_URL: 'redis://redis:6379',
     JWT_SECRET: '',
     ENCRYPTION_KEY: '',
-    ALLOW_LOCAL_RATE_LIMIT_FALLBACK: 'false',
     ...overrides,
   };
 }
@@ -30,12 +29,15 @@ void test('production validation rejects missing, weak, short, or URL-unsafe dat
   }
 });
 
-void test('production validation requires Redis and rejects local security fallback', () => {
+void test('production validation requires Redis and rejects every retired variable', () => {
   assert.throws(() => validateProductionEnvironment(validEnv({ REDIS_URL: '' })), /REDIS_URL/);
-  assert.throws(
-    () => validateProductionEnvironment(validEnv({ ALLOW_LOCAL_RATE_LIMIT_FALLBACK: 'true' })),
-    /must be disabled/,
-  );
+  for (const name of [
+    'ALLOW_LOCAL_RATE_LIMIT_FALLBACK',
+    'POSTGRES_PORT',
+    'ALL_MAIL_ENV_FILE',
+  ]) {
+    assert.throws(() => validateProductionEnvironment(validEnv({ [name]: '' })), /is retired/);
+  }
 });
 
 void test('development and test environments are not forced through production validation', () => {
