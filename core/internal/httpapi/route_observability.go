@@ -9,11 +9,23 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/routeownership"
 )
 
+const (
+	routeOwnerHeader  = "X-All-Mail-Route-Owner"
+	routeFamilyHeader = "X-All-Mail-Route-Family"
+)
+
 type routeContextKey struct{}
 
 type statusResponseWriter struct {
 	http.ResponseWriter
 	status int
+	owner  string
+	family string
+}
+
+func (w *statusResponseWriter) ensureRouteHeaders() {
+	w.Header().Set(routeOwnerHeader, w.owner)
+	w.Header().Set(routeFamilyHeader, w.family)
 }
 
 func (w *statusResponseWriter) WriteHeader(status int) {
@@ -21,6 +33,7 @@ func (w *statusResponseWriter) WriteHeader(status int) {
 		return
 	}
 	w.status = status
+	w.ensureRouteHeaders()
 	w.ResponseWriter.WriteHeader(status)
 }
 
@@ -28,6 +41,7 @@ func (w *statusResponseWriter) Write(content []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
+	w.ensureRouteHeaders()
 	return w.ResponseWriter.Write(content)
 }
 
@@ -35,6 +49,7 @@ func (w *statusResponseWriter) Flush() {
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
+	w.ensureRouteHeaders()
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
@@ -50,11 +65,18 @@ func (s *Server) observeRoutes(next http.Handler) http.Handler {
 		s.routeMetrics.begin(route)
 		startedAt := time.Now()
 
-		w.Header().Set("X-All-Mail-Route-Owner", string(route.Owner))
-		w.Header().Set("X-All-Mail-Route-Family", route.ID)
+		r.Header.Del(routeOwnerHeader)
+		r.Header.Del(routeFamilyHeader)
+		w.Header().Set(routeOwnerHeader, string(route.Owner))
+		w.Header().Set(routeFamilyHeader, route.ID)
 		r = r.WithContext(context.WithValue(r.Context(), routeContextKey{}, route))
-		observed := &statusResponseWriter{ResponseWriter: w}
+		observed := &statusResponseWriter{
+			ResponseWriter: w,
+			owner:          string(route.Owner),
+			family:         route.ID,
+		}
 		next.ServeHTTP(observed, r)
+		observed.ensureRouteHeaders()
 		s.routeMetrics.observe(route, r.Method, observed.status, time.Since(startedAt))
 	})
 }
