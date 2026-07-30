@@ -130,8 +130,9 @@ run_legacy_migrations() {
 
 if [ "$runtime_role" = "init" ]; then
     run_legacy_migrations
+    run_as_allmail "$sanitize_runtime_env" npm run config:import-env
     run_as_allmail "$sanitize_runtime_env" node dist/runtime/bootstrapAdmin.js
-    printf '%s\n' 'Runtime secrets, Prisma migrations, and administrator bootstrap completed.'
+    printf '%s\n' 'Runtime secrets, Prisma migrations, durable configuration import, and administrator bootstrap completed.'
     exit 0
 fi
 
