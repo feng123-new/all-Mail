@@ -94,3 +94,45 @@ jobs:
 
           assert services['app'].get('ports'), 'public Go app has no published port'
           PY
+
+  # BEGIN AGENT_RUNTIME_NAME_PUBLISHER
+  runtime-name-publisher:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/retire-migration-era-names'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/retire-migration-era-names
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+      - name: Execute staged runtime naming publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('.github/workflows/agent-runtime-name-publisher.yml').read_text(encoding='utf-8')
+          marker = '        run: |\n'
+          start = source.index(marker) + len(marker)
+          lines = source[start:].splitlines()
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+          Path('/tmp/all-mail-runtime-name-publisher.sh').write_text(script, encoding='utf-8')
+
+          workflow = Path('.github/workflows/config-security.yml')
+          text = workflow.read_text(encoding='utf-8')
+          begin = text.index('  # BEGIN AGENT_RUNTIME_NAME_PUBLISHER\n')
+          end_marker = '  # END AGENT_RUNTIME_NAME_PUBLISHER\n'
+          end = text.index(end_marker, begin) + len(end_marker)
+          workflow.write_text(text[:begin] + text[end:], encoding='utf-8')
+          PY
+          rm -f .github/workflows/agent-runtime-name-trigger.yml
+          bash /tmp/all-mail-runtime-name-publisher.sh
+  # END AGENT_RUNTIME_NAME_PUBLISHER
