@@ -61,7 +61,7 @@ func (w *statusResponseWriter) Unwrap() http.ResponseWriter {
 
 func (s *Server) observeRoutes(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		route := s.routes.Match(r.URL.Path)
+		route := s.routes.Match(r.Method, r.URL.Path)
 		s.routeMetrics.begin(route)
 		startedAt := time.Now()
 
@@ -94,12 +94,12 @@ func validateGatewayManifest(manifest *routeownership.Manifest) error {
 		"/metrics": "system-metrics",
 	}
 	for path, family := range required {
-		route := manifest.Match(path)
+		route := manifest.Match(http.MethodGet, path)
 		if route.ID != family || route.Owner != routeownership.OwnerGo || route.Match != routeownership.MatchExact {
 			return fmt.Errorf("route ownership manifest must declare %s as exact Go route %s", path, family)
 		}
 	}
-	fallback := manifest.Match("/__allmail_spa_route_probe__")
+	fallback := manifest.Match(http.MethodGet, "/__allmail_spa_route_probe__")
 	if fallback.ID != "spa" || fallback.Owner != routeownership.OwnerGo || fallback.Match != routeownership.MatchFallback {
 		return fmt.Errorf("route ownership manifest must declare a Go-owned spa fallback")
 	}
