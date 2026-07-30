@@ -1,4 +1,4 @@
-FROM node:26-bookworm-slim AS base
+FROM node:24-bookworm-slim AS base
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends openssl ca-certificates gosu util-linux \
     && rm -rf /var/lib/apt/lists/*
@@ -24,13 +24,14 @@ ENV NODE_ENV=production \
 
 RUN groupadd --system --gid 10001 allmail \
     && useradd --system --uid 10001 --gid allmail --home-dir /var/lib/all-mail --shell /usr/sbin/nologin allmail \
-    && mkdir -p /app/server /app/scripts /var/lib/all-mail \
+    && mkdir -p /app/server /app/scripts /app/config /var/lib/all-mail \
     && chown -R allmail:allmail /app /var/lib/all-mail
 
 COPY --chown=allmail:allmail --from=builder /app/server/dist ./dist
 COPY --chown=allmail:allmail --from=builder /app/server/node_modules ./node_modules
 COPY --chown=allmail:allmail --from=builder /app/server/package*.json ./
 COPY --chown=allmail:allmail --from=builder /app/server/prisma ./prisma
+COPY --chown=allmail:allmail config ../config
 COPY --chown=allmail:allmail scripts/bootstrap-secrets.mjs ../scripts/
 COPY --chown=allmail:allmail scripts/runtime-access.mjs ../scripts/
 COPY --chown=allmail:allmail scripts/validate-production-config.mjs ../scripts/
