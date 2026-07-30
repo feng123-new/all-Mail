@@ -16,24 +16,23 @@ jobs:
         with:
           ref: agent/go-business-api-key-external
           fetch-depth: 0
-      - name: Apply complete source payload
+      - name: Apply staged PR28 payload
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -d .github/pr28-payload ]; then
-            echo 'PR28 source payload is already applied.'
+          if [ ! -d .github/pr28-workflow-payload ]; then
+            echo 'No staged PR28 workflow payload remains.'
             exit 0
           fi
-          cat .github/pr28-payload/part-* > "$RUNNER_TEMP/pr28-payload.b64"
-          test "$(wc -c < "$RUNNER_TEMP/pr28-payload.b64")" = "73572"
-          echo '735bdcaa4d44927a71c8295116b6ea944662d85e5dc7de7f68b706f4edbb86fd  '"$RUNNER_TEMP/pr28-payload.b64" | sha256sum -c -
-          base64 -d "$RUNNER_TEMP/pr28-payload.b64" > "$RUNNER_TEMP/pr28-payload.tar.gz"
-          echo 'f831e149d89296571071ab6ca53b2fca144d0f9838a0b48d33d0406ae942db4a  '"$RUNNER_TEMP/pr28-payload.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/pr28-payload.tar.gz" -C .
-          git checkout HEAD -- .github/workflows/ci.yml .github/workflows/bootstrap-admin-security.yml
-          rm -rf .github/pr28-payload
+          cat .github/pr28-workflow-payload/part-* > "$RUNNER_TEMP/pr28-workflows.b64"
+          test "$(wc -c < "$RUNNER_TEMP/pr28-workflows.b64")" = "9616"
+          echo '05a163aa6ca8f1844542911837fc0584738133834988585c9acfc6fc4b3108e6  '"$RUNNER_TEMP/pr28-workflows.b64" | sha256sum -c -
+          base64 -d "$RUNNER_TEMP/pr28-workflows.b64" > "$RUNNER_TEMP/pr28-workflows.tar.gz"
+          echo 'c8bba1fe14f1069a5ae7904d0aa2c34bcedc384bcfacc0c96926e97060269153  '"$RUNNER_TEMP/pr28-workflows.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/pr28-workflows.tar.gz" -C .
+          rm -rf .github/pr28-workflow-payload
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'feat(go-business): port API-key security and database-backed external APIs'
+          git commit -m 'chore(pr28): stage validated workflow blobs'
           git push origin HEAD:agent/go-business-api-key-external
