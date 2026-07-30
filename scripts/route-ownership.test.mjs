@@ -12,9 +12,10 @@ function routePrefixValues(source) {
 }
 
 test("the route ownership manifest covers every Fastify namespace and gateway route", async () => {
-	const [manifest, prefixes, gateway, dockerfile] = await Promise.all([
+	const [manifest, prefixes, app, gateway, dockerfile] = await Promise.all([
 		read("config/route-ownership.json").then(JSON.parse),
 		read("server/src/routes/prefixes.ts"),
+		read("server/src/app.ts"),
 		read("core/internal/httpapi/server.go"),
 		read("Dockerfile"),
 	]);
@@ -68,6 +69,10 @@ test("the route ownership manifest covers every Fastify namespace and gateway ro
 		migrationStage: "complete",
 	}]);
 
+	assert.doesNotMatch(prefixes, /legacyOauth/);
+	assert.doesNotMatch(app, /legacyOAuth/);
+	assert.match(prefixes, /oauthCompatibility:\s*'\/oauth'/);
+	assert.match(app, /ROUTE_PREFIXES\.oauthCompatibility/);
 	assert.doesNotMatch(gateway, /X-All-Mail-Migration-Bridge/);
 	assert.doesNotMatch(gateway, /prefixes\s*:=\s*\[\]string\{/);
 	assert.match(gateway, /routeownership\.LoadDefault\(\)/);
