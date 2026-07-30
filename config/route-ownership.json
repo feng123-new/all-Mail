@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "description": "Canonical public route-family ownership for the all-Mail gateway. Ownership changes are reviewed source changes, never environment toggles.",
+  "version": 2,
+  "description": "Canonical method-aware public route ownership for the all-Mail gateway. Ownership changes are reviewed source changes, never environment toggles.",
   "routes": [
     {
       "id": "system-health",
@@ -36,7 +36,7 @@
       "match": "prefix",
       "path": "/admin/auth",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-administrators",
@@ -44,7 +44,7 @@
       "match": "prefix",
       "path": "/admin/admins",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-api-keys",
@@ -52,7 +52,7 @@
       "match": "prefix",
       "path": "/admin/api-keys",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-emails",
@@ -60,7 +60,7 @@
       "match": "prefix",
       "path": "/admin/emails",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-oauth",
@@ -68,7 +68,7 @@
       "match": "prefix",
       "path": "/admin/oauth",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-email-groups",
@@ -76,15 +76,57 @@
       "match": "prefix",
       "path": "/admin/email-groups",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
-      "id": "admin-dashboard",
+      "id": "admin-dashboard-stats-read",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/admin/dashboard/stats",
+      "methods": ["GET", "HEAD"],
+      "migrationStage": "complete"
+    },
+    {
+      "id": "admin-dashboard-trend-read",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/admin/dashboard/api-trend",
+      "methods": ["GET", "HEAD"],
+      "migrationStage": "complete"
+    },
+    {
+      "id": "admin-dashboard-logs-read",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/admin/dashboard/logs",
+      "methods": ["GET", "HEAD"],
+      "migrationStage": "complete"
+    },
+    {
+      "id": "admin-dashboard-log-delete",
+      "owner": "business-api",
+      "match": "prefix",
+      "path": "/admin/dashboard/logs",
+      "methods": ["DELETE"],
+      "migrationStage": "pending",
+      "targetOwner": "go-business-api"
+    },
+    {
+      "id": "admin-dashboard-log-batch-delete",
+      "owner": "business-api",
+      "match": "exact",
+      "path": "/admin/dashboard/logs/batch-delete",
+      "methods": ["POST"],
+      "migrationStage": "pending",
+      "targetOwner": "go-business-api"
+    },
+    {
+      "id": "admin-dashboard-other",
       "owner": "business-api",
       "match": "prefix",
       "path": "/admin/dashboard",
-      "migrationStage": "observing",
-      "targetOwner": "go"
+      "migrationStage": "pending",
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-domains",
@@ -92,7 +134,7 @@
       "match": "prefix",
       "path": "/admin/domains",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-domain-mailboxes",
@@ -100,7 +142,7 @@
       "match": "prefix",
       "path": "/admin/domain-mailboxes",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-domain-messages",
@@ -108,7 +150,7 @@
       "match": "prefix",
       "path": "/admin/domain-messages",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-forwarding-jobs",
@@ -116,7 +158,7 @@
       "match": "prefix",
       "path": "/admin/forwarding-jobs",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-mailbox-users",
@@ -124,7 +166,7 @@
       "match": "prefix",
       "path": "/admin/mailbox-users",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-send",
@@ -132,7 +174,7 @@
       "match": "prefix",
       "path": "/admin/send",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "admin-other",
@@ -140,7 +182,7 @@
       "match": "prefix",
       "path": "/admin",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "external-domain-mail",
@@ -148,7 +190,7 @@
       "match": "prefix",
       "path": "/api/domain-mail",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "external-api",
@@ -156,7 +198,7 @@
       "match": "prefix",
       "path": "/api",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "mailbox-portal",
@@ -164,7 +206,7 @@
       "match": "prefix",
       "path": "/mail/api",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "ingress-domain-mail",
@@ -172,7 +214,7 @@
       "match": "prefix",
       "path": "/ingress/domain-mail",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "ingress-other",
@@ -180,7 +222,7 @@
       "match": "prefix",
       "path": "/ingress",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "oauth-compatibility",
@@ -188,7 +230,7 @@
       "match": "prefix",
       "path": "/oauth",
       "migrationStage": "pending",
-      "targetOwner": "go"
+      "targetOwner": "go-business-api"
     },
     {
       "id": "spa",
