@@ -86,6 +86,16 @@ function parseArgs(argv: string[]): Options {
     return options;
 }
 
+function parseEnvValue(rawValue: string): string {
+    const value = rawValue.trim();
+    const first = value[0];
+    const last = value[value.length - 1];
+    return value.length >= 2
+        && ((first === '"' && last === '"') || (first === "'" && last === "'"))
+        ? value.slice(1, -1)
+        : value;
+}
+
 function parseEnvFile(content: string): Map<string, string> {
     const entries = new Map<string, string>();
     for (const rawLine of content.split(/\r?\n/)) {
@@ -98,8 +108,7 @@ function parseEnvFile(content: string): Map<string, string> {
             continue;
         }
         const key = line.slice(0, separatorIndex).trim();
-        const value = line.slice(separatorIndex + 1).trim();
-        entries.set(key, value);
+        entries.set(key, parseEnvValue(line.slice(separatorIndex + 1)));
     }
     return entries;
 }
@@ -110,11 +119,19 @@ function deriveDatabaseUrl(entries: Map<string, string>): string | undefined {
         return explicit;
     }
 
-    const postgresPort = entries.get('POSTGRES_PORT') || '15433';
-    const postgresUser = entries.get('POSTGRES_USER') || 'allmail';
-    const postgresPassword = entries.get('POSTGRES_PASSWORD') || 'allmail_dev_password';
-    const postgresDb = entries.get('POSTGRES_DB') || 'allmail';
-    return `postgresql://${postgresUser}:${postgresPassword}@127.0.0.1:${postgresPort}/${postgresDb}`;
+    const postgresPassword = process.env.POSTGRES_PASSWORD || entries.get('POSTGRES_PASSWORD');
+    if (!postgresPassword) {
+        return undefined;
+    }
+    const postgresPort = process.env.DEV_POSTGRES_PORT || entries.get('DEV_POSTGRES_PORT') || '15433';
+    const postgresUser = process.env.POSTGRES_USER || entries.get('POSTGRES_USER') || 'allmail';
+    const postgresDb = process.env.POSTGRES_DB || entries.get('POSTGRES_DB') || 'allmail';
+    const databaseUrl = new URL('postgresql://127.0.0.1');
+    databaseUrl.username = postgresUser;
+    databaseUrl.password = postgresPassword;
+    databaseUrl.port = postgresPort;
+    databaseUrl.pathname = `/${postgresDb}`;
+    return databaseUrl.toString();
 }
 
 function loadMinimalEnv(): MinimalEnv {
@@ -135,7 +152,9 @@ function loadMinimalEnv(): MinimalEnv {
 
     const databaseUrl = deriveDatabaseUrl(merged);
     if (!databaseUrl) {
-        throw new Error('DATABASE_URL is required. Define it in server/.env, repo .env, or shell environment.');
+        throw new Error(
+            'DATABASE_URL is required, or define POSTGRES_PASSWORD with the documented POSTGRES_USER, POSTGRES_DB, and DEV_POSTGRES_PORT values.',
+        );
     }
 
     const ingressSigningSecret = process.env.INGRESS_SIGNING_SECRET || merged.get('INGRESS_SIGNING_SECRET') || undefined;
