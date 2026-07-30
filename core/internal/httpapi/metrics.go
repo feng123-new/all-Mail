@@ -14,6 +14,16 @@ import (
 
 var routeDurationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 
+var boundedHTTPMethods = map[string]struct{}{
+	"GET":     {},
+	"HEAD":    {},
+	"POST":    {},
+	"PUT":     {},
+	"PATCH":   {},
+	"DELETE":  {},
+	"OPTIONS": {},
+}
+
 type routeMetricKey struct {
 	Owner  routeownership.Owner
 	Family string
@@ -23,6 +33,11 @@ type requestMetricKey struct {
 	routeMetricKey
 	Method      string
 	StatusClass string
+}
+
+type proxyMetricKey struct {
+	Upstream routeownership.Owner
+	Family   string
 }
 
 type durationMetric struct {
@@ -37,7 +52,7 @@ type routeMetrics struct {
 	inflight    map[routeMetricKey]int64
 	requests    map[requestMetricKey]uint64
 	durations   map[routeMetricKey]*durationMetric
-	proxyErrors map[string]uint64
+	proxyErrors map[proxyMetricKey]uint64
 }
 
 func newRouteMetrics(manifest *routeownership.Manifest) *routeMetrics {
@@ -46,7 +61,7 @@ func newRouteMetrics(manifest *routeownership.Manifest) *routeMetrics {
 		inflight:    make(map[routeMetricKey]int64),
 		requests:    make(map[requestMetricKey]uint64),
 		durations:   make(map[routeMetricKey]*durationMetric),
-		proxyErrors: make(map[string]uint64),
+		proxyErrors: make(map[proxyMetricKey]uint64),
 	}
 }
 
@@ -61,14 +76,10 @@ func (m *routeMetrics) observe(route routeownership.Route, method string, status
 	if status == 0 {
 		status = 200
 	}
-	method = strings.ToUpper(strings.TrimSpace(method))
-	if method == "" {
-		method = "UNKNOWN"
-	}
 	key := routeMetricKey{Owner: route.Owner, Family: route.ID}
 	requestKey := requestMetricKey{
 		routeMetricKey: key,
-		Method:         method,
+		Method:         normalizeMetricMethod(method),
 		StatusClass:    statusClass(status),
 	}
 	seconds := elapsed.Seconds()
@@ -94,8 +105,9 @@ func (m *routeMetrics) observe(route routeownership.Route, method string, status
 }
 
 func (m *routeMetrics) proxyError(route routeownership.Route) {
+	key := proxyMetricKey{Upstream: route.Owner, Family: route.ID}
 	m.mu.Lock()
-	m.proxyErrors[route.ID]++
+	m.proxyErrors[key]++
 	m.mu.Unlock()
 }
 
@@ -124,11 +136,12 @@ func (m *routeMetrics) writePrometheus(writer io.Writer) {
 	for _, route := range routes {
 		fmt.Fprintf(
 			writer,
-			"allmail_route_owner_info{family=%s,owner=%s,match=%s,path=%s,migration_stage=%s,target_owner=%s} 1\n",
+			"allmail_route_owner_info{family=%s,owner=%s,match=%s,path=%s,methods=%s,migration_stage=%s,target_owner=%s} 1\n",
 			metricLabel(route.ID),
 			metricLabel(string(route.Owner)),
 			metricLabel(string(route.Match)),
 			metricLabel(route.Path),
+			metricLabel(strings.Join(route.Methods, ",")),
 			metricLabel(string(route.MigrationStage)),
 			metricLabel(string(route.TargetOwner)),
 		)
@@ -225,21 +238,35 @@ func (m *routeMetrics) writePrometheus(writer io.Writer) {
 		)
 	}
 
-	fmt.Fprintln(writer, "# HELP allmail_business_proxy_errors_total Go-to-business-API proxy failures by route family.")
+	fmt.Fprintln(writer, "# HELP allmail_business_proxy_errors_total Gateway proxy failures by route family and private upstream.")
 	fmt.Fprintln(writer, "# TYPE allmail_business_proxy_errors_total counter")
-	families := make([]string, 0, len(proxyErrors))
-	for family := range proxyErrors {
-		families = append(families, family)
+	proxyKeys := make([]proxyMetricKey, 0, len(proxyErrors))
+	for key := range proxyErrors {
+		proxyKeys = append(proxyKeys, key)
 	}
-	sort.Strings(families)
-	for _, family := range families {
+	sort.Slice(proxyKeys, func(i, j int) bool {
+		if proxyKeys[i].Family != proxyKeys[j].Family {
+			return proxyKeys[i].Family < proxyKeys[j].Family
+		}
+		return proxyKeys[i].Upstream < proxyKeys[j].Upstream
+	})
+	for _, key := range proxyKeys {
 		fmt.Fprintf(
 			writer,
-			"allmail_business_proxy_errors_total{family=%s} %d\n",
-			metricLabel(family),
-			proxyErrors[family],
+			"allmail_business_proxy_errors_total{family=%s,upstream=%s} %d\n",
+			metricLabel(key.Family),
+			metricLabel(string(key.Upstream)),
+			proxyErrors[key],
 		)
 	}
+}
+
+func normalizeMetricMethod(method string) string {
+	method = strings.ToUpper(strings.TrimSpace(method))
+	if _, ok := boundedHTTPMethods[method]; ok {
+		return method
+	}
+	return "OTHER"
 }
 
 func statusClass(status int) string {
@@ -282,8 +309,8 @@ func cloneDurations(source map[routeMetricKey]*durationMetric) map[routeMetricKe
 	return result
 }
 
-func cloneProxyErrors(source map[string]uint64) map[string]uint64 {
-	result := make(map[string]uint64, len(source))
+func cloneProxyErrors(source map[proxyMetricKey]uint64) map[proxyMetricKey]uint64 {
+	result := make(map[proxyMetricKey]uint64, len(source))
 	for key, value := range source {
 		result[key] = value
 	}
