@@ -6,6 +6,9 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- moved provider OAuth credentials, domain send approval, and ingress signing secrets from the long-running API environment into encrypted or audited PostgreSQL state
+- added an idempotent initializer-only compatibility importer with explicit conflict detection and unknown-domain rejection
+- made ingress authentication require an endpoint-scoped encrypted secret while preserving safe deployment checks for already imported endpoints
 - made administrator login fail closed when 2FA is enabled without a persisted secret and added a database integrity constraint
 - made OAuth authorization state consumption atomic with Redis `GETDEL`
 - aligned Cloudflare production deployment and doctor checks with disabled `workers.dev`, explicit health routes, quoted env parsing, and configurable raw-message limits
