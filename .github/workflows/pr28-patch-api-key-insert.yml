@@ -1,0 +1,41 @@
+name: Patch PR28 API-key insert
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'agent/go-business-api-key-external'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/go-business-api-key-external
+          fetch-depth: 0
+      - name: Add API-key update timestamp
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('core/internal/businessapi/api_key_store.go')
+          text = path.read_text(encoding='utf-8')
+          old_columns = '''\t\t\trate_limit, expires_at, created_by\n\t\t)'''
+          new_columns = '''\t\t\trate_limit, expires_at, created_by, updated_at\n\t\t)'''
+          old_values = '''\t\t\t$8, $9, $10\n\t\t)'''
+          new_values = '''\t\t\t$8, $9, $10, CURRENT_TIMESTAMP\n\t\t)'''
+          if old_columns not in text or old_values not in text:
+              raise SystemExit('expected API-key INSERT shape was not found')
+          text = text.replace(old_columns, new_columns, 1).replace(old_values, new_values, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          gofmt -w core/internal/businessapi/api_key_store.go
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add core/internal/businessapi/api_key_store.go
+          git commit -m 'fix(go-business): set API-key update timestamp on create'
+          git push origin HEAD:agent/go-business-api-key-external
