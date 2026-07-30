@@ -32,6 +32,7 @@ func TestLoadGoBusinessAPIRequiresDatabaseAndJWTFile(t *testing.T) {
 	clearEnv(t,
 		"PORT",
 		"DATABASE_URL",
+		"REDIS_URL",
 		"JWT_SECRET_FILE",
 		"READY_TIMEOUT_SECONDS",
 		"GO_BUSINESS_QUERY_TIMEOUT_SECONDS",
@@ -51,6 +52,10 @@ func TestLoadGoBusinessAPIRequiresDatabaseAndJWTFile(t *testing.T) {
 	}
 
 	t.Setenv("DATABASE_URL", "postgresql://user:password@postgres/allmail")
+	if _, err := LoadGoBusinessAPI(); err == nil {
+		t.Fatal("LoadGoBusinessAPI() accepted a missing Redis URL")
+	}
+	t.Setenv("REDIS_URL", "redis://redis:6379")
 	cfg, err := LoadGoBusinessAPI()
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +82,11 @@ func TestLoadGoBusinessAPIRejectsUnsafeValues(t *testing.T) {
 	if err := os.WriteFile(secretFile, []byte("0123456789abcdef0123456789abcdef\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("REDIS_URL", "http://redis:6379")
+	if _, err := LoadGoBusinessAPI(); err == nil {
+		t.Fatal("LoadGoBusinessAPI() accepted a non-Redis URL")
+	}
+	t.Setenv("REDIS_URL", "redis://redis:6379")
 	t.Setenv("GO_BUSINESS_QUERY_TIMEOUT_SECONDS", "0")
 	if _, err := LoadGoBusinessAPI(); err == nil {
 		t.Fatal("LoadGoBusinessAPI() accepted a zero query timeout")

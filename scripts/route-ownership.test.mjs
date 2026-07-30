@@ -33,7 +33,7 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 
 	assert.equal(manifest.version, 2);
 	assert.ok(Array.isArray(manifest.routes));
-	assert.ok(manifest.routes.length >= 25);
+	assert.ok(manifest.routes.length >= 45);
 
 	const ids = new Set();
 	const matcherGroups = new Map();
@@ -91,6 +91,26 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 		const route = manifest.routes.find((candidate) => candidate.id === id);
 		assert.equal(route?.owner, "business-api");
 		assert.equal(route?.targetOwner, "go-business-api");
+	}
+
+	const apiKeyAdmin = manifest.routes.find((candidate) => candidate.id === "admin-api-keys");
+	assert.equal(apiKeyAdmin?.owner, "go-business-api");
+	assert.equal(apiKeyAdmin?.migrationStage, "complete");
+
+	for (const id of [
+		"ext-email-allocate", "ext-email-list", "ext-email-stats", "ext-email-reset",
+		"domain-email-allocate", "domain-email-latest", "domain-email-list",
+		"domain-mailbox-list", "domain-mailbox-stats", "domain-mailbox-reset",
+	]) {
+		const route = manifest.routes.find((candidate) => candidate.id === id);
+		assert.equal(route?.owner, "go-business-api", id);
+		assert.equal(route?.migrationStage, "complete", id);
+		assert.equal(route?.match, "exact", id);
+	}
+	for (const id of ["domain-message-text", "domain-message-text-compat"]) {
+		const route = manifest.routes.find((candidate) => candidate.id === id);
+		assert.equal(route?.owner, "business-api", id);
+		assert.equal(route?.targetOwner, "go-business-api", id);
 	}
 
 	const fallback = manifest.routes.filter((route) => route.match === "fallback");

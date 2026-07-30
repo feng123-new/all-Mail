@@ -48,11 +48,10 @@
     },
     {
       "id": "admin-api-keys",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/api-keys",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-emails",
@@ -83,7 +82,10 @@
       "owner": "go-business-api",
       "match": "exact",
       "path": "/admin/dashboard/stats",
-      "methods": ["GET", "HEAD"],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
       "migrationStage": "complete"
     },
     {
@@ -91,7 +93,10 @@
       "owner": "go-business-api",
       "match": "exact",
       "path": "/admin/dashboard/api-trend",
-      "methods": ["GET", "HEAD"],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
       "migrationStage": "complete"
     },
     {
@@ -99,7 +104,10 @@
       "owner": "go-business-api",
       "match": "exact",
       "path": "/admin/dashboard/logs",
-      "methods": ["GET", "HEAD"],
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
       "migrationStage": "complete"
     },
     {
@@ -107,7 +115,9 @@
       "owner": "business-api",
       "match": "prefix",
       "path": "/admin/dashboard/logs",
-      "methods": ["DELETE"],
+      "methods": [
+        "DELETE"
+      ],
       "migrationStage": "pending",
       "targetOwner": "go-business-api"
     },
@@ -116,7 +126,9 @@
       "owner": "business-api",
       "match": "exact",
       "path": "/admin/dashboard/logs/batch-delete",
-      "methods": ["POST"],
+      "methods": [
+        "POST"
+      ],
       "migrationStage": "pending",
       "targetOwner": "go-business-api"
     },
@@ -181,6 +193,162 @@
       "owner": "business-api",
       "match": "prefix",
       "path": "/admin",
+      "migrationStage": "pending",
+      "targetOwner": "go-business-api"
+    },
+    {
+      "id": "ext-email-allocate",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/mailboxes/allocate",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-allocate-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/get-email",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-list",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/mailboxes",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-list-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/list-emails",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-stats",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/mailboxes/allocation-stats",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-stats-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/pool-stats",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-reset",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/mailboxes/allocation-reset",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-reset-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/reset-pool",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-email-allocate",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/mailboxes/allocate",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-email-allocate-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/get-mailbox",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-email-latest",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/messages/latest",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-email-latest-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/mail_new",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-email-list",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/messages",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-email-list-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/mail_all",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-mailbox-list",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/mailboxes",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-mailbox-list-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/list-mailboxes",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-mailbox-stats",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/mailboxes/allocation-stats",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-mailbox-stats-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/pool-stats",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-mailbox-reset",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/mailboxes/allocation-reset",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-mailbox-reset-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/reset-pool",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "domain-message-text",
+      "owner": "business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/messages/text",
+      "migrationStage": "pending",
+      "targetOwner": "go-business-api"
+    },
+    {
+      "id": "domain-message-text-compat",
+      "owner": "business-api",
+      "match": "exact",
+      "path": "/api/domain-mail/mail_text",
       "migrationStage": "pending",
       "targetOwner": "go-business-api"
     },

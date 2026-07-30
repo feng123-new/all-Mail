@@ -6,6 +6,8 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- moved API-key administration, hash authentication, permission aliases, Redis-backed limiting, usage accounting, and allocation state into the private Go business service
+- moved database-only external email/domain-mail allocation, listing, statistics, reset, and persisted message reads to Go while retaining provider and regex compatibility routes on Fastify
 - added a private `go-business-api` service so database-backed Go handlers do not widen the Internet-facing gateway's PostgreSQL or Secret access
 - upgraded route ownership to a method-aware manifest and moved Dashboard statistics, API-trend, and operation-log reads to Go while retaining Fastify log-deletion writes
 - added administrator JWT/database-state parity, bounded Dashboard validation, UTC PostgreSQL queries, private-service readiness, and least-privilege JWT file export

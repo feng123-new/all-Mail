@@ -69,12 +69,18 @@ POST   /admin/dashboard/logs/batch-delete
 
 The Fastify read handlers also remain temporarily as revision rollback code. They are deleted only after an observation window confirms that the corresponding Fastify route-family proxy traffic remains zero.
 
+## Second vertical cutover: API-key security and database external routes
+
+`go-business-api` now owns the administrator API-key surface, API-key hash authentication, permissions and aliases, fail-closed Redis limiting, usage accounting, email/domain mailbox allocation state, and persisted domain-message reads. Exact route ownership keeps provider-dependent APIs and JavaScript regex text extraction on Fastify.
+
+The private Go service now depends on PostgreSQL, Redis, and the read-only JWT file. The public gateway remains credential-free.
+
 ## Remaining vertical migrations
 
 1. Decide and migrate Dashboard log-deletion writes with audit and transaction parity.
-2. Move API-key authentication, permissions, Redis rate limits, allocation, and external APIs.
-3. Move ingress validation, encrypted endpoint secrets, replay protection, persistence, forwarding-job creation, and outbound history.
-4. Move domain, mailbox, alias, provider, OAuth configuration, and sending operations.
+2. Move ingress validation, encrypted endpoint secrets, replay protection, persistence, forwarding-job creation, and outbound history.
+3. Move provider-dependent mailbox reads, provider synchronization, OAuth configuration, and sending operations.
+4. Move domain, mailbox, alias, and user write operations.
 5. Move mailbox-portal and administrator authentication, including login lockout, 2FA, password rotation, OAuth state, and JWT issuance.
 6. Transfer complete business-schema migration authority from Prisma to Go.
 7. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.

@@ -83,6 +83,29 @@ POST   /admin/dashboard/logs/batch-delete
 
 The old Fastify read handlers remain temporarily for revision rollback. Do not delete them until production metrics prove their Fastify proxy traffic is zero for the agreed observation window.
 
+## API-key and database external-route split
+
+The second private Go business slice moves the complete administrator API-key surface to `go-business-api`, including create/list/detail/update/delete, allocation statistics, allocation reset, and assigned-mailbox management. The same service now owns API-key hash authentication, status/expiry checks, permission aliases and wildcards, Redis-backed per-minute limiting, usage accounting, and request audit logging.
+
+Database-only external operations are also Go-owned through exact route entries:
+
+```text
+/api/get-email and /api/mailboxes/allocate
+/api/list-emails and /api/mailboxes
+/api/pool-stats and /api/mailboxes/allocation-stats
+/api/reset-pool and /api/mailboxes/allocation-reset
+/api/domain-mail/get-mailbox and /api/domain-mail/mailboxes/allocate
+/api/domain-mail/messages/latest and /api/domain-mail/mail_new
+/api/domain-mail/messages and /api/domain-mail/mail_all
+/api/domain-mail/list-mailboxes and /api/domain-mail/mailboxes
+/api/domain-mail/pool-stats and /api/domain-mail/mailboxes/allocation-stats
+/api/domain-mail/reset-pool and /api/domain-mail/mailboxes/allocation-reset
+```
+
+Provider-dependent mailbox reads and the JavaScript regular-expression text extraction routes remain on `business-api`. Exact Fastify ownership entries for `/api/domain-mail/messages/text` and `/api/domain-mail/mail_text` prevent the broader Go message route from accidentally taking those compatibility endpoints.
+
+`go-business-api` now receives the private Redis URL in addition to PostgreSQL and its read-only JWT file. Redis failure makes readiness and API-key limiting fail closed. The public gateway still receives none of those credentials.
+
 ## Runtime loading and inspection
 
 The Go image contains the exact manifest at:
@@ -126,6 +149,18 @@ GET /health
 GET /admin/dashboard/stats
   owner: go-business-api
   family: admin-dashboard-stats-read
+
+POST /admin/api-keys
+  owner: go-business-api
+  family: admin-api-keys
+
+GET /api/get-email
+  owner: go-business-api
+  family: ext-email-allocate-compat
+
+GET /api/domain-mail/messages/text
+  owner: business-api
+  family: domain-message-text
 
 DELETE /admin/dashboard/logs/42
   owner: business-api

@@ -18,19 +18,22 @@ func TestCanonicalManifestClassifiesEveryGatewayFamily(t *testing.T) {
 		id     string
 		owner  Owner
 	}{
-		"health":                 {method: "GET", path: "/health", id: "system-health", owner: OwnerGo},
-		"dashboard stats":        {method: "GET", path: "/admin/dashboard/stats", id: "admin-dashboard-stats-read", owner: OwnerGoBusinessAPI},
-		"dashboard head":         {method: "HEAD", path: "/admin/dashboard/logs", id: "admin-dashboard-logs-read", owner: OwnerGoBusinessAPI},
-		"dashboard log delete":   {method: "DELETE", path: "/admin/dashboard/logs/42", id: "admin-dashboard-log-delete", owner: OwnerBusinessAPI},
-		"dashboard batch delete": {method: "POST", path: "/admin/dashboard/logs/batch-delete", id: "admin-dashboard-log-batch-delete", owner: OwnerBusinessAPI},
-		"dashboard catch-all":    {method: "POST", path: "/admin/dashboard/unknown", id: "admin-dashboard-other", owner: OwnerBusinessAPI},
-		"admin catch-all":        {method: "GET", path: "/admin/unknown", id: "admin-other", owner: OwnerBusinessAPI},
-		"domain mail":            {method: "POST", path: "/api/domain-mail/messages", id: "external-domain-mail", owner: OwnerBusinessAPI},
-		"external catch-all":     {method: "GET", path: "/api/unknown", id: "external-api", owner: OwnerBusinessAPI},
-		"mailbox portal":         {method: "GET", path: "/mail/api/session", id: "mailbox-portal", owner: OwnerBusinessAPI},
-		"ingress":                {method: "POST", path: "/ingress/domain-mail/receive", id: "ingress-domain-mail", owner: OwnerBusinessAPI},
-		"spa":                    {method: "GET", path: "/settings/domains", id: "spa", owner: OwnerGo},
-		"prefix boundary":        {method: "GET", path: "/administrator", id: "spa", owner: OwnerGo},
+		"health":                  {method: "GET", path: "/health", id: "system-health", owner: OwnerGo},
+		"dashboard stats":         {method: "GET", path: "/admin/dashboard/stats", id: "admin-dashboard-stats-read", owner: OwnerGoBusinessAPI},
+		"dashboard head":          {method: "HEAD", path: "/admin/dashboard/logs", id: "admin-dashboard-logs-read", owner: OwnerGoBusinessAPI},
+		"dashboard log delete":    {method: "DELETE", path: "/admin/dashboard/logs/42", id: "admin-dashboard-log-delete", owner: OwnerBusinessAPI},
+		"dashboard batch delete":  {method: "POST", path: "/admin/dashboard/logs/batch-delete", id: "admin-dashboard-log-batch-delete", owner: OwnerBusinessAPI},
+		"dashboard catch-all":     {method: "POST", path: "/admin/dashboard/unknown", id: "admin-dashboard-other", owner: OwnerBusinessAPI},
+		"API key admin":           {method: "POST", path: "/admin/api-keys", id: "admin-api-keys", owner: OwnerGoBusinessAPI},
+		"admin catch-all":         {method: "GET", path: "/admin/unknown", id: "admin-other", owner: OwnerBusinessAPI},
+		"external email allocate": {method: "GET", path: "/api/get-email", id: "ext-email-allocate-compat", owner: OwnerGoBusinessAPI},
+		"domain mail":             {method: "POST", path: "/api/domain-mail/messages", id: "domain-email-list", owner: OwnerGoBusinessAPI},
+		"domain regex fallback":   {method: "POST", path: "/api/domain-mail/messages/text", id: "domain-message-text", owner: OwnerBusinessAPI},
+		"external catch-all":      {method: "GET", path: "/api/unknown", id: "external-api", owner: OwnerBusinessAPI},
+		"mailbox portal":          {method: "GET", path: "/mail/api/session", id: "mailbox-portal", owner: OwnerBusinessAPI},
+		"ingress":                 {method: "POST", path: "/ingress/domain-mail/receive", id: "ingress-domain-mail", owner: OwnerBusinessAPI},
+		"spa":                     {method: "GET", path: "/settings/domains", id: "spa", owner: OwnerGo},
+		"prefix boundary":         {method: "GET", path: "/administrator", id: "spa", owner: OwnerGo},
 	}
 
 	for name, tc := range cases {
