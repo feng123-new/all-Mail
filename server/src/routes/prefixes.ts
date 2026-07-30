@@ -18,7 +18,7 @@ export const ROUTE_PREFIXES = {
     mailboxPortalApi: '/mail/api',
     ingressNamespace: '/ingress',
     ingressDomainMail: '/ingress/domain-mail',
-    legacyOauth: '/oauth',
+    oauthCompatibility: '/oauth',
 } as const;
 
 export const BACKEND_NAMESPACE_PREFIXES: readonly string[] = [
@@ -26,7 +26,7 @@ export const BACKEND_NAMESPACE_PREFIXES: readonly string[] = [
     ROUTE_PREFIXES.admin,
     ROUTE_PREFIXES.mailboxPortalApi,
     ROUTE_PREFIXES.ingressNamespace,
-    ROUTE_PREFIXES.legacyOauth,
+    ROUTE_PREFIXES.oauthCompatibility,
 ] as const;
 
 export const ADMIN_PASSWORD_CHANGE_ALLOWED_PATHS: readonly string[] = [
