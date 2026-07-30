@@ -31,6 +31,18 @@ export default defineConfig({
         target: devProxyTarget,
         changeOrigin: true,
       },
+      '/mail': {
+        target: devProxyTarget,
+        changeOrigin: true,
+      },
+      '/ingress': {
+        target: devProxyTarget,
+        changeOrigin: true,
+      },
+      '/oauth': {
+        target: devProxyTarget,
+        changeOrigin: true,
+      },
     },
   },
   build: {
