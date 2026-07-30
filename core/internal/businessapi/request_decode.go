@@ -32,6 +32,20 @@ func decodeJSONBody(request *http.Request, target any) error {
 	return nil
 }
 
+func decodeRequiredJSONObject(request *http.Request, target any) error {
+	var raw json.RawMessage
+	if err := decodeJSONBody(request, &raw); err != nil {
+		return err
+	}
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
+		return validationError("request body must be a JSON object")
+	}
+	if err := json.Unmarshal(raw, target); err != nil {
+		return validationError("request body must be a JSON object")
+	}
+	return nil
+}
+
 func parseNullableAPITime(raw json.RawMessage) (*time.Time, bool, error) {
 	if len(raw) == 0 {
 		return nil, false, nil

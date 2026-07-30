@@ -64,11 +64,12 @@ func normalizePermissions(input map[string]bool) (map[string]bool, error) {
 	unknown := make([]string, 0)
 	for key, enabled := range input {
 		normalized := normalizePermissionKey(key)
-		if _, ok := wildcardPermissions[normalized]; !ok {
-			if _, ok := knownPermissionActions[normalized]; !ok {
-				unknown = append(unknown, key)
-				continue
-			}
+		if !isKnownPermission(normalized) {
+			unknown = append(unknown, key)
+			continue
+		}
+		if existing, ok := result[normalized]; ok && existing != enabled {
+			return nil, fmt.Errorf("conflicting permission aliases for %s", normalized)
 		}
 		result[normalized] = enabled
 	}
@@ -80,6 +81,14 @@ func normalizePermissions(input map[string]bool) (map[string]bool, error) {
 		return nil, nil
 	}
 	return result, nil
+}
+
+func isKnownPermission(normalized string) bool {
+	if _, ok := wildcardPermissions[normalized]; ok {
+		return true
+	}
+	_, ok := knownPermissionActions[normalized]
+	return ok
 }
 
 func permissionAllowed(permissions map[string]bool, action string) bool {

@@ -28,7 +28,7 @@ type fakeAPIKeyStore struct {
 	externalList    ExternalMailboxList
 	allocationStats AllocationStats
 	assigned        []AssignedEmail
-	updateAssigned  map[string]int
+	updateAssigned  AssignedEmailUpdate
 	lastHash        string
 	touched         int
 	createdInput    APIKeyCreateInput
@@ -80,7 +80,7 @@ func (s *fakeAPIKeyStore) ResetEmailAllocations(context.Context, int64, string) 
 func (s *fakeAPIKeyStore) AssignedEmails(context.Context, int64, *int64) ([]AssignedEmail, error) {
 	return s.assigned, nil
 }
-func (s *fakeAPIKeyStore) UpdateAssignedEmails(context.Context, int64, []int64, *int64) (map[string]int, error) {
+func (s *fakeAPIKeyStore) UpdateAssignedEmails(context.Context, int64, []int64, *int64) (AssignedEmailUpdate, error) {
 	return s.updateAssigned, nil
 }
 func (s *fakeAPIKeyStore) AllocateEmail(context.Context, int64, string) (EmailAllocation, error) {
@@ -158,7 +158,7 @@ func TestAdminAPIKeyRoutesPreserveValidationAndOneTimeKeyResponse(t *testing.T) 
 		listResult:     APIKeyList{Total: 1, Page: 1, PageSize: 10, List: []APIKeyListItem{{ID: 4, Name: "automation"}}},
 		createdResult:  APIKeyCreated{ID: 5, Name: "new", Key: "sk_secret", Status: "ACTIVE"},
 		updatedResult:  APIKeyUpdated{ID: 5, Name: "updated", Status: "DISABLED"},
-		updateAssigned: map[string]int{"count": 2, "added": 1, "removed": 0},
+		updateAssigned: AssignedEmailUpdate{Success: true, Count: 2, Added: 1},
 	}
 	server := testBusinessServer(apiKeys, &fakeDomainMailboxStore{}, &fakeRateLimiter{count: 1})
 
@@ -206,8 +206,80 @@ func TestAdminAPIKeyRoutesPreserveValidationAndOneTimeKeyResponse(t *testing.T) 
 	request = authenticatedJSONRequest(t, http.MethodPut, "/admin/api-keys/5/assigned-mailboxes", `{"emailIds":[2,3],"groupId":4}`)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"count":2`) {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"data":{"success":true,"count":2`) {
 		t.Fatalf("assigned response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestScopeValidationRejectsInputsThatWouldBroadenAccess(t *testing.T) {
+	apiKeys := &fakeAPIKeyStore{principal: APIKeyPrincipal{
+		ID: 12, Status: "ACTIVE", RateLimit: 60, Permissions: map[string]bool{"*": true},
+	}}
+	server := testBusinessServer(apiKeys, &fakeDomainMailboxStore{}, &fakeRateLimiter{count: 1})
+
+	for _, body := range []string{
+		`{"name":"bad-group","allowedGroupIds":[0]}`,
+		`{"name":"bad-email","allowedEmailIds":[-1]}`,
+		`{"name":"bad-domain","allowedDomainIds":[0]}`,
+		`{"name":"null-permissions","permissions":null}`,
+		`{"name":"null-groups","allowedGroupIds":null}`,
+		`{"name":"null-emails","allowedEmailIds":null}`,
+		`{"name":"null-domains","allowedDomainIds":null}`,
+		`{"name":"conflict","permissions":{"get_email":true,"external_allocate_mailbox":false}}`,
+	} {
+		request := authenticatedJSONRequest(t, http.MethodPost, "/admin/api-keys", body)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("create body %s response = %d %s", body, response.Code, response.Body.String())
+		}
+	}
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/domain-mail/mailboxes?domain=", ""},
+		{http.MethodPost, "/api/domain-mail/reset-pool", ""},
+		{http.MethodPost, "/api/domain-mail/reset-pool", `null`},
+		{http.MethodPost, "/api/domain-mail/reset-pool", `{"domain":""}`},
+		{http.MethodPost, "/api/domain-mail/reset-pool", `{"domainId":null}`},
+		{http.MethodPost, "/api/domain-mail/reset-pool", `{"batchTag":""}`},
+	} {
+		request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		request.Header.Set("X-API-Key", "sk_external")
+		if tc.body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s %s response = %d %s", tc.method, tc.path, response.Code, response.Body.String())
+		}
+	}
+
+	for _, body := range []string{
+		``,
+		`null`,
+		`{"emailIds":[],"groupId":null}`,
+		`{"emailIds":null}`,
+	} {
+		request := authenticatedJSONRequest(t, http.MethodPut, "/admin/api-keys/5/assigned-mailboxes", body)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("assigned body %s response = %d %s", body, response.Code, response.Body.String())
+		}
+	}
+
+	for _, body := range []string{"", "null"} {
+		request := authenticatedJSONRequest(t, http.MethodPost, "/admin/api-keys/5/allocation-reset", body)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("allocation reset body %q response = %d %s", body, response.Code, response.Body.String())
+		}
 	}
 }
 
@@ -347,6 +419,16 @@ func TestPermissionNormalizationMatchesFastifyAliases(t *testing.T) {
 	}
 	if _, err := normalizePermissions(map[string]bool{"unknown": true}); err == nil {
 		t.Fatal("normalizePermissions accepted an unknown key")
+	}
+	if _, err := normalizePermissions(map[string]bool{
+		"get_email":                   true,
+		actionExternalAllocateMailbox: false,
+	}); err == nil {
+		t.Fatal("normalizePermissions accepted conflicting aliases")
+	}
+	legacy := decodeJSONPermissions([]byte(`{"get_email":true,"unknown":true}`))
+	if !permissionAllowed(legacy, actionExternalAllocateMailbox) {
+		t.Fatalf("legacy permissions were not normalized: %#v", legacy)
 	}
 }
 

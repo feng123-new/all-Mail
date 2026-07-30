@@ -14,7 +14,7 @@ Browser / automation / Cloudflare Worker
                      |                 |
                      v                 v
             go-business-api       business-api
-            private Go reads      Fastify / Prisma
+            private Go routes     Fastify / Prisma
                      \                 /
                       v               v
                          PostgreSQL

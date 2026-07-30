@@ -117,6 +117,11 @@ func TestPostgresAPIKeyAndExternalRouteIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.CreateAPIKey(ctx, APIKeyCreateInput{
+		Name: "invalid-scope", RateLimit: 60, AllowedDomainIDs: []int64{0},
+	}, adminID); err == nil {
+		t.Fatal("store accepted a non-positive domain scope")
+	}
 	if !strings.HasPrefix(created.Key, "sk_") || created.KeyPrefix != created.Key[:7] {
 		t.Fatalf("created key = %#v", created)
 	}
@@ -124,6 +129,16 @@ func TestPostgresAPIKeyAndExternalRouteIntegration(t *testing.T) {
 	principal, err := store.FindAPIKeyByHash(ctx, hex.EncodeToString(digest[:]))
 	if err != nil || principal.ID != created.ID || !permissionAllowed(principal.Permissions, actionDomainListMessages) {
 		t.Fatalf("principal = %#v, err=%v", principal, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE api_keys SET permissions = '{"get_email":true}'::jsonb WHERE id = $1`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	principal, err = store.FindAPIKeyByHash(ctx, hex.EncodeToString(digest[:]))
+	if err != nil || !permissionAllowed(principal.Permissions, actionExternalAllocateMailbox) {
+		t.Fatalf("legacy principal = %#v, err=%v", principal, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE api_keys SET permissions = '{"*":true}'::jsonb WHERE id = $1`, created.ID); err != nil {
+		t.Fatal(err)
 	}
 
 	server := newWithDependencies(config.GoBusinessAPIConfig{

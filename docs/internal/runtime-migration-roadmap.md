@@ -12,7 +12,7 @@ app (Go gateway + React + method-aware route telemetry)
         |                            |
         v                            v
 go-business-api                business-api
-(private Go business reads)    (Fastify + Prisma remaining routes)
+(private Go business routes)   (Fastify + Prisma remaining routes)
         |                            |
         +-------------+--------------+
                       v

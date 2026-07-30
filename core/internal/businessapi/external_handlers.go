@@ -2,6 +2,7 @@ package businessapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -12,9 +13,9 @@ type externalGroupInput struct {
 }
 
 type domainSelectorInput struct {
-	DomainID *int64 `json:"domainId"`
-	Domain   string `json:"domain"`
-	BatchTag string `json:"batchTag"`
+	DomainID json.RawMessage `json:"domainId"`
+	Domain   json.RawMessage `json:"domain"`
+	BatchTag json.RawMessage `json:"batchTag"`
 }
 
 type domainMessageInput struct {
@@ -223,24 +224,70 @@ func parseExternalGroupInput(r *http.Request) (externalGroupInput, error) {
 }
 
 func parseDomainSelector(r *http.Request) (DomainSelector, error) {
-	var input domainSelectorInput
+	var selector DomainSelector
 	if r.Method == http.MethodGet {
-		if raw := strings.TrimSpace(r.URL.Query().Get("domainId")); raw != "" {
+		query := r.URL.Query()
+		if query.Has("domainId") {
+			raw := strings.TrimSpace(query.Get("domainId"))
+			if raw == "" {
+				return DomainSelector{}, validationError("domainId must be a positive integer")
+			}
 			value, err := parsePositiveInt64(raw, "domainId")
 			if err != nil {
 				return DomainSelector{}, err
 			}
-			input.DomainID = &value
+			selector.DomainID = &value
 		}
-		input.Domain = strings.TrimSpace(r.URL.Query().Get("domain"))
-		input.BatchTag = strings.TrimSpace(r.URL.Query().Get("batchTag"))
-	} else if err := decodeJSONBody(r, &input); err != nil {
+		if query.Has("domain") {
+			selector.Domain = strings.TrimSpace(query.Get("domain"))
+			if selector.Domain == "" {
+				return DomainSelector{}, validationError("domain must contain at least 1 character")
+			}
+		}
+		if query.Has("batchTag") {
+			selector.BatchTag = strings.TrimSpace(query.Get("batchTag"))
+			if selector.BatchTag == "" {
+				return DomainSelector{}, validationError("batchTag must contain at least 1 character")
+			}
+		}
+		return selector, nil
+	}
+
+	var input domainSelectorInput
+	if err := decodeRequiredJSONObject(r, &input); err != nil {
 		return DomainSelector{}, err
 	}
-	if input.DomainID != nil && *input.DomainID <= 0 {
-		return DomainSelector{}, validationError("domainId must be a positive integer")
+	domainID, err := parseOptionalPositiveJSONID(input.DomainID, "domainId")
+	if err != nil {
+		return DomainSelector{}, err
 	}
-	return DomainSelector{DomainID: input.DomainID, Domain: strings.TrimSpace(input.Domain), BatchTag: strings.TrimSpace(input.BatchTag)}, nil
+	domain, err := parseOptionalNonEmptyJSONString(input.Domain, "domain")
+	if err != nil {
+		return DomainSelector{}, err
+	}
+	batchTag, err := parseOptionalNonEmptyJSONString(input.BatchTag, "batchTag")
+	if err != nil {
+		return DomainSelector{}, err
+	}
+	return DomainSelector{DomainID: domainID, Domain: domain, BatchTag: batchTag}, nil
+}
+
+func parseOptionalNonEmptyJSONString(raw json.RawMessage, name string) (string, error) {
+	if len(raw) == 0 {
+		return "", nil
+	}
+	if isJSONNull(raw) {
+		return "", validationError(name + " must contain at least 1 character")
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", validationError(name + " must be a string")
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", validationError(name + " must contain at least 1 character")
+	}
+	return value, nil
 }
 
 func parseDomainMessageInput(r *http.Request, defaultLimit int) (domainMessageInput, error) {

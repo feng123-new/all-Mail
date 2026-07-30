@@ -7,29 +7,29 @@ import (
 )
 
 type createAPIKeyRequest struct {
-	Name             string           `json:"name"`
-	RateLimit        *int             `json:"rateLimit"`
-	ExpiresAt        json.RawMessage  `json:"expiresAt"`
-	Permissions      *map[string]bool `json:"permissions"`
-	AllowedGroupIDs  *[]int64         `json:"allowedGroupIds"`
-	AllowedEmailIDs  *[]int64         `json:"allowedEmailIds"`
-	AllowedDomainIDs *[]int64         `json:"allowedDomainIds"`
+	Name             string          `json:"name"`
+	RateLimit        *int            `json:"rateLimit"`
+	ExpiresAt        json.RawMessage `json:"expiresAt"`
+	Permissions      json.RawMessage `json:"permissions"`
+	AllowedGroupIDs  json.RawMessage `json:"allowedGroupIds"`
+	AllowedEmailIDs  json.RawMessage `json:"allowedEmailIds"`
+	AllowedDomainIDs json.RawMessage `json:"allowedDomainIds"`
 }
 
 type updateAPIKeyRequest struct {
-	Name             *string          `json:"name"`
-	RateLimit        *int             `json:"rateLimit"`
-	Status           *string          `json:"status"`
-	ExpiresAt        json.RawMessage  `json:"expiresAt"`
-	Permissions      *map[string]bool `json:"permissions"`
-	AllowedGroupIDs  *[]int64         `json:"allowedGroupIds"`
-	AllowedEmailIDs  *[]int64         `json:"allowedEmailIds"`
-	AllowedDomainIDs *[]int64         `json:"allowedDomainIds"`
+	Name             *string         `json:"name"`
+	RateLimit        *int            `json:"rateLimit"`
+	Status           *string         `json:"status"`
+	ExpiresAt        json.RawMessage `json:"expiresAt"`
+	Permissions      json.RawMessage `json:"permissions"`
+	AllowedGroupIDs  json.RawMessage `json:"allowedGroupIds"`
+	AllowedEmailIDs  json.RawMessage `json:"allowedEmailIds"`
+	AllowedDomainIDs json.RawMessage `json:"allowedDomainIds"`
 }
 
 type updateAssignedEmailsRequest struct {
-	EmailIDs []int64 `json:"emailIds"`
-	GroupID  *int64  `json:"groupId"`
+	EmailIDs json.RawMessage `json:"emailIds"`
+	GroupID  json.RawMessage `json:"groupId"`
 }
 
 type groupRequest struct {
@@ -87,7 +87,7 @@ func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request, _ Admin) {
 
 func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request, admin Admin) {
 	var body createAPIKeyRequest
-	if err := decodeJSONBody(r, &body); err != nil {
+	if err := decodeRequiredJSONObject(r, &body); err != nil {
 		s.writeRequestError(w, r, err)
 		return
 	}
@@ -108,19 +108,30 @@ func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request, admin Admi
 		s.writeRequestError(w, r, err)
 		return
 	}
-	permissions := map[string]bool(nil)
-	if body.Permissions != nil {
-		permissions, err = normalizePermissions(*body.Permissions)
+	permissions, _, err := parseOptionalPermissions(body.Permissions)
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	scopes := map[string]json.RawMessage{
+		"allowedGroupIds":  body.AllowedGroupIDs,
+		"allowedEmailIds":  body.AllowedEmailIDs,
+		"allowedDomainIds": body.AllowedDomainIDs,
+	}
+	parsedScopes := make(map[string][]int64, len(scopes))
+	for name, raw := range scopes {
+		values, _, err := parseOptionalPositiveJSONIDs(raw, name)
 		if err != nil {
-			s.writeRequestError(w, r, validationError(err.Error()))
+			s.writeRequestError(w, r, err)
 			return
 		}
+		parsedScopes[name] = values
 	}
 	input := APIKeyCreateInput{
 		Name: body.Name, RateLimit: rateLimit, ExpiresAt: expiresAt, Permissions: permissions,
-		AllowedGroupIDs:  normalizedIDs(body.AllowedGroupIDs),
-		AllowedEmailIDs:  normalizedIDs(body.AllowedEmailIDs),
-		AllowedDomainIDs: normalizedIDs(body.AllowedDomainIDs),
+		AllowedGroupIDs:  parsedScopes["allowedGroupIds"],
+		AllowedEmailIDs:  parsedScopes["allowedEmailIds"],
+		AllowedDomainIDs: parsedScopes["allowedDomainIds"],
 	}
 	result, err := s.apiKeyStore.CreateAPIKey(r.Context(), input, admin.ID)
 	if err != nil {
@@ -151,7 +162,7 @@ func (s *Server) updateAPIKey(w http.ResponseWriter, r *http.Request, _ Admin) {
 		return
 	}
 	var body updateAPIKeyRequest
-	if err := decodeJSONBody(r, &body); err != nil {
+	if err := decodeRequiredJSONObject(r, &body); err != nil {
 		s.writeRequestError(w, r, err)
 		return
 	}
@@ -182,34 +193,25 @@ func (s *Server) updateAPIKey(w http.ResponseWriter, r *http.Request, _ Admin) {
 		s.writeRequestError(w, r, err)
 		return
 	}
-	if body.Permissions != nil {
-		input.Permissions, err = normalizePermissions(*body.Permissions)
-		if err != nil {
-			s.writeRequestError(w, r, validationError(err.Error()))
-			return
-		}
-		input.PermissionsSet = true
+	input.Permissions, input.PermissionsSet, err = parseOptionalPermissions(body.Permissions)
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
 	}
-	if body.AllowedGroupIDs != nil {
-		if err := validatePositiveIDs("allowedGroupIds", body.AllowedGroupIDs); err != nil {
-			s.writeRequestError(w, r, err)
-			return
-		}
-		input.AllowedGroupIDsSet, input.AllowedGroupIDs = true, normalizePositiveIDs(*body.AllowedGroupIDs)
+	input.AllowedGroupIDs, input.AllowedGroupIDsSet, err = parseOptionalPositiveJSONIDs(body.AllowedGroupIDs, "allowedGroupIds")
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
 	}
-	if body.AllowedEmailIDs != nil {
-		if err := validatePositiveIDs("allowedEmailIds", body.AllowedEmailIDs); err != nil {
-			s.writeRequestError(w, r, err)
-			return
-		}
-		input.AllowedEmailIDsSet, input.AllowedEmailIDs = true, normalizePositiveIDs(*body.AllowedEmailIDs)
+	input.AllowedEmailIDs, input.AllowedEmailIDsSet, err = parseOptionalPositiveJSONIDs(body.AllowedEmailIDs, "allowedEmailIds")
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
 	}
-	if body.AllowedDomainIDs != nil {
-		if err := validatePositiveIDs("allowedDomainIds", body.AllowedDomainIDs); err != nil {
-			s.writeRequestError(w, r, err)
-			return
-		}
-		input.AllowedDomainIDsSet, input.AllowedDomainIDs = true, normalizePositiveIDs(*body.AllowedDomainIDs)
+	input.AllowedDomainIDs, input.AllowedDomainIDsSet, err = parseOptionalPositiveJSONIDs(body.AllowedDomainIDs, "allowedDomainIds")
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
 	}
 	result, err := s.apiKeyStore.UpdateAPIKey(r.Context(), id, input)
 	if err != nil {
@@ -253,7 +255,7 @@ func (s *Server) resetAPIKeyAllocation(w http.ResponseWriter, r *http.Request, _
 		return
 	}
 	var body groupRequest
-	if err := decodeJSONBody(r, &body); err != nil {
+	if err := decodeRequiredJSONObject(r, &body); err != nil {
 		s.writeRequestError(w, r, err)
 		return
 	}
@@ -294,19 +296,27 @@ func (s *Server) updateAssignedEmails(w http.ResponseWriter, r *http.Request, _ 
 		return
 	}
 	var body updateAssignedEmailsRequest
-	if err := decodeJSONBody(r, &body); err != nil {
+	if err := decodeRequiredJSONObject(r, &body); err != nil {
 		s.writeRequestError(w, r, err)
 		return
 	}
-	if body.GroupID != nil && *body.GroupID <= 0 {
-		s.writeRequestError(w, r, validationError("groupId must be a positive integer"))
-		return
+	emailIDs := []int64{}
+	if len(body.EmailIDs) > 0 {
+		if isJSONNull(body.EmailIDs) || json.Unmarshal(body.EmailIDs, &emailIDs) != nil {
+			s.writeRequestError(w, r, validationError("emailIds must be an array of positive integers"))
+			return
+		}
 	}
-	if err := validatePositiveIDs("emailIds", &body.EmailIDs); err != nil {
+	if err := validatePositiveIDs("emailIds", &emailIDs); err != nil {
 		s.writeRequestError(w, r, err)
 		return
 	}
-	result, err := s.apiKeyStore.UpdateAssignedEmails(r.Context(), id, normalizePositiveIDs(body.EmailIDs), body.GroupID)
+	groupID, err := parseOptionalPositiveJSONID(body.GroupID, "groupId")
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	result, err := s.apiKeyStore.UpdateAssignedEmails(r.Context(), id, normalizePositiveIDs(emailIDs), groupID)
 	if err != nil {
 		s.writeStoreError(w, r, "update assigned emails", err)
 		return
@@ -314,11 +324,57 @@ func (s *Server) updateAssignedEmails(w http.ResponseWriter, r *http.Request, _ 
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
 }
 
-func normalizedIDs(values *[]int64) []int64 {
-	if values == nil {
-		return nil
+func parseOptionalPositiveJSONID(raw json.RawMessage, name string) (*int64, error) {
+	if len(raw) == 0 {
+		return nil, nil
 	}
-	return normalizePositiveIDs(*values)
+	if isJSONNull(raw) {
+		return nil, validationError(name + " must be a positive integer")
+	}
+	var value int64
+	if err := json.Unmarshal(raw, &value); err != nil || value <= 0 {
+		return nil, validationError(name + " must be a positive integer")
+	}
+	return &value, nil
+}
+
+func isJSONNull(raw json.RawMessage) bool {
+	return strings.TrimSpace(string(raw)) == "null"
+}
+
+func parseOptionalPermissions(raw json.RawMessage) (map[string]bool, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	if isJSONNull(raw) {
+		return nil, false, validationError("permissions must be an object")
+	}
+	var permissions map[string]bool
+	if err := json.Unmarshal(raw, &permissions); err != nil {
+		return nil, false, validationError("permissions must be an object of boolean values")
+	}
+	normalized, err := normalizePermissions(permissions)
+	if err != nil {
+		return nil, false, validationError(err.Error())
+	}
+	return normalized, true, nil
+}
+
+func parseOptionalPositiveJSONIDs(raw json.RawMessage, name string) ([]int64, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	if isJSONNull(raw) {
+		return nil, false, validationError(name + " must be an array of positive integers")
+	}
+	var values []int64
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, false, validationError(name + " must be an array of positive integers")
+	}
+	if err := validatePositiveIDs(name, &values); err != nil {
+		return nil, false, err
+	}
+	return normalizePositiveIDs(values), true, nil
 }
 
 func parsePositiveInt64(raw, name string) (int64, error) {

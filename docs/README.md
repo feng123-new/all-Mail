@@ -5,7 +5,7 @@
 - **public docs** — operator and GitHub-facing deployment, runtime and recovery contracts;
 - **internal docs** — design notes, implementation plans, deletion gates and historical references.
 
-The active transition uses a least-privilege public Go gateway plus two private business upstreams: migrated reads run in `go-business-api`, while remaining routes continue in the Fastify/Prisma `business-api`.
+The active transition uses a least-privilege public Go gateway plus two private business upstreams: migrated API-key and database-backed business routes run in `go-business-api`, while remaining routes continue in the Fastify/Prisma `business-api`.
 
 ## Public docs
 

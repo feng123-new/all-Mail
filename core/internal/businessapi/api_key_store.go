@@ -1,6 +1,7 @@
 package businessapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -26,7 +27,7 @@ type APIKeyStore interface {
 	EmailAllocationStats(context.Context, int64, string) (AllocationStats, error)
 	ResetEmailAllocations(context.Context, int64, string) error
 	AssignedEmails(context.Context, int64, *int64) ([]AssignedEmail, error)
-	UpdateAssignedEmails(context.Context, int64, []int64, *int64) (map[string]int, error)
+	UpdateAssignedEmails(context.Context, int64, []int64, *int64) (AssignedEmailUpdate, error)
 	AllocateEmail(context.Context, int64, string) (EmailAllocation, error)
 	ListExternalMailboxes(context.Context, int64, string) (ExternalMailboxList, error)
 	LogAPICall(context.Context, string, *int64, *int64, string, int, int64, string) error
@@ -478,19 +479,19 @@ func (s *PostgresStore) AssignedEmails(ctx context.Context, apiKeyID int64, grou
 	return result, nil
 }
 
-func (s *PostgresStore) UpdateAssignedEmails(ctx context.Context, apiKeyID int64, emailIDs []int64, groupID *int64) (map[string]int, error) {
+func (s *PostgresStore) UpdateAssignedEmails(ctx context.Context, apiKeyID int64, emailIDs []int64, groupID *int64) (AssignedEmailUpdate, error) {
 	transaction, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("begin assigned email transaction: %w", err)
+		return AssignedEmailUpdate{}, fmt.Errorf("begin assigned email transaction: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
 	scope, err := s.loadAPIKeyScope(ctx, transaction, apiKeyID)
 	if err != nil {
-		return nil, err
+		return AssignedEmailUpdate{}, err
 	}
 	if groupID != nil && len(scope.AllowedGroupIDs) > 0 && !containsInt64(scope.AllowedGroupIDs, *groupID) {
-		return nil, &requestError{Status: 403, Code: "GROUP_FORBIDDEN"}
+		return AssignedEmailUpdate{}, &requestError{Status: 403, Code: "GROUP_FORBIDDEN"}
 	}
 	rows, err := transaction.Query(ctx, `
 		SELECT id
@@ -501,26 +502,26 @@ func (s *PostgresStore) UpdateAssignedEmails(ctx context.Context, apiKeyID int64
 		  AND (cardinality($3::bigint[]) = 0 OR id = ANY($3::bigint[]))
 	`, nullableInt64(groupID), nonNilIDs(scope.AllowedGroupIDs), nonNilIDs(scope.AllowedEmailIDs))
 	if err != nil {
-		return nil, fmt.Errorf("query assignable emails: %w", err)
+		return AssignedEmailUpdate{}, fmt.Errorf("query assignable emails: %w", err)
 	}
 	allowed := make(map[int64]struct{})
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return nil, fmt.Errorf("scan assignable email: %w", err)
+			return AssignedEmailUpdate{}, fmt.Errorf("scan assignable email: %w", err)
 		}
 		allowed[id] = struct{}{}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate assignable emails: %w", err)
+		return AssignedEmailUpdate{}, fmt.Errorf("iterate assignable emails: %w", err)
 	}
 
 	normalized := normalizePositiveIDs(emailIDs)
 	for _, id := range normalized {
 		if _, ok := allowed[id]; !ok {
-			return nil, &requestError{Status: 403, Code: "EMAIL_FORBIDDEN"}
+			return AssignedEmailUpdate{}, &requestError{Status: 403, Code: "EMAIL_FORBIDDEN"}
 		}
 	}
 
@@ -534,20 +535,20 @@ func (s *PostgresStore) UpdateAssignedEmails(ctx context.Context, apiKeyID int64
 		  AND (cardinality($4::bigint[]) = 0 OR email.id = ANY($4::bigint[]))
 	`, apiKeyID, nullableInt64(groupID), nonNilIDs(scope.AllowedGroupIDs), nonNilIDs(scope.AllowedEmailIDs))
 	if err != nil {
-		return nil, fmt.Errorf("query current assigned emails: %w", err)
+		return AssignedEmailUpdate{}, fmt.Errorf("query current assigned emails: %w", err)
 	}
 	existing := make(map[int64]struct{})
 	for existingRows.Next() {
 		var id int64
 		if err := existingRows.Scan(&id); err != nil {
 			existingRows.Close()
-			return nil, fmt.Errorf("scan current assigned email: %w", err)
+			return AssignedEmailUpdate{}, fmt.Errorf("scan current assigned email: %w", err)
 		}
 		existing[id] = struct{}{}
 	}
 	existingRows.Close()
 	if err := existingRows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate current assigned emails: %w", err)
+		return AssignedEmailUpdate{}, fmt.Errorf("iterate current assigned emails: %w", err)
 	}
 
 	next := make(map[int64]struct{}, len(normalized))
@@ -571,7 +572,7 @@ func (s *PostgresStore) UpdateAssignedEmails(ctx context.Context, apiKeyID int64
 			DELETE FROM email_usage
 			WHERE api_key_id = $1 AND email_account_id = ANY($2::bigint[])
 		`, apiKeyID, toRemove); err != nil {
-			return nil, fmt.Errorf("remove assigned emails: %w", err)
+			return AssignedEmailUpdate{}, fmt.Errorf("remove assigned emails: %w", err)
 		}
 	}
 	for _, emailID := range toAdd {
@@ -580,16 +581,17 @@ func (s *PostgresStore) UpdateAssignedEmails(ctx context.Context, apiKeyID int64
 			VALUES ($1, $2, CURRENT_TIMESTAMP)
 			ON CONFLICT (api_key_id, email_account_id) DO NOTHING
 		`, apiKeyID, emailID); err != nil {
-			return nil, fmt.Errorf("add assigned email: %w", err)
+			return AssignedEmailUpdate{}, fmt.Errorf("add assigned email: %w", err)
 		}
 	}
 	if err := transaction.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit assigned email transaction: %w", err)
+		return AssignedEmailUpdate{}, fmt.Errorf("commit assigned email transaction: %w", err)
 	}
-	return map[string]int{
-		"count":   len(normalized),
-		"added":   len(toAdd),
-		"removed": len(toRemove),
+	return AssignedEmailUpdate{
+		Success: true,
+		Count:   len(normalized),
+		Added:   len(toAdd),
+		Removed: len(toRemove),
 	}, nil
 }
 
@@ -676,7 +678,7 @@ func (s *PostgresStore) ListExternalMailboxes(ctx context.Context, apiKeyID int6
 		  AND ($1::bigint IS NULL OR email.group_id = $1)
 		  AND (cardinality($2::bigint[]) = 0 OR email.group_id = ANY($2::bigint[]))
 		  AND (cardinality($3::bigint[]) = 0 OR email.id = ANY($3::bigint[]))
-		ORDER BY email.id ASC
+		ORDER BY email.id DESC
 	`, nullableInt64(groupID), nonNilIDs(scope.AllowedGroupIDs), nonNilIDs(scope.AllowedEmailIDs))
 	if err != nil {
 		return ExternalMailboxList{}, fmt.Errorf("query external mailbox list: %w", err)
@@ -818,6 +820,11 @@ func validateAPIKeyScopeIDs(
 		{domainIDs, `SELECT COUNT(*)::bigint FROM domains WHERE id = ANY($1::bigint[])`, "DOMAIN_NOT_FOUND"},
 	}
 	for _, check := range checks {
+		for _, id := range check.ids {
+			if id <= 0 {
+				return &requestError{Status: 400, Code: "VALIDATION_ERROR"}
+			}
+		}
 		ids := normalizePositiveIDs(check.ids)
 		if len(ids) == 0 {
 			continue
@@ -945,11 +952,38 @@ func decodeJSONPermissions(raw []byte) map[string]bool {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
-	var value map[string]bool
-	if err := json.Unmarshal(raw, &value); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
 		return nil
 	}
-	return value
+	result := make(map[string]bool)
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return nil
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return nil
+		}
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			return nil
+		}
+		enabled, ok := value.(bool)
+		if !ok {
+			continue
+		}
+		normalized := normalizePermissionKey(key)
+		if isKnownPermission(normalized) {
+			result[normalized] = enabled
+		}
+	}
+	if _, err := decoder.Token(); err != nil || len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func decodeJSONIDs(raw []byte) []int64 {

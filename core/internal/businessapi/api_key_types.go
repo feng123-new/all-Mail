@@ -159,6 +159,13 @@ type AssignedEmail struct {
 	GroupName *string `json:"groupName"`
 }
 
+type AssignedEmailUpdate struct {
+	Success bool `json:"success"`
+	Count   int  `json:"count"`
+	Added   int  `json:"added"`
+	Removed int  `json:"removed"`
+}
+
 type EmailAllocation struct {
 	ID    int64  `json:"id"`
 	Email string `json:"email"`
