@@ -6,6 +6,10 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- added a private `go-business-api` service so database-backed Go handlers do not widen the Internet-facing gateway's PostgreSQL or Secret access
+- upgraded route ownership to a method-aware manifest and moved Dashboard statistics, API-trend, and operation-log reads to Go while retaining Fastify log-deletion writes
+- added administrator JWT/database-state parity, bounded Dashboard validation, UTC PostgreSQL queries, private-service readiness, and least-privilege JWT file export
+- bounded arbitrary HTTP method labels to `OTHER` and identified private upstreams in proxy-error telemetry
 - added a canonical route ownership manifest, stable owner/family response headers, bounded Prometheus migration telemetry, and an `allmail routes` inspection command
 - removed the migration-era proxy marker and made the dashboard route family the first measured Go migration candidate
 - renamed migration-era runtime services and configuration to business ownership names, while preserving the existing physical runtime-secret volume for in-place upgrades
