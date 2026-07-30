@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/feng123-new/all-Mail/core/internal/businessapi"
 	"github.com/feng123-new/all-Mail/core/internal/config"
 	"github.com/feng123-new/all-Mail/core/internal/doctor"
 	"github.com/feng123-new/all-Mail/core/internal/httpapi"
@@ -20,11 +21,13 @@ import (
 
 const usageText = `Usage:
   allmail api
+  allmail business-api
   allmail routes
   allmail worker forwarding
   allmail worker retention
   allmail migrate
   allmail doctor api
+  allmail doctor business-api
   allmail doctor worker forwarding
   allmail doctor worker retention
 `
@@ -46,6 +49,13 @@ func main() {
 		fatalIf(logger, err)
 		server, err := httpapi.New(cfg, logger)
 		fatalIf(logger, err)
+		fatalIf(logger, server.Run(ctx))
+	case "business-api":
+		cfg, err := config.LoadGoBusinessAPI()
+		fatalIf(logger, err)
+		server, err := businessapi.New(ctx, cfg, logger)
+		fatalIf(logger, err)
+		defer server.Close()
 		fatalIf(logger, server.Run(ctx))
 	case "routes":
 		manifest, err := routeownership.LoadDefault()
@@ -77,7 +87,7 @@ func main() {
 		fatalIf(logger, migrate.Run(migrationCtx, cfg, logger))
 	case "doctor":
 		if len(os.Args) < 3 {
-			fatal(logger, fmt.Errorf("usage: allmail doctor api|worker"))
+			fatal(logger, fmt.Errorf("usage: allmail doctor api|business-api|worker"))
 		}
 		doctorCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -86,6 +96,10 @@ func main() {
 			cfg, err := config.LoadAPI()
 			fatalIf(logger, err)
 			fatalIf(logger, doctor.API(doctorCtx, cfg))
+		case "business-api":
+			cfg, err := config.LoadGoBusinessAPI()
+			fatalIf(logger, err)
+			fatalIf(logger, doctor.GoBusinessAPI(doctorCtx, cfg))
 		case "worker":
 			if len(os.Args) < 4 {
 				fatal(logger, fmt.Errorf("usage: allmail doctor worker forwarding|retention"))
@@ -106,7 +120,7 @@ func main() {
 			fatal(logger, fmt.Errorf("unknown doctor target %q", os.Args[2]))
 		}
 	default:
-		fatal(logger, fmt.Errorf("unknown command %q; use api, routes, worker, migrate or doctor", command))
+		fatal(logger, fmt.Errorf("unknown command %q; use api, business-api, routes, worker, migrate or doctor", command))
 	}
 }
 
