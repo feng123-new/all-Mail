@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,15 +21,15 @@ import (
 const testJWTSecret = "0123456789abcdef0123456789abcdef"
 
 type fakeStore struct {
-	admin      Admin
-	adminErr   error
-	stats      DashboardStats
-	trend      []TrendPoint
-	logs       DashboardLogs
-	pingErr    error
-	trendDays  int
-	logsInput  DashboardLogInput
-	closed     bool
+	admin     Admin
+	adminErr  error
+	stats     DashboardStats
+	trend     []TrendPoint
+	logs      DashboardLogs
+	pingErr   error
+	trendDays int
+	logsInput DashboardLogInput
+	closed    bool
 }
 
 func (s *fakeStore) Ping(context.Context) error { return s.pingErr }
@@ -120,9 +121,9 @@ func TestDashboardTrendAndLogsPreserveContracts(t *testing.T) {
 		admin: Admin{ID: 7, Status: "ACTIVE"},
 		trend: []TrendPoint{{Date: "2026-07-30", Count: 4}},
 		logs: DashboardLogs{
-			List: []DashboardLog{{ID: 42, Action: "allocate", APIKeyName: "key", Email: "mail@example.com", CreatedAt: "2026-07-30T00:00:00.000Z"}},
-			Total: 1,
-			Page: 2,
+			List:     []DashboardLog{{ID: 42, Action: "allocate", APIKeyName: "key", Email: "mail@example.com", CreatedAt: "2026-07-30T00:00:00.000Z"}},
+			Total:    1,
+			Page:     2,
 			PageSize: 10,
 		},
 	}
@@ -210,7 +211,7 @@ func signTestJWT(t *testing.T, subject int64, audience string, expiresAt time.Ti
 		t.Fatal(err)
 	}
 	payload, err := json.Marshal(map[string]any{
-		"sub": subject,
+		"sub": strconv.FormatInt(subject, 10),
 		"aud": audience,
 		"exp": expiresAt.Unix(),
 	})
