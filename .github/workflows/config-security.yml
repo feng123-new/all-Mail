@@ -116,6 +116,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -f Dockerfile.server ]; then
+            echo 'Runtime naming transformation is already published.'
+            exit 0
+          fi
           python3 - <<'PY'
           from pathlib import Path
 
@@ -124,15 +128,15 @@ jobs:
           start = source.index(marker) + len(marker)
           lines = source[start:].splitlines()
           script = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
-          Path('/tmp/all-mail-runtime-name-publisher.sh').write_text(script, encoding='utf-8')
 
-          workflow = Path('.github/workflows/config-security.yml')
-          text = workflow.read_text(encoding='utf-8')
-          begin = text.index('  # BEGIN AGENT_RUNTIME_NAME_PUBLISHER\n')
-          end_marker = '  # END AGENT_RUNTIME_NAME_PUBLISHER\n'
-          end = text.index(end_marker, begin) + len(end_marker)
-          workflow.write_text(text[:begin] + text[end:], encoding='utf-8')
+          workflow_block = script.index("config_security_path = Path('.github/workflows/config-security.yml')")
+          python_end = script.index('\nPY\n', workflow_block)
+          script = script[:workflow_block] + script[python_end + 1:]
+          script = script.replace(
+              'git add -A\n',
+              "git add -A -- . ':(exclude).github/workflows/**'\n",
+          )
+          Path('/tmp/all-mail-runtime-name-publisher.sh').write_text(script, encoding='utf-8')
           PY
-          rm -f .github/workflows/agent-runtime-name-trigger.yml
           bash /tmp/all-mail-runtime-name-publisher.sh
   # END AGENT_RUNTIME_NAME_PUBLISHER
