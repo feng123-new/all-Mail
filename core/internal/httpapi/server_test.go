@@ -25,6 +25,8 @@ func TestHealthAndBusinessProxyUseCanonicalRouteOwnership(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(routeOwnerHeader, "forged-upstream-owner")
+		w.Header().Set(routeFamilyHeader, "forged-upstream-family")
 		_, _ = io.WriteString(w, `{"business":true}`)
 	}))
 	defer business.Close()
@@ -164,7 +166,7 @@ func TestInvalidIncomingRequestIDIsReplaced(t *testing.T) {
 	}
 }
 
-func TestProxyRejectsSpoofedForwardingHeadersFromUntrustedPeer(t *testing.T) {
+func TestProxyRejectsSpoofedForwardingAndOwnershipHeadersFromUntrustedPeer(t *testing.T) {
 	captured := make(chan http.Header, 1)
 	business := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured <- r.Header.Clone()
@@ -187,6 +189,8 @@ func TestProxyRejectsSpoofedForwardingHeadersFromUntrustedPeer(t *testing.T) {
 	request.Header.Set("X-Real-IP", "203.0.113.10")
 	request.Header.Set("CF-Connecting-IP", "203.0.113.11")
 	request.Header.Set("X-Forwarded-Proto", "https")
+	request.Header.Set(routeOwnerHeader, "go")
+	request.Header.Set(routeFamilyHeader, "system-health")
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent {
@@ -205,6 +209,13 @@ func TestProxyRejectsSpoofedForwardingHeadersFromUntrustedPeer(t *testing.T) {
 	if got := header.Get("CF-Connecting-IP"); got != "" {
 		t.Fatalf("CF-Connecting-IP leaked downstream: %q", got)
 	}
+	if got := header.Get(routeOwnerHeader); got != "" {
+		t.Fatalf("route owner header leaked downstream: %q", got)
+	}
+	if got := header.Get(routeFamilyHeader); got != "" {
+		t.Fatalf("route family header leaked downstream: %q", got)
+	}
+	assertRouteHeaders(t, response, "business-api", "admin-other")
 }
 
 func TestProxyAcceptsCanonicalClientIPOnlyFromTrustedPeer(t *testing.T) {
@@ -253,11 +264,13 @@ func TestProxyAcceptsCanonicalClientIPOnlyFromTrustedPeer(t *testing.T) {
 
 func assertRouteHeaders(t *testing.T, response *httptest.ResponseRecorder, owner, family string) {
 	t.Helper()
-	if got := response.Header().Get("X-All-Mail-Route-Owner"); got != owner {
-		t.Fatalf("route owner header = %q, want %q", got, owner)
+	ownerValues := response.Result().Header.Values(routeOwnerHeader)
+	if len(ownerValues) != 1 || ownerValues[0] != owner {
+		t.Fatalf("route owner headers = %#v, want [%q]", ownerValues, owner)
 	}
-	if got := response.Header().Get("X-All-Mail-Route-Family"); got != family {
-		t.Fatalf("route family header = %q, want %q", got, family)
+	familyValues := response.Result().Header.Values(routeFamilyHeader)
+	if len(familyValues) != 1 || familyValues[0] != family {
+		t.Fatalf("route family headers = %#v, want [%q]", familyValues, family)
 	}
 }
 
