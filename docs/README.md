@@ -10,6 +10,7 @@
 | Need | Canonical document |
 | --- | --- |
 | Deploy, update, smoke check and revision rollback | [`DEPLOY.md`](./DEPLOY.md) |
+| Upgrade across the runtime service-name cutover | [`UPGRADE-RUNTIME-NAMES.md`](./UPGRADE-RUNTIME-NAMES.md) |
 | Day-2 troubleshooting and recovery | [`RUNBOOK.md`](./RUNBOOK.md) |
 | Environment variables and template ownership | [`ENVIRONMENT.md`](./ENVIRONMENT.md) |
 | Go/Fastify ownership and migration guarantees | [`GO-MIGRATION.md`](./GO-MIGRATION.md) |
@@ -26,6 +27,5 @@ Maintainer-only material lives under [`internal/`](./internal/README.md).
 
 Current migration references:
 
-- [`internal/rewrite/runtime-consolidation-plan.md`](./internal/rewrite/runtime-consolidation-plan.md) — remaining vertical business-route ports and final Fastify removal gates;
-- [`internal/rewrite/retire-legacy-runtime-status.md`](./internal/rewrite/retire-legacy-runtime-status.md) — completed Node runtime retirement scope;
-- [`internal/rewrite/retire-legacy-runtime-review.md`](./internal/rewrite/retire-legacy-runtime-review.md) — review order for the retirement change.
+- [`internal/runtime-migration-roadmap.md`](./internal/runtime-migration-roadmap.md) — current ownership map, remaining vertical Go ports, and final Node/Prisma deletion gates;
+- [`internal/archive/2026-go-rewrite/`](./internal/archive/2026-go-rewrite/) — historical plans and status snapshots retained for traceability.

@@ -98,7 +98,7 @@ if [ "$runtime_role" = "init" ] && [ -n "${ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE:-
     mv -f "$temporary_key_file" "$ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE"
 fi
 
-run_legacy_migrations() {
+run_business_migrations() {
     set +e
     migration_output=$(run_as_allmail "$sanitize_runtime_env" npm run db:migrate 2>&1)
     migration_exit=$?
@@ -111,15 +111,15 @@ run_legacy_migrations() {
 
     case "$migration_output" in
         *P3005*)
-            if is_true "${ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR:-false}"; then
-                printf '%s\n' 'P3005 detected; running the explicitly enabled legacy repair and db push path.'
-                run_as_allmail "$sanitize_runtime_env" npm run db:repair:legacy-p3005
+            if is_true "${ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR:-false}"; then
+                printf '%s\n' 'P3005 detected; running the explicitly enabled Prisma repair and db push path.'
+                run_as_allmail "$sanitize_runtime_env" npm run db:repair:p3005
                 run_as_allmail "$sanitize_runtime_env" npm run db:push -- --skip-generate
                 return 0
             fi
-            printf '%s\n' 'Prisma reported P3005 for a non-empty legacy database.' >&2
+            printf '%s\n' 'Prisma reported P3005 for a non-empty existing database.' >&2
             printf '%s\n' 'The automatic db push fallback is disabled for production safety.' >&2
-            printf '%s\n' 'Review the database, then run legacy-init once with ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true only when the documented repair path is intended.' >&2
+            printf '%s\n' 'Review the database, then run business-init once with ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR=true only when the documented repair path is intended.' >&2
             return "$migration_exit"
             ;;
         *)
@@ -129,7 +129,7 @@ run_legacy_migrations() {
 }
 
 if [ "$runtime_role" = "init" ]; then
-    run_legacy_migrations
+    run_business_migrations
     run_as_allmail "$sanitize_runtime_env" npm run config:import-env
     run_as_allmail "$sanitize_runtime_env" node dist/runtime/bootstrapAdmin.js
     printf '%s\n' 'Runtime secrets, Prisma migrations, durable configuration import, and administrator bootstrap completed.'

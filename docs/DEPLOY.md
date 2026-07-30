@@ -19,7 +19,7 @@ Long-running services:
 app
 worker-forwarding
 worker-retention
-legacy-api
+business-api
 postgres
 redis
 ```
@@ -27,7 +27,7 @@ redis
 One-shot services:
 
 ```text
-legacy-init
+business-init
 go-migrate
 ```
 
@@ -48,7 +48,7 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=
 ```
 
-Leave the password blank to generate a strong temporary password. These values are passed only to `legacy-init`, not the long-running API.
+Leave the password blank to generate a strong temporary password. These values are passed only to `business-init`, not the long-running API.
 
 For a trusted tunnel/reverse proxy:
 
@@ -69,20 +69,20 @@ docker compose ps -a
 Expected sequence:
 
 1. PostgreSQL and Redis become healthy.
-2. `legacy-init` waits only for PostgreSQL.
+2. `business-init` waits only for PostgreSQL.
 3. It migrates any old combined secret bundle into separate runtime/admin files.
 4. It loads or generates long-lived JWT/encryption secrets.
 5. It exports only the forwarding encryption key; long-running Fastify later requires the existing secret file and cannot regenerate it.
 6. It applies Prisma migrations.
 7. It acquires an administrator-bootstrap advisory lock and creates the first DB administrator only when none exists.
 8. `go-migrate` applies additive Go migrations.
-9. `legacy-api`, `app`, and both workers become healthy.
+9. `business-api`, `app`, and both workers become healthy.
 
 ## Verify service and network ownership
 
 ```bash
-test "$(docker compose exec -T legacy-api id -u)" = "10001"
-for service in app worker-forwarding worker-retention legacy-api postgres redis; do
+test "$(docker compose exec -T business-api id -u)" = "10001"
+for service in app worker-forwarding worker-retention business-api postgres redis; do
   docker compose ps --services --filter status=running | grep -qx "$service"
 done
 
@@ -96,7 +96,7 @@ docker compose port app 3000
 Long-lived secrets:
 
 ```bash
-docker compose exec legacy-api sh -lc '
+docker compose exec business-api sh -lc '
   test -r /var/lib/all-mail/runtime-secrets.env
   sed -n "s/=.*$/=<redacted>/p" /var/lib/all-mail/runtime-secrets.env
 '
@@ -107,7 +107,7 @@ That file must contain only `JWT_SECRET` and `ENCRYPTION_KEY`; it must not conta
 One-time administrator credential:
 
 ```bash
-docker compose exec legacy-api sh -lc \
+docker compose exec business-api sh -lc \
   "grep '^ADMIN_USERNAME=' /var/lib/all-mail/bootstrap-admin.env && \
    grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-admin.env"
 ```
@@ -115,14 +115,14 @@ docker compose exec legacy-api sh -lc \
 Removed old bundle:
 
 ```bash
-docker compose exec legacy-api sh -lc \
+docker compose exec business-api sh -lc \
   'test ! -e /var/lib/all-mail/bootstrap-secrets.env'
 ```
 
 Long-running API isolation:
 
 ```bash
-docker compose exec legacy-api sh -lc '
+docker compose exec business-api sh -lc '
   test -z "${ADMIN_USERNAME:-}"
   test -z "${ADMIN_PASSWORD:-}"
   test -z "${DOMAIN_BOOTSTRAP_ADMIN_USERNAME:-}"
@@ -150,7 +150,7 @@ docker compose exec worker-forwarding sh -lc '
 5. Confirm the one-time file is gone:
 
 ```bash
-docker compose exec legacy-api sh -lc \
+docker compose exec business-api sh -lc \
   'test ! -e /var/lib/all-mail/bootstrap-admin.env'
 ```
 
@@ -166,8 +166,8 @@ docker compose exec postgres psql \
 Re-running the initializer must not create another administrator or restore plaintext:
 
 ```bash
-docker compose run --rm legacy-init
-docker compose exec legacy-api sh -lc \
+docker compose run --rm business-init
+docker compose exec business-api sh -lc \
   'test ! -e /var/lib/all-mail/bootstrap-admin.env'
 ```
 
@@ -181,7 +181,7 @@ docker compose exec -T app allmail doctor api
 docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 
-docker compose exec -T legacy-api node -e \
+docker compose exec -T business-api node -e \
   "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
 ```
 
@@ -216,7 +216,7 @@ npm run dev:api
 
 ## Migration expectations
 
-- `legacy-init` is the only Docker role that runs Prisma migrations and administrator bootstrap.
+- `business-init` is the only Docker role that runs Prisma migrations and administrator bootstrap.
 - `go-migrate` is the only role that applies numbered Go migrations.
 - Long-running services never mutate schema or create administrators at startup.
 - Applied Go migrations are checksummed and immutable.
@@ -227,8 +227,8 @@ Reviewed P3005 compatibility repair only:
 
 ```bash
 docker compose run --rm \
-  -e ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true \
-  legacy-init
+  -e ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR=true \
+  business-init
 ```
 
 ## Upgrade from the old secret layout
@@ -238,7 +238,7 @@ Before upgrading:
 1. back up PostgreSQL;
 2. preserve the legacy runtime volume containing `bootstrap-secrets.env`;
 3. record the current administrator username and whether the initial password is still pending;
-4. deploy and inspect `legacy-init` logs;
+4. deploy and inspect `business-init` logs;
 5. verify `runtime-secrets.env` and, when appropriate, `bootstrap-admin.env`;
 6. verify the old bundle was removed only after split migration;
 7. complete password rotation if still pending.

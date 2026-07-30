@@ -32,7 +32,7 @@ func TestHealthAndCompatibilityProxy(t *testing.T) {
 	staticDir := writeStaticIndex(t)
 	cfg := config.APIConfig{
 		StaticDir:       staticDir,
-		LegacyAPIURL:    legacy.URL,
+		BusinessAPIURL:  legacy.URL,
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
 	}
@@ -62,7 +62,7 @@ func TestHealthAndCompatibilityProxy(t *testing.T) {
 func TestReadinessRequiresStaticAssetsAndCompatibilityAPI(t *testing.T) {
 	cfg := config.APIConfig{StaticDir: t.TempDir(), ReadyTimeout: time.Second}
 	server, err := newWithProber(cfg, discardLogger(), readiness.Prober{
-		Legacy: func(context.Context, string) error { return nil },
+		BusinessAPI: func(context.Context, string) error { return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -81,13 +81,13 @@ func TestReadinessRequiresStaticAssetsAndCompatibilityAPI(t *testing.T) {
 func TestReadinessUsesCompatibilityProbe(t *testing.T) {
 	cfg := config.APIConfig{
 		StaticDir:       writeStaticIndex(t),
-		LegacyAPIURL:    "http://legacy-api:3100",
+		BusinessAPIURL:  "http://business-api:3100",
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
 	}
 	called := 0
 	server, err := newWithProber(cfg, discardLogger(), readiness.Prober{
-		Legacy: func(context.Context, string) error { called++; return nil },
+		BusinessAPI: func(context.Context, string) error { called++; return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestMissingCompatibilityAPIReturnsExplicitError(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/admin/emails", nil)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "COMPATIBILITY_API_NOT_CONFIGURED") {
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "BUSINESS_API_NOT_CONFIGURED") {
 		t.Fatalf("response = %d %s", response.Code, response.Body.String())
 	}
 }
@@ -139,7 +139,7 @@ func TestProxyRejectsSpoofedForwardingHeadersFromUntrustedPeer(t *testing.T) {
 
 	server, err := New(config.APIConfig{
 		StaticDir:       writeStaticIndex(t),
-		LegacyAPIURL:    legacy.URL,
+		BusinessAPIURL:  legacy.URL,
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
 	}, discardLogger())
@@ -186,7 +186,7 @@ func TestProxyAcceptsCanonicalClientIPOnlyFromTrustedPeer(t *testing.T) {
 
 	server, err := New(config.APIConfig{
 		StaticDir:         writeStaticIndex(t),
-		LegacyAPIURL:      legacy.URL,
+		BusinessAPIURL:    legacy.URL,
 		TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 		ReadyTimeout:      time.Second,
 		ShutdownTimeout:   time.Second,

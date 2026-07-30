@@ -16,9 +16,9 @@ This checklist is the publication and release-readiness closure loop.
 - [ ] Run `npm run audit:prod`.
 - [ ] Review every advisory exception for exact GHSA ID, package scope, rationale and expiry.
 - [ ] Confirm no expired audit exception remains.
-- [ ] Confirm Docker bootstrap passwords are retrieved through `legacy-api`, not the public Go image.
+- [ ] Confirm Docker bootstrap passwords are retrieved through `business-api`, not the public Go image.
 - [ ] Confirm only `worker-forwarding` mounts the isolated forwarding encryption key.
-- [ ] Confirm `legacy-api` runs as UID `10001` with read-only filesystem, dropped capabilities and `no-new-privileges`.
+- [ ] Confirm `business-api` runs as UID `10001` with read-only filesystem, dropped capabilities and `no-new-privileges`.
 
 ## P2 — engineering verification
 
@@ -41,7 +41,7 @@ docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 ```
 
-- [ ] `legacy-init` and `go-migrate` completed successfully.
+- [ ] `business-init` and `go-migrate` completed successfully.
 - [ ] No `go-jobs`, `legacy-jobs`, or Node `jobs` service exists.
 - [ ] The Go runtime image does not contain `psql`.
 - [ ] `release-gate` is green; dependency audit and Docker smoke both succeeded.
@@ -51,7 +51,7 @@ docker compose exec -T worker-retention allmail doctor worker retention
 - [ ] Review Prisma and Go migrations for the release.
 - [ ] Confirm no applied Go migration was edited after checksum recording.
 - [ ] Confirm P3005 automatic `db push` remains disabled.
-- [ ] Document intentional one-time use of `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR=true`.
+- [ ] Document intentional one-time use of `ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR=true`.
 - [ ] Treat P3009 as manual recovery.
 - [ ] Verify PostgreSQL and runtime-volume backups before risky deployment.
 - [ ] Verify rollback uses a previous known-good revision/image and matching persisted state.
@@ -60,8 +60,8 @@ docker compose exec -T worker-retention allmail doctor worker retention
 
 ## P4 — runtime truthfulness
 
-- [ ] `README.md` identifies Go as the public listener and Fastify as the compatibility business API.
-- [ ] Default long-running service list is `app`, `worker-forwarding`, `worker-retention`, `legacy-api`, `postgres`, and `redis`.
+- [ ] `README.md` identifies Go as the public listener and Fastify as the business API.
+- [ ] Default long-running service list is `app`, `worker-forwarding`, `worker-retention`, `business-api`, `postgres`, and `redis`.
 - [ ] Local development docs do not claim production topology equivalence.
 - [ ] Cloudflare docs route ingress through the Go public listener.
 - [ ] `DEPLOY.md`, `RUNBOOK.md`, `ENVIRONMENT.md`, and `GO-MIGRATION.md` match Compose.
@@ -88,6 +88,6 @@ docker compose exec -T worker-retention allmail doctor worker retention
 3. Stable providers and mail flows.
 4. Deploy or upgrade instructions.
 5. Migration and revision-rollback impact.
-6. Compatibility business API and remaining deletion gate.
+6. Business API and remaining deletion gate.
 7. Security advisories or temporary exceptions.
 8. License and repository identity.

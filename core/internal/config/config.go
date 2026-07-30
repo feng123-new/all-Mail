@@ -14,7 +14,7 @@ import (
 type APIConfig struct {
 	Port              int
 	StaticDir         string
-	LegacyAPIURL      string
+	BusinessAPIURL    string
 	TrustedProxyCIDRs []netip.Prefix
 	ReadyTimeout      time.Duration
 	ShutdownTimeout   time.Duration
@@ -75,7 +75,7 @@ func LoadAPI() (APIConfig, error) {
 	cfg := APIConfig{
 		Port:              port,
 		StaticDir:         env("ALL_MAIL_STATIC_DIR", "/app/public"),
-		LegacyAPIURL:      strings.TrimSpace(os.Getenv("LEGACY_API_URL")),
+		BusinessAPIURL:    strings.TrimSpace(os.Getenv("BUSINESS_API_URL")),
 		TrustedProxyCIDRs: trustedProxyCIDRs,
 		ReadyTimeout:      time.Duration(readySeconds) * time.Second,
 		ShutdownTimeout:   time.Duration(shutdownSeconds) * time.Second,
@@ -89,10 +89,10 @@ func LoadAPI() (APIConfig, error) {
 	if strings.TrimSpace(cfg.StaticDir) == "" {
 		return APIConfig{}, errors.New("ALL_MAIL_STATIC_DIR is required")
 	}
-	if cfg.LegacyAPIURL == "" {
-		return APIConfig{}, errors.New("LEGACY_API_URL is required until all business routes are migrated")
+	if cfg.BusinessAPIURL == "" {
+		return APIConfig{}, errors.New("BUSINESS_API_URL is required until all business routes are migrated")
 	}
-	if err := validateAbsoluteURL("LEGACY_API_URL", cfg.LegacyAPIURL, "http", "https"); err != nil {
+	if err := validateAbsoluteURL("BUSINESS_API_URL", cfg.BusinessAPIURL, "http", "https"); err != nil {
 		return APIConfig{}, err
 	}
 	return cfg, nil
@@ -289,11 +289,11 @@ func (c APIConfig) Address() string {
 	return fmt.Sprintf(":%d", c.Port)
 }
 
-func (c APIConfig) LegacyURL() (*url.URL, error) {
-	if c.LegacyAPIURL == "" {
-		return nil, errors.New("LEGACY_API_URL is not configured")
+func (c APIConfig) BusinessURL() (*url.URL, error) {
+	if c.BusinessAPIURL == "" {
+		return nil, errors.New("BUSINESS_API_URL is not configured")
 	}
-	return url.Parse(c.LegacyAPIURL)
+	return url.Parse(c.BusinessAPIURL)
 }
 
 func (c APIConfig) TrustsProxy(address netip.Addr) bool {

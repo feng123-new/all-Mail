@@ -2,9 +2,9 @@ name: Configuration and proxy security
 
 on:
   pull_request:
-    branches: [main, master, agent/config-security-hard-delete]
+    branches: [main]
   push:
-    branches: [main, master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -86,11 +86,13 @@ jobs:
 
           assert services['worker-retention'].get('volumes') in (None, []), 'retention heartbeat must stay ephemeral'
 
-          init_deps = services['legacy-init'].get('depends_on', {})
-          assert 'redis' not in init_deps, 'legacy-init still waits for Redis'
+          init_deps = services['business-init'].get('depends_on', {})
+          assert 'redis' not in init_deps, 'business-init still waits for Redis'
 
           for name in ('postgres', 'redis'):
               assert not services[name].get('ports'), f'{name} is published by production Compose'
 
           assert services['app'].get('ports'), 'public Go app has no published port'
+          assert model['volumes']['runtime_secrets_data']['name'] == 'all-mail_legacy_runtime_data'
           PY
+

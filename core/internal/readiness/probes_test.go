@@ -13,7 +13,7 @@ import (
 )
 
 func TestReadinessRequiresStaticAssetsAndCompatibilityAPI(t *testing.T) {
-	prober := Prober{Legacy: func(context.Context, string) error { return nil }}
+	prober := Prober{BusinessAPI: func(context.Context, string) error { return nil }}
 	cfg := config.APIConfig{StaticDir: t.TempDir()}
 	report := prober.Check(context.Background(), cfg)
 	if report.Ready {
@@ -22,8 +22,8 @@ func TestReadinessRequiresStaticAssetsAndCompatibilityAPI(t *testing.T) {
 	if report.Checks["staticAssets"] != "index.html unavailable" {
 		t.Fatalf("staticAssets check = %q", report.Checks["staticAssets"])
 	}
-	if report.Checks["compatibilityApi"] != "required-but-not-configured" {
-		t.Fatalf("compatibilityApi check = %q", report.Checks["compatibilityApi"])
+	if report.Checks["businessApi"] != "required-but-not-configured" {
+		t.Fatalf("businessApi check = %q", report.Checks["businessApi"])
 	}
 }
 
@@ -33,10 +33,10 @@ func TestReadinessRunsCompatibilityProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	called := 0
-	prober := Prober{Legacy: func(context.Context, string) error { called++; return nil }}
+	prober := Prober{BusinessAPI: func(context.Context, string) error { called++; return nil }}
 	report := prober.Check(context.Background(), config.APIConfig{
-		StaticDir:    directory,
-		LegacyAPIURL: "http://legacy-api:3100",
+		StaticDir:      directory,
+		BusinessAPIURL: "http://business-api:3100",
 	})
 	if !report.Ready || called != 1 {
 		t.Fatalf("report = %#v, calls = %d", report, called)
@@ -53,7 +53,7 @@ func TestCompatibilityProbeRequiresProtocolValidPayload(t *testing.T) {
 		_, _ = w.Write([]byte(`{"success":true,"data":{"status":"ready"}}`))
 	}))
 	defer server.Close()
-	if err := checkLegacy(context.Background(), server.URL); err != nil {
+	if err := checkBusinessAPI(context.Background(), server.URL); err != nil {
 		t.Fatal(err)
 	}
 
@@ -61,7 +61,7 @@ func TestCompatibilityProbeRequiresProtocolValidPayload(t *testing.T) {
 		_, _ = w.Write([]byte(`{"success":true,"data":{"status":"not-ready"}}`))
 	}))
 	defer invalid.Close()
-	if err := checkLegacy(context.Background(), invalid.URL); err == nil || !strings.Contains(err.Error(), "not-ready") {
+	if err := checkBusinessAPI(context.Background(), invalid.URL); err == nil || !strings.Contains(err.Error(), "not-ready") {
 		t.Fatalf("invalid readiness error = %v", err)
 	}
 }

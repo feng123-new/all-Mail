@@ -209,7 +209,7 @@ The Cloudflare Worker keeps its own matching secret through Wrangler secret stor
 | Variable | Default | Consumer | Notes |
 | --- | --- | --- | --- |
 | `ALL_MAIL_MIGRATION_DIR` | `/app/migrations` | `go-migrate` | Numbered Go SQL path |
-| `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR` | absent | explicit initializer repair | Reviewed P3005 recovery only |
+| `ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR` | absent | explicit initializer repair | Reviewed P3005 recovery only |
 | `ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE` | internal | initializer | Forwarding-key export |
 
 The repair switch is deliberately absent from `.env.example`.

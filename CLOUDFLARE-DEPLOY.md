@@ -24,7 +24,7 @@ trusted tunnel / reverse proxy
 app: Go public gateway
           |
           v
-legacy-api: /ingress/domain-mail/receive
+business-api: /ingress/domain-mail/receive
           |
           v
 PostgreSQL
@@ -49,7 +49,7 @@ TRUSTED_PROXY_CIDRS=<cidrs-of-the-tunnel-or-proxy-directly-connected-to-app>
 
 `TRUSTED_PROXY_CIDRS` must contain the direct peer of the Go listener, not arbitrary public client networks. The Go gateway rejects externally supplied forwarded-IP headers from any other peer and writes one canonical client address downstream.
 
-Do not use `0.0.0.0/0` or `::/0`, and do not expose `legacy-api` directly.
+Do not use `0.0.0.0/0` or `::/0`, and do not expose `business-api` directly.
 
 Start and validate:
 
@@ -148,7 +148,7 @@ curl --fail https://mail.example.com/readyz
 
 ```bash
 docker compose logs app --tail=200
-docker compose logs legacy-api --tail=200
+docker compose logs business-api --tail=200
 docker compose logs worker-forwarding --tail=200
 ```
 
@@ -182,11 +182,11 @@ Check:
 - `INGRESS_KEY_ID` maps to an active endpoint;
 - request body is not modified after signing;
 - clocks fit `INGRESS_ALLOWED_SKEW_SECONDS`;
-- `INGRESS_URL` reaches `app`, not `legacy-api`.
+- `INGRESS_URL` reaches `app`, not `business-api`.
 
 ```bash
 docker compose logs app --tail=200
-docker compose logs legacy-api --tail=300
+docker compose logs business-api --tail=300
 ./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:check
 ```
 
@@ -196,10 +196,10 @@ docker compose logs legacy-api --tail=300
 curl -i https://mail.example.com/readyz
 docker compose exec -T app allmail doctor api
 docker compose logs app --tail=200
-docker compose logs legacy-api --tail=200
+docker compose logs business-api --tail=200
 ```
 
-A 502 usually means the compatibility API is unavailable. The Go readiness response reports SPA or compatibility API failure; database/Redis detail remains inside Fastify readiness.
+A 502 usually means the business API is unavailable. The Go readiness response reports SPA or business API failure; database/Redis detail remains inside Fastify readiness.
 
 ### Real client IP is missing
 
@@ -212,7 +212,7 @@ A 502 usually means the compatibility API is unavailable. The Go readiness respo
 ### Signature mismatch after rotation
 
 1. update the backend `.env`;
-2. recreate `legacy-api` as needed;
+2. recreate `business-api` as needed;
 3. upload the same secret to the Worker;
 4. redeploy;
 5. run `ingress:check` and a real delivery test.
