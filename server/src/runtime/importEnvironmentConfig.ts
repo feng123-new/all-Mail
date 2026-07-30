@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { MailProvider } from '@prisma/client';
-import type { Prisma, PrismaClient } from '@prisma/client';
+import { MailProvider, type Prisma, type PrismaClient } from '@prisma/client';
 
 import { decrypt, encrypt } from '../lib/crypto.js';
 import prisma from '../lib/prisma.js';
