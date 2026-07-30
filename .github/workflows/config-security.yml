@@ -95,8 +95,8 @@ jobs:
           assert services['app'].get('ports'), 'public Go app has no published port'
           PY
 
-  # BEGIN AGENT_RUNTIME_NAME_PUBLISHER
-  runtime-name-publisher:
+  # BEGIN AGENT_WORKFLOW_BLOB_EXPORTER
+  workflow-blob-exporter:
     if: github.event_name == 'pull_request' && github.head_ref == 'agent/retire-migration-era-names'
     runs-on: ubuntu-latest
     permissions:
@@ -106,37 +106,112 @@ jobs:
         with:
           ref: agent/retire-migration-era-names
           fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: .go-version
-      - name: Execute staged runtime naming publisher
+      - name: Build final workflow blobs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f Dockerfile.server ]; then
-            echo 'Runtime naming transformation is already published.'
-            exit 0
-          fi
           python3 - <<'PY'
           from pathlib import Path
+          import base64
+          import json
+          import os
+          import subprocess
+          import urllib.request
 
-          source = Path('.github/workflows/agent-runtime-name-publisher.yml').read_text(encoding='utf-8')
-          marker = '        run: |\n'
-          start = source.index(marker) + len(marker)
-          lines = source[start:].splitlines()
-          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+          replacements = [
+              ('Dockerfile.legacy', 'Dockerfile.server'),
+              ('legacy-init', 'business-init'),
+              ('legacy-api', 'business-api'),
+              ('LEGACY_API_URL', 'BUSINESS_API_URL'),
+              ('LegacyAPIURL', 'BusinessAPIURL'),
+              ('ALL_MAIL_LEGACY_IMAGE', 'ALL_MAIL_SERVER_IMAGE'),
+              ('all-mail-legacy', 'all-mail-server'),
+              ('legacy_runtime_data', 'runtime_secrets_data'),
+              ('ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR', 'ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR'),
+              ('db:repair:legacy-p3005', 'db:repair:p3005'),
+              ('legacy-p3005-repair.sql', 'p3005-repair.sql'),
+              ('compatibility API', 'business API'),
+              ('Compatibility API', 'Business API'),
+              ('compatibility runtime', 'business runtime'),
+              ('Compatibility runtime', 'Business runtime'),
+          ]
 
-          workflow_block = script.index("config_security_path = Path('.github/workflows/config-security.yml')")
-          python_end = script.index('\nPY\n', workflow_block)
-          script = script[:workflow_block] + script[python_end + 1:]
-          script = script.replace(
-              'git add -A\n',
-              "git add -A -- . ':(exclude).github/workflows/**'\n",
-          )
-          Path('/tmp/all-mail-runtime-name-publisher.sh').write_text(script, encoding='utf-8')
+          paths = [
+              Path('.github/workflows/config-security.yml'),
+              Path('.github/workflows/ci.yml'),
+              Path('.github/workflows/bootstrap-admin-security.yml'),
+          ]
+          final = {}
+          for path in paths:
+              text = path.read_text(encoding='utf-8')
+              for old, new in replacements:
+                  text = text.replace(old, new)
+              text = text.replace('branches: [main, master, agent/config-security-hard-delete]', 'branches: [main]')
+              text = text.replace('branches: [main, master]', 'branches: [main]')
+              final[str(path)] = text
+
+          config_path = '.github/workflows/config-security.yml'
+          config = final[config_path]
+          begin_marker = '  # BEGIN AGENT_WORKFLOW_BLOB_EXPORTER\n'
+          end_marker = '  # END AGENT_WORKFLOW_BLOB_EXPORTER\n'
+          begin = config.index(begin_marker)
+          end = config.index(end_marker, begin) + len(end_marker)
+          config = config[:begin] + config[end:]
+          volume_assertion = "          assert model['volumes']['runtime_secrets_data']['name'] == 'all-mail_legacy_runtime_data'"
+          if volume_assertion not in config:
+              needle = "          assert services['app'].get('ports'), 'public Go app has no published port'"
+              config = config.replace(needle, needle + '\n' + volume_assertion, 1)
+          final[config_path] = config
+
+          bootstrap_path = '.github/workflows/bootstrap-admin-security.yml'
+          bootstrap = final[bootstrap_path]
+          prepare = '      - name: Prepare canonical environment\n        run: cp .env.example .env\n'
+          seed = '''      - name: Seed the pre-rename physical runtime-secret volume
+        shell: bash
+        run: |
+          docker volume create all-mail_legacy_runtime_data
+          docker run --rm \
+            -v all-mail_legacy_runtime_data:/state \
+            postgres:16-alpine \
+            sh -lc 'printf preserved > /state/pre-rename-volume-marker'
+'''
+          if 'Seed the pre-rename physical runtime-secret volume' not in bootstrap:
+              bootstrap = bootstrap.replace(prepare, prepare + seed, 1)
+          verify_line = "          docker compose exec -T business-api sh -lc 'test -r /var/lib/all-mail/runtime-secrets.env'\n"
+          marker_check = "          test \"$(docker compose exec -T business-api cat /var/lib/all-mail/pre-rename-volume-marker)\" = \"preserved\"\n"
+          if marker_check.strip() not in bootstrap:
+              bootstrap = bootstrap.replace(verify_line, verify_line + marker_check, 1)
+          final[bootstrap_path] = bootstrap
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GITHUB_TOKEN']
+
+          def create_blob(content: str) -> str:
+              payload = json.dumps({
+                  'content': base64.b64encode(content.encode()).decode(),
+                  'encoding': 'base64',
+              }).encode()
+              request = urllib.request.Request(
+                  f'https://api.github.com/repos/{repo}/git/blobs',
+                  data=payload,
+                  method='POST',
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'Content-Type': 'application/json',
+                  },
+              )
+              with urllib.request.urlopen(request) as response:
+                  return json.load(response)['sha']
+
+          result = {
+              'parent': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'base_tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
+              'blobs': {path: create_blob(content) for path, content in final.items()},
+          }
+          print('WORKFLOW_EXPORT_JSON=' + json.dumps(result, sort_keys=True))
           PY
-          bash /tmp/all-mail-runtime-name-publisher.sh
-  # END AGENT_RUNTIME_NAME_PUBLISHER
+  # END AGENT_WORKFLOW_BLOB_EXPORTER
