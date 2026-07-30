@@ -6,6 +6,8 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- added a canonical route ownership manifest, stable owner/family response headers, bounded Prometheus migration telemetry, and an `allmail routes` inspection command
+- removed the migration-era proxy marker and made the dashboard route family the first measured Go migration candidate
 - renamed migration-era runtime services and configuration to business ownership names, while preserving the existing physical runtime-secret volume for in-place upgrades
 
 - moved provider OAuth credentials, domain send approval, and ingress signing secrets from the long-running API environment into encrypted or audited PostgreSQL state

@@ -17,6 +17,7 @@ Browser / automation / Cloudflare Worker
 Go owns:
 
 - public listener, trusted-proxy normalization, SPA, request IDs, security headers, liveness/readiness and metrics;
+- the canonical route ownership manifest, route-family classification, and migration telemetry;
 - additive Go migrations;
 - forwarding;
 - API-log retention.
@@ -28,12 +29,12 @@ The environment-backed administrator has been removed. Initial administrator cre
 ## Runtime layout
 
 ```text
-business-init         secrets + Prisma migrations + initial DB administrator
+business-init       secrets + Prisma migrations + durable imports + initial DB administrator
 go-migrate          additive checksummed Go migrations
-app                 Go public gateway, SPA and compatibility proxy
+app                 Go public gateway, SPA and manifest-routed business proxy
 worker-forwarding   independent Go forwarding runtime
 worker-retention    independent Go retention runtime
-business-api          internal Fastify/Prisma business API
+business-api        internal Fastify/Prisma business API
 postgres            private database
 redis               private OAuth/rate-limit/replay/cache backend
 ```
@@ -48,6 +49,7 @@ business-init
   - split old secret bundle
   - establish runtime secrets
   - Prisma migrate
+  - durable environment import
   - advisory-locked admin bootstrap
       |
       v
@@ -124,14 +126,28 @@ ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
 
 ## Public gateway least privilege
 
-The Go gateway owns no native business route yet, so it receives no `DATABASE_URL` or `REDIS_URL`.
+The Go gateway owns no database-backed business handler yet, so it receives no `DATABASE_URL`, `REDIS_URL`, JWT secret, or encryption key.
+
+It loads `config/route-ownership.json` before listening. The manifest is the only routing ownership authority and contains stable route-family IDs, current owners, path match semantics, and migration state. The process refuses a missing or invalid manifest and refuses a contract that does not keep the system endpoints and SPA fallback on Go.
+
+Every response carries:
+
+```text
+X-All-Mail-Route-Owner
+X-All-Mail-Route-Family
+```
+
+The migration-era `X-All-Mail-Migration-Bridge` header is removed.
 
 Its `/readyz` checks:
 
-1. the built React `index.html`;
-2. Fastify `/readyz` protocol/payload.
+1. the route ownership manifest was loaded and validated at startup;
+2. the built React `index.html`;
+3. Fastify `/readyz` protocol/payload.
 
 Fastify verifies PostgreSQL and Redis.
+
+The `/metrics` endpoint exports bounded route-family ownership, inflight, request, status-class, duration, and proxy-error series. Raw paths, users, domains, mailboxes, request IDs, and secrets are not metric labels. See [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md).
 
 ## Trusted proxy contract
 
@@ -188,7 +204,8 @@ The Go image contains no `psql`. Never edit an applied numbered migration.
 
 Repository gates cover:
 
-- Go format/race/vet/build;
+- Go format/race/vet/build and `govulncheck`;
+- route manifest schema, prefix coverage, longest-prefix classification, bounded metrics, and removed migration headers;
 - Fastify lint/test/build;
 - web lint/test/build;
 - runtime contracts;
@@ -196,13 +213,14 @@ Repository gates cover:
 - proxy spoof rejection;
 - Compose credential/exposure boundaries;
 - real PostgreSQL administrator bootstrap;
-- full Docker first-login, forced password rotation, plaintext deletion, and initializer idempotency.
+- full Docker first-login, forced password rotation, plaintext deletion, initializer idempotency, and route-manifest startup.
 
 ## Current ownership
 
 | Capability | Owner |
 | --- | --- |
 | Public gateway/SPA/proxy identity | Go `app` |
+| Route-family ownership and migration telemetry | Go `app` + committed manifest |
 | Forwarding | `worker-forwarding` |
 | Retention | `worker-retention` |
 | Initial administrator creation | `business-init` one-shot |
@@ -214,7 +232,9 @@ Repository gates cover:
 
 ## Next ports
 
-Recommended order:
+The route ownership and telemetry foundation is complete. The manifest marks `admin-dashboard` as the active observation candidate.
+
+Recommended vertical order:
 
 1. read-only dashboard/status routes;
 2. external API-key allocation/read routes;
@@ -225,8 +245,8 @@ Recommended order:
 7. portal authentication;
 8. administrator authentication last.
 
-Every slice must move authorization, validation, transactions, parity tests and failure injection together.
+Every slice must move authorization, validation, transactions, parity tests, failure injection, manifest ownership, Docker smoke coverage, and revision rollback together.
 
 ## Rollback
 
-Rollback is revision based. Preserve PostgreSQL plus both new secret files and a pre-upgrade copy of any old combined file. Restore the layout expected by the target revision. Never run initializers or workers from two revisions concurrently.
+Rollback is revision based. Preserve PostgreSQL plus both new secret files and a pre-upgrade copy of any old combined file. Restore the layout expected by the target revision. Never run initializers or workers from two revisions concurrently. Route ownership is never rolled back with a mutable environment flag; deploy the prior revision instead.

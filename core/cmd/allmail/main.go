@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,10 +15,12 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/httpapi"
 	"github.com/feng123-new/all-Mail/core/internal/jobs"
 	"github.com/feng123-new/all-Mail/core/internal/migrate"
+	"github.com/feng123-new/all-Mail/core/internal/routeownership"
 )
 
 const usageText = `Usage:
   allmail api
+  allmail routes
   allmail worker forwarding
   allmail worker retention
   allmail migrate
@@ -44,6 +47,12 @@ func main() {
 		server, err := httpapi.New(cfg, logger)
 		fatalIf(logger, err)
 		fatalIf(logger, server.Run(ctx))
+	case "routes":
+		manifest, err := routeownership.LoadDefault()
+		fatalIf(logger, err)
+		content, err := json.MarshalIndent(manifest.Snapshot(), "", "  ")
+		fatalIf(logger, err)
+		fmt.Fprintf(os.Stdout, "%s\n", content)
 	case "worker":
 		if len(os.Args) < 3 {
 			fatal(logger, fmt.Errorf("usage: allmail worker forwarding|retention"))
@@ -97,7 +106,7 @@ func main() {
 			fatal(logger, fmt.Errorf("unknown doctor target %q", os.Args[2]))
 		}
 	default:
-		fatal(logger, fmt.Errorf("unknown command %q; use api, worker, migrate or doctor", command))
+		fatal(logger, fmt.Errorf("unknown command %q; use api, routes, worker, migrate or doctor", command))
 	}
 }
 
