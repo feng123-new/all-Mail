@@ -14,6 +14,7 @@
         "start": "npm run start:api",
         "start:api": "node dist/index.js",
         "bootstrap:admin": "tsx src/runtime/bootstrapAdmin.ts",
+        "config:import-env": "node dist/runtime/importEnvironmentConfig.js",
         "db:generate": "prisma generate",
         "db:push": "prisma db push",
         "db:repair:legacy-p3005": "prisma db execute --file prisma/legacy-p3005-repair.sql --schema prisma/schema.prisma",
