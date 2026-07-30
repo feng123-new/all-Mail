@@ -1,3 +1,9 @@
+import { readFileSync } from 'node:fs';
+
+const retiredEnvironmentVariables = new Set(
+  JSON.parse(readFileSync(new URL('../config/retired-env.json', import.meta.url), 'utf8')).variables,
+);
+
 const PLACEHOLDER_PREFIXES = ['replace-with-', 'changeme-', 'example-'];
 const WEAK_DATABASE_PASSWORDS = new Set([
   'admin',
@@ -8,10 +14,6 @@ const WEAK_DATABASE_PASSWORDS = new Set([
   'postgres',
 ]);
 const URL_SAFE_SECRET = /^[A-Za-z0-9_-]+$/;
-
-function isTrue(value) {
-  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
-}
 
 function isPlaceholder(value) {
   const normalized = String(value || '').trim().toLowerCase();
@@ -39,6 +41,12 @@ export function validateProductionEnvironment(env = process.env) {
     return;
   }
 
+  for (const name of retiredEnvironmentVariables) {
+    if (Object.prototype.hasOwnProperty.call(env, name)) {
+      throw new Error(`${name} is retired and must be removed from the production environment`);
+    }
+  }
+
   const databaseUrl = requireAbsoluteUrl('DATABASE_URL', env.DATABASE_URL, ['postgres:', 'postgresql:']);
   if (!databaseUrl.username) {
     throw new Error('DATABASE_URL must include a database username');
@@ -60,10 +68,6 @@ export function validateProductionEnvironment(env = process.env) {
   const runtimeRole = String(env.ALL_MAIL_RUNTIME_ROLE || 'api').trim().toLowerCase();
   if (runtimeRole !== 'init') {
     requireAbsoluteUrl('REDIS_URL', env.REDIS_URL, ['redis:', 'rediss:']);
-  }
-
-  if (isTrue(env.ALLOW_LOCAL_RATE_LIMIT_FALLBACK)) {
-    throw new Error('ALLOW_LOCAL_RATE_LIMIT_FALLBACK must be disabled in production');
   }
 
   if (env.PUBLIC_BASE_URL) {
