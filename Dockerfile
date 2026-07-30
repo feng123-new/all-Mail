@@ -9,6 +9,7 @@ FROM golang:1.26.5-bookworm AS go-builder
 WORKDIR /src/core
 COPY core/go.mod core/go.sum ./
 RUN go mod download
+COPY config/route-ownership.json /src/config/route-ownership.json
 COPY core ./
 RUN test -z "$(gofmt -l .)" \
     && go test ./... \
