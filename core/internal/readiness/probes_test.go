@@ -12,10 +12,13 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/config"
 )
 
-func TestReadinessRequiresStaticAssetsAndCompatibilityAPI(t *testing.T) {
-	prober := Prober{BusinessAPI: func(context.Context, string) error { return nil }}
+func TestReadinessRequiresStaticAssetsAndBothBusinessAPIs(t *testing.T) {
+	prober := Prober{
+		BusinessAPI:   func(context.Context, string) error { return nil },
+		GoBusinessAPI: func(context.Context, string) error { return nil },
+	}
 	cfg := config.APIConfig{StaticDir: t.TempDir()}
-	report := prober.Check(context.Background(), cfg)
+	report := prober.Check(context.Background(), cfg, "")
 	if report.Ready {
 		t.Fatal("readiness unexpectedly succeeded without required dependencies")
 	}
@@ -25,25 +28,32 @@ func TestReadinessRequiresStaticAssetsAndCompatibilityAPI(t *testing.T) {
 	if report.Checks["businessApi"] != "required-but-not-configured" {
 		t.Fatalf("businessApi check = %q", report.Checks["businessApi"])
 	}
+	if report.Checks["goBusinessApi"] != "required-but-not-configured" {
+		t.Fatalf("goBusinessApi check = %q", report.Checks["goBusinessApi"])
+	}
 }
 
-func TestReadinessRunsCompatibilityProbe(t *testing.T) {
+func TestReadinessRunsBothPrivateProbes(t *testing.T) {
 	directory := t.TempDir()
 	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("ok"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	called := 0
-	prober := Prober{BusinessAPI: func(context.Context, string) error { called++; return nil }}
+	businessCalls := 0
+	goCalls := 0
+	prober := Prober{
+		BusinessAPI:   func(context.Context, string) error { businessCalls++; return nil },
+		GoBusinessAPI: func(context.Context, string) error { goCalls++; return nil },
+	}
 	report := prober.Check(context.Background(), config.APIConfig{
 		StaticDir:      directory,
 		BusinessAPIURL: "http://business-api:3100",
-	})
-	if !report.Ready || called != 1 {
-		t.Fatalf("report = %#v, calls = %d", report, called)
+	}, "http://go-business-api:3200")
+	if !report.Ready || businessCalls != 1 || goCalls != 1 {
+		t.Fatalf("report = %#v, business calls = %d, Go calls = %d", report, businessCalls, goCalls)
 	}
 }
 
-func TestCompatibilityProbeRequiresProtocolValidPayload(t *testing.T) {
+func TestServiceProbeRequiresProtocolValidPayload(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/readyz" {
 			http.NotFound(w, r)
@@ -53,7 +63,7 @@ func TestCompatibilityProbeRequiresProtocolValidPayload(t *testing.T) {
 		_, _ = w.Write([]byte(`{"success":true,"data":{"status":"ready"}}`))
 	}))
 	defer server.Close()
-	if err := checkBusinessAPI(context.Background(), server.URL); err != nil {
+	if err := checkServiceReadiness(context.Background(), server.URL); err != nil {
 		t.Fatal(err)
 	}
 
@@ -61,7 +71,7 @@ func TestCompatibilityProbeRequiresProtocolValidPayload(t *testing.T) {
 		_, _ = w.Write([]byte(`{"success":true,"data":{"status":"not-ready"}}`))
 	}))
 	defer invalid.Close()
-	if err := checkBusinessAPI(context.Background(), invalid.URL); err == nil || !strings.Contains(err.Error(), "not-ready") {
+	if err := checkServiceReadiness(context.Background(), invalid.URL); err == nil || !strings.Contains(err.Error(), "not-ready") {
 		t.Fatalf("invalid readiness error = %v", err)
 	}
 }
