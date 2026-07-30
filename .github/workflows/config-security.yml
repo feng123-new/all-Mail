@@ -168,15 +168,17 @@ jobs:
           bootstrap_path = '.github/workflows/bootstrap-admin-security.yml'
           bootstrap = final[bootstrap_path]
           prepare = '      - name: Prepare canonical environment\n        run: cp .env.example .env\n'
-          seed = '''      - name: Seed the pre-rename physical runtime-secret volume
-        shell: bash
-        run: |
-          docker volume create all-mail_legacy_runtime_data
-          docker run --rm \
-            -v all-mail_legacy_runtime_data:/state \
-            postgres:16-alpine \
-            sh -lc 'printf preserved > /state/pre-rename-volume-marker'
-'''
+          seed = '\n'.join([
+              '      - name: Seed the pre-rename physical runtime-secret volume',
+              '        shell: bash',
+              '        run: |',
+              '          docker volume create all-mail_legacy_runtime_data',
+              '          docker run --rm \\',
+              '            -v all-mail_legacy_runtime_data:/state \\',
+              '            postgres:16-alpine \\',
+              "            sh -lc 'printf preserved > /state/pre-rename-volume-marker'",
+              '',
+          ])
           if 'Seed the pre-rename physical runtime-secret volume' not in bootstrap:
               bootstrap = bootstrap.replace(prepare, prepare + seed, 1)
           verify_line = "          docker compose exec -T business-api sh -lc 'test -r /var/lib/all-mail/runtime-secrets.env'\n"
