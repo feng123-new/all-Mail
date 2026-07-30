@@ -53,8 +53,9 @@ function buildOAuthImportConfig(
         ? normalized(environment.MICROSOFT_OAUTH_TENANT)
         : null;
 
-    const configuredValues = [clientId, clientSecret, redirectUri, scopes, tenant].filter(Boolean);
-    if (configuredValues.length === 0) {
+    // The shipped template includes callback and scope defaults. They are not
+    // an import request unless at least one credential field is populated.
+    if (!clientId && !clientSecret) {
         return null;
     }
     if (!clientId || !clientSecret || !redirectUri) {
@@ -153,6 +154,12 @@ async function importSendApprovals(
         } else {
             summary.sendApprovalMissing.push(name);
         }
+    }
+
+    if (summary.sendApprovalMissing.length > 0) {
+        throw new Error(
+            `SEND_ENABLED_DOMAINS contains unknown domains: ${summary.sendApprovalMissing.join(', ')}`,
+        );
     }
 }
 
