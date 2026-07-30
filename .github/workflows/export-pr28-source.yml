@@ -1,8 +1,8 @@
 name: Export PR28 source
 
 on:
-  push:
-    branches: [agent/go-business-api-key-external]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
