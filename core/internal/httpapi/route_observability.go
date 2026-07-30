@@ -1,0 +1,84 @@
+package httpapi
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/feng123-new/all-Mail/core/internal/routeownership"
+)
+
+type routeContextKey struct{}
+
+type statusResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusResponseWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusResponseWriter) Write(content []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(content)
+}
+
+func (w *statusResponseWriter) Flush() {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *statusResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func (s *Server) observeRoutes(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		route := s.routes.Match(r.URL.Path)
+		s.routeMetrics.begin(route)
+		startedAt := time.Now()
+
+		w.Header().Set("X-All-Mail-Route-Owner", string(route.Owner))
+		w.Header().Set("X-All-Mail-Route-Family", route.ID)
+		r = r.WithContext(context.WithValue(r.Context(), routeContextKey{}, route))
+		observed := &statusResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(observed, r)
+		s.routeMetrics.observe(route, r.Method, observed.status, time.Since(startedAt))
+	})
+}
+
+func routeFromContext(ctx context.Context) (routeownership.Route, bool) {
+	route, ok := ctx.Value(routeContextKey{}).(routeownership.Route)
+	return route, ok
+}
+
+func validateGatewayManifest(manifest *routeownership.Manifest) error {
+	required := map[string]string{
+		"/health":  "system-health",
+		"/livez":   "system-liveness",
+		"/readyz":  "system-readiness",
+		"/metrics": "system-metrics",
+	}
+	for path, family := range required {
+		route := manifest.Match(path)
+		if route.ID != family || route.Owner != routeownership.OwnerGo || route.Match != routeownership.MatchExact {
+			return fmt.Errorf("route ownership manifest must declare %s as exact Go route %s", path, family)
+		}
+	}
+	fallback := manifest.Match("/__allmail_spa_route_probe__")
+	if fallback.ID != "spa" || fallback.Owner != routeownership.OwnerGo || fallback.Match != routeownership.MatchFallback {
+		return fmt.Errorf("route ownership manifest must declare a Go-owned spa fallback")
+	}
+	return nil
+}
