@@ -143,6 +143,7 @@ services:
     environment:
       PORT: 3200
       DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
+      REDIS_URL: redis://redis:6379
       JWT_SECRET_FILE: /var/lib/all-mail-secrets/jwt-secret
       GO_BUSINESS_QUERY_TIMEOUT_SECONDS: 10
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
@@ -151,6 +152,8 @@ services:
       go-migrate:
         condition: service_completed_successfully
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     stop_grace_period: 30s

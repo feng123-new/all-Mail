@@ -2,7 +2,7 @@
 
 ## Status
 
-The Go runtime is the canonical public Docker entrypoint. Migration is complete for public HTTP ownership, SPA delivery, route governance, forwarding, API-log retention, and the first database-backed Dashboard read slice. The complete business API is not yet migrated.
+The Go runtime is the canonical public Docker entrypoint. Migration is complete for public HTTP ownership, SPA delivery, route governance, forwarding, API-log retention, Dashboard reads, API-key administration/security, and the database-only external mailbox/domain-mail slice. The complete business API is not yet migrated.
 
 ```text
 Browser / automation / Cloudflare Worker
@@ -14,7 +14,7 @@ Browser / automation / Cloudflare Worker
                      |                 |
                      v                 v
             go-business-api       business-api
-            private Go reads      Fastify / Prisma
+            private Go routes     Fastify / Prisma
                      \                 /
                       v               v
                          PostgreSQL
@@ -26,11 +26,13 @@ Go owns:
 - the method-aware route ownership manifest and bounded migration telemetry;
 - the private `go-business-api` service for migrated database-backed handlers;
 - authenticated Dashboard statistics, API trend, and operation-log reads;
+- API-key administration, hash authentication, permissions, Redis limiting, usage accounting, and allocation state;
+- database-backed external email/domain-mail allocation, listing, statistics, reset, and persisted message reads;
 - additive Go migrations;
 - forwarding;
 - API-log retention.
 
-Fastify/Prisma still owns administrator login and 2FA, OAuth, API keys, domain/mailbox administration, provider operations, ingress, Dashboard log deletion, and business-schema migrations.
+Fastify/Prisma still owns administrator login and 2FA, OAuth, provider-dependent mailbox operations, domain/mailbox writes, ingress, Dashboard log deletion, JavaScript regex text extraction compatibility, and business-schema migrations.
 
 ## Runtime layout
 
@@ -114,7 +116,7 @@ go-business-api:
   JWT_SECRET_FILE=/var/lib/all-mail-secrets/jwt-secret
 ```
 
-The public `app` receives neither file. `go-business-api` does not receive Redis, the encryption key, ingress secrets, OAuth credentials, or provider credentials during the Dashboard phase.
+The public `app` receives neither file. `go-business-api` now receives the private Redis URL for fail-closed API-key limits, but still receives no encryption key, ingress secret, OAuth credential, or provider credential.
 
 After successful initial password rotation, Fastify removes `bootstrap-admin.env`. Rerunning the initializer does not recreate plaintext or a second administrator. Operator inspection must redact values, for example:
 
@@ -144,6 +146,11 @@ GET /admin/dashboard/logs        -> go-business-api
 
 DELETE /admin/dashboard/logs/:id -> business-api
 POST /admin/dashboard/logs/batch-delete -> business-api
+
+/admin/api-keys/** -> go-business-api
+Database-only /api mailbox allocation/list/stats/reset -> go-business-api
+Database-only /api/domain-mail allocation/list/stats/reset/messages -> go-business-api
+/api/domain-mail/messages/text and /mail_text -> business-api
 ```
 
 Every response carries:
@@ -164,7 +171,7 @@ allmail business-api
 allmail doctor business-api
 ```
 
-Its Dashboard authentication boundary mirrors the existing Fastify behavior:
+Its administrator and API-key security boundaries mirror the existing Fastify behavior:
 
 1. read the `token` cookie or Bearer token;
 2. require HS256;
@@ -174,7 +181,7 @@ Its Dashboard authentication boundary mirrors the existing Fastify behavior:
 6. reject removed or disabled administrators;
 7. reject `mustChangePassword=true` outside the password-change flow.
 
-It uses a bounded PostgreSQL pool with UTC session timezone. Query parameters are bounded, query contexts are cancelled after a configured timeout, and `/readyz` performs a real PostgreSQL protocol check.
+It uses a bounded PostgreSQL pool with UTC session timezone and a private Redis client. Query parameters are bounded, query contexts are cancelled after a configured timeout, and `/readyz` performs real PostgreSQL and Redis protocol checks. API-key calls preserve Fastify ordering: status/expiry checks, atomic Redis limiting, usage accounting, then per-action permission enforcement.
 
 ## Dashboard response contract
 
@@ -204,6 +211,12 @@ Behavioral guarantees include:
 
 The Fastify read handlers remain temporarily for revision rollback. Delete them only after route metrics show zero Fastify traffic for the agreed observation window.
 
+## API-key and external database contract
+
+Go now owns API-key CRUD, one-time raw-key return, SHA-256 lookup, permission aliases/wildcards, status and expiry checks, Redis-backed per-minute limits, `usageCount`/`lastUsedAt`, email and domain mailbox allocation state, and external API audit logs. Database-only external routes are exact Go-owned entries; provider/IMAP/Graph/SMTP operations and regex text extraction remain Fastify-owned.
+
+Redis failure is fail closed for authentication limits and makes `go-business-api` not ready. The Redis URL is private to the Go business service and is never passed to the public gateway.
+
 ## Aggregate readiness
 
 Public `/readyz` requires:
@@ -213,7 +226,7 @@ Public `/readyz` requires:
 3. Fastify `business-api` readiness;
 4. private `go-business-api` readiness.
 
-Fastify checks PostgreSQL and Redis. The private Go service checks PostgreSQL. A failed required upstream makes the public gateway not ready.
+Fastify and the private Go service both check PostgreSQL and Redis for their active security state. A failed required upstream makes the public gateway not ready.
 
 ## Metrics
 
@@ -286,7 +299,9 @@ Repository gates cover:
 | Retention | `worker-retention` |
 | Initial administrator creation | `business-init` one-shot |
 | Administrator login, 2FA, JWT issuance | Fastify/Prisma |
-| API Key, OAuth, ingress, domain/mailbox/provider operations | Fastify/Prisma |
+| API-key administration/authentication/limits/allocation | `go-business-api` |
+| Database-only external email/domain-mail routes | `go-business-api` |
+| OAuth, ingress, provider-dependent and domain/mailbox write operations | Fastify/Prisma |
 | Business schema migrations | Prisma in `business-init` |
 | Additive runtime migrations | `go-migrate` |
 | Cloudflare Email Worker | TypeScript Worker |
@@ -296,9 +311,9 @@ Repository gates cover:
 Recommended order:
 
 1. Dashboard log deletion with audit/transaction parity;
-2. API-key authentication, Redis rate limits, allocation, and external APIs;
-3. ingress persistence and outbound history;
-4. provider synchronization, domain, mailbox, alias, and sending operations;
+2. ingress persistence, replay protection, and outbound history;
+3. provider-dependent reads, synchronization, OAuth configuration, and sending operations;
+4. domain, mailbox, alias, and user writes;
 5. mailbox-portal authentication;
 6. administrator authentication and OAuth state last;
 7. business-schema authority and encrypted-data cutover;

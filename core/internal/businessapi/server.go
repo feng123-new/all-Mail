@@ -17,11 +17,15 @@ import (
 )
 
 type Server struct {
-	cfg      config.GoBusinessAPIConfig
-	logger   *slog.Logger
-	store    Store
-	now      func() time.Time
-	ownStore bool
+	cfg                config.GoBusinessAPIConfig
+	logger             *slog.Logger
+	store              Store
+	apiKeyStore        APIKeyStore
+	domainMailboxStore DomainMailboxStore
+	rateLimiter        RateLimiter
+	now                func() time.Time
+	ownStore           bool
+	ownRateLimiter     bool
 }
 
 func New(ctx context.Context, cfg config.GoBusinessAPIConfig, logger *slog.Logger) (*Server, error) {
@@ -31,25 +35,60 @@ func New(ctx context.Context, cfg config.GoBusinessAPIConfig, logger *slog.Logge
 	if err != nil {
 		return nil, err
 	}
+	limiter, err := newRedisRateLimiter(cfg.RedisURL, cfg.ReadyTimeout)
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
+	if err := limiter.Ping(storeCtx); err != nil {
+		store.Close()
+		return nil, err
+	}
 	return &Server{
-		cfg:      cfg,
-		logger:   logger,
-		store:    store,
-		now:      time.Now,
-		ownStore: true,
+		cfg:                cfg,
+		logger:             logger,
+		store:              store,
+		apiKeyStore:        store,
+		domainMailboxStore: store,
+		rateLimiter:        limiter,
+		now:                time.Now,
+		ownStore:           true,
+		ownRateLimiter:     true,
 	}, nil
 }
 
 func newWithStore(cfg config.GoBusinessAPIConfig, logger *slog.Logger, store Store) *Server {
+	apiKeyStore, _ := store.(APIKeyStore)
+	domainMailboxStore, _ := store.(DomainMailboxStore)
+	return newWithDependencies(cfg, logger, store, apiKeyStore, domainMailboxStore, allowAllRateLimiter{})
+}
+
+func newWithDependencies(
+	cfg config.GoBusinessAPIConfig,
+	logger *slog.Logger,
+	store Store,
+	apiKeyStore APIKeyStore,
+	domainMailboxStore DomainMailboxStore,
+	rateLimiter RateLimiter,
+) *Server {
+	if rateLimiter == nil {
+		rateLimiter = allowAllRateLimiter{}
+	}
 	return &Server{
-		cfg:    cfg,
-		logger: logger,
-		store:  store,
-		now:    time.Now,
+		cfg:                cfg,
+		logger:             logger,
+		store:              store,
+		apiKeyStore:        apiKeyStore,
+		domainMailboxStore: domainMailboxStore,
+		rateLimiter:        rateLimiter,
+		now:                time.Now,
 	}
 }
 
 func (s *Server) Close() {
+	if s.ownRateLimiter && s.rateLimiter != nil {
+		s.rateLimiter.Close()
+	}
 	if s.ownStore && s.store != nil {
 		s.store.Close()
 	}
@@ -91,6 +130,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/dashboard/stats", s.withAdministrator(s.dashboardStats))
 	mux.HandleFunc("GET /admin/dashboard/api-trend", s.withAdministrator(s.dashboardTrend))
 	mux.HandleFunc("GET /admin/dashboard/logs", s.withAdministrator(s.dashboardLogs))
+	s.registerAPIKeyRoutes(mux)
+	s.registerExternalRoutes(mux)
 	mux.HandleFunc("/", s.notFound)
 	return s.withRequestMetadata(mux)
 }
@@ -108,22 +149,32 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ReadyTimeout)
 	defer cancel()
+	checks := map[string]string{"postgres": "ok", "redis": "ok"}
+	ready := true
 	if err := s.store.Ping(ctx); err != nil {
-		s.logger.Error("Go business API readiness failed", "request_id", requestID(r), "error", err)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"success": false,
-			"data": map[string]any{
-				"status": "not-ready",
-				"checks": map[string]string{"postgres": "unavailable"},
-			},
-		})
-		return
+		ready = false
+		checks["postgres"] = "unavailable"
+		s.logger.Error("Go business PostgreSQL readiness failed", "request_id", requestID(r), "error", err)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true,
+	if s.rateLimiter == nil {
+		ready = false
+		checks["redis"] = "not-configured"
+	} else if err := s.rateLimiter.Ping(ctx); err != nil {
+		ready = false
+		checks["redis"] = "unavailable"
+		s.logger.Error("Go business Redis readiness failed", "request_id", requestID(r), "error", err)
+	}
+	status := http.StatusOK
+	state := "ready"
+	if !ready {
+		status = http.StatusServiceUnavailable
+		state = "not-ready"
+	}
+	writeJSON(w, status, map[string]any{
+		"success": ready,
 		"data": map[string]any{
-			"status": "ready",
-			"checks": map[string]string{"postgres": "ok"},
+			"status": state,
+			"checks": checks,
 		},
 	})
 }
@@ -181,9 +232,7 @@ func (s *Server) dashboardLogs(w http.ResponseWriter, r *http.Request, _ Admin) 
 		return
 	}
 	result, err := s.store.DashboardLogs(r.Context(), DashboardLogInput{
-		Page:     page,
-		PageSize: pageSize,
-		Action:   action,
+		Page: page, PageSize: pageSize, Action: action,
 	})
 	if err != nil {
 		s.writeStoreError(w, r, "query Dashboard logs", err)
@@ -224,6 +273,11 @@ func (s *Server) writeRequestError(w http.ResponseWriter, r *http.Request, err e
 }
 
 func (s *Server) writeStoreError(w http.ResponseWriter, r *http.Request, operation string, err error) {
+	var requestErr *requestError
+	if errors.As(err, &requestErr) {
+		s.writeRequestError(w, r, requestErr)
+		return
+	}
 	s.logger.Error(operation, "request_id", requestID(r), "error", err)
 	writeError(w, http.StatusInternalServerError, requestID(r), "INTERNAL_ERROR", nil)
 }

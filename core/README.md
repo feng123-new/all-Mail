@@ -5,12 +5,13 @@ This directory contains the canonical Go runtime for `all-Mail`.
 Current ownership:
 
 - `allmail api` owns the public listener, React SPA, request IDs, trusted-proxy normalization, readiness and metrics;
-- unmigrated business paths are proxied to the internal Fastify business API;
+- `allmail business-api` owns the private API-key administration/authentication, Redis limiting, allocation state, and migrated database-backed external routes;
+- remaining business paths are proxied to the internal Fastify business API;
 - `allmail worker forwarding` owns mailbox forwarding;
 - `allmail worker retention` owns API-log retention;
 - `allmail migrate` owns checksummed additive Go migrations.
 
-The Go gateway deliberately does not receive PostgreSQL or Redis credentials while it owns no native business route. Its readiness verifies built static assets plus the business API's protocol-backed `/readyz` response.
+The public Go gateway deliberately receives no PostgreSQL URL, Redis URL, JWT secret, or encryption key. The separate private Go business process receives PostgreSQL, Redis, and a read-only JWT secret file; gateway readiness verifies both private upstreams.
 
 ## Verification
 
@@ -25,10 +26,12 @@ go build -trimpath -o ./allmail ./cmd/allmail
 
 ```bash
 ./allmail api
+./allmail business-api
 ./allmail worker forwarding
 ./allmail worker retention
 ./allmail migrate
 ./allmail doctor api
+./allmail doctor business-api
 ./allmail doctor worker forwarding
 ./allmail doctor worker retention
 ```
@@ -37,7 +40,7 @@ go build -trimpath -o ./allmail ./cmd/allmail
 
 `TRUSTED_PROXY_CIDRS` is a comma-separated list of reverse-proxy peers directly connected to the Go listener. Forwarded client-IP and protocol headers are ignored unless the socket peer belongs to this list. The gateway overwrites downstream forwarding headers with one canonical client identity before calling Fastify.
 
-The internal Fastify service trusts exactly one proxy hop and is not published to the host in the production Compose topology.
+The private Go business service and internal Fastify service are not published to the host in the production Compose topology.
 
 ## Worker state and secrets
 

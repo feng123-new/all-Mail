@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ const goBusinessAPIURLEnvironment = "GO_BUSINESS_API_URL"
 type GoBusinessAPIConfig struct {
 	Port            int
 	DatabaseURL     string
+	RedisURL        string
 	JWTSecret       string
 	ReadyTimeout    time.Duration
 	QueryTimeout    time.Duration
@@ -55,6 +57,7 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	cfg := GoBusinessAPIConfig{
 		Port:            port,
 		DatabaseURL:     strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		RedisURL:        strings.TrimSpace(os.Getenv("REDIS_URL")),
 		JWTSecret:       jwtSecret,
 		ReadyTimeout:    time.Duration(readySeconds) * time.Second,
 		QueryTimeout:    time.Duration(querySeconds) * time.Second,
@@ -66,10 +69,16 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	if cfg.DatabaseURL == "" {
 		return GoBusinessAPIConfig{}, errors.New("DATABASE_URL is required for the Go business API")
 	}
+	if cfg.RedisURL == "" {
+		return GoBusinessAPIConfig{}, errors.New("REDIS_URL is required for the Go business API")
+	}
 	if cfg.ReadyTimeout <= 0 || cfg.QueryTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
 		return GoBusinessAPIConfig{}, errors.New("Go business API timeouts must be positive")
 	}
 	if err := validateAbsoluteURL("DATABASE_URL", cfg.DatabaseURL, "postgres", "postgresql"); err != nil {
+		return GoBusinessAPIConfig{}, err
+	}
+	if err := validateRedisURL(cfg.RedisURL); err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
 	return cfg, nil
@@ -93,4 +102,15 @@ func loadJWTSecretFile() (string, error) {
 		return "", errors.New("JWT_SECRET_FILE must contain at least 32 characters")
 	}
 	return secret, nil
+}
+
+func validateRedisURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return errors.New("REDIS_URL must be an absolute Redis URL")
+	}
+	if parsed.Scheme != "redis" && parsed.Scheme != "rediss" {
+		return errors.New("REDIS_URL must use redis or rediss")
+	}
+	return nil
 }
