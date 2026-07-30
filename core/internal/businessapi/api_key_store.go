@@ -162,12 +162,12 @@ func (s *PostgresStore) CreateAPIKey(ctx context.Context, input APIKeyCreateInpu
 		INSERT INTO api_keys (
 			name, key_hash, key_prefix, permissions,
 			allowed_group_ids, allowed_email_ids, allowed_domain_ids,
-			rate_limit, expires_at, created_by
+			rate_limit, expires_at, created_by, updated_at
 		)
 		VALUES (
 			$1, $2, $3, NULLIF($4, '')::jsonb,
 			NULLIF($5, '')::jsonb, NULLIF($6, '')::jsonb, NULLIF($7, '')::jsonb,
-			$8, $9, $10
+			$8, $9, $10, CURRENT_TIMESTAMP
 		)
 		RETURNING
 			id, name, key_prefix, rate_limit, status::text, expires_at,
