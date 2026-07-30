@@ -47,6 +47,7 @@ test("Compose keeps infrastructure private and compatibility imports initializer
 
 	const bootstrap = section(compose, "x-bootstrap-environment:", "\nx-api-environment:");
 	const api = section(compose, "x-api-environment:", "\nx-allmail-hardening:");
+	const goBusiness = section(compose, "\n  go-business-api:", "\n  app:");
 	const app = section(compose, "\n  app:", "\n  worker-forwarding:");
 	const forwarding = section(compose, "\n  worker-forwarding:", "\n  worker-retention:");
 	assert.match(bootstrap, /ADMIN_USERNAME:[\s\S]*ADMIN_PASSWORD:/);
@@ -60,7 +61,13 @@ test("Compose keeps infrastructure private and compatibility imports initializer
 		"INGRESS_IMPORT_KEY_ID", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
 		"MICROSOFT_OAUTH_CLIENT_ID", "MICROSOFT_OAUTH_CLIENT_SECRET",
 	]) assert.doesNotMatch(api, new RegExp(`\\n\\s+${name}:`), name);
-	assert.doesNotMatch(app, /DATABASE_URL|REDIS_URL|GO_API_MODE|ALL_MAIL_ENV/);
+	assert.match(goBusiness, /command: \["business-api"\]/);
+	assert.match(goBusiness, /DATABASE_URL:/);
+	assert.match(goBusiness, /JWT_SECRET_FILE: \/var\/lib\/all-mail-secrets\/jwt-secret/);
+	assert.doesNotMatch(goBusiness, /REDIS_URL|ENCRYPTION_KEY|INGRESS_SIGNING_SECRET|ports:/);
+	assert.doesNotMatch(app, /DATABASE_URL|REDIS_URL|JWT_SECRET|ENCRYPTION_KEY|GO_API_MODE|ALL_MAIL_ENV/);
+	assert.match(app, /BUSINESS_API_URL: http:\/\/business-api:3100/);
+	assert.match(app, /GO_BUSINESS_API_URL: http:\/\/go-business-api:3200/);
 	assert.match(forwarding, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-secrets\/encryption-key/);
 	assert.doesNotMatch(forwarding, /\n\s+ENCRYPTION_KEY:/);
 	assert.match(compose, /command: \["worker", "forwarding"\]/);
@@ -68,11 +75,11 @@ test("Compose keeps infrastructure private and compatibility imports initializer
 	assert.doesNotMatch(compose, /\n[ ]{2}(?:go-jobs|legacy-jobs|jobs):|retention_runtime_data/);
 });
 
-test("administrator bootstrap, config import, and secret files remain one-shot", async () => {
-	const [entrypoint, processes, auth, secretScript, ci] = await Promise.all([
+test("administrator bootstrap, config import, and least-privilege secret exports remain one-shot", async () => {
+	const [entrypoint, processes, auth, secretScript, ci, compose] = await Promise.all([
 		read("docker/entrypoint.sh"), read("server/src/runtime/processes.ts"),
 		read("server/src/modules/auth/auth.service.ts"), read("scripts/bootstrap-secrets.mjs"),
-		read(".github/workflows/ci.yml"),
+		read(".github/workflows/ci.yml"), read("docker-compose.yml"),
 	]);
 	const migrationIndex = entrypoint.indexOf("run_business_migrations");
 	const importIndex = entrypoint.indexOf("npm run config:import-env");
@@ -83,6 +90,10 @@ test("administrator bootstrap, config import, and secret files remain one-shot",
 	assert.match(auth, /BOOTSTRAP_ADMIN_SECRET_FILE/);
 	assert.match(secretScript, /runtime-secrets\.env[\s\S]*bootstrap-admin\.env[\s\S]*bootstrap-secrets\.env/);
 	assert.match(entrypoint, /bootstrap_mode=require-existing[\s\S]*bootstrap_mode=init/);
+	assert.match(entrypoint, /ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE/);
+	assert.match(entrypoint, /ALL_MAIL_EXPORT_JWT_SECRET_FILE/);
+	assert.match(compose, /ALL_MAIL_EXPORT_JWT_SECRET_FILE: \/var\/lib\/all-mail-go-business\/jwt-secret/);
+	assert.match(compose, /go_business_runtime_data:\/var\/lib\/all-mail-secrets:ro/);
 	assert.match(ci, /test -r \/var\/lib\/all-mail\/runtime-secrets\.env/);
 	assert.match(ci, /test ! -e \/var\/lib\/all-mail\/bootstrap-secrets\.env/);
 });
@@ -157,9 +168,8 @@ test("local tooling has no retired fallback and proxies every namespace", async 
 	assert.doesNotMatch(ingress, /process\.env\.POSTGRES_PORT|entries\.get\(["']POSTGRES_PORT["']\)|allmail_dev_password/);
 	assert.doesNotMatch(cli, /ALL_MAIL_ENV_FILE|POSTGRES_HOST|REDIS_HOST/);
 	for (const prefix of ["/admin", "/api", "/mail", "/ingress", "/oauth"])
-		assert.match(vite, new RegExp(`['\"]${prefix}['\"]`));
+		assert.match(vite, new RegExp(`['"]${prefix}['"]`));
 });
-
 
 test("business runtime naming preserves the pre-rename physical secret volume", async () => {
 	const [compose, goConfig, entrypoint] = await Promise.all([
@@ -169,8 +179,10 @@ test("business runtime naming preserves the pre-rename physical secret volume", 
 	]);
 	assert.match(compose, /\n  business-init:/);
 	assert.match(compose, /\n  business-api:/);
+	assert.match(compose, /\n  go-business-api:/);
 	assert.doesNotMatch(compose, /\n  legacy-(?:init|api):/);
 	assert.match(compose, /BUSINESS_API_URL: http:\/\/business-api:3100/);
+	assert.match(compose, /GO_BUSINESS_API_URL: http:\/\/go-business-api:3200/);
 	assert.match(compose, /runtime_secrets_data:[\s\S]*name: "\$\{COMPOSE_PROJECT_NAME:-all-mail\}_legacy_runtime_data"/);
 	assert.doesNotMatch(compose, /ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR/);
 	assert.match(goConfig, /BUSINESS_API_URL/);
