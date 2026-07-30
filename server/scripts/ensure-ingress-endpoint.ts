@@ -19,6 +19,10 @@ interface MinimalEnv {
     ENCRYPTION_KEY?: string;
 }
 
+interface StoredIngressSecret {
+    signing_secret_encrypted: string | null;
+}
+
 const scriptDir = import.meta.dirname;
 const serverDir = path.resolve(scriptDir, '..');
 const repoRoot = path.resolve(serverDir, '..');
@@ -71,15 +75,12 @@ function parseArgs(argv: string[]): Options {
     if (!options.keyId) {
         throw new Error('Missing --key-id value');
     }
-
     if (!options.name) {
         throw new Error('Missing --name value');
     }
-
     if (!options.provider) {
         throw new Error('Missing --provider value');
     }
-
     if (!options.global && !options.domainName) {
         throw new Error('Use --domain <name> or --global');
     }
@@ -158,12 +159,14 @@ function loadMinimalEnv(): MinimalEnv {
         );
     }
 
-    const ingressSigningSecret = process.env.INGRESS_SIGNING_SECRET || merged.get('INGRESS_SIGNING_SECRET') || undefined;
-
     return {
         DATABASE_URL: databaseUrl,
-        INGRESS_SIGNING_SECRET: ingressSigningSecret,
-        ENCRYPTION_KEY: process.env.ENCRYPTION_KEY || merged.get('ENCRYPTION_KEY') || undefined,
+        INGRESS_SIGNING_SECRET: process.env.INGRESS_SIGNING_SECRET
+            || merged.get('INGRESS_SIGNING_SECRET')
+            || undefined,
+        ENCRYPTION_KEY: process.env.ENCRYPTION_KEY
+            || merged.get('ENCRYPTION_KEY')
+            || undefined,
     };
 }
 
@@ -181,6 +184,18 @@ function encryptIngressSecret(secret: string, encryptionKey: string): string {
     let encrypted = cipher.update(secret, 'utf8', 'hex');
     encrypted += cipher.final('hex');
     return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${encrypted}`;
+}
+
+async function readStoredIngressSecret(
+    prisma: PrismaClient,
+    endpointId: number,
+): Promise<string | null> {
+    const rows = await prisma.$queryRaw<StoredIngressSecret[]>`
+        SELECT signing_secret_encrypted
+        FROM ingress_endpoints
+        WHERE id = ${endpointId}
+    `;
+    return rows[0]?.signing_secret_encrypted || null;
 }
 
 async function resolveDomain(prisma: PrismaClient, domainName?: string) {
@@ -224,17 +239,15 @@ async function runCheck(prisma: PrismaClient, env: MinimalEnv, options: Options)
         },
     });
 
-    const expectedHash = env.INGRESS_SIGNING_SECRET ? buildSigningKeyHash(env.INGRESS_SIGNING_SECRET) : null;
-    const secretRows = endpoint
-        ? await prisma.$queryRaw<Array<{ signing_secret_encrypted: string | null }>>`
-            SELECT signing_secret_encrypted
-            FROM ingress_endpoints
-            WHERE id = ${endpoint.id}
-        `
-        : [];
+    const expectedHash = env.INGRESS_SIGNING_SECRET
+        ? buildSigningKeyHash(env.INGRESS_SIGNING_SECRET)
+        : null;
+    const encryptedSecret = endpoint
+        ? await readStoredIngressSecret(prisma, endpoint.id)
+        : null;
     const report = {
         exists: Boolean(endpoint),
-        encryptedSigningSecretConfigured: Boolean(secretRows[0]?.signing_secret_encrypted),
+        encryptedSigningSecretConfigured: Boolean(encryptedSecret),
         active: endpoint?.status === Status.ACTIVE,
         keyId: options.keyId,
         expectedDomain: options.domainName ?? null,
@@ -246,9 +259,19 @@ async function runCheck(prisma: PrismaClient, env: MinimalEnv, options: Options)
 
     console.log(JSON.stringify(report, null, 2));
 
-    const domainMatches = options.domainName ? endpoint?.domain?.name === options.domainName : endpoint?.domain == null;
-    const signingHashMatches = expectedHash ? endpoint?.signingKeyHash === expectedHash : true;
-    if (!endpoint || endpoint.status !== Status.ACTIVE || !domainMatches || !signingHashMatches) {
+    const domainMatches = options.domainName
+        ? endpoint?.domain?.name === options.domainName
+        : endpoint?.domain == null;
+    const signingHashMatches = expectedHash
+        ? endpoint?.signingKeyHash === expectedHash
+        : true;
+    if (
+        !endpoint
+        || endpoint.status !== Status.ACTIVE
+        || !domainMatches
+        || !signingHashMatches
+        || !encryptedSecret
+    ) {
         return 1;
     }
 
@@ -259,12 +282,27 @@ async function runEnsure(prisma: PrismaClient, env: MinimalEnv, options: Options
     if (!env.INGRESS_SIGNING_SECRET) {
         throw new Error('INGRESS_SIGNING_SECRET must be configured before ensuring ingress endpoint');
     }
-    if (!env.ENCRYPTION_KEY) {
-        throw new Error('ENCRYPTION_KEY is required to persist an ingress signing secret');
-    }
 
     const domain = await resolveDomain(prisma, options.domainName);
     const signingKeyHash = buildSigningKeyHash(env.INGRESS_SIGNING_SECRET);
+    const existing = await prisma.ingressEndpoint.findUnique({
+        where: { keyId: options.keyId },
+        select: { id: true, signingKeyHash: true },
+    });
+    const existingEncryptedSecret = existing
+        ? await readStoredIngressSecret(prisma, existing.id)
+        : null;
+    const canReuseStoredSecret = Boolean(
+        existing
+        && existing.signingKeyHash === signingKeyHash
+        && existingEncryptedSecret,
+    );
+
+    if (!canReuseStoredSecret && !env.ENCRYPTION_KEY) {
+        throw new Error(
+            'ENCRYPTION_KEY is required when creating an ingress endpoint or rotating its signing secret',
+        );
+    }
 
     const endpoint = await prisma.ingressEndpoint.upsert({
         where: { keyId: options.keyId },
@@ -298,20 +336,23 @@ async function runEnsure(prisma: PrismaClient, env: MinimalEnv, options: Options
         },
     });
 
-    const encryptedSecret = encryptIngressSecret(
-        env.INGRESS_SIGNING_SECRET,
-        env.ENCRYPTION_KEY,
-    );
-    await prisma.$executeRaw`
-        UPDATE ingress_endpoints
-        SET signing_secret_encrypted = ${encryptedSecret},
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ${endpoint.id}
-    `;
+    if (!canReuseStoredSecret) {
+        const encryptedSecret = encryptIngressSecret(
+            env.INGRESS_SIGNING_SECRET,
+            env.ENCRYPTION_KEY as string,
+        );
+        await prisma.$executeRaw`
+            UPDATE ingress_endpoints
+            SET signing_secret_encrypted = ${encryptedSecret},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${endpoint.id}
+        `;
+    }
 
     console.log(JSON.stringify({
         ensured: true,
         encryptedSigningSecretConfigured: true,
+        reusedStoredSecret: canReuseStoredSecret,
         endpoint,
     }, null, 2));
 }
