@@ -60,10 +60,11 @@ function buildSignedHeaders(bodyText: string, timestamp: string): Record<string,
 }
 
 async function buildIngressApp(options?: { receiveImpl?: (input: unknown) => Promise<unknown> }) {
-    const [{ default: prisma }, ingressModule, appModule] = await Promise.all([
+    const [{ default: prisma }, ingressModule, appModule, cryptoModule] = await Promise.all([
         import('../lib/prisma.js'),
         import('../modules/ingress/ingress.service.js'),
         import('../app.js'),
+        import('../lib/crypto.js'),
     ]);
 
     const restores = [
@@ -75,6 +76,11 @@ async function buildIngressApp(options?: { receiveImpl?: (input: unknown) => Pro
             status: 'ACTIVE',
             domain: { name: 'example.com' },
         })) as never),
+        overrideMethod(prisma, '$queryRaw', (async () => ([{
+            signing_secret_encrypted: cryptoModule.encrypt(
+                process.env.INGRESS_SIGNING_SECRET as string,
+            ),
+        }])) as never),
         overrideMethod(ingressModule.ingressService, 'receive', ((input: unknown) => {
             if (options?.receiveImpl) {
                 return options.receiveImpl(input);

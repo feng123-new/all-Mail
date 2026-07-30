@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { env } from "../../config/env.js";
+
 import { decrypt, encrypt } from "../../lib/crypto.js";
 import prisma from "../../lib/prisma.js";
 import { AppError } from "../../plugins/error.js";
+
 export type ManagedOAuthProvider = "GMAIL" | "OUTLOOK";
 
 interface ProviderConfigRecord {
@@ -17,7 +18,7 @@ interface ProviderConfigRecord {
 export interface ProviderConfigSummary {
 	provider: ManagedOAuthProvider;
 	configured: boolean;
-	source: "database" | "environment" | "none";
+	source: "database" | "none";
 	clientId: string | null;
 	redirectUri: string | null;
 	scopes: string | null;
@@ -43,22 +44,11 @@ interface ParsedGoogleClientSecret {
 }
 
 function normalizeScopeList(value: string): string[] {
-	return Array.from(
-		new Set(
-			value
-				.split(/\s+/)
-				.map((item) => item.trim())
-				.filter(Boolean),
-		),
-	);
+	return Array.from(new Set(value.split(/\s+/).map((item) => item.trim()).filter(Boolean)));
 }
 
-function normalizeOptionalString(
-	value: string | null | undefined,
-): string | null {
-	if (typeof value !== "string") {
-		return null;
-	}
+function normalizeOptionalString(value: string | null | undefined): string | null {
+	if (typeof value !== "string") return null;
 	const trimmed = value.trim();
 	return trimmed ? trimmed : null;
 }
@@ -68,23 +58,16 @@ function normalizeProviderRedirectUri(
 	value: string | null | undefined,
 ): string | null {
 	const normalized = normalizeOptionalString(value);
-	if (provider !== "OUTLOOK" || !normalized) {
-		return normalized;
-	}
-
+	if (provider !== "OUTLOOK" || !normalized) return normalized;
 	try {
 		const parsed = new URL(normalized);
-		if (
-			parsed.protocol === "https:" &&
-			(parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1")
-		) {
+		if (parsed.protocol === "https:" && ["localhost", "127.0.0.1"].includes(parsed.hostname)) {
 			parsed.protocol = "http:";
 			return parsed.toString();
 		}
 	} catch {
 		return normalized;
 	}
-
 	return normalized;
 }
 
@@ -93,79 +76,31 @@ function normalizeProviderScopes(
 	value: string | null | undefined,
 ): string | null {
 	const normalized = normalizeOptionalString(value);
-	if (provider !== "OUTLOOK" || !normalized) {
-		return normalized;
-	}
+	if (provider !== "OUTLOOK" || !normalized) return normalized;
 	return normalizeScopeList(normalized).join(" ");
 }
 
 function parseManagedProvider(value: string): ManagedOAuthProvider {
 	const normalized = value.trim().toUpperCase();
-	if (normalized === "GMAIL" || normalized === "GOOGLE") {
-		return "GMAIL";
-	}
-	if (normalized === "OUTLOOK" || normalized === "MICROSOFT") {
-		return "OUTLOOK";
-	}
-	throw new AppError(
-		"OAUTH_PROVIDER_UNSUPPORTED",
-		`Unsupported OAuth provider: ${value}`,
-		400,
-	);
+	if (normalized === "GMAIL" || normalized === "GOOGLE") return "GMAIL";
+	if (normalized === "OUTLOOK" || normalized === "MICROSOFT") return "OUTLOOK";
+	throw new AppError("OAUTH_PROVIDER_UNSUPPORTED", `Unsupported OAuth provider: ${value}`, 400);
 }
 
-function decryptOptionalSecret(
-	encrypted: string | null | undefined,
-): string | null {
-	if (!encrypted) {
-		return null;
-	}
+function decryptOptionalSecret(encrypted: string | null | undefined): string | null {
+	if (!encrypted) return null;
 	try {
 		return decrypt(encrypted);
 	} catch {
-		throw new AppError(
-			"OAUTH_CONFIG_INVALID",
-			"Stored OAuth client secret is invalid",
-			500,
-		);
+		throw new AppError("OAUTH_CONFIG_INVALID", "Stored OAuth client secret is invalid", 500);
 	}
-}
-
-function buildEnvConfig(provider: ManagedOAuthProvider): ProviderConfigRecord {
-	if (provider === "GMAIL") {
-		return {
-			provider,
-			clientId: normalizeOptionalString(env.GOOGLE_OAUTH_CLIENT_ID),
-			clientSecret: normalizeOptionalString(env.GOOGLE_OAUTH_CLIENT_SECRET),
-			redirectUri: normalizeProviderRedirectUri(
-				provider,
-				env.GOOGLE_OAUTH_REDIRECT_URI,
-			),
-			scopes: normalizeOptionalString(env.GOOGLE_OAUTH_SCOPES),
-			tenant: null,
-		};
-	}
-
-	return {
-		provider,
-		clientId: normalizeOptionalString(env.MICROSOFT_OAUTH_CLIENT_ID),
-		clientSecret: normalizeOptionalString(env.MICROSOFT_OAUTH_CLIENT_SECRET),
-		redirectUri: normalizeProviderRedirectUri(
-			provider,
-			env.MICROSOFT_OAUTH_REDIRECT_URI,
-		),
-		scopes: normalizeProviderScopes(provider, env.MICROSOFT_OAUTH_SCOPES),
-		tenant: normalizeOptionalString(env.MICROSOFT_OAUTH_TENANT),
-	};
 }
 
 function isProviderConfigured(config: ProviderConfigRecord): boolean {
 	return Boolean(config.clientId && config.clientSecret && config.redirectUri);
 }
 
-async function getDatabaseConfig(
-	provider: ManagedOAuthProvider,
-): Promise<ProviderConfigRecord | null> {
+async function getDatabaseConfig(provider: ManagedOAuthProvider): Promise<ProviderConfigRecord | null> {
 	const record = await prisma.providerOAuthConfig.findUnique({
 		where: { provider },
 		select: {
@@ -177,11 +112,7 @@ async function getDatabaseConfig(
 			tenant: true,
 		},
 	});
-
-	if (!record) {
-		return null;
-	}
-
+	if (!record) return null;
 	return {
 		provider,
 		clientId: normalizeOptionalString(record.clientId),
@@ -228,24 +159,17 @@ function parseGoogleClientSecretJson(
 			400,
 		);
 	}
-
 	const clientId = normalizeOptionalString(
 		typeof webClient.client_id === "string" ? webClient.client_id : null,
 	);
 	const clientSecret = normalizeOptionalString(
-		typeof webClient.client_secret === "string"
-			? webClient.client_secret
-			: null,
+		typeof webClient.client_secret === "string" ? webClient.client_secret : null,
 	);
 	const redirectUris = Array.isArray(webClient.redirect_uris)
 		? webClient.redirect_uris
-				.filter(
-					(item): item is string =>
-						typeof item === "string" && item.trim().length > 0,
-				)
-				.map((item) => item.trim())
+			.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+			.map((item) => item.trim())
 		: [];
-
 	if (!clientId || !clientSecret || redirectUris.length === 0) {
 		throw new AppError(
 			"GOOGLE_CLIENT_SECRET_JSON_INVALID",
@@ -253,7 +177,6 @@ function parseGoogleClientSecretJson(
 			400,
 		);
 	}
-
 	const normalizedCallbackUri = normalizeOptionalString(callbackUri);
 	if (normalizedCallbackUri && !redirectUris.includes(normalizedCallbackUri)) {
 		throw new AppError(
@@ -262,7 +185,6 @@ function parseGoogleClientSecretJson(
 			400,
 		);
 	}
-
 	return {
 		clientId,
 		clientSecret,
@@ -286,18 +208,10 @@ export const emailOAuthConfigService = {
 		if (databaseConfig && isProviderConfigured(databaseConfig)) {
 			return { config: databaseConfig, source: "database" };
 		}
-
-		const envConfig = buildEnvConfig(normalizedProvider);
-		if (isProviderConfigured(envConfig)) {
-			return { config: envConfig, source: "environment" };
-		}
-
 		return { config: { provider: normalizedProvider }, source: "none" };
 	},
 
-	async listConfigSummaries(): Promise<
-		Record<ManagedOAuthProvider, ProviderConfigSummary>
-	> {
+	async listConfigSummaries(): Promise<Record<ManagedOAuthProvider, ProviderConfigSummary>> {
 		const gmail = await this.getEffectiveConfig("GMAIL");
 		const outlook = await this.getEffectiveConfig("OUTLOOK");
 		return {
@@ -306,33 +220,26 @@ export const emailOAuthConfigService = {
 		};
 	},
 
-	async saveProviderConfig(
-		input: SaveProviderConfigInput,
-	): Promise<ProviderConfigSummary> {
+	async saveProviderConfig(input: SaveProviderConfigInput): Promise<ProviderConfigSummary> {
 		const provider = parseManagedProvider(input.provider);
 		const current = await getDatabaseConfig(provider);
-		const nextClientId =
-			input.clientId === undefined
-				? current?.clientId || null
-				: normalizeOptionalString(input.clientId);
-		const nextRedirectUri =
-			input.redirectUri === undefined
-				? current?.redirectUri || null
-				: normalizeProviderRedirectUri(provider, input.redirectUri);
-		const nextScopes =
-			input.scopes === undefined
-				? current?.scopes || null
-				: normalizeProviderScopes(provider, input.scopes);
-		const nextTenant =
-			provider === "OUTLOOK"
-				? input.tenant === undefined
-					? current?.tenant || null
-					: normalizeOptionalString(input.tenant)
-				: null;
-		const nextClientSecret =
-			input.clientSecret !== undefined
-				? normalizeOptionalString(input.clientSecret)
-				: current?.clientSecret || null;
+		const nextClientId = input.clientId === undefined
+			? current?.clientId || null
+			: normalizeOptionalString(input.clientId);
+		const nextRedirectUri = input.redirectUri === undefined
+			? current?.redirectUri || null
+			: normalizeProviderRedirectUri(provider, input.redirectUri);
+		const nextScopes = input.scopes === undefined
+			? current?.scopes || null
+			: normalizeProviderScopes(provider, input.scopes);
+		const nextTenant = provider === "OUTLOOK"
+			? input.tenant === undefined
+				? current?.tenant || null
+				: normalizeOptionalString(input.tenant)
+			: null;
+		const nextClientSecret = input.clientSecret !== undefined
+			? normalizeOptionalString(input.clientSecret)
+			: current?.clientSecret || null;
 
 		const upserted = await prisma.providerOAuthConfig.upsert({
 			where: { provider },
@@ -361,20 +268,14 @@ export const emailOAuthConfigService = {
 			},
 		});
 
-		return toSummary(
-			{
-				provider,
-				clientId: normalizeOptionalString(upserted.clientId),
-				clientSecret: decryptOptionalSecret(upserted.clientSecret),
-				redirectUri: normalizeProviderRedirectUri(
-					provider,
-					upserted.redirectUri,
-				),
-				scopes: normalizeProviderScopes(provider, upserted.scopes),
-				tenant: normalizeOptionalString(upserted.tenant),
-			},
-			"database",
-		);
+		return toSummary({
+			provider,
+			clientId: normalizeOptionalString(upserted.clientId),
+			clientSecret: decryptOptionalSecret(upserted.clientSecret),
+			redirectUri: normalizeProviderRedirectUri(provider, upserted.redirectUri),
+			scopes: normalizeProviderScopes(provider, upserted.scopes),
+			tenant: normalizeOptionalString(upserted.tenant),
+		}, "database");
 	},
 
 	async parseGoogleClientSecret(input: {
@@ -383,10 +284,7 @@ export const emailOAuthConfigService = {
 		callbackUri?: string | null;
 	}): Promise<ParsedGoogleClientSecret> {
 		const jsonText = normalizeOptionalString(input.jsonText);
-		if (jsonText) {
-			return parseGoogleClientSecretJson(jsonText, input.callbackUri);
-		}
-
+		if (jsonText) return parseGoogleClientSecretJson(jsonText, input.callbackUri);
 		const filePath = normalizeOptionalString(input.filePath);
 		if (!filePath) {
 			throw new AppError(
@@ -395,7 +293,6 @@ export const emailOAuthConfigService = {
 				400,
 			);
 		}
-
 		let fileContent: string;
 		try {
 			fileContent = await readFile(filePath, "utf8");
@@ -406,7 +303,6 @@ export const emailOAuthConfigService = {
 				400,
 			);
 		}
-
 		return parseGoogleClientSecretJson(fileContent, input.callbackUri);
 	},
 };

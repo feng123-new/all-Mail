@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { verifyToken } from '../lib/jwt.js';
-import { hashApiKey } from '../lib/crypto.js';
+import { decrypt, hashApiKey } from '../lib/crypto.js';
 import { env } from '../config/env.js';
 import prisma from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
@@ -492,10 +492,6 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     });
 
     fastify.decorate('authenticateIngressSignature', async (request: FastifyRequest, _reply: FastifyReply) => {
-        if (!env.INGRESS_SIGNING_SECRET) {
-            throw new AppError('INGRESS_NOT_CONFIGURED', 'Ingress signing is not configured', 503);
-        }
-
         const keyId = extractHeaderValue(request, 'x-ingress-key-id');
         const timestamp = extractHeaderValue(request, 'x-ingress-timestamp');
         const signature = extractHeaderValue(request, 'x-ingress-signature');
@@ -534,7 +530,27 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
             throw new AppError('INGRESS_ENDPOINT_DISABLED', 'Ingress endpoint is invalid or disabled', 403);
         }
 
-        const expectedSignature = createHmac('sha256', env.INGRESS_SIGNING_SECRET)
+        const secretRows = await prisma.$queryRaw<Array<{ signing_secret_encrypted: string | null }>>`
+            SELECT signing_secret_encrypted
+            FROM ingress_endpoints
+            WHERE id = ${endpoint.id}
+        `;
+        const encryptedSecret = secretRows[0]?.signing_secret_encrypted;
+        if (!encryptedSecret) {
+            throw new AppError('INGRESS_NOT_CONFIGURED', 'Ingress signing is not configured', 503);
+        }
+        let ingressSecret: string;
+        try {
+            ingressSecret = decrypt(encryptedSecret);
+        } catch {
+            throw new AppError(
+                'INGRESS_CONFIGURATION_INVALID',
+                'Ingress signing configuration is invalid',
+                500,
+            );
+        }
+
+        const expectedSignature = createHmac('sha256', ingressSecret)
             .update(buildIngressCanonicalString(request, timestamp))
             .digest('hex');
 
