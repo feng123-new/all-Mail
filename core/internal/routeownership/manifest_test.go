@@ -60,7 +60,11 @@ func TestManifestRejectsUnsafeOrAmbiguousContracts(t *testing.T) {
 		"unknown field": strings.Replace(valid, `"description":"test"`, `"description":"test","unexpected":true`, 1),
 		"duplicate id": strings.Replace(valid, `"id":"spa"`, `"id":"admin"`, 1),
 		"duplicate matcher": strings.Replace(valid, `"id":"spa","owner":"go","match":"fallback","path":"/","migrationStage":"complete"`, `"id":"admin-2","owner":"business-api","match":"prefix","path":"/admin","migrationStage":"pending","targetOwner":"go"`, 1),
-		"missing fallback": strings.Replace(valid, `,{"id":"spa","owner":"go","match":"fallback","path":"/","migrationStage":"complete"}`, ``, 1),
+		"missing fallback": `{
+			"version":1,
+			"description":"test",
+			"routes":[{"id":"admin","owner":"business-api","match":"prefix","path":"/admin","migrationStage":"pending","targetOwner":"go"}]
+		}`,
 		"unsafe completed owner": strings.Replace(valid, `"owner":"business-api","match":"prefix","path":"/admin","migrationStage":"pending","targetOwner":"go"`, `"owner":"business-api","match":"prefix","path":"/admin","migrationStage":"complete"`, 1),
 		"bad fallback owner": strings.Replace(valid, `"id":"spa","owner":"go"`, `"id":"spa","owner":"business-api"`, 1),
 		"multiple values": valid + `{}`,
