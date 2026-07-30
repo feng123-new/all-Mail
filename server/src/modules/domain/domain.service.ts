@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
-import { env } from "../../config/env.js";
 import { encrypt } from "../../lib/crypto.js";
 import prisma from "../../lib/prisma.js";
 import { AppError } from "../../plugins/error.js";
@@ -30,28 +29,36 @@ function normalizeDomainName(name: string): string {
 	return name.trim().toLowerCase();
 }
 
-const SEND_ENABLED_DOMAIN_NAMES = new Set(
-	(env.SEND_ENABLED_DOMAINS || "")
-		.split(",")
-		.map((name) => normalizeDomainName(name))
-		.filter(Boolean),
-);
+type SendApprovalClient = Pick<
+	Prisma.TransactionClient,
+	"$queryRaw" | "$executeRaw"
+>;
 
-function isSendEligibleDomain(name: string): boolean {
-	return SEND_ENABLED_DOMAIN_NAMES.has(normalizeDomainName(name));
+async function isSendApproved(
+	client: SendApprovalClient,
+	domainId: number,
+): Promise<boolean> {
+	const rows = await client.$queryRaw<Array<{ send_approved: boolean }>>`
+		SELECT send_approved
+		FROM domains
+		WHERE id = ${domainId}
+	`;
+	return rows[0]?.send_approved === true;
 }
 
-function ensureSendCapabilityAllowed(
-	domainName: string,
-	canSend: boolean,
-): void {
-	if (canSend && !isSendEligibleDomain(domainName)) {
-		throw new AppError(
-			"DOMAIN_SEND_NOT_ALLOWED",
-			`Domain ${domainName} is not listed in SEND_ENABLED_DOMAINS and cannot enable outbound sending`,
-			400,
-		);
-	}
+async function approveSendCapability(
+	client: SendApprovalClient,
+	domainId: number,
+	source: string,
+): Promise<void> {
+	await client.$executeRaw`
+		UPDATE domains
+		SET send_approved = true,
+			send_approved_at = COALESCE(send_approved_at, CURRENT_TIMESTAMP),
+			send_approval_source = COALESCE(send_approval_source, ${source}),
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ${domainId}
+	`;
 }
 
 function buildDomainWhere(input: ListDomainInput): Prisma.DomainWhereInput {
@@ -214,49 +221,53 @@ export const domainService = {
 
 	async create(input: CreateDomainInput, createdByAdminId: number) {
 		const name = normalizeDomainName(input.name);
-		ensureSendCapabilityAllowed(name, input.canSend);
-
 		const existing = await prisma.domain.findUnique({ where: { name } });
 		if (existing) {
 			throw new AppError("DOMAIN_EXISTS", "Domain already exists", 409);
 		}
 
-		const domain = await prisma.domain.create({
-			data: {
-				name,
-				displayName: input.displayName?.trim() || null,
-				canReceive: input.canReceive,
-				canSend: input.canSend,
-				isCatchAllEnabled: input.isCatchAllEnabled,
-				verificationToken: randomBytes(12).toString("hex"),
-				dnsStatus: {
-					provider: "CLOUDFLARE",
-					expectedMxConfigured: false,
-					expectedIngressConfigured: false,
+		const domain = await prisma.$transaction(async (tx) => {
+			const created = await tx.domain.create({
+				data: {
+					name,
+					displayName: input.displayName?.trim() || null,
+					canReceive: input.canReceive,
+					canSend: input.canSend,
+					isCatchAllEnabled: input.isCatchAllEnabled,
+					verificationToken: randomBytes(12).toString("hex"),
+					dnsStatus: {
+						provider: "CLOUDFLARE",
+						expectedMxConfigured: false,
+						expectedIngressConfigured: false,
+					},
+					createdByAdminId,
 				},
-				createdByAdminId,
-			},
-			select: {
-				id: true,
-				name: true,
-				displayName: true,
-				status: true,
-				canReceive: true,
-				canSend: true,
-				isCatchAllEnabled: true,
-				verificationToken: true,
-				resendDomainId: true,
-				createdAt: true,
-				updatedAt: true,
-				creator: { select: { id: true, username: true } },
-				_count: {
-					select: {
-						mailboxes: true,
-						inboundMessages: true,
-						sendingConfigs: true,
+				select: {
+					id: true,
+					name: true,
+					displayName: true,
+					status: true,
+					canReceive: true,
+					canSend: true,
+					isCatchAllEnabled: true,
+					verificationToken: true,
+					resendDomainId: true,
+					createdAt: true,
+					updatedAt: true,
+					creator: { select: { id: true, username: true } },
+					_count: {
+						select: {
+							mailboxes: true,
+							inboundMessages: true,
+							sendingConfigs: true,
+						},
 					},
 				},
-			},
+			});
+			if (input.canSend) {
+				await approveSendCapability(tx, created.id, "admin-create");
+			}
+			return created;
 		});
 
 		return toDomainSummary(domain);
@@ -268,42 +279,45 @@ export const domainService = {
 			throw new AppError("DOMAIN_NOT_FOUND", "Domain not found", 404);
 		}
 
-		const nextCanSend = input.canSend ?? existing.canSend;
-		ensureSendCapabilityAllowed(existing.name, nextCanSend);
-
-		const domain = await prisma.domain.update({
-			where: { id },
-			data: {
-				displayName:
-					input.displayName === undefined
-						? undefined
-						: input.displayName?.trim() || null,
-				status: input.status,
-				canReceive: input.canReceive,
-				canSend: input.canSend,
-				isCatchAllEnabled: input.isCatchAllEnabled,
-			},
-			select: {
-				id: true,
-				name: true,
-				displayName: true,
-				status: true,
-				canReceive: true,
-				canSend: true,
-				isCatchAllEnabled: true,
-				verificationToken: true,
-				resendDomainId: true,
-				createdAt: true,
-				updatedAt: true,
-				creator: { select: { id: true, username: true } },
-				_count: {
-					select: {
-						mailboxes: true,
-						inboundMessages: true,
-						sendingConfigs: true,
+		const domain = await prisma.$transaction(async (tx) => {
+			const updated = await tx.domain.update({
+				where: { id },
+				data: {
+					displayName:
+						input.displayName === undefined
+							? undefined
+							: input.displayName?.trim() || null,
+					status: input.status,
+					canReceive: input.canReceive,
+					canSend: input.canSend,
+					isCatchAllEnabled: input.isCatchAllEnabled,
+				},
+				select: {
+					id: true,
+					name: true,
+					displayName: true,
+					status: true,
+					canReceive: true,
+					canSend: true,
+					isCatchAllEnabled: true,
+					verificationToken: true,
+					resendDomainId: true,
+					createdAt: true,
+					updatedAt: true,
+					creator: { select: { id: true, username: true } },
+					_count: {
+						select: {
+							mailboxes: true,
+							inboundMessages: true,
+							sendingConfigs: true,
+						},
 					},
 				},
-			},
+			});
+			if (input.canSend === true && !(await isSendApproved(tx, id))) {
+				await approveSendCapability(tx, id, "admin-update");
+			}
+			return updated;
 		});
 
 		return toDomainSummary(domain);
@@ -503,7 +517,13 @@ export const domainService = {
 				400,
 			);
 		}
-		ensureSendCapabilityAllowed(domain.name, true);
+		if (!(await isSendApproved(prisma, id))) {
+			throw new AppError(
+				"DOMAIN_SEND_NOT_APPROVED",
+				"Outbound sending has not been approved for this domain",
+				400,
+			);
+		}
 
 		const existingConfig = domain.sendingConfigs[0];
 		if (!existingConfig && !input.apiKey) {

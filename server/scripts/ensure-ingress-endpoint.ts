@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -16,6 +16,7 @@ interface Options {
 interface MinimalEnv {
     DATABASE_URL: string;
     INGRESS_SIGNING_SECRET?: string;
+    ENCRYPTION_KEY?: string;
 }
 
 const scriptDir = import.meta.dirname;
@@ -162,11 +163,24 @@ function loadMinimalEnv(): MinimalEnv {
     return {
         DATABASE_URL: databaseUrl,
         INGRESS_SIGNING_SECRET: ingressSigningSecret,
+        ENCRYPTION_KEY: process.env.ENCRYPTION_KEY || merged.get('ENCRYPTION_KEY') || undefined,
     };
 }
 
 function buildSigningKeyHash(secret: string): string {
     return createHash('sha256').update(secret).digest('hex');
+}
+
+function encryptIngressSecret(secret: string, encryptionKey: string): string {
+    if (encryptionKey.length !== 32) {
+        throw new Error('ENCRYPTION_KEY must contain exactly 32 characters');
+    }
+    const iv = randomBytes(16);
+    const key = createHash('sha256').update(encryptionKey).digest();
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    let encrypted = cipher.update(secret, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${encrypted}`;
 }
 
 async function resolveDomain(prisma: PrismaClient, domainName?: string) {
@@ -211,8 +225,16 @@ async function runCheck(prisma: PrismaClient, env: MinimalEnv, options: Options)
     });
 
     const expectedHash = env.INGRESS_SIGNING_SECRET ? buildSigningKeyHash(env.INGRESS_SIGNING_SECRET) : null;
+    const secretRows = endpoint
+        ? await prisma.$queryRaw<Array<{ signing_secret_encrypted: string | null }>>`
+            SELECT signing_secret_encrypted
+            FROM ingress_endpoints
+            WHERE id = ${endpoint.id}
+        `
+        : [];
     const report = {
         exists: Boolean(endpoint),
+        encryptedSigningSecretConfigured: Boolean(secretRows[0]?.signing_secret_encrypted),
         active: endpoint?.status === Status.ACTIVE,
         keyId: options.keyId,
         expectedDomain: options.domainName ?? null,
@@ -236,6 +258,9 @@ async function runCheck(prisma: PrismaClient, env: MinimalEnv, options: Options)
 async function runEnsure(prisma: PrismaClient, env: MinimalEnv, options: Options): Promise<void> {
     if (!env.INGRESS_SIGNING_SECRET) {
         throw new Error('INGRESS_SIGNING_SECRET must be configured before ensuring ingress endpoint');
+    }
+    if (!env.ENCRYPTION_KEY) {
+        throw new Error('ENCRYPTION_KEY is required to persist an ingress signing secret');
     }
 
     const domain = await resolveDomain(prisma, options.domainName);
@@ -273,8 +298,20 @@ async function runEnsure(prisma: PrismaClient, env: MinimalEnv, options: Options
         },
     });
 
+    const encryptedSecret = encryptIngressSecret(
+        env.INGRESS_SIGNING_SECRET,
+        env.ENCRYPTION_KEY,
+    );
+    await prisma.$executeRaw`
+        UPDATE ingress_endpoints
+        SET signing_secret_encrypted = ${encryptedSecret},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${endpoint.id}
+    `;
+
     console.log(JSON.stringify({
         ensured: true,
+        encryptedSigningSecretConfigured: true,
         endpoint,
     }, null, 2));
 }
