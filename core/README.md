@@ -41,17 +41,17 @@ The internal Fastify service trusts exactly one proxy hop and is not published t
 
 ## Worker state and secrets
 
-The workers publish independent atomic heartbeat files:
+The workers publish independent atomic heartbeat files under the ephemeral state directory `/tmp/all-mail` in the canonical Compose topology:
 
 ```text
-worker-forwarding-heartbeat.json
-worker-retention-heartbeat.json
+/tmp/all-mail/worker-forwarding-heartbeat.json
+/tmp/all-mail/worker-retention-heartbeat.json
 ```
 
 The forwarding worker accepts only:
 
 ```text
-ENCRYPTION_KEY_FILE=/var/lib/all-mail/encryption-key
+ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
 ```
 
 It no longer reads `ENCRYPTION_KEY`, `ALL_MAIL_SECRET_STATE_DIR`, or the legacy bootstrap-secret bundle.

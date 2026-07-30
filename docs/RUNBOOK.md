@@ -107,6 +107,19 @@ Do not persist the switch.
 
 A failed migration record requires manual recovery. Repeated restarts do not fix it. Use `docker compose down -v` only for disposable data.
 
+### Administrator 2FA integrity migration
+
+The 2FA integrity migration intentionally stops if an administrator is marked enabled without a persisted encrypted secret. Inspect without printing secrets:
+
+```bash
+docker compose exec postgres psql \
+  -U "${POSTGRES_USER:-allmail}" \
+  -d "${POSTGRES_DB:-allmail}" \
+  -c 'SELECT id, username FROM admins WHERE two_factor_enabled = true AND two_factor_secret IS NULL'
+```
+
+Restore the valid encrypted secret from a matching backup or disable 2FA through a controlled recovery. Do not bypass or drop the check constraint.
+
 ### Administrator advisory lock or creation failure
 
 The initializer holds PostgreSQL advisory lock `(421337, 240730)` while inspecting/creating the administrator. If another initializer is running, stop the duplicate rather than removing the lock.
@@ -273,8 +286,8 @@ Test forged direct headers and inspect the resulting login/audit IP.
 docker compose logs worker-forwarding --tail=300
 docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-forwarding sh -lc '
-  cat /var/lib/all-mail/worker-forwarding-heartbeat.json
-  test -r /var/lib/all-mail/encryption-key
+  cat /tmp/all-mail/worker-forwarding-heartbeat.json
+  test -r /var/lib/all-mail-secrets/encryption-key
   test -z "${ENCRYPTION_KEY:-}"
 '
 ```

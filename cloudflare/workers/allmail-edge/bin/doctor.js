@@ -3,6 +3,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
+import {
+  parseEnvFile,
+  REQUIRED_WORKER_DEPLOY_KEYS,
+  resolveWorkerHealthUrl,
+  validateMaxRawEmailBytes,
+} from './config-utils.js';
 
 const workerDir = path.resolve(import.meta.dirname, '..');
 const repoRoot = path.resolve(workerDir, '..', '..', '..');
@@ -12,22 +18,6 @@ const wranglerConfigPath = path.join(workerDir, 'wrangler.jsonc');
 const serverEnvPath = path.join(serverDir, '.env');
 const rootEnvPath = path.join(repoRoot, '.env');
 const postDeploy = process.argv.includes('--postdeploy');
-
-function parseEnvFile(content) {
-  const entries = new Map();
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) {
-      continue;
-    }
-    const separatorIndex = line.indexOf('=');
-    if (separatorIndex <= 0) {
-      continue;
-    }
-    entries.set(line.slice(0, separatorIndex).trim(), line.slice(separatorIndex + 1).trim());
-  }
-  return entries;
-}
 
 function runCapture(command, args, cwd = workerDir) {
   const result = spawnSync(command, args, {
@@ -51,15 +41,6 @@ function deriveIngressHealthUrl(ingressUrl) {
   url.search = '';
   url.hash = '';
   return url.toString();
-}
-
-function parseWorkersSubdomain(rawWhoAmI) {
-  const candidate = rawWhoAmI.split(/\r?\n/).find((line) => line.toLowerCase().includes('workers.dev subdomain'));
-  if (!candidate) {
-    return null;
-  }
-  const segments = candidate.split('│').map((segment) => segment.trim()).filter(Boolean);
-  return segments.at(-1) || null;
 }
 
 function logResult(status, title, detail) {
@@ -96,13 +77,22 @@ function main() {
   }
 
   const envEntries = parseEnvFile(readFileSync(devVarsPath, 'utf8'));
-  const requiredKeys = ['INGRESS_URL', 'INGRESS_KEY_ID', 'INGRESS_PROVIDER', 'RAW_EMAIL_OBJECT_PREFIX', 'RAW_EMAIL_BUCKET_NAME'];
+  const requiredKeys = REQUIRED_WORKER_DEPLOY_KEYS;
   const missingKeys = requiredKeys.filter((key) => !envEntries.get(key));
   if (missingKeys.length > 0) {
     failures.push(`Missing keys in .dev.vars: ${missingKeys.join(', ')}`);
     logResult('fail', 'Worker env keys', `Missing ${missingKeys.join(', ')}`);
   } else {
     logResult('pass', 'Worker env keys', requiredKeys.join(', '));
+  }
+
+  try {
+    validateMaxRawEmailBytes(envEntries.get('MAX_RAW_EMAIL_BYTES'));
+    resolveWorkerHealthUrl(envEntries);
+    logResult('pass', 'Worker deployment values', 'raw-email limit and optional health URL are valid');
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : String(error));
+    logResult('fail', 'Worker deployment values', error instanceof Error ? error.message : String(error));
   }
 
   const ingressSigningSecret = envEntries.get('INGRESS_SIGNING_SECRET');
@@ -170,12 +160,16 @@ function main() {
   }
 
   if (postDeploy && whoAmI.ok) {
-    const subdomain = parseWorkersSubdomain(whoAmI.stdout);
-    if (!subdomain) {
-      failures.push('Could not infer workers.dev subdomain');
-      logResult('fail', 'Worker health', 'Could not infer workers.dev subdomain from wrangler whoami');
+    let workerHealthUrl = null;
+    try {
+      workerHealthUrl = resolveWorkerHealthUrl(envEntries);
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
+      logResult('fail', 'Worker health', error instanceof Error ? error.message : String(error));
+    }
+    if (!workerHealthUrl) {
+      logResult('skip', 'Worker health', 'WORKER_HEALTH_URL is not configured; workers.dev is intentionally disabled');
     } else {
-      const workerHealthUrl = `https://allmail-edge.${subdomain}.workers.dev/health`;
       const health = runCapture('curl', ['--fail', '--silent', '--show-error', workerHealthUrl]);
       if (health.ok) {
         logResult('pass', 'Worker health', workerHealthUrl);

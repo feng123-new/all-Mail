@@ -3,5 +3,8 @@ INGRESS_KEY_ID=allmail-edge-main
 INGRESS_PROVIDER=CLOUDFLARE_EMAIL_ROUTING
 RAW_EMAIL_OBJECT_PREFIX=allmail-edge/raw
 RAW_EMAIL_BUCKET_NAME=mail-eml
+MAX_RAW_EMAIL_BYTES=15728640
+# Optional HTTPS URL exposed by your custom Worker route. workers.dev is disabled.
+WORKER_HEALTH_URL=
 # Replace this placeholder with the same real secret configured on the backend.
 INGRESS_SIGNING_SECRET=replace-with-the-same-secret-used-by-server

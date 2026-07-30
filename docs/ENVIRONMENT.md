@@ -250,7 +250,7 @@ Still-live compatibility variables:
 
 Database OAuth configuration takes precedence. These remain until a separate importer migrates existing environment-only deployments.
 
-Worker-only values such as `INGRESS_URL`, `INGRESS_KEY_ID`, `RAW_EMAIL_BUCKET_NAME`, `RAW_EMAIL_OBJECT_PREFIX`, and `MAX_RAW_EMAIL_BYTES` remain in the Worker template. The default raw-message parsing limit is 15 MiB.
+Worker-only values such as `INGRESS_URL`, `INGRESS_KEY_ID`, `RAW_EMAIL_BUCKET_NAME`, `RAW_EMAIL_OBJECT_PREFIX`, `MAX_RAW_EMAIL_BYTES`, and the optional `WORKER_HEALTH_URL` remain in the Worker template. The default raw-message parsing limit is 15 MiB.
 
 ## Coverage rule
 

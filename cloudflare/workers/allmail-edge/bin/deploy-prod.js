@@ -6,6 +6,12 @@ import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import {
+  buildDeployConfig,
+  parseEnvFile,
+  requireWorkerDeployVars,
+  resolveWorkerHealthUrl,
+} from './config-utils.js';
 
 const workerDir = path.resolve(import.meta.dirname, '..');
 const repoRoot = path.resolve(workerDir, '..', '..', '..');
@@ -59,24 +65,6 @@ function runCapture(command, args, options = {}) {
   return result.stdout.trim();
 }
 
-function parseEnvFile(content) {
-  const entries = new Map();
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) {
-      continue;
-    }
-    const separatorIndex = line.indexOf('=');
-    if (separatorIndex <= 0) {
-      continue;
-    }
-    const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
-    entries.set(key, value);
-  }
-  return entries;
-}
-
 function loadSecretFromEnvFiles() {
   for (const envFile of candidateSecretFiles) {
     if (!existsSync(envFile)) {
@@ -92,11 +80,11 @@ function loadSecretFromEnvFiles() {
 }
 
 function validateDevVars(entries) {
-  const required = ['INGRESS_URL', 'INGRESS_KEY_ID', 'INGRESS_PROVIDER', 'RAW_EMAIL_OBJECT_PREFIX', 'RAW_EMAIL_BUCKET_NAME'];
-  for (const key of required) {
-    if (!entries.get(key)) {
-      fail(`Missing ${key} in ${path.basename(devVarsPath)}.`);
-    }
+  try {
+    requireWorkerDeployVars(entries);
+    resolveWorkerHealthUrl(entries);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -105,21 +93,12 @@ function requireWranglerTemplate() {
     fail('wrangler.jsonc not found.');
   }
   const raw = readFileSync(wranglerConfigPath, 'utf8');
-  for (const marker of ['INGRESS_URL', 'INGRESS_KEY_ID', 'RAW_EMAIL_OBJECT_PREFIX', 'mail-eml']) {
+  for (const marker of ['INGRESS_URL', 'INGRESS_KEY_ID', 'RAW_EMAIL_OBJECT_PREFIX', 'MAX_RAW_EMAIL_BYTES', 'mail-eml']) {
     if (!raw.includes(marker)) {
       fail(`wrangler.jsonc is missing expected marker ${marker}.`);
     }
   }
   return raw;
-}
-
-function parseWorkersSubdomain(rawWhoAmI) {
-  const candidate = rawWhoAmI.split(/\r?\n/).find((line) => line.toLowerCase().includes('workers.dev subdomain'));
-  if (!candidate) {
-    return null;
-  }
-  const segments = candidate.split('│').map((segment) => segment.trim()).filter(Boolean);
-  return segments.at(-1) || null;
 }
 
 async function promptSecret() {
@@ -156,29 +135,6 @@ function requireCloudflareApiToken() {
   }
 }
 
-function escapeJsonString(value) {
-  return JSON.stringify(value);
-}
-
-function buildDeployConfig(template, envEntries) {
-  const replacements = {
-    '"INGRESS_URL": "https://edge.example.com/ingress/domain-mail/receive"': `"INGRESS_URL": ${escapeJsonString(envEntries.get('INGRESS_URL'))}`,
-    '"INGRESS_KEY_ID": "allmail-edge-main"': `"INGRESS_KEY_ID": ${escapeJsonString(envEntries.get('INGRESS_KEY_ID'))}`,
-    '"INGRESS_PROVIDER": "CLOUDFLARE_EMAIL_ROUTING"': `"INGRESS_PROVIDER": ${escapeJsonString(envEntries.get('INGRESS_PROVIDER'))}`,
-    '"RAW_EMAIL_OBJECT_PREFIX": "allmail-edge/raw"': `"RAW_EMAIL_OBJECT_PREFIX": ${escapeJsonString(envEntries.get('RAW_EMAIL_OBJECT_PREFIX'))}`,
-    '"bucket_name": "mail-eml"': `"bucket_name": ${escapeJsonString(envEntries.get('RAW_EMAIL_BUCKET_NAME'))}`,
-  };
-
-  let result = template;
-  for (const [from, to] of Object.entries(replacements)) {
-    if (!result.includes(from)) {
-      fail(`Could not find expected template fragment: ${from}`);
-    }
-    result = result.replace(from, to);
-  }
-  return result;
-}
-
 function writeTemporaryConfig(content) {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), 'allmail-edge-deploy-'));
   const configPath = path.join(tempDir, 'wrangler.deploy.jsonc');
@@ -188,13 +144,6 @@ function writeTemporaryConfig(content) {
 
 function cleanupTemporaryConfig(tempDir) {
   rmSync(tempDir, { recursive: true, force: true });
-}
-
-function buildHealthUrl(workersSubdomain) {
-  if (!workersSubdomain) {
-    return null;
-  }
-  return `https://allmail-edge.${workersSubdomain}.workers.dev/health`;
 }
 
 function ensureR2BucketExists(bucketName) {
@@ -222,7 +171,6 @@ async function main() {
   console.log('[allmail-edge deploy] Checking Wrangler authentication...');
   const whoAmI = runCapture('npx', ['wrangler', 'whoami']);
   console.log(whoAmI);
-  const workersSubdomain = parseWorkersSubdomain(whoAmI);
 
   console.log('[allmail-edge deploy] Running worker quality checks...');
   run('npm', ['run', 'check']);
@@ -250,7 +198,7 @@ async function main() {
     console.log('[allmail-edge deploy] Deploying worker with config derived from .dev.vars...');
     run('npx', ['wrangler', 'deploy', '--config', configPath]);
 
-    const healthUrl = buildHealthUrl(workersSubdomain);
+    const healthUrl = resolveWorkerHealthUrl(devVars);
     if (healthUrl) {
       console.log(`[allmail-edge deploy] Running post-deploy health check: ${healthUrl}`);
       const curlResult = spawnSync('curl', ['--fail', '--silent', '--show-error', healthUrl], {
@@ -264,7 +212,7 @@ async function main() {
         console.warn(`[allmail-edge deploy] Health check could not be confirmed automatically. Check manually: ${healthUrl}`);
       }
     } else {
-      console.warn('[allmail-edge deploy] Could not infer workers.dev subdomain from wrangler whoami.');
+      console.warn('[allmail-edge deploy] WORKER_HEALTH_URL is not configured; skipping post-deploy HTTP health check.');
     }
   } finally {
     cleanupTemporaryConfig(tempDir);

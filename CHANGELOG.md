@@ -6,6 +6,10 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- made administrator login fail closed when 2FA is enabled without a persisted secret and added a database integrity constraint
+- made OAuth authorization state consumption atomic with Redis `GETDEL`
+- aligned Cloudflare production deployment and doctor checks with disabled `workers.dev`, explicit health routes, quoted env parsing, and configurable raw-message limits
+- corrected worker secret/heartbeat documentation, redacted long-lived secret examples, and removed unused Fastify/PostgreSQL direct dependencies
 - raised the supported runtime baseline to Go 1.26.5 and Node.js 24 LTS, with `govulncheck` added to CI
 - removed the production PostgreSQL default password and added fail-closed production configuration validation
 - made administrator login protection, API-key limiting, OAuth state, and ingress replay protection fail closed when Redis is unavailable in production
