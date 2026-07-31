@@ -2,7 +2,10 @@ package businessapi
 
 import "time"
 
-const adminJWTAudience = "admin-console"
+const (
+	adminJWTAudience = "admin-console"
+	allMailJWTIssuer = "all-mail"
+)
 
 var errNotFound = &storeError{message: "record not found"}
 
@@ -20,6 +23,7 @@ type Admin struct {
 	Role               string
 	Status             string
 	MustChangePassword bool
+	SessionVersion     int64
 }
 
 type DashboardStats struct {
