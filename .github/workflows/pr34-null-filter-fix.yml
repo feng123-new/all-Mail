@@ -1,0 +1,43 @@
+name: PR34 normalize optional batch filter
+
+on:
+  push:
+    branches:
+      - agent/go-database-admin-writes
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/go-database-admin-writes
+          fetch-depth: 0
+      - name: Normalize a missing ID array as an empty filter
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('core/internal/businessapi/domain_mailbox_management_store.go')
+          content = path.read_text(encoding='utf-8')
+          old = '(cardinality($1::bigint[]) = 0 OR id = ANY($1::bigint[]))'
+          new = '(COALESCE(cardinality($1::bigint[]), 0) = 0 OR id = ANY($1::bigint[]))'
+          if new not in content:
+              if old not in content:
+                  raise SystemExit('optional ID filter marker not found')
+              content = content.replace(old, new, 1)
+          path.write_text(content, encoding='utf-8')
+          PY
+          cd core
+          gofmt -w internal/businessapi/domain_mailbox_management_store.go
+          go test ./internal/businessapi
+      - name: Commit correction
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/internal/businessapi/domain_mailbox_management_store.go
+          git commit -m "fix(go-business): handle optional mailbox batch filters"
+          git push origin HEAD:agent/go-database-admin-writes
