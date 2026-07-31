@@ -232,14 +232,14 @@ func (s *PostgresStore) updateMailboxSyncState(
 		lastViewedAt = now
 	}
 	status[key] = map[string]any{
-		"latestMessageId": latestID,
+		"latestMessageId":   latestID,
 		"latestMessageDate": latestDate,
-		"messageCount": len(messages),
-		"hasNew": hasNew,
-		"lastSyncedAt": now,
-		"lastViewedAt": lastViewedAt,
-		"uidValidity": uidValidity,
-		"lastUid": lastUID,
+		"messageCount":      len(messages),
+		"hasNew":            hasNew,
+		"lastSyncedAt":      now,
+		"lastViewedAt":      lastViewedAt,
+		"uidValidity":       uidValidity,
+		"lastUid":           lastUID,
 	}
 	encoded, err := json.Marshal(status)
 	if err != nil {
@@ -280,14 +280,14 @@ func emptyMailboxStatus() map[string]any {
 
 func emptyMailboxState() map[string]any {
 	return map[string]any{
-		"latestMessageId": nil,
+		"latestMessageId":   nil,
 		"latestMessageDate": nil,
-		"messageCount": 0,
-		"hasNew": false,
-		"lastSyncedAt": nil,
-		"lastViewedAt": nil,
-		"uidValidity": nil,
-		"lastUid": nil,
+		"messageCount":      0,
+		"hasNew":            false,
+		"lastSyncedAt":      nil,
+		"lastViewedAt":      nil,
+		"uidValidity":       nil,
+		"lastUid":           nil,
 	}
 }
 

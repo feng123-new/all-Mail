@@ -43,15 +43,15 @@ type mailAccountIDsRequest struct {
 }
 
 type batchMailOperationRequest struct {
-	IDs                    []int64 `json:"ids"`
-	Status                 string  `json:"status"`
-	Keyword                string  `json:"keyword"`
-	GroupID                *int64  `json:"groupId"`
-	GroupName              string  `json:"groupName"`
-	Provider               string  `json:"provider"`
-	RepresentativeProtocol string  `json:"representativeProtocol"`
+	IDs                    []int64  `json:"ids"`
+	Status                 string   `json:"status"`
+	Keyword                string   `json:"keyword"`
+	GroupID                *int64   `json:"groupId"`
+	GroupName              string   `json:"groupName"`
+	Provider               string   `json:"provider"`
+	RepresentativeProtocol string   `json:"representativeProtocol"`
 	Mailboxes              []string `json:"mailboxes"`
-	Mailbox                string `json:"mailbox"`
+	Mailbox                string   `json:"mailbox"`
 }
 
 type selectedMailDeleteRequest struct {
@@ -592,41 +592,65 @@ func parseUpdateMailAccount(body updateMailAccountRequest) (mailAccountUpdateInp
 		}
 	}
 	result.ClientID, result.ClientIDPresent, err = decodeNullableString(body.ClientID, "clientId")
-	if err != nil { return result, err }
+	if err != nil {
+		return result, err
+	}
 	result.ClientSecret, result.ClientSecretPresent, err = decodeNullableString(body.ClientSecret, "clientSecret")
-	if err != nil { return result, err }
+	if err != nil {
+		return result, err
+	}
 	result.RefreshToken, result.RefreshTokenPresent, err = decodeNullableString(body.RefreshToken, "refreshToken")
-	if err != nil { return result, err }
+	if err != nil {
+		return result, err
+	}
 	result.Password, result.PasswordPresent, err = decodeNullableString(body.Password, "password")
-	if err != nil { return result, err }
+	if err != nil {
+		return result, err
+	}
 	result.AccountLoginPassword, result.AccountLoginPasswordPresent, err = decodeNullableString(body.AccountLoginPassword, "accountLoginPassword")
-	if err != nil { return result, err }
+	if err != nil {
+		return result, err
+	}
 	if value, present, parseErr := decodeNullableString(body.Status, "status"); parseErr != nil {
 		return result, parseErr
 	} else if present {
-		if value == nil { return result, validationError("status cannot be null") }
+		if value == nil {
+			return result, validationError("status cannot be null")
+		}
 		result.StatusPresent, result.Status = true, *value
-		if err := validateManagementEnum("status", result.Status, "ACTIVE", "ERROR", "DISABLED"); err != nil { return result, err }
+		if err := validateManagementEnum("status", result.Status, "ACTIVE", "ERROR", "DISABLED"); err != nil {
+			return result, err
+		}
 	}
 	result.GroupID, result.GroupIDPresent, err = decodeNullableInt64(body.GroupID, "groupId")
-	if err != nil { return result, err }
+	if err != nil {
+		return result, err
+	}
 	if len(body.ProviderConfig) > 0 {
 		result.ProviderConfigPresent = true
 		if strings.TrimSpace(string(body.ProviderConfig)) == "null" {
 			provider := result.Provider
-			if provider == "" { provider = "CUSTOM_IMAP_SMTP" }
+			if provider == "" {
+				provider = "CUSTOM_IMAP_SMTP"
+			}
 			result.ProviderConfig = defaultProviderConfig(provider)
 		} else {
 			provider := result.Provider
-			if provider == "" { provider = "CUSTOM_IMAP_SMTP" }
+			if provider == "" {
+				provider = "CUSTOM_IMAP_SMTP"
+			}
 			result.ProviderConfig, err = mergeProviderConfig(provider, body.ProviderConfig)
-			if err != nil { return result, err }
+			if err != nil {
+				return result, err
+			}
 		}
 	}
 	if len(body.Capabilities) > 0 {
 		result.CapabilitiesPresent = true
 		result.Capabilities, err = decodeJSONObject(body.Capabilities, "capabilities")
-		if err != nil { return result, err }
+		if err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }
@@ -660,7 +684,9 @@ func validateMailboxName(value string, allowSent bool) (string, error) {
 	case "junk", "spam":
 		return "Junk", nil
 	case "sent":
-		if allowSent { return "SENT", nil }
+		if allowSent {
+			return "SENT", nil
+		}
 	}
 	return "", validationError("mailbox contains an unsupported value")
 }
@@ -671,15 +697,21 @@ func validateRecipientList(values []string) ([]string, error) {
 		return nil, validationError("to must contain between 1 and 100 email addresses")
 	}
 	for _, value := range values {
-		if err := validateEmailAddress(value); err != nil { return nil, err }
+		if err := validateEmailAddress(value); err != nil {
+			return nil, err
+		}
 	}
 	return values, nil
 }
 
 func (s *PostgresStore) selectMailAccountIDs(ctx context.Context, input batchMailOperationRequest) ([]int64, error) {
-	if err := requirePositiveIDs(input.IDs, "ids"); err != nil { return nil, err }
+	if err := requirePositiveIDs(input.IDs, "ids"); err != nil {
+		return nil, err
+	}
 	var groupFilter any
-	if input.GroupID != nil { groupFilter = *input.GroupID }
+	if input.GroupID != nil {
+		groupFilter = *input.GroupID
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT account.id
 		FROM email_accounts AS account
@@ -694,16 +726,28 @@ func (s *PostgresStore) selectMailAccountIDs(ctx context.Context, input batchMai
 		ORDER BY account.id ASC
 	`, normalizeManagementIDs(input.IDs), input.Status, strings.TrimSpace(input.Keyword), groupFilter,
 		strings.TrimSpace(input.GroupName), strings.TrimSpace(input.Provider), strings.TrimSpace(input.RepresentativeProtocol))
-	if err != nil { return nil, fmt.Errorf("select mail accounts: %w", err) }
+	if err != nil {
+		return nil, fmt.Errorf("select mail accounts: %w", err)
+	}
 	defer rows.Close()
 	ids := make([]int64, 0)
-	for rows.Next() { var id int64; if err := rows.Scan(&id); err != nil { return nil, err }; ids = append(ids, id) }
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
 	return ids, rows.Err()
 }
 
 func parseInt64(value string) (*int64, error) {
-	if strings.TrimSpace(value) == "" { return nil, nil }
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || parsed <= 0 { return nil, validationError("value must be a positive integer") }
+	if err != nil || parsed <= 0 {
+		return nil, validationError("value must be a positive integer")
+	}
 	return &parsed, nil
 }

@@ -58,13 +58,13 @@ func (p gmailMailProvider) Fetch(ctx context.Context, account mailAccountCredent
 		messages = append(messages, message)
 	}
 	return providerFetchResult{
-		Email: account.Email,
-		Mailbox: mailbox,
+		Email:           account.Email,
+		Mailbox:         mailbox,
 		ResolvedMailbox: label,
-		Count: len(messages),
-		Messages: messages,
-		Method: "GMAIL_API",
-		Provider: account.Provider,
+		Count:           len(messages),
+		Messages:        messages,
+		Method:          "GMAIL_API",
+		Provider:        account.Provider,
 	}, nil
 }
 
@@ -95,12 +95,12 @@ func (p gmailMailProvider) Delete(ctx context.Context, account mailAccountCreden
 		response.Body.Close()
 	}
 	return providerDeleteResult{
-		Email: account.Email,
-		Mailbox: mailbox,
+		Email:        account.Email,
+		Mailbox:      mailbox,
 		DeletedCount: len(messageIDs),
-		Message: "messages deleted",
-		Method: "GMAIL_API",
-		Provider: account.Provider,
+		Message:      "messages deleted",
+		Method:       "GMAIL_API",
+		Provider:     account.Provider,
 	}, nil
 }
 
@@ -154,10 +154,10 @@ func (p gmailMailProvider) Send(ctx context.Context, account mailAccountCredenti
 		providerMessageID = &result.ID
 	}
 	return providerSendResult{
-		Provider: account.Provider,
-		Method: "GMAIL_API",
+		Provider:          account.Provider,
+		Method:            "GMAIL_API",
 		ProviderMessageID: providerMessageID,
-		Accepted: append([]string(nil), input.To...),
+		Accepted:          append([]string(nil), input.To...),
 	}, nil
 }
 
@@ -190,13 +190,13 @@ func (p gmailMailProvider) getMessage(ctx context.Context, token, id string) (pr
 		date = parsed.UTC().Format(time.RFC3339Nano)
 	}
 	return providerMessage{
-		ID: payload.ID,
-		From: headers["from"],
-		To: headers["to"],
+		ID:      payload.ID,
+		From:    headers["from"],
+		To:      headers["to"],
 		Subject: headers["subject"],
-		Text: text,
-		HTML: html,
-		Date: date,
+		Text:    text,
+		HTML:    html,
+		Date:    date,
 	}, nil
 }
 

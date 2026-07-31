@@ -2,6 +2,7 @@ package businessapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +23,7 @@ import (
 
 type imapSMTPProvider struct{}
 
-func (imapSMTPProvider) Fetch(ctx providerContext, account mailAccountCredentials, mailbox string, limit int) (providerFetchResult, error) {
+func (imapSMTPProvider) Fetch(ctx context.Context, account mailAccountCredentials, mailbox string, limit int) (providerFetchResult, error) {
 	client, folder, err := connectIMAP(ctx, account, mailbox)
 	if err != nil {
 		return providerFetchResult{}, err
@@ -77,11 +79,11 @@ func (imapSMTPProvider) Fetch(ctx providerContext, account mailAccountCredential
 	return providerFetchResult{
 		Email: account.Email, Mailbox: mailbox, ResolvedMailbox: folder, Count: len(result), Messages: result,
 		MailboxCheckpoint: map[string]any{"uidValidity": selected.UidValidity, "lastUid": lastUID},
-		Method: "IMAP", Provider: account.Provider,
+		Method:            "IMAP", Provider: account.Provider,
 	}, nil
 }
 
-func (imapSMTPProvider) Delete(ctx providerContext, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error) {
+func (imapSMTPProvider) Delete(ctx context.Context, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error) {
 	client, folder, err := connectIMAP(ctx, account, mailbox)
 	if err != nil {
 		return providerDeleteResult{}, err
@@ -111,7 +113,7 @@ func (imapSMTPProvider) Delete(ctx providerContext, account mailAccountCredentia
 	return providerDeleteResult{Email: account.Email, Mailbox: mailbox, ResolvedMailbox: folder, DeletedCount: len(messageIDs), Message: "messages deleted", Method: "IMAP", Provider: account.Provider}, nil
 }
 
-func (imapSMTPProvider) Clear(ctx providerContext, account mailAccountCredentials, mailbox string) (providerDeleteResult, error) {
+func (imapSMTPProvider) Clear(ctx context.Context, account mailAccountCredentials, mailbox string) (providerDeleteResult, error) {
 	client, folder, err := connectIMAP(ctx, account, mailbox)
 	if err != nil {
 		return providerDeleteResult{}, err
@@ -136,7 +138,7 @@ func (imapSMTPProvider) Clear(ctx providerContext, account mailAccountCredential
 	return providerDeleteResult{Email: account.Email, Mailbox: mailbox, ResolvedMailbox: folder, DeletedCount: int(selected.Messages), Message: "mailbox cleared", Method: "IMAP", Provider: account.Provider}, nil
 }
 
-func (imapSMTPProvider) Send(ctx providerContext, account mailAccountCredentials, input providerSendInput) (providerSendResult, error) {
+func (imapSMTPProvider) Send(ctx context.Context, account mailAccountCredentials, input providerSendInput) (providerSendResult, error) {
 	config := account.ProviderConfig
 	if config.SMTPHost == "" || config.SMTPPort <= 0 {
 		return providerSendResult{}, providerFailure("SMTP_NOT_CONFIGURED", fmt.Errorf("SMTP host or port is missing"))
@@ -208,7 +210,7 @@ func (imapSMTPProvider) Send(ctx providerContext, account mailAccountCredentials
 	return providerSendResult{Provider: account.Provider, Method: "SMTP", Accepted: append([]string(nil), input.To...)}, nil
 }
 
-func connectIMAP(ctx providerContext, account mailAccountCredentials, mailbox string) (*imapclient.Client, string, error) {
+func connectIMAP(ctx context.Context, account mailAccountCredentials, mailbox string) (*imapclient.Client, string, error) {
 	config := account.ProviderConfig
 	if config.IMAPHost == "" || config.IMAPPort <= 0 {
 		return nil, "", providerFailure("IMAP_NOT_CONFIGURED", fmt.Errorf("IMAP host or port is missing"))
@@ -227,9 +229,6 @@ func connectIMAP(ctx providerContext, account mailAccountCredentials, mailbox st
 	}
 	if err != nil {
 		return nil, "", providerFailure("IMAP_CONNECT_FAILED", err)
-	}
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = client.SetDeadline(deadline)
 	}
 	if err := client.Login(account.Email, password); err != nil {
 		client.Close()
@@ -324,15 +323,15 @@ func buildSMTPMessage(input providerSendInput) ([]byte, error) {
 	multipartWriter := multipart.NewWriter(&buffer)
 	boundary := multipartWriter.Boundary()
 	fmt.Fprintf(&buffer, "Content-Type: multipart/alternative; boundary=%q\r\n\r\n", boundary)
-	textHeaders := make(map[string][]string)
-	textHeaders["Content-Type"] = []string{"text/plain; charset=UTF-8"}
+	textHeaders := make(textproto.MIMEHeader)
+	textHeaders.Set("Content-Type", "text/plain; charset=UTF-8")
 	textPart, err := multipartWriter.CreatePart(textHeaders)
 	if err != nil {
 		return nil, err
 	}
 	_, _ = textPart.Write([]byte(input.Text))
-	htmlHeaders := make(map[string][]string)
-	htmlHeaders["Content-Type"] = []string{"text/html; charset=UTF-8"}
+	htmlHeaders := make(textproto.MIMEHeader)
+	htmlHeaders.Set("Content-Type", "text/html; charset=UTF-8")
 	htmlPart, err := multipartWriter.CreatePart(htmlHeaders)
 	if err != nil {
 		return nil, err

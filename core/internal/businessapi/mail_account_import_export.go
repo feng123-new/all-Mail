@@ -99,7 +99,7 @@ func (s *Server) importMailAccounts(w http.ResponseWriter, r *http.Request, _ Ad
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
-		"data": map[string]any{"success": success, "failed": failed, "errors": errorsList},
+		"data":    map[string]any{"success": success, "failed": failed, "errors": errorsList},
 	})
 }
 
@@ -262,9 +262,9 @@ func parseEmailFirstImportedMailAccount(parts []string) (importedMailAccount, er
 		result := importedMailAccount{
 			Email: email, Provider: provider, AuthType: oauthAuthType(provider),
 			AccountLoginPassword: optionalStringPointer(parts[1]),
-			ClientID: optionalStringPointer(parts[2]),
-			RefreshToken: optionalStringPointer(parts[3]),
-			ProviderConfig: defaultProviderConfig(provider),
+			ClientID:             optionalStringPointer(parts[2]),
+			RefreshToken:         optionalStringPointer(parts[3]),
+			ProviderConfig:       defaultProviderConfig(provider),
 		}
 		if len(parts) > 4 {
 			result.ClientSecret = optionalStringPointer(parts[4])
@@ -299,23 +299,23 @@ func parseLegacyOutlookImport(parts []string) (importedMailAccount, error) {
 
 func importTokenProfile(value string) (string, string, bool) {
 	profiles := map[string][2]string{
-		"OUTLOOK_OAUTH":                  {"OUTLOOK", "MICROSOFT_OAUTH"},
-		"GMAIL_OAUTH":                    {"GMAIL", "GOOGLE_OAUTH"},
-		"GMAIL_APP_PASSWORD":             {"GMAIL", "APP_PASSWORD"},
-		"QQ_IMAP_SMTP":                   {"QQ", "APP_PASSWORD"},
-		"NETEASE_163_IMAP_SMTP":          {"NETEASE_163", "APP_PASSWORD"},
-		"NETEASE_126_IMAP_SMTP":          {"NETEASE_126", "APP_PASSWORD"},
-		"ICLOUD_IMAP_SMTP":               {"ICLOUD", "APP_PASSWORD"},
-		"YAHOO_IMAP_SMTP":                {"YAHOO", "APP_PASSWORD"},
-		"ZOHO_IMAP_SMTP":                 {"ZOHO", "APP_PASSWORD"},
-		"ALIYUN_IMAP_SMTP":               {"ALIYUN", "APP_PASSWORD"},
-		"AMAZON_WORKMAIL_IMAP_SMTP":      {"AMAZON_WORKMAIL", "APP_PASSWORD"},
-		"FASTMAIL_IMAP_SMTP":             {"FASTMAIL", "APP_PASSWORD"},
-		"AOL_IMAP_SMTP":                  {"AOL", "APP_PASSWORD"},
-		"GMX_IMAP_SMTP":                  {"GMX", "APP_PASSWORD"},
-		"MAILCOM_IMAP_SMTP":              {"MAILCOM", "APP_PASSWORD"},
-		"YANDEX_IMAP_SMTP":               {"YANDEX", "APP_PASSWORD"},
-		"CUSTOM_IMAP_SMTP":               {"CUSTOM_IMAP_SMTP", "APP_PASSWORD"},
+		"OUTLOOK_OAUTH":             {"OUTLOOK", "MICROSOFT_OAUTH"},
+		"GMAIL_OAUTH":               {"GMAIL", "GOOGLE_OAUTH"},
+		"GMAIL_APP_PASSWORD":        {"GMAIL", "APP_PASSWORD"},
+		"QQ_IMAP_SMTP":              {"QQ", "APP_PASSWORD"},
+		"NETEASE_163_IMAP_SMTP":     {"NETEASE_163", "APP_PASSWORD"},
+		"NETEASE_126_IMAP_SMTP":     {"NETEASE_126", "APP_PASSWORD"},
+		"ICLOUD_IMAP_SMTP":          {"ICLOUD", "APP_PASSWORD"},
+		"YAHOO_IMAP_SMTP":           {"YAHOO", "APP_PASSWORD"},
+		"ZOHO_IMAP_SMTP":            {"ZOHO", "APP_PASSWORD"},
+		"ALIYUN_IMAP_SMTP":          {"ALIYUN", "APP_PASSWORD"},
+		"AMAZON_WORKMAIL_IMAP_SMTP": {"AMAZON_WORKMAIL", "APP_PASSWORD"},
+		"FASTMAIL_IMAP_SMTP":        {"FASTMAIL", "APP_PASSWORD"},
+		"AOL_IMAP_SMTP":             {"AOL", "APP_PASSWORD"},
+		"GMX_IMAP_SMTP":             {"GMX", "APP_PASSWORD"},
+		"MAILCOM_IMAP_SMTP":         {"MAILCOM", "APP_PASSWORD"},
+		"YANDEX_IMAP_SMTP":          {"YANDEX", "APP_PASSWORD"},
+		"CUSTOM_IMAP_SMTP":          {"CUSTOM_IMAP_SMTP", "APP_PASSWORD"},
 	}
 	profile, ok := profiles[strings.ToUpper(strings.TrimSpace(value))]
 	return profile[0], profile[1], ok

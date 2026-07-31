@@ -55,12 +55,12 @@ func (p graphMailProvider) Fetch(ctx context.Context, account mailAccountCredent
 			to = append(to, formatGraphAddress(recipient.EmailAddress.Name, recipient.EmailAddress.Address))
 		}
 		message := providerMessage{
-			ID: item.ID,
-			From: from,
-			To: strings.Join(to, ", "),
+			ID:      item.ID,
+			From:    from,
+			To:      strings.Join(to, ", "),
 			Subject: item.Subject,
-			Text: item.BodyPreview,
-			Date: item.ReceivedDateTime,
+			Text:    item.BodyPreview,
+			Date:    item.ReceivedDateTime,
 		}
 		if strings.EqualFold(item.Body.ContentType, "html") {
 			message.HTML = item.Body.Content
@@ -70,13 +70,13 @@ func (p graphMailProvider) Fetch(ctx context.Context, account mailAccountCredent
 		messages = append(messages, message)
 	}
 	return providerFetchResult{
-		Email: account.Email,
-		Mailbox: mailbox,
+		Email:           account.Email,
+		Mailbox:         mailbox,
 		ResolvedMailbox: folder,
-		Count: len(messages),
-		Messages: messages,
-		Method: "GRAPH_API",
-		Provider: account.Provider,
+		Count:           len(messages),
+		Messages:        messages,
+		Method:          "GRAPH_API",
+		Provider:        account.Provider,
 	}, nil
 }
 
@@ -107,12 +107,12 @@ func (p graphMailProvider) Delete(ctx context.Context, account mailAccountCreden
 		response.Body.Close()
 	}
 	return providerDeleteResult{
-		Email: account.Email,
-		Mailbox: mailbox,
+		Email:        account.Email,
+		Mailbox:      mailbox,
 		DeletedCount: len(messageIDs),
-		Message: "messages deleted",
-		Method: "GRAPH_API",
-		Provider: account.Provider,
+		Message:      "messages deleted",
+		Method:       "GRAPH_API",
+		Provider:     account.Provider,
 	}, nil
 }
 
@@ -141,8 +141,8 @@ func (p graphMailProvider) Send(ctx context.Context, account mailAccountCredenti
 	}
 	payload := map[string]any{
 		"message": map[string]any{
-			"subject": input.Subject,
-			"body": map[string]string{"contentType": contentType, "content": content},
+			"subject":      input.Subject,
+			"body":         map[string]string{"contentType": contentType, "content": content},
 			"toRecipients": graphRecipients(input.To),
 		},
 		"saveToSentItems": true,
@@ -167,7 +167,7 @@ func (p graphMailProvider) Send(ctx context.Context, account mailAccountCredenti
 	}
 	return providerSendResult{
 		Provider: account.Provider,
-		Method: "GRAPH_API",
+		Method:   "GRAPH_API",
 		Accepted: append([]string(nil), input.To...),
 	}, nil
 }

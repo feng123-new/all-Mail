@@ -143,27 +143,27 @@ func safeMailAccount(row mailAccountRow) map[string]any {
 		mailboxStatus = emptyMailboxStatus()
 	}
 	result := map[string]any{
-		"id": row.ID,
-		"email": row.Email,
-		"provider": row.Provider,
-		"authType": row.AuthType,
-		"clientId": nullableStringValue(row.ClientID),
-		"providerConfig": providerConfig,
-		"capabilities": capabilities,
-		"status": row.Status,
-		"groupId": nullableInt64Value(row.GroupID),
-		"lastCheckAt": nullableTimeValue(row.LastCheckAt),
-		"mailboxStatus": normalizeMailboxStatus(mailboxStatus),
-		"errorMessage": nullableStringValue(row.ErrorMessage),
-		"hasStoredPassword": row.Password.Valid && strings.TrimSpace(row.Password.String) != "",
+		"id":                            row.ID,
+		"email":                         row.Email,
+		"provider":                      row.Provider,
+		"authType":                      row.AuthType,
+		"clientId":                      nullableStringValue(row.ClientID),
+		"providerConfig":                providerConfig,
+		"capabilities":                  capabilities,
+		"status":                        row.Status,
+		"groupId":                       nullableInt64Value(row.GroupID),
+		"lastCheckAt":                   nullableTimeValue(row.LastCheckAt),
+		"mailboxStatus":                 normalizeMailboxStatus(mailboxStatus),
+		"errorMessage":                  nullableStringValue(row.ErrorMessage),
+		"hasStoredPassword":             row.Password.Valid && strings.TrimSpace(row.Password.String) != "",
 		"hasStoredAccountLoginPassword": row.AccountLoginPassword.Valid && strings.TrimSpace(row.AccountLoginPassword.String) != "",
-		"createdAt": formatAPITime(row.CreatedAt),
-		"updatedAt": formatAPITime(row.UpdatedAt),
+		"createdAt":                     formatAPITime(row.CreatedAt),
+		"updatedAt":                     formatAPITime(row.UpdatedAt),
 	}
 	if row.GroupID.Valid {
 		result["group"] = map[string]any{
-			"id": row.GroupID.Int64,
-			"name": row.GroupName.String,
+			"id":            row.GroupID.Int64,
+			"name":          row.GroupName.String,
 			"fetchStrategy": defaultFetchStrategy(row.FetchStrategy.String),
 		}
 	} else {
@@ -306,21 +306,21 @@ func (s *PostgresStore) loadMailAccountCredentials(ctx context.Context, id int64
 	_ = json.Unmarshal(row.Capabilities, &capabilities)
 	_ = json.Unmarshal(row.MailboxStatus, &mailboxStatus)
 	return mailAccountCredentials{
-		ID: row.ID,
-		Email: row.Email,
-		Provider: row.Provider,
-		AuthType: row.AuthType,
-		ClientID: row.ClientID.String,
-		ClientSecret: clientSecret,
-		RefreshToken: refreshToken,
-		Password: password,
+		ID:                   row.ID,
+		Email:                row.Email,
+		Provider:             row.Provider,
+		AuthType:             row.AuthType,
+		ClientID:             row.ClientID.String,
+		ClientSecret:         clientSecret,
+		RefreshToken:         refreshToken,
+		Password:             password,
 		AccountLoginPassword: loginPassword,
-		FetchStrategy: defaultFetchStrategy(row.FetchStrategy.String),
-		ProviderConfig: config,
-		Capabilities: capabilities,
-		Status: row.Status,
-		GroupID: nullableInt64Value(row.GroupID),
-		MailboxStatus: normalizeMailboxStatus(mailboxStatus),
+		FetchStrategy:        defaultFetchStrategy(row.FetchStrategy.String),
+		ProviderConfig:       config,
+		Capabilities:         capabilities,
+		Status:               row.Status,
+		GroupID:              nullableInt64Value(row.GroupID),
+		MailboxStatus:        normalizeMailboxStatus(mailboxStatus),
 	}, nil
 }
 

@@ -1,10 +1,10 @@
 package businessapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 )
 
 type mailProviderConfig struct {
@@ -85,17 +85,10 @@ type providerSendResult struct {
 }
 
 type mailProvider interface {
-	Fetch(ctx providerContext, account mailAccountCredentials, mailbox string, limit int) (providerFetchResult, error)
-	Delete(ctx providerContext, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error)
-	Clear(ctx providerContext, account mailAccountCredentials, mailbox string) (providerDeleteResult, error)
-	Send(ctx providerContext, account mailAccountCredentials, input providerSendInput) (providerSendResult, error)
-}
-
-type providerContext interface {
-	Done() <-chan struct{}
-	Err() error
-	Deadline() (time.Time, bool)
-	Value(any) any
+	Fetch(ctx context.Context, account mailAccountCredentials, mailbox string, limit int) (providerFetchResult, error)
+	Delete(ctx context.Context, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error)
+	Clear(ctx context.Context, account mailAccountCredentials, mailbox string) (providerDeleteResult, error)
+	Send(ctx context.Context, account mailAccountCredentials, input providerSendInput) (providerSendResult, error)
 }
 
 var supportedEmailProviders = map[string]struct{}{
@@ -166,25 +159,25 @@ func providerProfileSummary(provider, authType string) map[string]any {
 		secondary = []string{"imap"}
 	}
 	return map[string]any{
-		"providerProfile": providerProfile(provider, authType),
+		"providerProfile":        providerProfile(provider, authType),
 		"representativeProtocol": representativeProtocol(provider, authType),
-		"secondaryProtocols": secondary,
-		"profileSummaryHint": providerProfile(provider, authType),
+		"secondaryProtocols":     secondary,
+		"profileSummaryHint":     providerProfile(provider, authType),
 		"capabilitySummary": map[string]any{
-			"readInbox": true,
-			"readJunk": true,
-			"readSent": true,
+			"readInbox":    true,
+			"readJunk":     true,
+			"readSent":     true,
 			"clearMailbox": true,
-			"sendMail": true,
-			"usesOAuth": oauth,
-			"receiveMail": true,
-			"apiAccess": oauth,
-			"forwarding": false,
-			"search": false,
+			"sendMail":     true,
+			"usesOAuth":    oauth,
+			"receiveMail":  true,
+			"apiAccess":    oauth,
+			"forwarding":   false,
+			"search":       false,
 			"refreshToken": oauth,
-			"webhook": false,
+			"webhook":      false,
 			"aliasSupport": false,
-			"modes": modes,
+			"modes":        modes,
 		},
 	}
 }

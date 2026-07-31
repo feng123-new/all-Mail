@@ -25,6 +25,7 @@ type Server struct {
 	ingressStore       IngressStore
 	rateLimiter        RateLimiter
 	replayProtector    ReplayProtector
+	providerHTTPClient *http.Client
 	now                func() time.Time
 	ownStore           bool
 	ownRateLimiter     bool
