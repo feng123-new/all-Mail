@@ -166,7 +166,7 @@ jobs:
           SQL
           ./allmail migrate
           ./allmail migrate
-          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "3"
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "4"
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
           test "$(psql "$DATABASE_URL" -Atqc "SELECT datetime_precision FROM information_schema.columns WHERE table_name = 'mailbox_forward_jobs' AND column_name = 'lease_expires_at'")" = "3"
 
