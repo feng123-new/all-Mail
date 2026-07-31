@@ -376,11 +376,10 @@
     },
     {
       "id": "ingress-domain-mail",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/ingress/domain-mail",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "ingress-other",
