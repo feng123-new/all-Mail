@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - agent/go-mail-operations
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
