@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 )
 
 type fakeDashboardWriteStore struct {
@@ -138,14 +137,4 @@ func TestDashboardDeleteRoutesReportStoreFailure(t *testing.T) {
 			t.Fatalf("store failure response = %d %s", response.Code, response.Body.String())
 		}
 	}
-}
-
-func authenticatedJSONRequest(t *testing.T, method, target, body string) *http.Request {
-	t.Helper()
-	now := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
-	token := signTestJWT(t, 7, adminJWTAudience, now.Add(time.Hour))
-	request := httptest.NewRequest(method, target, strings.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
-	request.AddCookie(&http.Cookie{Name: "token", Value: token})
-	return request
 }
