@@ -12,14 +12,14 @@ import (
 
 type fakeDashboardWriteStore struct {
 	*fakeStore
-	deleteID      int64
-	deleteAudit   DashboardDeleteAudit
-	deleteResult  bool
-	deleteErr     error
-	batchIDs      []int64
-	batchAudit    DashboardDeleteAudit
-	batchResult   int64
-	batchErr      error
+	deleteID     int64
+	deleteAudit  DashboardDeleteAudit
+	deleteResult bool
+	deleteErr    error
+	batchIDs     []int64
+	batchAudit   DashboardDeleteAudit
+	batchResult  int64
+	batchErr     error
 }
 
 func (s *fakeDashboardWriteStore) DeleteDashboardLog(
@@ -44,7 +44,7 @@ func (s *fakeDashboardWriteStore) BatchDeleteDashboardLogs(
 
 func TestDashboardDeleteRoutesPreserveAuthAuditAndResponseContracts(t *testing.T) {
 	store := &fakeDashboardWriteStore{
-		fakeStore: &fakeStore{admin: Admin{ID: 7, Username: "admin", Status: "ACTIVE"}},
+		fakeStore:    &fakeStore{admin: Admin{ID: 7, Username: "admin", Status: "ACTIVE"}},
 		deleteResult: true,
 		batchResult:  2,
 	}
