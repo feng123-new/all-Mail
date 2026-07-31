@@ -1,4 +1,5 @@
 name: PR34 normalize optional batch filter
+# One-shot coordinator; removed after the source correction is committed.
 
 on:
   push:
