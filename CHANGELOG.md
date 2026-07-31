@@ -6,6 +6,7 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- moved administrator, email-group, domain-mailbox, and mailbox-user management to the private Go business service with bcrypt-compatible passwords and PostgreSQL transactions
 - moved signed domain-mail ingress to the private Go business service with endpoint-scoped encrypted secrets, Redis replay protection, transactional mailbox routing and persistence, and PII-free compensating R2 lifecycle handling
 - moved the Dashboard single and batch operation-log deletion endpoints to the private Go business service with bounded validation and transactionally coupled administrator audit records
 - added durable administrator and mailbox session versions so password, role, status, mandatory-rotation, and 2FA changes immediately revoke older JWTs; also reduced default Microsoft OAuth scopes to identity and mail capabilities

@@ -133,6 +133,25 @@ PY
 done
 
 write_headers="$RUNNER_TEMP/dashboard-write-headers.txt"
+for route in \
+  '/admin/admins?page=1&pageSize=10' \
+  '/admin/email-groups' \
+  '/admin/domain-mailboxes?page=1&pageSize=20' \
+  '/admin/mailbox-users?page=1&pageSize=20'; do
+  management_headers="$RUNNER_TEMP/$(printf '%s' "$route" | tr '/?=&' '____').management.headers"
+  management_body="$RUNNER_TEMP/$(printf '%s' "$route" | tr '/?=&' '____').management.json"
+  curl --fail --silent --show-error -D "$management_headers" -o "$management_body" \
+    -H "Cookie: token=$token" "http://127.0.0.1:3002$route"
+  grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$management_headers"
+  python3 - "$management_body" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding='utf-8') as handle:
+    payload = json.load(handle)
+assert payload['success'] is True
+PY
+done
+
+write_headers="$RUNNER_TEMP/dashboard-write-headers.txt"
 write_status=$(curl --silent --show-error \
   -D "$write_headers" -o /dev/null -w '%{http_code}' \
   -X DELETE -H "Cookie: token=$token" \

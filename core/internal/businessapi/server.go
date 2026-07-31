@@ -145,6 +145,10 @@ func (s *Server) Handler() http.Handler {
 	s.registerAPIKeyRoutes(mux)
 	s.registerExternalRoutes(mux)
 	s.registerIngressRoutes(mux)
+	s.registerAdminManagementRoutes(mux)
+	s.registerEmailGroupManagementRoutes(mux)
+	s.registerDomainMailboxManagementRoutes(mux)
+	s.registerMailboxUserManagementRoutes(mux)
 	mux.HandleFunc("/", s.notFound)
 	return s.withRequestMetadata(mux)
 }

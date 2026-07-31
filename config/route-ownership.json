@@ -40,11 +40,10 @@
     },
     {
       "id": "admin-administrators",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/admins",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-api-keys",
@@ -71,11 +70,10 @@
     },
     {
       "id": "admin-email-groups",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/email-groups",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-dashboard-stats-read",
@@ -148,11 +146,10 @@
     },
     {
       "id": "admin-domain-mailboxes",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/domain-mailboxes",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-domain-messages",
@@ -172,11 +169,10 @@
     },
     {
       "id": "admin-mailbox-users",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/mailbox-users",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-send",

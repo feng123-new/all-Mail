@@ -76,6 +76,11 @@ Administrator and mailbox JWTs carry issuer, audience, algorithm, and durable se
 
 ### Signed ingress and raw-message lifecycle
 
+### Database administration surfaces
+
+Administrator, email-group, domain-mailbox, and mailbox-user management are owned by `go-business-api`. Password mutations emit bcrypt cost-10 hashes compatible with existing sessions. Mailbox creation, membership replacement, batch creation/deletion, API-key domain-scope updates, catch-all cleanup, and user deletion use PostgreSQL transactions.
+
+
 `POST /ingress/domain-mail/receive` is owned by `go-business-api`. The Go handler verifies the existing HMAC canonical form, enforces a bounded timestamp window, decrypts the endpoint-scoped persisted signing secret, reserves delivery keys atomically in Redis, resolves exact mailboxes, aliases, and catch-all targets, and commits inbound messages, forwarding jobs, and endpoint usage in one PostgreSQL transaction. Database delivery keys remain the durable idempotency authority.
 
 The Cloudflare Email Worker now stores raw messages under deterministic SHA-256 object keys without domain, mailbox, sender, or recipient data in the path or R2 metadata. Permanent application-level rejection schedules compensating deletion with `ctx.waitUntil`; replay and retryable failures retain the deterministic object for idempotent retry. Logs contain only bounded request/error codes and truncated delivery hashes.
