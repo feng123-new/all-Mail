@@ -29,6 +29,7 @@ func (e *requestError) Error() string {
 
 type jwtHeader struct {
 	Algorithm string `json:"alg"`
+	Type      string `json:"typ,omitempty"`
 }
 
 type jwtPayload struct {
@@ -38,6 +39,7 @@ type jwtPayload struct {
 	ExpiresAt      float64         `json:"exp"`
 	NotBefore      *float64        `json:"nbf,omitempty"`
 	SessionVersion int64           `json:"sessionVersion"`
+	Purpose        string          `json:"purpose,omitempty"`
 }
 
 type verifiedAdminJWT struct {
@@ -97,59 +99,112 @@ func extractAdminToken(request *http.Request) string {
 }
 
 func verifyAdminJWT(token, secret string, now time.Time) (verifiedAdminJWT, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return verifiedAdminJWT{}, errors.New("JWT must contain three segments")
-	}
-
-	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	payload, err := verifyJWT(token, secret, now, adminJWTAudience)
 	if err != nil {
-		return verifiedAdminJWT{}, errors.New("JWT header is not valid base64url")
+		return verifiedAdminJWT{}, err
 	}
-	var header jwtHeader
-	if err := json.Unmarshal(headerBytes, &header); err != nil || header.Algorithm != "HS256" {
-		return verifiedAdminJWT{}, errors.New("JWT algorithm is not HS256")
-	}
-
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return verifiedAdminJWT{}, errors.New("JWT payload is not valid base64url")
-	}
-	var payload jwtPayload
-	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		return verifiedAdminJWT{}, errors.New("JWT payload is not valid JSON")
-	}
-	if payload.Issuer != allMailJWTIssuer {
-		return verifiedAdminJWT{}, errors.New("JWT issuer is invalid")
-	}
-	if payload.ExpiresAt == 0 || float64(now.Unix()) >= payload.ExpiresAt {
-		return verifiedAdminJWT{}, errors.New("JWT is expired")
-	}
-	if payload.NotBefore != nil && float64(now.Unix()) < *payload.NotBefore {
-		return verifiedAdminJWT{}, errors.New("JWT is not active")
-	}
-	if !audienceContains(payload.Audience, adminJWTAudience) {
-		return verifiedAdminJWT{}, errors.New("JWT audience is invalid")
-	}
-	if payload.SessionVersion <= 0 {
-		return verifiedAdminJWT{}, errors.New("JWT session version is invalid")
-	}
-
-	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil {
-		return verifiedAdminJWT{}, errors.New("JWT signature is not valid base64url")
-	}
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(parts[0] + "." + parts[1]))
-	if !hmac.Equal(signature, mac.Sum(nil)) {
-		return verifiedAdminJWT{}, errors.New("JWT signature is invalid")
-	}
-
 	adminID, err := strconv.ParseInt(payload.Subject, 10, 64)
 	if err != nil || adminID <= 0 {
 		return verifiedAdminJWT{}, errors.New("JWT subject is invalid")
 	}
 	return verifiedAdminJWT{AdminID: adminID, SessionVersion: payload.SessionVersion}, nil
+}
+
+func verifyJWT(token, secret string, now time.Time, audience string) (jwtPayload, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return jwtPayload{}, errors.New("JWT must contain three segments")
+	}
+
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return jwtPayload{}, errors.New("JWT header is not valid base64url")
+	}
+	var header jwtHeader
+	if err := json.Unmarshal(headerBytes, &header); err != nil || header.Algorithm != "HS256" {
+		return jwtPayload{}, errors.New("JWT algorithm is not HS256")
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return jwtPayload{}, errors.New("JWT payload is not valid base64url")
+	}
+	var payload jwtPayload
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return jwtPayload{}, errors.New("JWT payload is not valid JSON")
+	}
+	if payload.Issuer != allMailJWTIssuer {
+		return jwtPayload{}, errors.New("JWT issuer is invalid")
+	}
+	if payload.ExpiresAt == 0 || float64(now.Unix()) >= payload.ExpiresAt {
+		return jwtPayload{}, errors.New("JWT is expired")
+	}
+	if payload.NotBefore != nil && float64(now.Unix()) < *payload.NotBefore {
+		return jwtPayload{}, errors.New("JWT is not active")
+	}
+	if !audienceContains(payload.Audience, audience) {
+		return jwtPayload{}, errors.New("JWT audience is invalid")
+	}
+	if payload.SessionVersion <= 0 {
+		return jwtPayload{}, errors.New("JWT session version is invalid")
+	}
+
+	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return jwtPayload{}, errors.New("JWT signature is not valid base64url")
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(parts[0] + "." + parts[1]))
+	if !hmac.Equal(signature, mac.Sum(nil)) {
+		return jwtPayload{}, errors.New("JWT signature is invalid")
+	}
+	return payload, nil
+}
+
+func signAdminRevealGrant(admin Admin, secret string, now time.Time) (string, time.Time, error) {
+	expiresAt := now.Add(adminRevealGrantTTL)
+	sessionVersion := admin.SessionVersion
+	if sessionVersion == 0 {
+		sessionVersion = 1
+	}
+	audience, err := json.Marshal(adminRevealJWTAudience)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	headerBytes, err := json.Marshal(jwtHeader{Algorithm: "HS256", Type: "JWT"})
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	payloadBytes, err := json.Marshal(jwtPayload{
+		Issuer:         allMailJWTIssuer,
+		Subject:        strconv.FormatInt(admin.ID, 10),
+		Audience:       audience,
+		ExpiresAt:      float64(expiresAt.Unix()),
+		SessionVersion: sessionVersion,
+		Purpose:        adminRevealJWTPurpose,
+	})
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	header := base64.RawURLEncoding.EncodeToString(headerBytes)
+	payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
+	unsigned := header + "." + payload
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(unsigned))
+	return unsigned + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), expiresAt, nil
+}
+
+func verifyAdminRevealGrant(token string, admin Admin, secret string, now time.Time) error {
+	sessionVersion := admin.SessionVersion
+	if sessionVersion == 0 {
+		sessionVersion = 1
+	}
+	payload, err := verifyJWT(token, secret, now, adminRevealJWTAudience)
+	if err != nil || payload.Subject != strconv.FormatInt(admin.ID, 10) ||
+		payload.SessionVersion != sessionVersion || payload.Purpose != adminRevealJWTPurpose {
+		return &requestError{Status: http.StatusUnauthorized, Code: "REVEAL_UNLOCK_EXPIRED", Cause: err}
+	}
+	return nil
 }
 
 func audienceContains(raw json.RawMessage, expected string) bool {

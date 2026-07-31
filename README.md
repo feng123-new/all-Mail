@@ -48,9 +48,9 @@ flowchart TD
 
     GoBusiness --> Postgres[(PostgreSQL)]
     GoBusiness --> Redis[(Redis)]
+    GoBusiness --> Providers[Mailbox and sending providers]
     Legacy --> Postgres[(PostgreSQL)]
     Legacy --> Redis[(Redis)]
-    Legacy --> Providers[Mailbox and sending providers]
 
     Forwarding[worker-forwarding] --> Postgres
     Forwarding --> Providers
@@ -67,7 +67,7 @@ flowchart TD
     GoMigrate --> Retention
 ```
 
-The public Go gateway receives no PostgreSQL URL, Redis URL, JWT secret, encryption key, or provider credential. It routes committed business families to one of two private upstreams. `go-business-api` receives PostgreSQL, Redis, and a read-only JWT secret file for the migrated API-key and database-backed external routes; Fastify keeps the remaining business routes.
+The public Go gateway receives no PostgreSQL URL, Redis URL, JWT secret, encryption key, or provider credential. It routes committed business families to one of two private upstreams. `go-business-api` receives PostgreSQL, Redis, read-only JWT and encryption-key files, and resolves database-encrypted provider credentials for migrated mailbox, OAuth, and sending routes; Fastify keeps the remaining business routes.
 
 The initial database administrator is created only by `business-init` after Prisma migrations. The long-running Fastify API receives no administrator username, initial password, or environment-managed 2FA secret.
 
@@ -76,10 +76,10 @@ The initial database administrator is created only by `business-init` after Pris
 | Service | Responsibility |
 | --- | --- |
 | `app` | Go public gateway, React SPA, trusted-proxy boundary, readiness, metrics and business API proxy |
-| `go-business-api` | Private Go API-key administration/authentication, Redis limiting, allocation state, and database-backed external APIs |
+| `go-business-api` | Private Go API-key administration/authentication, mailbox/OAuth/sending administration, provider operations, Redis limiting, and external APIs |
 | `worker-forwarding` | Go forwarding claim, send, retry, lease and terminal state transitions |
 | `worker-retention` | Go API-log retention |
-| `business-api` | Internal Fastify/Prisma API for remaining business and provider routes, including API-key auth on retained routes |
+| `business-api` | Internal Fastify/Prisma API for remaining authentication, domain-message, portal, and compatibility routes |
 | `postgres` | Application and runtime state; private to the Compose network |
 | `redis` | OAuth state, rate-limit, replay and cache support; private to the Compose network |
 
@@ -282,7 +282,7 @@ Production startup remains Docker Compose. The repository CLI does not expose a 
 
 ## Remaining migration boundary
 
-Fastify/Prisma still owns administrator and mailbox-portal authentication, OAuth, provider mailbox operations, domain/mailbox writes, ingress business handling, JavaScript regex text extraction compatibility, and the existing business-schema migration history. The private Go business service owns API-key administration/authentication plus the migrated database-only allocation and message-read routes.
+Fastify/Prisma still owns administrator and mailbox-portal authentication, remaining domain/message routes, JavaScript regex text extraction compatibility, durable initialization, and the existing business-schema migration history. The private Go business service owns API-key administration/authentication, external mailbox accounts, OAuth, provider mailbox operations, sending administration/history, and migrated external routes.
 
 The removed environment administrator is not a fallback. Remaining capabilities must move to Go as vertical slices with authorization, validation, transaction, parity and failure-injection tests.
 

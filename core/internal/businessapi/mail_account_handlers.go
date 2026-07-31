@@ -3,6 +3,7 @@ package businessapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -24,18 +25,19 @@ type createMailAccountRequest struct {
 }
 
 type updateMailAccountRequest struct {
-	Email                json.RawMessage `json:"email"`
-	Provider             json.RawMessage `json:"provider"`
-	AuthType             json.RawMessage `json:"authType"`
-	ClientID             json.RawMessage `json:"clientId"`
-	ClientSecret         json.RawMessage `json:"clientSecret"`
-	RefreshToken         json.RawMessage `json:"refreshToken"`
-	Password             json.RawMessage `json:"password"`
-	AccountLoginPassword json.RawMessage `json:"accountLoginPassword"`
-	Status               json.RawMessage `json:"status"`
-	GroupID              json.RawMessage `json:"groupId"`
-	ProviderConfig       json.RawMessage `json:"providerConfig"`
-	Capabilities         json.RawMessage `json:"capabilities"`
+	Email                     json.RawMessage `json:"email"`
+	Provider                  json.RawMessage `json:"provider"`
+	AuthType                  json.RawMessage `json:"authType"`
+	ClientID                  json.RawMessage `json:"clientId"`
+	ClientSecret              json.RawMessage `json:"clientSecret"`
+	RefreshToken              json.RawMessage `json:"refreshToken"`
+	Password                  json.RawMessage `json:"password"`
+	AccountLoginPassword      json.RawMessage `json:"accountLoginPassword"`
+	AccountPasswordGrantToken json.RawMessage `json:"accountPasswordGrantToken"`
+	Status                    json.RawMessage `json:"status"`
+	GroupID                   json.RawMessage `json:"groupId"`
+	ProviderConfig            json.RawMessage `json:"providerConfig"`
+	Capabilities              json.RawMessage `json:"capabilities"`
 }
 
 type mailAccountIDsRequest struct {
@@ -80,19 +82,21 @@ type importMailAccountsRequest struct {
 func (s *Server) registerMailAccountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/emails", s.withAdministrator(s.listMailAccounts))
 	mux.HandleFunc("GET /admin/emails/stats", s.withAdministrator(s.mailAccountStats))
+	mux.HandleFunc("POST /admin/emails/reveal-unlock", s.withAdministrator(s.revealMailAccountUnlock))
+	mux.HandleFunc("POST /admin/emails/{id}/reveal-secrets", s.withAdministrator(s.revealMailAccountSecrets))
 	mux.HandleFunc("GET /admin/emails/{id}", s.withAdministrator(s.getMailAccount))
 	mux.HandleFunc("POST /admin/emails", s.withAdministrator(s.createMailAccount))
 	mux.HandleFunc("PUT /admin/emails/{id}", s.withAdministrator(s.updateMailAccount))
 	mux.HandleFunc("DELETE /admin/emails/{id}", s.withAdministrator(s.deleteMailAccount))
 	mux.HandleFunc("POST /admin/emails/batch-delete", s.withAdministrator(s.batchDeleteMailAccounts))
-	mux.HandleFunc("POST /admin/emails/batch-fetch-mails", s.withAdministrator(s.batchFetchMailAccounts))
-	mux.HandleFunc("POST /admin/emails/batch-clear-mailbox", s.withAdministrator(s.batchClearMailAccounts))
+	mux.HandleFunc("POST /admin/emails/batch-fetch-mails", s.withAdministratorProvider(s.batchFetchMailAccounts))
+	mux.HandleFunc("POST /admin/emails/batch-clear-mailbox", s.withAdministratorProvider(s.batchClearMailAccounts))
 	mux.HandleFunc("POST /admin/emails/import", s.withAdministrator(s.importMailAccounts))
 	mux.HandleFunc("GET /admin/emails/export", s.withAdministrator(s.exportMailAccounts))
-	mux.HandleFunc("GET /admin/emails/{id}/mails", s.withAdministrator(s.fetchMailAccountMessages))
-	mux.HandleFunc("POST /admin/emails/{id}/mails/delete", s.withAdministrator(s.deleteMailAccountMessages))
-	mux.HandleFunc("POST /admin/emails/{id}/send", s.withAdministrator(s.sendMailAccountMessage))
-	mux.HandleFunc("POST /admin/emails/{id}/clear", s.withAdministrator(s.clearMailAccountMailbox))
+	mux.HandleFunc("GET /admin/emails/{id}/mails", s.withAdministratorProvider(s.fetchMailAccountMessages))
+	mux.HandleFunc("POST /admin/emails/{id}/mails/delete", s.withAdministratorProvider(s.deleteMailAccountMessages))
+	mux.HandleFunc("POST /admin/emails/{id}/send", s.withAdministratorProvider(s.sendMailAccountMessage))
+	mux.HandleFunc("POST /admin/emails/{id}/clear", s.withAdministratorProvider(s.clearMailAccountMailbox))
 }
 
 func (s *Server) listMailAccounts(w http.ResponseWriter, r *http.Request, _ Admin) {
@@ -205,7 +209,7 @@ func (s *Server) createMailAccount(w http.ResponseWriter, r *http.Request, _ Adm
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
 }
 
-func (s *Server) updateMailAccount(w http.ResponseWriter, r *http.Request, _ Admin) {
+func (s *Server) updateMailAccount(w http.ResponseWriter, r *http.Request, admin Admin) {
 	store, err := s.managementStore()
 	if err != nil {
 		s.writeRequestError(w, r, err)
@@ -225,6 +229,21 @@ func (s *Server) updateMailAccount(w http.ResponseWriter, r *http.Request, _ Adm
 	if err != nil {
 		s.writeRequestError(w, r, err)
 		return
+	}
+	if input.AccountLoginPasswordPresent {
+		grantToken, present, err := decodeNullableString(body.AccountPasswordGrantToken, "accountPasswordGrantToken")
+		if err != nil {
+			s.writeRequestError(w, r, err)
+			return
+		}
+		if !present || grantToken == nil || strings.TrimSpace(*grantToken) == "" {
+			s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "ACCOUNT_LOGIN_PASSWORD_GRANT_REQUIRED"})
+			return
+		}
+		if err := verifyAdminRevealGrant(*grantToken, admin, s.cfg.JWTSecret, s.now()); err != nil {
+			s.writeRequestError(w, r, err)
+			return
+		}
 	}
 	result, err := store.updateMailAccount(r.Context(), id, input, s.cfg.EncryptionKey)
 	if err != nil {
@@ -301,7 +320,7 @@ func (s *Server) fetchMailAccountMessages(w http.ResponseWriter, r *http.Request
 		return
 	}
 	markAsSeen := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("markAsSeen")), "true")
-	account, err := store.loadMailAccountCredentials(r.Context(), id, s.cfg.EncryptionKey)
+	account, err := s.loadProviderMailAccount(r.Context(), store, id)
 	if err != nil {
 		s.writeStoreError(w, r, "load mail account", err)
 		return
@@ -343,7 +362,7 @@ func (s *Server) deleteMailAccountMessages(w http.ResponseWriter, r *http.Reques
 		s.writeRequestError(w, r, validationError("messageIds must contain between 1 and 1000 values"))
 		return
 	}
-	account, err := store.loadMailAccountCredentials(r.Context(), id, s.cfg.EncryptionKey)
+	account, err := s.loadProviderMailAccount(r.Context(), store, id)
 	if err != nil {
 		s.writeStoreError(w, r, "load mail account", err)
 		return
@@ -353,7 +372,17 @@ func (s *Server) deleteMailAccountMessages(w http.ResponseWriter, r *http.Reques
 		s.writeRequestError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
+	remaining, err := s.fetchAccountMailbox(r.Context(), account, mailbox, 100, true)
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": map[string]any{
+		"email": result.Email, "mailbox": result.Mailbox, "resolvedMailbox": result.ResolvedMailbox,
+		"deletedCount": result.DeletedCount, "mailboxCheckpoint": remaining.MailboxCheckpoint,
+		"method": result.Method, "provider": result.Provider,
+		"messages": remaining.Messages, "remainingCount": remaining.Count,
+	}})
 }
 
 func (s *Server) sendMailAccountMessage(w http.ResponseWriter, r *http.Request, _ Admin) {
@@ -382,7 +411,7 @@ func (s *Server) sendMailAccountMessage(w http.ResponseWriter, r *http.Request, 
 		s.writeRequestError(w, r, validationError("subject and at least one message body are required"))
 		return
 	}
-	account, err := store.loadMailAccountCredentials(r.Context(), id, s.cfg.EncryptionKey)
+	account, err := s.loadProviderMailAccount(r.Context(), store, id)
 	if err != nil {
 		s.writeStoreError(w, r, "load mail account", err)
 		return
@@ -419,7 +448,7 @@ func (s *Server) clearMailAccountMailbox(w http.ResponseWriter, r *http.Request,
 		s.writeRequestError(w, r, err)
 		return
 	}
-	account, err := store.loadMailAccountCredentials(r.Context(), id, s.cfg.EncryptionKey)
+	account, err := s.loadProviderMailAccount(r.Context(), store, id)
 	if err != nil {
 		s.writeStoreError(w, r, "load mail account", err)
 		return
@@ -451,7 +480,9 @@ func (s *Server) batchMailAccountOperation(w http.ResponseWriter, r *http.Reques
 		s.writeRequestError(w, r, err)
 		return
 	}
-	ids, err := store.selectMailAccountIDs(r.Context(), body)
+	databaseCtx, cancelDatabase := s.databaseContext(r.Context())
+	ids, err := store.selectMailAccountIDs(databaseCtx, body)
+	cancelDatabase()
 	if err != nil {
 		s.writeStoreError(w, r, "select mail accounts", err)
 		return
@@ -468,57 +499,127 @@ func (s *Server) batchMailAccountOperation(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		mailboxes = []string{mailbox}
-	} else if len(mailboxes) == 0 {
-		mailboxes = []string{"INBOX", "SENT", "Junk"}
+	} else {
+		if len(mailboxes) == 0 {
+			mailboxes = []string{"INBOX", "SENT", "Junk"}
+		}
+		validated := make([]string, 0, len(mailboxes))
+		seen := make(map[string]struct{}, len(mailboxes))
+		for _, rawMailbox := range mailboxes {
+			mailbox, err := validateMailboxName(rawMailbox, true)
+			if err != nil {
+				s.writeRequestError(w, r, err)
+				return
+			}
+			if _, duplicate := seen[mailbox]; duplicate {
+				continue
+			}
+			seen[mailbox] = struct{}{}
+			validated = append(validated, mailbox)
+		}
+		mailboxes = validated
 	}
 	results := make([]map[string]any, 0, len(ids))
 	successCount := 0
-	failedCount := 0
+	partialCount := 0
+	errorCount := 0
+	skippedCount := 0
+	deletedCount := 0
 	for _, id := range ids {
-		account, err := store.loadMailAccountCredentials(r.Context(), id, s.cfg.EncryptionKey)
+		account, err := s.loadProviderMailAccount(r.Context(), store, id)
 		if err != nil {
-			failedCount++
-			results = append(results, map[string]any{"id": id, "success": false, "error": boundedProviderError(err)})
+			errorCount++
+			results = append(results, map[string]any{
+				"id": id, "status": "error", "code": requestErrorCode(err, "MAIL_ACCOUNT_LOAD_FAILED"), "mailboxResults": []any{},
+			})
 			continue
 		}
-		accountResult := map[string]any{"id": id, "email": account.Email, "success": true}
-		mailboxResults := make([]any, 0, len(mailboxes))
-		for _, rawMailbox := range mailboxes {
-			mailbox, err := validateMailboxName(rawMailbox, !clear)
-			if err != nil {
-				accountResult["success"] = false
-				mailboxResults = append(mailboxResults, map[string]any{"mailbox": rawMailbox, "error": boundedProviderError(err)})
+		if account.Status == "DISABLED" {
+			skippedCount++
+			results = append(results, map[string]any{
+				"id": id, "email": account.Email, "status": "skipped", "code": "EMAIL_TARGET_DISABLED", "deletedCount": 0, "mailboxResults": []any{},
+			})
+			continue
+		}
+		if clear {
+			if !mailAccountSupportsClear(account) {
+				skippedCount++
+				results = append(results, map[string]any{
+					"id": id, "email": account.Email, "status": "skipped", "code": "MAILBOX_CLEAR_UNSUPPORTED", "deletedCount": 0, "mailboxResults": []any{},
+				})
 				continue
 			}
-			if clear {
-				result, err := s.clearAccountMailbox(r.Context(), account, mailbox)
-				if err != nil {
-					accountResult["success"] = false
-					mailboxResults = append(mailboxResults, map[string]any{"mailbox": mailbox, "error": boundedProviderError(err)})
-				} else {
-					mailboxResults = append(mailboxResults, result)
-				}
-			} else {
-				result, err := s.fetchAccountMailbox(r.Context(), account, mailbox, 100, false)
-				if err != nil {
-					accountResult["success"] = false
-					mailboxResults = append(mailboxResults, map[string]any{"mailbox": mailbox, "error": boundedProviderError(err)})
-				} else {
-					mailboxResults = append(mailboxResults, result)
-				}
+			result, err := s.clearAccountMailbox(r.Context(), account, mailboxes[0])
+			if err != nil {
+				errorCount++
+				results = append(results, map[string]any{
+					"id": id, "email": account.Email, "status": "error", "code": requestErrorCode(err, "MAILBOX_CLEAR_FAILED"), "deletedCount": 0,
+				})
+				continue
 			}
-		}
-		accountResult["mailboxes"] = mailboxResults
-		if accountResult["success"] == true {
+			deletedCount += result.DeletedCount
 			successCount++
-		} else {
-			failedCount++
+			results = append(results, map[string]any{
+				"id": id, "email": account.Email, "status": "success", "code": "MAILBOX_CLEAR_SUCCESS", "deletedCount": result.DeletedCount,
+			})
+			continue
 		}
-		results = append(results, accountResult)
+
+		mailboxResults := make([]any, 0, len(mailboxes))
+		mailboxSuccesses := 0
+		for _, mailbox := range mailboxes {
+			result, err := s.fetchAccountMailbox(r.Context(), account, mailbox, 100, false)
+			if err != nil {
+				mailboxResults = append(mailboxResults, map[string]any{
+					"mailbox": mailbox, "status": "error", "code": requestErrorCode(err, "MAILBOX_FETCH_FAILED"),
+				})
+				continue
+			}
+			mailboxSuccesses++
+			mailboxResults = append(mailboxResults, map[string]any{
+				"mailbox": mailbox, "status": "success", "count": result.Count,
+			})
+		}
+		status, code := "error", "EMAIL_BATCH_FETCH_FAILED"
+		switch {
+		case mailboxSuccesses == len(mailboxes):
+			status, code = "success", "EMAIL_BATCH_FETCH_SUCCESS"
+			successCount++
+		case mailboxSuccesses > 0:
+			status, code = "partial", "EMAIL_BATCH_FETCH_PARTIAL"
+			partialCount++
+		default:
+			errorCount++
+		}
+		if mailboxSuccesses > 0 {
+			databaseCtx, cancelDatabase := s.databaseContext(context.WithoutCancel(r.Context()))
+			if err := store.updateMailAccountHealth(databaseCtx, account.ID, true, ""); err != nil {
+				s.logger.Error("persist batch mailbox health", "request_id", requestID(r), "account_id", account.ID, "error", err)
+			}
+			cancelDatabase()
+		}
+		results = append(results, map[string]any{
+			"id": id, "email": account.Email, "status": status, "code": code, "mailboxResults": mailboxResults,
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": map[string]any{
-		"total": len(ids), "successCount": successCount, "failedCount": failedCount, "results": results,
+		"targeted": len(ids), "deletedCount": deletedCount, "successCount": successCount,
+		"partialCount": partialCount, "errorCount": errorCount, "skippedCount": skippedCount, "results": results,
 	}})
+}
+
+func requestErrorCode(err error, fallback string) string {
+	var requestErr *requestError
+	if errors.As(err, &requestErr) && strings.TrimSpace(requestErr.Code) != "" {
+		return requestErr.Code
+	}
+	return fallback
+}
+
+func (s *Server) loadProviderMailAccount(ctx context.Context, store *PostgresStore, id int64) (mailAccountCredentials, error) {
+	databaseCtx, cancel := s.databaseContext(ctx)
+	defer cancel()
+	return store.loadMailAccountCredentials(databaseCtx, id, s.cfg.EncryptionKey)
 }
 
 func parseCreateMailAccount(body createMailAccountRequest) (mailAccountCreateInput, error) {
@@ -540,6 +641,9 @@ func parseCreateMailAccount(body createMailAccountRequest) (mailAccountCreateInp
 	}
 	config, err := mergeProviderConfig(body.Provider, body.ProviderConfig)
 	if err != nil {
+		return mailAccountCreateInput{}, err
+	}
+	if err := validateMailAccountProfile(body.Provider, body.AuthType, config); err != nil {
 		return mailAccountCreateInput{}, err
 	}
 	capabilities, err := decodeJSONObject(body.Capabilities, "capabilities")
@@ -629,20 +733,13 @@ func parseUpdateMailAccount(body updateMailAccountRequest) (mailAccountUpdateInp
 	if len(body.ProviderConfig) > 0 {
 		result.ProviderConfigPresent = true
 		if strings.TrimSpace(string(body.ProviderConfig)) == "null" {
-			provider := result.Provider
-			if provider == "" {
-				provider = "CUSTOM_IMAP_SMTP"
-			}
-			result.ProviderConfig = defaultProviderConfig(provider)
+			result.ProviderConfigRaw = json.RawMessage(`{}`)
 		} else {
-			provider := result.Provider
-			if provider == "" {
-				provider = "CUSTOM_IMAP_SMTP"
+			var object map[string]any
+			if err := json.Unmarshal(body.ProviderConfig, &object); err != nil || object == nil {
+				return result, validationError("providerConfig must be a JSON object or null")
 			}
-			result.ProviderConfig, err = mergeProviderConfig(provider, body.ProviderConfig)
-			if err != nil {
-				return result, err
-			}
+			result.ProviderConfigRaw = append(json.RawMessage(nil), body.ProviderConfig...)
 		}
 	}
 	if len(body.Capabilities) > 0 {

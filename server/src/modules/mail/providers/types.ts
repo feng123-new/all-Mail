@@ -972,7 +972,7 @@ export function getDefaultProviderConfig(provider: EmailProvider): MailProviderC
         case 'OUTLOOK':
         default:
             return {
-                readMode: 'AUTO',
+                readMode: 'GRAPH_ONLY',
                 imapHost: 'outlook.office365.com',
                 imapPort: 993,
                 imapTls: true,

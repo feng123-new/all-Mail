@@ -1,11 +1,11 @@
 import { LockOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { Alert, Button, Form, Input, QRCode, Space, Tag, Typography, message } from 'antd';
+import { Alert, Button, Form, Input, message, QRCode, Space, Tag, Typography } from 'antd';
 import { type FC, useCallback, useEffect, useState } from 'react';
 
 import { PageHeader, SurfaceCard } from '../../components';
 import { authContract } from '../../contracts/shared/auth';
-import { adminI18n } from '../../i18n/catalog/admin';
 import { useI18n } from '../../i18n';
+import { adminI18n } from '../../i18n/catalog/admin';
 import { defineMessage } from '../../i18n/messages';
 import { useAuthStore } from '../../stores/authStore';
 import {
@@ -93,7 +93,8 @@ const styles = {
 
 const SettingsPage: FC = () => {
     const { t } = useI18n();
-    const { admin, setAuth } = useAuthStore();
+    const admin = useAuthStore((state) => state.admin);
+    const setAuth = useAuthStore((state) => state.setAuth);
     const mustChangePassword = Boolean(admin?.mustChangePassword);
     const [passwordLoading, setPasswordLoading] = useState(false);
     const [twoFactorLoading, setTwoFactorLoading] = useState(false);
@@ -109,10 +110,11 @@ const SettingsPage: FC = () => {
         : twoFactorStatus;
 
     const syncStoreTwoFactor = useCallback((enabled: boolean) => {
-        if (admin) {
-            setAuth({ ...admin, twoFactorEnabled: enabled });
+        const currentAdmin = useAuthStore.getState().admin;
+        if (currentAdmin && currentAdmin.twoFactorEnabled !== enabled) {
+            setAuth({ ...currentAdmin, twoFactorEnabled: enabled });
         }
-    }, [admin, setAuth]);
+    }, [setAuth]);
 
     const loadTwoFactorStatus = useCallback(async (silent = false) => {
         if (mustChangePassword) {

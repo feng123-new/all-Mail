@@ -47,6 +47,8 @@ type mailAccountCreateInput struct {
 	GroupID              *int64
 	ProviderConfig       mailProviderConfig
 	Capabilities         map[string]any
+	Status               string
+	ErrorMessage         *string
 }
 
 type mailAccountUpdateInput struct {
@@ -68,10 +70,13 @@ type mailAccountUpdateInput struct {
 	AccountLoginPassword        *string
 	StatusPresent               bool
 	Status                      string
+	ErrorMessagePresent         bool
+	ErrorMessage                *string
 	GroupIDPresent              bool
 	GroupID                     *int64
 	ProviderConfigPresent       bool
 	ProviderConfig              mailProviderConfig
+	ProviderConfigRaw           json.RawMessage
 	CapabilitiesPresent         bool
 	Capabilities                map[string]any
 }
@@ -169,7 +174,8 @@ func safeMailAccount(row mailAccountRow) map[string]any {
 	} else {
 		result["group"] = nil
 	}
-	for key, value := range providerProfileSummary(row.Provider, row.AuthType) {
+	mergedProviderConfig, _ := mergeProviderConfig(row.Provider, row.ProviderConfig)
+	for key, value := range providerProfileSummary(row.Provider, row.AuthType, mergedProviderConfig, row.FetchStrategy.String) {
 		result[key] = value
 	}
 	return result
@@ -250,7 +256,7 @@ func (s *PostgresStore) mailAccountStats(ctx context.Context) (map[string]any, e
 		}
 		byProvider[provider] = count
 	}
-	return map[string]any{"total": total, "active": active, "error": failed, "disabled": disabled, "byProvider": byProvider}, rows.Err()
+	return map[string]any{"total": total, "active": active, "error": failed, "disabled": disabled, "providers": byProvider}, rows.Err()
 }
 
 func (s *PostgresStore) getMailAccount(ctx context.Context, id int64) (map[string]any, error) {
@@ -324,11 +330,58 @@ func (s *PostgresStore) loadMailAccountCredentials(ctx context.Context, id int64
 	}, nil
 }
 
+func (s *PostgresStore) loadExternalMailAccountCredentials(ctx context.Context, apiKeyID int64, email, encryptionKey string) (mailAccountCredentials, error) {
+	var accountID int64
+	var groupID sql.NullInt64
+	if err := s.pool.QueryRow(ctx, `
+		SELECT id, group_id
+		FROM email_accounts
+		WHERE LOWER(email) = LOWER($1)
+	`, strings.TrimSpace(email)).Scan(&accountID, &groupID); err != nil {
+		if errorsIsNoRows(err) {
+			return mailAccountCredentials{}, managementNotFound("EMAIL_NOT_FOUND")
+		}
+		return mailAccountCredentials{}, fmt.Errorf("find external mail account: %w", err)
+	}
+	scope, err := s.loadAPIKeyScope(ctx, s.pool, apiKeyID)
+	if err != nil {
+		return mailAccountCredentials{}, err
+	}
+	if len(scope.AllowedEmailIDs) > 0 && !containsManagementID(scope.AllowedEmailIDs, accountID) {
+		return mailAccountCredentials{}, &requestError{Status: http.StatusForbidden, Code: "EMAIL_ACCESS_DENIED"}
+	}
+	if len(scope.AllowedGroupIDs) > 0 && (!groupID.Valid || !containsManagementID(scope.AllowedGroupIDs, groupID.Int64)) {
+		return mailAccountCredentials{}, &requestError{Status: http.StatusForbidden, Code: "EMAIL_ACCESS_DENIED"}
+	}
+	return s.loadMailAccountCredentials(ctx, accountID, encryptionKey)
+}
+
+func containsManagementID(values []int64, expected int64) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *PostgresStore) createMailAccount(ctx context.Context, input mailAccountCreateInput, encryptionKey string) (map[string]any, error) {
-	if err := validateMailAccountInput(input.Provider, input.AuthType, input.ClientID, input.RefreshToken, input.Password); err != nil {
+	var err error
+	input.ProviderConfig, err = s.completeOAuthAccountProviderConfig(ctx, input.Provider, input.ClientID, input.ProviderConfig)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateMailAccountInput(input.Provider, input.AuthType, input.ClientID, input.RefreshToken, input.Password, input.ProviderConfig); err != nil {
 		return nil, err
 	}
 	if err := s.ensureEmailGroup(ctx, input.GroupID); err != nil {
+		return nil, err
+	}
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		status = "ACTIVE"
+	}
+	if err := validateManagementEnum("status", status, "ACTIVE", "ERROR", "DISABLED"); err != nil {
 		return nil, err
 	}
 	providerConfig, err := marshalProviderConfig(input.ProviderConfig)
@@ -366,13 +419,13 @@ func (s *PostgresStore) createMailAccount(ctx context.Context, input mailAccount
 		INSERT INTO email_accounts (
 			email, provider, auth_type, client_id, client_secret, refresh_token, password,
 			account_login_password, provider_config, capabilities, status, group_id,
-			mailbox_status, created_at, updated_at
+			mailbox_status, error_message, created_at, updated_at
 		)
 		VALUES ($1, $2::"MailProvider", $3::"MailAuthType", $4, $5, $6, $7, $8,
-		        $9::jsonb, $10::jsonb, 'ACTIVE', $11, '{}'::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		        $9::jsonb, $10::jsonb, $11::"EmailStatus", $12, '{}'::jsonb, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		RETURNING id
 	`, strings.ToLower(strings.TrimSpace(input.Email)), input.Provider, input.AuthType, input.ClientID,
-		clientSecret, refreshToken, password, loginPassword, string(providerConfig), string(capabilities), input.GroupID).Scan(&id)
+		clientSecret, refreshToken, password, loginPassword, string(providerConfig), string(capabilities), status, input.GroupID, input.ErrorMessage).Scan(&id)
 	if err != nil {
 		if managementPGCode(err) == "23505" {
 			return nil, managementConflict("EMAIL_EXISTS", err)
@@ -380,6 +433,28 @@ func (s *PostgresStore) createMailAccount(ctx context.Context, input mailAccount
 		return nil, fmt.Errorf("create mail account: %w", err)
 	}
 	return s.getMailAccount(ctx, id)
+}
+
+func (s *PostgresStore) completeOAuthAccountProviderConfig(
+	ctx context.Context,
+	provider string,
+	clientID *string,
+	config mailProviderConfig,
+) (mailProviderConfig, error) {
+	if clientID == nil || (config.OAuthTenant != "" && config.OAuthScopes != "") {
+		return config, nil
+	}
+	row, found, err := s.loadOAuthProviderConfigRow(ctx, provider)
+	if err != nil || !found || !row.ClientID.Valid || strings.TrimSpace(row.ClientID.String) != strings.TrimSpace(*clientID) {
+		return config, err
+	}
+	if config.OAuthTenant == "" {
+		config.OAuthTenant = strings.TrimSpace(row.Tenant.String)
+	}
+	if config.OAuthScopes == "" {
+		config.OAuthScopes = strings.TrimSpace(row.Scopes.String)
+	}
+	return config, nil
 }
 
 func (s *PostgresStore) deleteMailAccount(ctx context.Context, id int64) error {
@@ -415,11 +490,14 @@ func (s *PostgresStore) ensureEmailGroup(ctx context.Context, groupID *int64) er
 	return nil
 }
 
-func validateMailAccountInput(provider, authType string, clientID, refreshToken, password *string) error {
+func validateMailAccountInput(provider, authType string, clientID, refreshToken, password *string, config mailProviderConfig) error {
 	if err := validateMailProvider(provider); err != nil {
 		return err
 	}
 	if err := validateMailAuthType(authType); err != nil {
+		return err
+	}
+	if err := validateMailAccountProfile(provider, authType, config); err != nil {
 		return err
 	}
 	oauth := authType == "MICROSOFT_OAUTH" || authType == "GOOGLE_OAUTH"
@@ -432,6 +510,27 @@ func validateMailAccountInput(provider, authType string, clientID, refreshToken,
 		}
 	} else if password == nil || strings.TrimSpace(*password) == "" {
 		return validationError("password is required for app-password mail accounts")
+	}
+	return nil
+}
+
+func validateMailAccountProfile(provider, authType string, config mailProviderConfig) error {
+	switch provider {
+	case "OUTLOOK":
+		if authType != "MICROSOFT_OAUTH" {
+			return validationError("OUTLOOK requires MICROSOFT_OAUTH")
+		}
+	case "GMAIL":
+		if authType != "GOOGLE_OAUTH" && authType != "APP_PASSWORD" {
+			return validationError("GMAIL requires GOOGLE_OAUTH or APP_PASSWORD")
+		}
+	default:
+		if authType != "APP_PASSWORD" {
+			return validationError(provider + " requires APP_PASSWORD")
+		}
+	}
+	if authType == "APP_PASSWORD" && (strings.TrimSpace(config.IMAPHost) == "" || strings.TrimSpace(config.SMTPHost) == "") {
+		return validationError(provider + " requires imapHost and smtpHost")
 	}
 	return nil
 }

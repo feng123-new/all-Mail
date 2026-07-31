@@ -32,10 +32,11 @@ Go owns:
 - database-backed external mailbox/domain-mail allocation, listing, statistics, reset, and persisted message reads;
 - signed ingress authentication, encrypted endpoint-secret reads, Redis replay protection, mailbox resolution, inbound persistence, and forwarding-job creation;
 - administrator, email-group, domain-mailbox, and mailbox-user management, including batch mailbox transactions and membership synchronization;
+- external mailbox account management, OAuth state/configuration, Gmail/Graph/IMAP/SMTP provider operations, sending configuration/history, and Resend delivery;
 - checksummed additive migrations;
 - forwarding and API-log retention workers.
 
-Fastify/Prisma still owns administrator and mailbox-portal authentication, OAuth, provider-dependent mailbox operations, domain/mailbox/alias/user writes, sending, JavaScript regex text extraction compatibility, durable business configuration import, initial administrator bootstrap, and complete business-schema migrations.
+Fastify/Prisma still owns administrator and mailbox-portal authentication, remaining domain/message/alias routes, JavaScript regex text extraction compatibility, durable business configuration import, initial administrator bootstrap, and complete business-schema migrations.
 
 ## Runtime layout
 
@@ -111,7 +112,7 @@ go-business-api:
   ENCRYPTION_KEY_FILE=/var/lib/all-mail-encryption/encryption-key
 ```
 
-The public `app` receives neither file. `go-business-api` receives PostgreSQL, Redis, the read-only JWT file, and a read-only encryption-key copy used only to decrypt persisted ingress endpoint secrets; it receives no raw ingress secret, OAuth credential, or provider credential.
+The public `app` receives neither file. `go-business-api` receives PostgreSQL, Redis, the read-only JWT file, and a read-only encryption-key copy used to decrypt persisted provider, OAuth, sending, and ingress credentials; raw secrets remain absent from its environment.
 
 ## Public gateway routing
 
@@ -134,9 +135,14 @@ DELETE /admin/dashboard/logs/:id           -> go-business-api
 POST   /admin/dashboard/logs/batch-delete  -> go-business-api
 
 /admin/api-keys/**                         -> go-business-api
+/admin/emails/**                           -> go-business-api
+/admin/oauth/**                            -> go-business-api
+/admin/send/**                             -> go-business-api
+/oauth                                     -> go-business-api
 database-only /api mailbox routes          -> go-business-api
+provider /api mail_new/mail_all/process    -> go-business-api
 database-only /api/domain-mail routes      -> go-business-api
-provider and regex compatibility routes    -> business-api
+regex compatibility routes                 -> business-api
 ```
 
 ```text
@@ -187,7 +193,7 @@ Go owns API-key CRUD, explicit fail-closed permissions, aliases and wildcards, S
 
 Historical keys with NULL or empty permissions are migrated to explicit `all=true` before either runtime starts. New keys require at least one enabled known permission.
 
-Database-only external routes are exact Go-owned entries. Provider/IMAP/Graph/SMTP operations and JavaScript regex text extraction remain Fastify-owned.
+Database and provider-dependent external mailbox routes are exact Go-owned entries. JavaScript regex text extraction remains Fastify-owned.
 
 Redis failure is fail closed and makes `go-business-api` not ready.
 
@@ -216,11 +222,10 @@ Repository gates cover Go format/race/vet/build/govulncheck, route ownership, JW
 
 Recommended order:
 
-1. domain, mailbox, alias, user, and administrator writes;
-2. provider-dependent reads, synchronization, OAuth configuration, token refresh, sending, and outbound history;
-3. mailbox-portal and administrator authentication;
-4. complete business-schema authority and encrypted-data cutover;
-5. zero-traffic observation and final Node/Prisma deletion.
+1. remaining domain, message, alias, and portal routes;
+2. mailbox-portal and administrator authentication;
+3. complete business-schema authority and encrypted-data cutover;
+4. zero-traffic observation and final Node/Prisma deletion.
 
 Every slice must move authorization, validation, transactions, parity, failure injection, method-aware ownership, Docker smoke, and revision rollback together.
 

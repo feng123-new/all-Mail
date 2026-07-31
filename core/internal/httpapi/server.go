@@ -120,7 +120,7 @@ func (s *Server) Run(ctx context.Context) error {
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		WriteTimeout:      gatewayWriteTimeout(s.cfg),
 		IdleTimeout:       90 * time.Second,
 	}
 
@@ -149,6 +149,10 @@ func (s *Server) Run(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+func gatewayWriteTimeout(cfg config.APIConfig) time.Duration {
+	return cfg.ProviderTimeout + 30*time.Second
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {

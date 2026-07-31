@@ -28,9 +28,12 @@ func (s *PostgresStore) updateMailAccount(ctx context.Context, id int64, input m
 	password := row.Password
 	loginPassword := row.AccountLoginPassword
 	status := row.Status
+	errorMessage := row.ErrorMessage
 	groupID := row.GroupID
 	providerConfig := row.ProviderConfig
 	capabilities := row.Capabilities
+	profileChanged := (input.ProviderPresent && input.Provider != row.Provider) ||
+		(input.AuthTypePresent && input.AuthType != row.AuthType)
 
 	if input.EmailPresent {
 		email = strings.ToLower(strings.TrimSpace(input.Email))
@@ -83,6 +86,9 @@ func (s *PostgresStore) updateMailAccount(ctx context.Context, id int64, input m
 	if input.StatusPresent {
 		status = input.Status
 	}
+	if input.ErrorMessagePresent {
+		errorMessage = nullableSQLString(input.ErrorMessage)
+	}
 	if input.GroupIDPresent {
 		groupID = nullableSQLInt64(input.GroupID)
 	}
@@ -93,16 +99,26 @@ func (s *PostgresStore) updateMailAccount(ctx context.Context, id int64, input m
 		}
 	}
 	if input.ProviderConfigPresent {
-		providerConfig, err = marshalProviderConfig(input.ProviderConfig)
-		if err != nil {
-			return nil, err
-		}
-	} else if input.ProviderPresent || input.AuthTypePresent {
-		config, err := mergeProviderConfig(provider, providerConfig)
-		if err != nil {
-			return nil, err
+		config := input.ProviderConfig
+		if len(input.ProviderConfigRaw) > 0 {
+			config = defaultProviderConfig(provider)
+			if !profileChanged {
+				config, err = mergeProviderConfig(provider, providerConfig)
+				if err != nil {
+					return nil, err
+				}
+			}
+			config, err = mergeProviderConfigInto(config, input.ProviderConfigRaw)
+			if err != nil {
+				return nil, err
+			}
 		}
 		providerConfig, err = marshalProviderConfig(config)
+		if err != nil {
+			return nil, err
+		}
+	} else if profileChanged {
+		providerConfig, err = marshalProviderConfig(defaultProviderConfig(provider))
 		if err != nil {
 			return nil, err
 		}
@@ -117,6 +133,13 @@ func (s *PostgresStore) updateMailAccount(ctx context.Context, id int64, input m
 		return nil, err
 	}
 	if err := validateMailAuthType(authType); err != nil {
+		return nil, err
+	}
+	config, err := mergeProviderConfig(provider, providerConfig)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateMailAccountProfile(provider, authType, config); err != nil {
 		return nil, err
 	}
 	oauth := authType == "MICROSOFT_OAUTH" || authType == "GOOGLE_OAUTH"
@@ -141,11 +164,12 @@ func (s *PostgresStore) updateMailAccount(ctx context.Context, id int64, input m
 		    group_id = $11,
 		    provider_config = $12::jsonb,
 		    capabilities = $13::jsonb,
+		    error_message = $14,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1
 	`, id, email, provider, authType, nullableAnyString(clientID), nullableAnyString(clientSecret),
 		nullableAnyString(refreshToken), nullableAnyString(password), nullableAnyString(loginPassword), status,
-		nullableAnyInt64(groupID), string(providerConfig), string(capabilities))
+		nullableAnyInt64(groupID), string(providerConfig), string(capabilities), nullableAnyString(errorMessage))
 	if err != nil {
 		if managementPGCode(err) == "23505" {
 			return nil, managementConflict("EMAIL_EXISTS", err)

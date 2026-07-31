@@ -37,7 +37,7 @@ func (p gmailMailProvider) Fetch(ctx context.Context, account mailAccountCredent
 		return providerFetchResult{}, providerFailure("MAILBOX_REQUEST_INVALID", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := p.server.providerClient().Do(request)
+	response, err := p.server.doProviderRequest(account, request)
 	if err != nil {
 		return providerFetchResult{}, providerFailure("MAILBOX_FETCH_FAILED", err)
 	}
@@ -51,7 +51,7 @@ func (p gmailMailProvider) Fetch(ctx context.Context, account mailAccountCredent
 	}
 	messages := make([]providerMessage, 0, len(list.Messages))
 	for _, reference := range list.Messages {
-		message, err := p.getMessage(ctx, token, reference.ID)
+		message, err := p.getMessage(ctx, token, reference.ID, account)
 		if err != nil {
 			return providerFetchResult{}, err
 		}
@@ -73,17 +73,21 @@ func (p gmailMailProvider) Delete(ctx context.Context, account mailAccountCreden
 	if err != nil {
 		return providerDeleteResult{}, err
 	}
+	return p.deleteWithToken(ctx, token, account, mailbox, messageIDs)
+}
+
+func (p gmailMailProvider) deleteWithToken(ctx context.Context, token string, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error) {
 	for _, messageID := range messageIDs {
 		if strings.TrimSpace(messageID) == "" {
 			return providerDeleteResult{}, validationError("messageIds must contain non-empty values")
 		}
-		endpoint := "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + url.PathEscape(messageID)
-		request, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+		endpoint := "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + url.PathEscape(messageID) + "/trash"
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 		if err != nil {
 			return providerDeleteResult{}, providerFailure("MAIL_DELETE_FAILED", err)
 		}
 		request.Header.Set("Authorization", "Bearer "+token)
-		response, err := p.server.providerClient().Do(request)
+		response, err := p.server.doProviderRequest(account, request)
 		if err != nil {
 			return providerDeleteResult{}, providerFailure("MAIL_DELETE_FAILED", err)
 		}
@@ -98,22 +102,72 @@ func (p gmailMailProvider) Delete(ctx context.Context, account mailAccountCreden
 		Email:        account.Email,
 		Mailbox:      mailbox,
 		DeletedCount: len(messageIDs),
-		Message:      "messages deleted",
+		Message:      "messages trashed",
 		Method:       "GMAIL_API",
 		Provider:     account.Provider,
 	}, nil
 }
 
 func (p gmailMailProvider) Clear(ctx context.Context, account mailAccountCredentials, mailbox string) (providerDeleteResult, error) {
-	result, err := p.Fetch(ctx, account, mailbox, 100)
+	token, err := p.server.refreshProviderAccessToken(ctx, account)
 	if err != nil {
 		return providerDeleteResult{}, err
 	}
-	ids := make([]string, 0, len(result.Messages))
-	for _, message := range result.Messages {
-		ids = append(ids, message.ID)
+	ids, err := p.listMessageIDs(ctx, token, mailbox, account)
+	if err != nil {
+		return providerDeleteResult{}, err
 	}
-	return p.Delete(ctx, account, mailbox, ids)
+	return p.deleteWithToken(ctx, token, account, mailbox, ids)
+}
+
+func (p gmailMailProvider) listMessageIDs(ctx context.Context, token, mailbox string, account mailAccountCredentials) ([]string, error) {
+	label := gmailLabel(mailbox)
+	pageToken := ""
+	ids := make([]string, 0, 500)
+	seenPageTokens := make(map[string]struct{})
+	for {
+		endpoint := fmt.Sprintf(
+			"https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=%s&maxResults=500",
+			url.QueryEscape(label),
+		)
+		if pageToken != "" {
+			endpoint += "&pageToken=" + url.QueryEscape(pageToken)
+		}
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, providerFailure("MAILBOX_REQUEST_INVALID", err)
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		response, err := p.server.doProviderRequest(account, request)
+		if err != nil {
+			return nil, providerFailure("MAILBOX_FETCH_FAILED", err)
+		}
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			providerErr := providerHTTPFailure("MAILBOX_FETCH_FAILED", response)
+			response.Body.Close()
+			return nil, providerErr
+		}
+		var page gmailMessageList
+		decodeErr := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&page)
+		response.Body.Close()
+		if decodeErr != nil {
+			return nil, providerFailure("MAILBOX_RESPONSE_INVALID", decodeErr)
+		}
+		for _, message := range page.Messages {
+			if strings.TrimSpace(message.ID) == "" {
+				return nil, providerFailure("MAILBOX_RESPONSE_INVALID", fmt.Errorf("Gmail message id is missing"))
+			}
+			ids = append(ids, message.ID)
+		}
+		if page.NextPageToken == "" {
+			return ids, nil
+		}
+		if _, duplicate := seenPageTokens[page.NextPageToken]; duplicate {
+			return nil, providerFailure("MAILBOX_RESPONSE_INVALID", fmt.Errorf("Gmail pagination token repeated"))
+		}
+		seenPageTokens[page.NextPageToken] = struct{}{}
+		pageToken = page.NextPageToken
+	}
 }
 
 func (p gmailMailProvider) Send(ctx context.Context, account mailAccountCredentials, input providerSendInput) (providerSendResult, error) {
@@ -135,7 +189,7 @@ func (p gmailMailProvider) Send(ctx context.Context, account mailAccountCredenti
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := p.server.providerClient().Do(request)
+	response, err := p.server.doProviderRequest(account, request)
 	if err != nil {
 		return providerSendResult{}, providerFailure("MAIL_SEND_FAILED", err)
 	}
@@ -161,14 +215,14 @@ func (p gmailMailProvider) Send(ctx context.Context, account mailAccountCredenti
 	}, nil
 }
 
-func (p gmailMailProvider) getMessage(ctx context.Context, token, id string) (providerMessage, error) {
+func (p gmailMailProvider) getMessage(ctx context.Context, token, id string, account mailAccountCredentials) (providerMessage, error) {
 	endpoint := "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + url.PathEscape(id) + "?format=full"
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return providerMessage{}, providerFailure("MAILBOX_REQUEST_INVALID", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := p.server.providerClient().Do(request)
+	response, err := p.server.doProviderRequest(account, request)
 	if err != nil {
 		return providerMessage{}, providerFailure("MAILBOX_FETCH_FAILED", err)
 	}
@@ -204,6 +258,7 @@ type gmailMessageList struct {
 	Messages []struct {
 		ID string `json:"id"`
 	} `json:"messages"`
+	NextPageToken string `json:"nextPageToken"`
 }
 
 type gmailMessagePayload struct {

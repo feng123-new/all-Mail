@@ -8,14 +8,16 @@ import (
 )
 
 type mailProviderConfig struct {
-	ReadMode   string            `json:"readMode,omitempty"`
-	IMAPHost   string            `json:"imapHost,omitempty"`
-	IMAPPort   int               `json:"imapPort,omitempty"`
-	IMAPTLS    *bool             `json:"imapTls,omitempty"`
-	SMTPHost   string            `json:"smtpHost,omitempty"`
-	SMTPPort   int               `json:"smtpPort,omitempty"`
-	SMTPSecure *bool             `json:"smtpSecure,omitempty"`
-	Folders    map[string]string `json:"folders,omitempty"`
+	ReadMode    string            `json:"readMode,omitempty"`
+	IMAPHost    string            `json:"imapHost,omitempty"`
+	IMAPPort    int               `json:"imapPort,omitempty"`
+	IMAPTLS     *bool             `json:"imapTls,omitempty"`
+	SMTPHost    string            `json:"smtpHost,omitempty"`
+	SMTPPort    int               `json:"smtpPort,omitempty"`
+	SMTPSecure  *bool             `json:"smtpSecure,omitempty"`
+	Folders     map[string]string `json:"folders,omitempty"`
+	OAuthTenant string            `json:"oauthTenant,omitempty"`
+	OAuthScopes string            `json:"oauthScopes,omitempty"`
 }
 
 type mailAccountCredentials struct {
@@ -34,6 +36,7 @@ type mailAccountCredentials struct {
 	Status               string
 	GroupID              *int64
 	MailboxStatus        map[string]any
+	Proxy                providerProxyConfig
 }
 
 type providerMessage struct {
@@ -146,13 +149,25 @@ func representativeProtocol(provider, authType string) string {
 	return "imap_smtp"
 }
 
-func providerProfileSummary(provider, authType string) map[string]any {
+func providerProfileSummary(provider, authType string, config mailProviderConfig, fetchStrategy string) map[string]any {
 	oauth := authType == "MICROSOFT_OAUTH" || authType == "GOOGLE_OAUTH"
+	clearMailbox := mailAccountSupportsClear(mailAccountCredentials{
+		Provider: provider, AuthType: authType, ProviderConfig: config, FetchStrategy: fetchStrategy,
+	})
+	sendMail := mailAccountSupportsSend(mailAccountCredentials{
+		Provider: provider, AuthType: authType, ProviderConfig: config, FetchStrategy: fetchStrategy,
+	})
 	modes := []string{"IMAP", "SMTP"}
 	secondary := []string{"smtp"}
 	if provider == "OUTLOOK" && oauth {
-		modes = []string{"GRAPH_API", "IMAP"}
-		secondary = []string{"imap"}
+		switch strings.ToUpper(strings.TrimSpace(config.ReadMode)) {
+		case "GRAPH_API", "GRAPH_ONLY":
+			modes, secondary = []string{"GRAPH_API"}, []string{}
+		case "IMAP", "IMAP_ONLY":
+			modes, secondary = []string{"IMAP"}, []string{}
+		default:
+			modes, secondary = []string{"GRAPH_API", "IMAP"}, []string{"imap"}
+		}
 	}
 	if provider == "GMAIL" && oauth {
 		modes = []string{"GMAIL_API", "IMAP"}
@@ -167,8 +182,8 @@ func providerProfileSummary(provider, authType string) map[string]any {
 			"readInbox":    true,
 			"readJunk":     true,
 			"readSent":     true,
-			"clearMailbox": true,
-			"sendMail":     true,
+			"clearMailbox": clearMailbox,
+			"sendMail":     sendMail,
 			"usesOAuth":    oauth,
 			"receiveMail":  true,
 			"apiAccess":    oauth,
@@ -187,6 +202,7 @@ func defaultProviderConfig(provider string) mailProviderConfig {
 	config := mailProviderConfig{ReadMode: "IMAP", IMAPPort: 993, IMAPTLS: &secure, SMTPPort: 465, SMTPSecure: &secure, Folders: map[string]string{"inbox": "INBOX", "junk": "Junk", "sent": "Sent"}}
 	switch provider {
 	case "GMAIL":
+		config.ReadMode = "GMAIL_API"
 		config.IMAPHost, config.SMTPHost = "imap.gmail.com", "smtp.gmail.com"
 		config.Folders["junk"], config.Folders["sent"] = "[Gmail]/Spam", "[Gmail]/Sent Mail"
 	case "QQ":
@@ -220,6 +236,7 @@ func defaultProviderConfig(provider string) mailProviderConfig {
 	case "YANDEX":
 		config.IMAPHost, config.SMTPHost = "imap.yandex.com", "smtp.yandex.com"
 	case "OUTLOOK":
+		config.ReadMode = "GRAPH_ONLY"
 		config.IMAPHost, config.SMTPHost = "outlook.office365.com", "smtp.office365.com"
 		config.SMTPPort = 587
 		config.SMTPSecure = boolPointer(false)
@@ -228,7 +245,10 @@ func defaultProviderConfig(provider string) mailProviderConfig {
 }
 
 func mergeProviderConfig(provider string, raw json.RawMessage) (mailProviderConfig, error) {
-	config := defaultProviderConfig(provider)
+	return mergeProviderConfigInto(defaultProviderConfig(provider), raw)
+}
+
+func mergeProviderConfigInto(config mailProviderConfig, raw json.RawMessage) (mailProviderConfig, error) {
 	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
 		return config, nil
 	}
@@ -264,6 +284,12 @@ func mergeProviderConfig(provider string, raw json.RawMessage) (mailProviderConf
 		for key, value := range override.Folders {
 			config.Folders[strings.ToLower(key)] = strings.TrimSpace(value)
 		}
+	}
+	if override.OAuthTenant != "" {
+		config.OAuthTenant = strings.TrimSpace(override.OAuthTenant)
+	}
+	if override.OAuthScopes != "" {
+		config.OAuthScopes = strings.TrimSpace(override.OAuthScopes)
 	}
 	if config.IMAPPort < 1 || config.IMAPPort > 65535 || config.SMTPPort < 1 || config.SMTPPort > 65535 {
 		return mailProviderConfig{}, validationError("providerConfig contains an invalid port")

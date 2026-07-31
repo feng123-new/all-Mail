@@ -36,8 +36,10 @@ func TestLoadGoBusinessAPIRequiresDatabaseAndSecretFiles(t *testing.T) {
 		"JWT_SECRET_FILE",
 		"ENCRYPTION_KEY_FILE",
 		"INGRESS_ALLOWED_SKEW_SECONDS",
+		"ADMIN_2FA_WINDOW",
 		"READY_TIMEOUT_SECONDS",
 		"GO_BUSINESS_QUERY_TIMEOUT_SECONDS",
+		"MAIL_PROVIDER_TIMEOUT_SECONDS",
 		"SHUTDOWN_TIMEOUT_SECONDS",
 	)
 	if _, err := LoadGoBusinessAPI(); err == nil {
@@ -72,7 +74,7 @@ func TestLoadGoBusinessAPIRequiresDatabaseAndSecretFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Port != 3200 || cfg.ReadyTimeout != 5*time.Second || cfg.QueryTimeout != 10*time.Second ||
-		cfg.ShutdownTimeout != 15*time.Second || cfg.IngressAllowedSkew != 5*time.Minute {
+		cfg.ProviderTimeout != 5*time.Minute || cfg.ShutdownTimeout != 15*time.Second || cfg.IngressAllowedSkew != 5*time.Minute || cfg.Admin2FAWindow != 1 {
 		t.Fatalf("Go business defaults = %#v", cfg)
 	}
 	if cfg.JWTSecret != "0123456789abcdef0123456789abcdef" {
@@ -112,8 +114,18 @@ func TestLoadGoBusinessAPIRejectsUnsafeValues(t *testing.T) {
 		t.Fatal("LoadGoBusinessAPI() accepted a zero query timeout")
 	}
 	t.Setenv("GO_BUSINESS_QUERY_TIMEOUT_SECONDS", "10")
+	t.Setenv("MAIL_PROVIDER_TIMEOUT_SECONDS", "0")
+	if _, err := LoadGoBusinessAPI(); err == nil {
+		t.Fatal("LoadGoBusinessAPI() accepted a zero provider timeout")
+	}
+	t.Setenv("MAIL_PROVIDER_TIMEOUT_SECONDS", "300")
 	t.Setenv("INGRESS_ALLOWED_SKEW_SECONDS", "3601")
 	if _, err := LoadGoBusinessAPI(); err == nil {
 		t.Fatal("LoadGoBusinessAPI() accepted an excessive ingress signature window")
+	}
+	t.Setenv("INGRESS_ALLOWED_SKEW_SECONDS", "300")
+	t.Setenv("ADMIN_2FA_WINDOW", "6")
+	if _, err := LoadGoBusinessAPI(); err == nil {
+		t.Fatal("LoadGoBusinessAPI() accepted an excessive TOTP window")
 	}
 }

@@ -67,8 +67,11 @@ Fastify Dashboard handlers remain temporarily as revision rollback code. They re
 - external mailbox allocation/list/statistics/reset;
 - domain mailbox allocation/list/statistics/reset;
 - persisted domain-message reads.
+- external mailbox account management and provider-backed read/delete/send/clear operations;
+- OAuth configuration, Redis state/status, code exchange, verified remote identity binding, and token refresh;
+- sending configuration/history and Resend delivery.
 
-Provider-dependent mailbox access and JavaScript regular-expression text extraction remain Fastify-owned.
+JavaScript regular-expression text extraction remains Fastify-owned.
 
 ### Session-security foundation
 
@@ -87,12 +90,11 @@ The Cloudflare Email Worker now stores raw messages under deterministic SHA-256 
 
 ## Remaining vertical migrations
 
-1. Move domain, mailbox, alias, mailbox-user, and administrator write operations that do not require provider access.
-2. Move provider-dependent reads, synchronization, OAuth configuration, token refresh, sending operations, and outbound history.
-3. Move mailbox-portal and administrator authentication, including login lockout, 2FA, password rotation, OAuth state, and JWT issuance.
-4. Transfer complete business-schema migration authority from Prisma to Go.
-5. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.
-6. Observe zero Fastify proxy traffic, then remove the Node/Prisma runtime in a separate revision.
+1. Move remaining domain, message, alias, and portal operations.
+2. Move mailbox-portal and administrator authentication, including login lockout, 2FA, password rotation, and JWT issuance.
+3. Transfer complete business-schema migration authority from Prisma to Go.
+4. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.
+5. Observe zero Fastify proxy traffic, then remove the Node/Prisma runtime in a separate revision.
 
 Each route cutover must include its Go handler, authorization, validation, transaction behavior, response parity, failure injection, method-aware manifest change, public-gateway Docker smoke, readiness checks, and revision rollback path.
 

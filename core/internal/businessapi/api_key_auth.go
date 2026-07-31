@@ -32,6 +32,27 @@ func (s *Server) withAPIKey(action string, next func(http.ResponseWriter, *http.
 	}
 }
 
+func (s *Server) withAPIKeyProvider(action string, next func(http.ResponseWriter, *http.Request, APIKeyPrincipal)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		databaseCtx, cancelDatabase := context.WithTimeout(r.Context(), s.cfg.QueryTimeout)
+		principal, err := s.authenticateAPIKey(databaseCtx, r)
+		cancelDatabase()
+		if err != nil {
+			s.writeRequestError(w, r, err)
+			return
+		}
+		if !permissionAllowed(principal.Permissions, action) {
+			s.logExternalCall(r, principal.ID, nil, action, http.StatusForbidden, started)
+			s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_PERMISSION"})
+			return
+		}
+		providerCtx, cancelProvider := context.WithTimeout(r.Context(), s.cfg.ProviderTimeout)
+		defer cancelProvider()
+		next(w, r.WithContext(providerCtx), principal)
+	}
+}
+
 func (s *Server) authenticateAPIKey(ctx context.Context, request *http.Request) (APIKeyPrincipal, error) {
 	if s.apiKeyStore == nil {
 		return APIKeyPrincipal{}, &requestError{Status: http.StatusServiceUnavailable, Code: "API_KEY_STORE_UNAVAILABLE"}

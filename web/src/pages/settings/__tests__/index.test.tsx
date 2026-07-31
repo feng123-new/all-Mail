@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import SettingsPage from '..';
+import { authContract } from '../../../contracts/shared/auth';
 import { I18nProvider } from '../../../i18n';
 import { useAuthStore } from '../../../stores/authStore';
+import SettingsPage from '..';
 
 vi.mock('../../../contracts/shared/auth', () => ({
   authContract: {
@@ -15,8 +16,6 @@ vi.mock('../../../contracts/shared/auth', () => ({
     disableTwoFactor: vi.fn(),
   },
 }));
-
-import { authContract } from '../../../contracts/shared/auth';
 
 function ok<T>(data: T) {
   return Promise.resolve({ code: 200, data });
@@ -56,5 +55,9 @@ describe('SettingsPage API usage localization', () => {
     expect(screen.getByText(/Use a header instead: curl -H/)).toBeInTheDocument();
     expect(screen.queryByText('# 通过 Header 传递访问密钥')).not.toBeInTheDocument();
     expect(screen.queryByText('# 不再支持 Query 参数传递访问密钥')).not.toBeInTheDocument();
+
+    await waitFor(() => expect(authContract.getTwoFactorStatus).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(authContract.getTwoFactorStatus).toHaveBeenCalledTimes(1);
   });
 });

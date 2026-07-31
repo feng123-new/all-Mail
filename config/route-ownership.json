@@ -54,19 +54,17 @@
     },
     {
       "id": "admin-emails",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/emails",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-oauth",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/oauth",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-email-groups",
@@ -176,11 +174,10 @@
     },
     {
       "id": "admin-send",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/send",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-other",
@@ -244,6 +241,48 @@
       "owner": "go-business-api",
       "match": "exact",
       "path": "/api/reset-pool",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-latest",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/messages/latest",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-latest-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/mail_new",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-messages",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/messages",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-messages-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/mail_all",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-clear",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/mailboxes/clear",
+      "migrationStage": "complete"
+    },
+    {
+      "id": "ext-email-clear-compat",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/api/process-mailbox",
       "migrationStage": "complete"
     },
     {
@@ -387,11 +426,10 @@
     },
     {
       "id": "oauth-compatibility",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/oauth",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "spa",

@@ -17,9 +17,11 @@ type GoBusinessAPIConfig struct {
 	RedisURL           string
 	JWTSecret          string
 	EncryptionKey      string
+	Admin2FAWindow     int
 	IngressAllowedSkew time.Duration
 	ReadyTimeout       time.Duration
 	QueryTimeout       time.Duration
+	ProviderTimeout    time.Duration
 	ShutdownTimeout    time.Duration
 }
 
@@ -47,11 +49,19 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	if err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
+	providerSeconds, err := envInt("MAIL_PROVIDER_TIMEOUT_SECONDS", 300)
+	if err != nil {
+		return GoBusinessAPIConfig{}, err
+	}
 	shutdownSeconds, err := envInt("SHUTDOWN_TIMEOUT_SECONDS", 15)
 	if err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
 	ingressSkewSeconds, err := envInt("INGRESS_ALLOWED_SKEW_SECONDS", 300)
+	if err != nil {
+		return GoBusinessAPIConfig{}, err
+	}
+	admin2FAWindow, err := envInt("ADMIN_2FA_WINDOW", 1)
 	if err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
@@ -70,9 +80,11 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 		RedisURL:           strings.TrimSpace(os.Getenv("REDIS_URL")),
 		JWTSecret:          jwtSecret,
 		EncryptionKey:      encryptionKey,
+		Admin2FAWindow:     admin2FAWindow,
 		IngressAllowedSkew: time.Duration(ingressSkewSeconds) * time.Second,
 		ReadyTimeout:       time.Duration(readySeconds) * time.Second,
 		QueryTimeout:       time.Duration(querySeconds) * time.Second,
+		ProviderTimeout:    time.Duration(providerSeconds) * time.Second,
 		ShutdownTimeout:    time.Duration(shutdownSeconds) * time.Second,
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
@@ -84,11 +96,14 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	if cfg.RedisURL == "" {
 		return GoBusinessAPIConfig{}, errors.New("REDIS_URL is required for the Go business API")
 	}
-	if cfg.ReadyTimeout <= 0 || cfg.QueryTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
+	if cfg.ReadyTimeout <= 0 || cfg.QueryTimeout <= 0 || cfg.ProviderTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
 		return GoBusinessAPIConfig{}, errors.New("Go business API timeouts must be positive")
 	}
 	if cfg.IngressAllowedSkew < time.Second || cfg.IngressAllowedSkew > time.Hour {
 		return GoBusinessAPIConfig{}, errors.New("INGRESS_ALLOWED_SKEW_SECONDS must be between 1 and 3600")
+	}
+	if cfg.Admin2FAWindow < 0 || cfg.Admin2FAWindow > 5 {
+		return GoBusinessAPIConfig{}, errors.New("ADMIN_2FA_WINDOW must be between 0 and 5")
 	}
 	if err := validateAbsoluteURL("DATABASE_URL", cfg.DatabaseURL, "postgres", "postgresql"); err != nil {
 		return GoBusinessAPIConfig{}, err

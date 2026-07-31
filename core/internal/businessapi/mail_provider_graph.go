@@ -35,7 +35,7 @@ func (p graphMailProvider) Fetch(ctx context.Context, account mailAccountCredent
 		return providerFetchResult{}, providerFailure("MAILBOX_REQUEST_INVALID", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := p.server.providerClient().Do(request)
+	response, err := p.server.doProviderRequest(account, request)
 	if err != nil {
 		return providerFetchResult{}, providerFailure("MAILBOX_FETCH_FAILED", err)
 	}
@@ -85,6 +85,10 @@ func (p graphMailProvider) Delete(ctx context.Context, account mailAccountCreden
 	if err != nil {
 		return providerDeleteResult{}, err
 	}
+	return p.deleteWithToken(ctx, token, account, mailbox, messageIDs)
+}
+
+func (p graphMailProvider) deleteWithToken(ctx context.Context, token string, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error) {
 	for _, messageID := range messageIDs {
 		if strings.TrimSpace(messageID) == "" {
 			return providerDeleteResult{}, validationError("messageIds must contain non-empty values")
@@ -95,7 +99,7 @@ func (p graphMailProvider) Delete(ctx context.Context, account mailAccountCreden
 			return providerDeleteResult{}, providerFailure("MAIL_DELETE_FAILED", err)
 		}
 		request.Header.Set("Authorization", "Bearer "+token)
-		response, err := p.server.providerClient().Do(request)
+		response, err := p.server.doProviderRequest(account, request)
 		if err != nil {
 			return providerDeleteResult{}, providerFailure("MAIL_DELETE_FAILED", err)
 		}
@@ -117,15 +121,64 @@ func (p graphMailProvider) Delete(ctx context.Context, account mailAccountCreden
 }
 
 func (p graphMailProvider) Clear(ctx context.Context, account mailAccountCredentials, mailbox string) (providerDeleteResult, error) {
-	result, err := p.Fetch(ctx, account, mailbox, 100)
+	token, err := p.server.refreshProviderAccessToken(ctx, account)
 	if err != nil {
 		return providerDeleteResult{}, err
 	}
-	ids := make([]string, 0, len(result.Messages))
-	for _, message := range result.Messages {
-		ids = append(ids, message.ID)
+	ids, err := p.listMessageIDs(ctx, token, mailbox, account)
+	if err != nil {
+		return providerDeleteResult{}, err
 	}
-	return p.Delete(ctx, account, mailbox, ids)
+	return p.deleteWithToken(ctx, token, account, mailbox, ids)
+}
+
+func (p graphMailProvider) listMessageIDs(ctx context.Context, token, mailbox string, account mailAccountCredentials) ([]string, error) {
+	folder := graphFolder(mailbox)
+	endpoint := fmt.Sprintf(
+		"https://graph.microsoft.com/v1.0/me/mailFolders/%s/messages?$top=500&$select=id",
+		url.PathEscape(folder),
+	)
+	ids := make([]string, 0, 500)
+	seenLinks := make(map[string]struct{})
+	for endpoint != "" {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, providerFailure("MAILBOX_REQUEST_INVALID", err)
+		}
+		if request.URL.Scheme != "https" || request.URL.Host != "graph.microsoft.com" {
+			return nil, providerFailure("MAILBOX_RESPONSE_INVALID", fmt.Errorf("Graph pagination URL is invalid"))
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		response, err := p.server.doProviderRequest(account, request)
+		if err != nil {
+			return nil, providerFailure("MAILBOX_FETCH_FAILED", err)
+		}
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			providerErr := providerHTTPFailure("MAILBOX_FETCH_FAILED", response)
+			response.Body.Close()
+			return nil, providerErr
+		}
+		var page graphMessageList
+		decodeErr := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&page)
+		response.Body.Close()
+		if decodeErr != nil {
+			return nil, providerFailure("MAILBOX_RESPONSE_INVALID", decodeErr)
+		}
+		for _, message := range page.Value {
+			if strings.TrimSpace(message.ID) == "" {
+				return nil, providerFailure("MAILBOX_RESPONSE_INVALID", fmt.Errorf("Graph message id is missing"))
+			}
+			ids = append(ids, message.ID)
+		}
+		endpoint = strings.TrimSpace(page.NextLink)
+		if endpoint != "" {
+			if _, duplicate := seenLinks[endpoint]; duplicate {
+				return nil, providerFailure("MAILBOX_RESPONSE_INVALID", fmt.Errorf("Graph pagination link repeated"))
+			}
+			seenLinks[endpoint] = struct{}{}
+		}
+	}
+	return ids, nil
 }
 
 func (p graphMailProvider) Send(ctx context.Context, account mailAccountCredentials, input providerSendInput) (providerSendResult, error) {
@@ -157,7 +210,7 @@ func (p graphMailProvider) Send(ctx context.Context, account mailAccountCredenti
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := p.server.providerClient().Do(request)
+	response, err := p.server.doProviderRequest(account, request)
 	if err != nil {
 		return providerSendResult{}, providerFailure("MAIL_SEND_FAILED", err)
 	}
@@ -173,7 +226,8 @@ func (p graphMailProvider) Send(ctx context.Context, account mailAccountCredenti
 }
 
 type graphMessageList struct {
-	Value []struct {
+	NextLink string `json:"@odata.nextLink"`
+	Value    []struct {
 		ID               string `json:"id"`
 		Subject          string `json:"subject"`
 		BodyPreview      string `json:"bodyPreview"`

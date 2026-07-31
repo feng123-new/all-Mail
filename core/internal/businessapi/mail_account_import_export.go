@@ -3,6 +3,8 @@ package businessapi
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -195,6 +197,13 @@ func parseTokenizedImportedMailAccount(parts []string, provider, authType string
 		result.RefreshToken = stringPointer(parts[4])
 		if len(parts) > 5 {
 			result.AccountLoginPassword = optionalStringPointer(parts[5])
+		}
+		if len(parts) > 6 {
+			config, err := decodeImportedOAuthProviderConfig(provider, parts[6])
+			if err != nil {
+				return importedMailAccount{}, err
+			}
+			result.ProviderConfig = config
 		}
 		return result, nil
 	}
@@ -392,7 +401,12 @@ func (s *PostgresStore) upsertImportedMailAccount(ctx context.Context, imported 
 		ProviderConfig:       imported.ProviderConfig,
 		Capabilities:         map[string]any{},
 	}
-	if err := validateMailAccountInput(input.Provider, input.AuthType, input.ClientID, input.RefreshToken, input.Password); err != nil {
+	var err error
+	input.ProviderConfig, err = s.completeOAuthAccountProviderConfig(ctx, input.Provider, input.ClientID, input.ProviderConfig)
+	if err != nil {
+		return err
+	}
+	if err := validateMailAccountInput(input.Provider, input.AuthType, input.ClientID, input.RefreshToken, input.Password, input.ProviderConfig); err != nil {
 		return err
 	}
 	config, err := marshalProviderConfig(input.ProviderConfig)
@@ -510,10 +524,19 @@ func formatExportMailAccount(row exportMailAccountRow, separator string, rawSecr
 	}
 	head := mailImportToken(row.Provider, row.AuthType)
 	if row.AuthType != "APP_PASSWORD" {
-		parts := []string{head, row.Email, row.ClientID.String, clientSecret, refreshToken}
-		if rawSecrets {
-			parts = append(parts, loginPassword)
+		config, err := mergeProviderConfig(row.Provider, row.ProviderConfig)
+		if err != nil {
+			return "", err
 		}
+		encodedConfig, err := json.Marshal(config)
+		if err != nil {
+			return "", fmt.Errorf("encode OAuth provider config: %w", err)
+		}
+		parts := []string{head, row.Email, row.ClientID.String, clientSecret, refreshToken, ""}
+		if rawSecrets {
+			parts[5] = loginPassword
+		}
+		parts = append(parts, "config:"+base64.RawURLEncoding.EncodeToString(encodedConfig))
 		return strings.Join(parts, separator), nil
 	}
 	config, err := mergeProviderConfig(row.Provider, row.ProviderConfig)
@@ -536,6 +559,22 @@ func formatExportMailAccount(row exportMailAccountRow, separator string, rawSecr
 		parts = append(parts, loginPassword)
 	}
 	return strings.Join(parts, separator), nil
+}
+
+func decodeImportedOAuthProviderConfig(provider, encoded string) (mailProviderConfig, error) {
+	encoded = strings.TrimSpace(encoded)
+	if !strings.HasPrefix(encoded, "config:") {
+		return mailProviderConfig{}, fmt.Errorf("OAuth provider config is invalid")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(encoded, "config:"))
+	if err != nil {
+		return mailProviderConfig{}, fmt.Errorf("decode OAuth provider config: %w", err)
+	}
+	config, err := mergeProviderConfig(provider, json.RawMessage(raw))
+	if err != nil {
+		return mailProviderConfig{}, err
+	}
+	return config, nil
 }
 
 func mailImportToken(provider, authType string) string {
