@@ -121,6 +121,14 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 		assert.equal(route?.targetOwner, "go-business-api", id);
 	}
 
+	const ingress = manifest.routes.find((candidate) => candidate.id === "ingress-domain-mail");
+	assert.equal(ingress?.owner, "go-business-api");
+	assert.equal(ingress?.migrationStage, "complete");
+	assert.equal(ingress?.targetOwner, undefined);
+	const ingressCatchAll = manifest.routes.find((candidate) => candidate.id === "ingress-other");
+	assert.equal(ingressCatchAll?.owner, "business-api");
+	assert.equal(ingressCatchAll?.targetOwner, "go-business-api");
+
 	const fallback = manifest.routes.filter((route) => route.match === "fallback");
 	assert.deepEqual(fallback, [{
 		id: "spa",
