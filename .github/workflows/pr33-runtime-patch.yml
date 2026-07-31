@@ -1,4 +1,5 @@
 name: PR33 runtime contract patch
+# One-shot migration coordinator; removed after committing permanent files.
 
 on:
   pull_request:
