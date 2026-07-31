@@ -1,12 +1,16 @@
 name: PR33 runtime contract patch
 
 on:
-  push:
-    branches:
-      - agent/go-ingress-lifecycle
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
+
+concurrency:
+  group: pr33-runtime-contract
+  cancel-in-progress: true
 
 jobs:
   apply:
