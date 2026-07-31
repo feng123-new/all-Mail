@@ -1,0 +1,58 @@
+name: PR33 fix runtime patch anchor
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr33-fix-runtime-patch
+  cancel-in-progress: true
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/go-ingress-lifecycle
+          fetch-depth: 0
+      - name: Replace brittle bootstrap block with a stable insertion anchor
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/pr33_runtime_patch.py')
+          content = path.read_text(encoding='utf-8')
+          start_marker = "replace_once(\n    'scripts/bootstrap-admin-docker-smoke.sh',\n    '''docker compose exec -T go-business-api sh -lc '"
+          next_marker = "insert_after(\n    'scripts/bootstrap-admin-docker-smoke.sh',\n    '''grep -qi '^X-All-Mail-Route-Owner: go-business-api' \"$write_headers\""
+          start = content.find(start_marker)
+          end = content.find(next_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('brittle bootstrap patch block was not found')
+          replacement = '''insert_after(
+              'scripts/bootstrap-admin-docker-smoke.sh',
+              ''' + '"""' + '''  test -r /var/lib/all-mail-secrets/jwt-secret
+          ''' + '"""' + ''',
+              ''' + '"""' + '''  test -r /var/lib/all-mail-encryption/encryption-key
+            test "${JWT_SECRET_FILE:-}" = "/var/lib/all-mail-secrets/jwt-secret"
+            test "${ENCRYPTION_KEY_FILE:-}" = "/var/lib/all-mail-encryption/encryption-key"
+          ''' + '"""' + ''',
+          )
+          '''
+          path.write_text(content[:start] + replacement + content[end:], encoding='utf-8')
+          PY
+          python3 -m py_compile scripts/pr33_runtime_patch.py
+          git diff --check
+      - name: Commit the corrected patch and remove this helper
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/pr33_runtime_patch.py
+          git rm .github/workflows/pr33-fix-runtime-patch.yml
+          git commit -m "fix(ci): make PR33 runtime patch anchor stable"
+          git push origin HEAD:agent/go-ingress-lifecycle
