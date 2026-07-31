@@ -99,23 +99,16 @@ grep -q 'INGRESS_SIGNATURE_REQUIRED' "$ingress_body"
 ''',
 )
 
-replace_once(
+insert_after(
     '.github/workflows/config-security.yml',
-    '''          forwarding_env = services['worker-forwarding'].get('environment', {})
-          assert forwarding_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail-secrets/encryption-key'
-          assert 'ENCRYPTION_KEY' not in forwarding_env
-
-          assert services['worker-retention'].get('volumes') in (None, []), 'retention heartbeat must stay ephemeral' ''',
-    '''          forwarding_env = services['worker-forwarding'].get('environment', {})
-          assert forwarding_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail-secrets/encryption-key'
-          assert 'ENCRYPTION_KEY' not in forwarding_env
+    "          assert 'ENCRYPTION_KEY' not in forwarding_env\n",
+    """
 
           go_business_env = services['go-business-api'].get('environment', {})
           assert go_business_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail-encryption/encryption-key'
           assert go_business_env.get('INGRESS_ALLOWED_SKEW_SECONDS') == '300'
           assert 'ENCRYPTION_KEY' not in go_business_env
-
-          assert services['worker-retention'].get('volumes') in (None, []), 'retention heartbeat must stay ephemeral' ''',
+""",
 )
 
 replace_once(
