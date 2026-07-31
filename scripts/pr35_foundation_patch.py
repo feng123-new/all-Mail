@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def replace(path: str, old: str, new: str) -> None:
     target = ROOT / path
     content = target.read_text(encoding="utf-8")
-    if new in content:
+    if new and new in content:
         return
     if old not in content:
         raise SystemExit(f"missing marker in {path}: {old[:140]!r}")
@@ -22,24 +22,24 @@ replace(
 replace(
     "core/internal/businessapi/mail_provider_types.go",
     '''type mailProvider interface {
-	Fetch(ctx providerContext, account mailAccountCredentials, mailbox string, limit int) (providerFetchResult, error)
-	Delete(ctx providerContext, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error)
-	Clear(ctx providerContext, account mailAccountCredentials, mailbox string) (providerDeleteResult, error)
-	Send(ctx providerContext, account mailAccountCredentials, input providerSendInput) (providerSendResult, error)
+\tFetch(ctx providerContext, account mailAccountCredentials, mailbox string, limit int) (providerFetchResult, error)
+\tDelete(ctx providerContext, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error)
+\tClear(ctx providerContext, account mailAccountCredentials, mailbox string) (providerDeleteResult, error)
+\tSend(ctx providerContext, account mailAccountCredentials, input providerSendInput) (providerSendResult, error)
 }
 
 type providerContext interface {
-	Done() <-chan struct{}
-	Err() error
-	Deadline() (time.Time, bool)
-	Value(any) any
+\tDone() <-chan struct{}
+\tErr() error
+\tDeadline() (time.Time, bool)
+\tValue(any) any
 }
 ''',
     '''type mailProvider interface {
-	Fetch(ctx context.Context, account mailAccountCredentials, mailbox string, limit int) (providerFetchResult, error)
-	Delete(ctx context.Context, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error)
-	Clear(ctx context.Context, account mailAccountCredentials, mailbox string) (providerDeleteResult, error)
-	Send(ctx context.Context, account mailAccountCredentials, input providerSendInput) (providerSendResult, error)
+\tFetch(ctx context.Context, account mailAccountCredentials, mailbox string, limit int) (providerFetchResult, error)
+\tDelete(ctx context.Context, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error)
+\tClear(ctx context.Context, account mailAccountCredentials, mailbox string) (providerDeleteResult, error)
+\tSend(ctx context.Context, account mailAccountCredentials, input providerSendInput) (providerSendResult, error)
 }
 ''',
 )
@@ -72,38 +72,38 @@ replace(
 )
 replace(
     "core/internal/businessapi/mail_provider_imap_smtp.go",
-    '''	if deadline, ok := ctx.Deadline(); ok {
-		_ = client.SetDeadline(deadline)
-	}
+    '''\tif deadline, ok := ctx.Deadline(); ok {
+\t\t_ = client.SetDeadline(deadline)
+\t}
 ''',
     '',
 )
 replace(
     "core/internal/businessapi/mail_provider_imap_smtp.go",
-    '''	textHeaders := make(map[string][]string)
-	textHeaders["Content-Type"] = []string{"text/plain; charset=UTF-8"}
+    '''\ttextHeaders := make(map[string][]string)
+\ttextHeaders["Content-Type"] = []string{"text/plain; charset=UTF-8"}
 ''',
-    '''	textHeaders := make(textproto.MIMEHeader)
-	textHeaders.Set("Content-Type", "text/plain; charset=UTF-8")
+    '''\ttextHeaders := make(textproto.MIMEHeader)
+\ttextHeaders.Set("Content-Type", "text/plain; charset=UTF-8")
 ''',
 )
 replace(
     "core/internal/businessapi/mail_provider_imap_smtp.go",
-    '''	htmlHeaders := make(map[string][]string)
-	htmlHeaders["Content-Type"] = []string{"text/html; charset=UTF-8"}
+    '''\thtmlHeaders := make(map[string][]string)
+\thtmlHeaders["Content-Type"] = []string{"text/html; charset=UTF-8"}
 ''',
-    '''	htmlHeaders := make(textproto.MIMEHeader)
-	htmlHeaders.Set("Content-Type", "text/html; charset=UTF-8")
+    '''\thtmlHeaders := make(textproto.MIMEHeader)
+\thtmlHeaders.Set("Content-Type", "text/html; charset=UTF-8")
 ''',
 )
 
 replace(
     "core/internal/businessapi/server.go",
-    '''	replayProtector    ReplayProtector
-	now                func() time.Time
+    '''\treplayProtector    ReplayProtector
+\tnow                func() time.Time
 ''',
-    '''	replayProtector    ReplayProtector
-	providerHTTPClient *http.Client
-	now                func() time.Time
+    '''\treplayProtector    ReplayProtector
+\tproviderHTTPClient *http.Client
+\tnow                func() time.Time
 ''',
 )
