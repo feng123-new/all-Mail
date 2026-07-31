@@ -6,6 +6,7 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- moved Dashboard single and batch operation-log deletion to the private Go business service with bounded validation and transactionally coupled administrator audit records
 - added durable administrator and mailbox session versions so password, role, status, mandatory-rotation, and 2FA changes immediately revoke older JWTs; also reduced default Microsoft OAuth scopes to identity and mail capabilities
 - replaced implicit full-access API-key permissions with an explicit fail-closed model, while backfilling historical NULL or empty permission maps to `all=true` before either runtime starts
 - aligned deployment, recovery, environment, and release documentation with the active `app` + `go-business-api` + `business-api` topology
