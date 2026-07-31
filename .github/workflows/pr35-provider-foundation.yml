@@ -1,4 +1,5 @@
 name: PR35 validate provider foundation
+# One-shot coordinator; removed after the source foundation is committed.
 
 on:
   push:
