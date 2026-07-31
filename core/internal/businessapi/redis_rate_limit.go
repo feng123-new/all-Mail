@@ -54,7 +54,7 @@ func (allowAllRateLimiter) Reserve(context.Context, string, string, time.Duratio
 	return true, nil
 }
 func (allowAllRateLimiter) Release(context.Context, string, string) error { return nil }
-func (allowAllRateLimiter) Close()                                      {}
+func (allowAllRateLimiter) Close()                                        {}
 
 func newRedisRateLimiter(rawURL string, timeout time.Duration) (*redisRateLimiter, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
