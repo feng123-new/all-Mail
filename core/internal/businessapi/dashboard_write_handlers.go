@@ -30,10 +30,10 @@ func (s *Server) deleteDashboardLog(w http.ResponseWriter, r *http.Request, admi
 	}
 	started := time.Now()
 	deleted, err := store.DeleteDashboardLog(r.Context(), id, DashboardDeleteAudit{
-		AdminID:      admin.ID,
-		RequestID:    requestID(r),
-		RequestIP:    requestClientIP(r),
-		ResponseTime: time.Since(started).Milliseconds(),
+		AdminID:   admin.ID,
+		RequestID: requestID(r),
+		RequestIP: requestClientIP(r),
+		StartedAt: started,
 	})
 	if err != nil {
 		s.writeStoreError(w, r, "delete Dashboard log", err)
@@ -62,17 +62,25 @@ func (s *Server) batchDeleteDashboardLogs(w http.ResponseWriter, r *http.Request
 		s.writeRequestError(w, r, validationError("ids must be a non-empty array of positive integers"))
 		return
 	}
-	ids = normalizePositiveIDs(ids)
 	if len(ids) == 0 || len(ids) > maxDashboardBatchDeleteIDs {
-		s.writeRequestError(w, r, validationError("ids must contain between 1 and 1000 unique positive integers"))
+		s.writeRequestError(w, r, validationError("ids must contain between 1 and 1000 positive integers"))
+		return
+	}
+	if err := validatePositiveIDs("ids", &ids); err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	ids = normalizePositiveIDs(ids)
+	if len(ids) == 0 {
+		s.writeRequestError(w, r, validationError("ids must contain at least one positive integer"))
 		return
 	}
 	started := time.Now()
 	deleted, err := store.BatchDeleteDashboardLogs(r.Context(), ids, DashboardDeleteAudit{
-		AdminID:      admin.ID,
-		RequestID:    requestID(r),
-		RequestIP:    requestClientIP(r),
-		ResponseTime: time.Since(started).Milliseconds(),
+		AdminID:   admin.ID,
+		RequestID: requestID(r),
+		RequestIP: requestClientIP(r),
+		StartedAt: started,
 	})
 	if err != nil {
 		s.writeStoreError(w, r, "batch delete Dashboard logs", err)
