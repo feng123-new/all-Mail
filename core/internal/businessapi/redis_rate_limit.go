@@ -128,6 +128,52 @@ func (c *redisRateLimiter) Increment(ctx context.Context, key string, ttl time.D
 	return count, nil
 }
 
+func (c *redisRateLimiter) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	seconds := int64(ttl / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	response, err := c.command(ctx, "SET", key, value, "EX", strconv.FormatInt(seconds, 10))
+	if err != nil {
+		return fmt.Errorf("set OAuth state: %w", err)
+	}
+	status, ok := response.(string)
+	if !ok || strings.ToUpper(status) != "OK" {
+		return fmt.Errorf("set OAuth state returned %#v", response)
+	}
+	return nil
+}
+
+func (c *redisRateLimiter) Get(ctx context.Context, key string) (string, bool, error) {
+	response, err := c.command(ctx, "GET", key)
+	if err != nil {
+		return "", false, fmt.Errorf("get OAuth state: %w", err)
+	}
+	if response == nil {
+		return "", false, nil
+	}
+	value, ok := response.(string)
+	if !ok {
+		return "", false, fmt.Errorf("get OAuth state returned %#v", response)
+	}
+	return value, true, nil
+}
+
+func (c *redisRateLimiter) Take(ctx context.Context, key string) (string, bool, error) {
+	response, err := c.command(ctx, "GETDEL", key)
+	if err != nil {
+		return "", false, fmt.Errorf("take OAuth state: %w", err)
+	}
+	if response == nil {
+		return "", false, nil
+	}
+	value, ok := response.(string)
+	if !ok {
+		return "", false, fmt.Errorf("take OAuth state returned %#v", response)
+	}
+	return value, true, nil
+}
+
 func (c *redisRateLimiter) Reserve(
 	ctx context.Context,
 	key string,

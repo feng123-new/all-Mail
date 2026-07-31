@@ -3,11 +3,35 @@ package legacycrypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"strings"
 )
+
+func Encrypt(secret, plaintext string) (string, error) {
+	key := sha256.Sum256([]byte(secret))
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return "", fmt.Errorf("create AES cipher: %w", err)
+	}
+	const nodeNonceSize = 16
+	gcm, err := cipher.NewGCMWithNonceSize(block, nodeNonceSize)
+	if err != nil {
+		return "", fmt.Errorf("create GCM cipher: %w", err)
+	}
+	iv := make([]byte, nodeNonceSize)
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return "", fmt.Errorf("generate encryption IV: %w", err)
+	}
+	sealed := gcm.Seal(nil, iv, []byte(plaintext), nil)
+	tagStart := len(sealed) - gcm.Overhead()
+	ciphertext := sealed[:tagStart]
+	tag := sealed[tagStart:]
+	return fmt.Sprintf("%s:%s:%s", hex.EncodeToString(iv), hex.EncodeToString(tag), hex.EncodeToString(ciphertext)), nil
+}
 
 func Decrypt(secret, envelope string) (string, error) {
 	parts := strings.Split(envelope, ":")

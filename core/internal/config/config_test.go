@@ -16,7 +16,7 @@ func clearEnv(t *testing.T, names ...string) {
 }
 
 func TestLoadAPIRequiresCompatibilityAPIAndStaticAssets(t *testing.T) {
-	clearEnv(t, "PORT", "BUSINESS_API_URL", "ALL_MAIL_STATIC_DIR", "TRUSTED_PROXY_CIDRS")
+	clearEnv(t, "PORT", "BUSINESS_API_URL", "ALL_MAIL_STATIC_DIR", "TRUSTED_PROXY_CIDRS", "MAIL_PROVIDER_TIMEOUT_SECONDS")
 	if _, err := LoadAPI(); err == nil {
 		t.Fatal("LoadAPI() expected missing business API error")
 	}
@@ -27,7 +27,7 @@ func TestLoadAPIRequiresCompatibilityAPIAndStaticAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Port != 3000 || cfg.BusinessAPIURL != "http://business-api:3100" {
+	if cfg.Port != 3000 || cfg.BusinessAPIURL != "http://business-api:3100" || cfg.ProviderTimeout != 5*time.Minute {
 		t.Fatalf("API config = %#v", cfg)
 	}
 }

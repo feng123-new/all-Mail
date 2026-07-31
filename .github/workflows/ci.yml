@@ -166,7 +166,7 @@ jobs:
           SQL
           ./allmail migrate
           ./allmail migrate
-          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "3"
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "4"
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
           test "$(psql "$DATABASE_URL" -Atqc "SELECT datetime_precision FROM information_schema.columns WHERE table_name = 'mailbox_forward_jobs' AND column_name = 'lease_expires_at'")" = "3"
 
@@ -499,6 +499,23 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:3002/readyz
           docker compose exec -T business-api node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
           docker compose exec -T go-business-api allmail doctor business-api
+
+      - name: Verify migrated mail route ownership
+        shell: bash
+        run: |
+          probe_route() {
+            local path="$1"
+            local expected_status="$2"
+            local headers="$RUNNER_TEMP/route-$(printf '%s' "$path" | tr '/?' '--').headers"
+            local status
+            status=$(curl --silent --show-error --output /dev/null --dump-header "$headers" --write-out '%{http_code}' "http://127.0.0.1:3002$path")
+            test "$status" = "$expected_status"
+            grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$headers"
+          }
+          probe_route /admin/emails 401
+          probe_route /admin/oauth/configs 401
+          probe_route /admin/send/configs 401
+          probe_route /oauth 302
 
       - name: Check independent worker doctors
         run: |

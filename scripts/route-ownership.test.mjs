@@ -85,6 +85,9 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 		"admin-dashboard-log-batch-delete",
 		"admin-administrators",
 		"admin-email-groups",
+		"admin-emails",
+		"admin-oauth",
+		"admin-send",
 		"admin-domain-mailboxes",
 		"admin-mailbox-users",
 	]) {
@@ -111,6 +114,8 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 
 	for (const id of [
 		"ext-email-allocate", "ext-email-list", "ext-email-stats", "ext-email-reset",
+		"ext-email-latest", "ext-email-latest-compat", "ext-email-messages", "ext-email-messages-compat",
+		"ext-email-clear", "ext-email-clear-compat",
 		"domain-email-allocate", "domain-email-latest", "domain-email-list",
 		"domain-mailbox-list", "domain-mailbox-stats", "domain-mailbox-reset",
 	]) {
@@ -132,6 +137,11 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 	const ingressCatchAll = manifest.routes.find((candidate) => candidate.id === "ingress-other");
 	assert.equal(ingressCatchAll?.owner, "business-api");
 	assert.equal(ingressCatchAll?.targetOwner, "go-business-api");
+
+	const oauthCompatibility = manifest.routes.find((candidate) => candidate.id === "oauth-compatibility");
+	assert.equal(oauthCompatibility?.owner, "go-business-api");
+	assert.equal(oauthCompatibility?.migrationStage, "complete");
+	assert.equal(oauthCompatibility?.targetOwner, undefined);
 
 	const fallback = manifest.routes.filter((route) => route.match === "fallback");
 	assert.deepEqual(fallback, [{

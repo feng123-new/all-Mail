@@ -112,6 +112,73 @@ func TestRedisRateLimiterValidatesURLsAndRESP(t *testing.T) {
 	}
 }
 
+func TestRedisRateLimiterStoresAndAtomicallyConsumesOAuthState(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	commands := make(chan []string, 3)
+	serverErr := make(chan error, 1)
+	go func() {
+		for handled := 0; handled < 3; handled++ {
+			connection, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				serverErr <- acceptErr
+				return
+			}
+			command, readErr := readTestRESPCommand(bufio.NewReader(connection))
+			if readErr != nil {
+				_ = connection.Close()
+				serverErr <- readErr
+				return
+			}
+			commands <- command
+			switch command[0] {
+			case "SET":
+				_, _ = connection.Write([]byte("+OK\r\n"))
+			case "GET", "GETDEL":
+				_, _ = connection.Write([]byte("$13\r\nstate-payload\r\n"))
+			default:
+				_, _ = connection.Write([]byte("-ERR unexpected command\r\n"))
+			}
+			_ = connection.Close()
+		}
+		serverErr <- nil
+	}()
+
+	store, err := newRedisRateLimiter("redis://"+listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := store.Set(ctx, "admin:oauth:state:test", "state-payload", 10*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if value, found, err := store.Get(ctx, "admin:oauth:state:test"); err != nil || !found || value != "state-payload" {
+		t.Fatalf("Get() = %q, %v, %v", value, found, err)
+	}
+	if value, found, err := store.Take(ctx, "admin:oauth:state:test"); err != nil || !found || value != "state-payload" {
+		t.Fatalf("Take() = %q, %v, %v", value, found, err)
+	}
+
+	setCommand := <-commands
+	getCommand := <-commands
+	takeCommand := <-commands
+	if len(setCommand) != 5 || setCommand[0] != "SET" || setCommand[3] != "EX" || setCommand[4] != "600" {
+		t.Fatalf("SET command = %#v", setCommand)
+	}
+	if len(getCommand) != 2 || getCommand[0] != "GET" {
+		t.Fatalf("GET command = %#v", getCommand)
+	}
+	if len(takeCommand) != 2 || takeCommand[0] != "GETDEL" {
+		t.Fatalf("GETDEL command = %#v", takeCommand)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func readTestRESPCommand(reader *bufio.Reader) ([]string, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {

@@ -17,6 +17,7 @@ type APIConfig struct {
 	BusinessAPIURL    string
 	TrustedProxyCIDRs []netip.Prefix
 	ReadyTimeout      time.Duration
+	ProviderTimeout   time.Duration
 	ShutdownTimeout   time.Duration
 }
 
@@ -68,6 +69,10 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	providerSeconds, err := envInt("MAIL_PROVIDER_TIMEOUT_SECONDS", 300)
+	if err != nil {
+		return APIConfig{}, err
+	}
 	trustedProxyCIDRs, err := parseTrustedProxyCIDRs(os.Getenv("TRUSTED_PROXY_CIDRS"))
 	if err != nil {
 		return APIConfig{}, err
@@ -78,12 +83,13 @@ func LoadAPI() (APIConfig, error) {
 		BusinessAPIURL:    strings.TrimSpace(os.Getenv("BUSINESS_API_URL")),
 		TrustedProxyCIDRs: trustedProxyCIDRs,
 		ReadyTimeout:      time.Duration(readySeconds) * time.Second,
+		ProviderTimeout:   time.Duration(providerSeconds) * time.Second,
 		ShutdownTimeout:   time.Duration(shutdownSeconds) * time.Second,
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return APIConfig{}, errors.New("PORT must be between 1 and 65535")
 	}
-	if cfg.ReadyTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
+	if cfg.ReadyTimeout <= 0 || cfg.ProviderTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
 		return APIConfig{}, errors.New("API runtime timeouts must be positive")
 	}
 	if strings.TrimSpace(cfg.StaticDir) == "" {

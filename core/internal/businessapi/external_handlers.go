@@ -23,6 +23,14 @@ type domainMessageInput struct {
 	Limit *int   `json:"limit"`
 }
 
+type externalProviderMailInput struct {
+	Email   string `json:"email"`
+	Mailbox string `json:"mailbox"`
+	Socks5  string `json:"socks5"`
+	HTTP    string `json:"http"`
+	Proxy   providerProxyConfig
+}
+
 func (s *Server) registerExternalRoutes(mux *http.ServeMux) {
 	for _, path := range []string{"/api/mailboxes/allocate", "/api/get-email"} {
 		mux.HandleFunc(path, s.withAPIKey(actionExternalAllocateMailbox, s.allocateExternalEmail))
@@ -35,6 +43,15 @@ func (s *Server) registerExternalRoutes(mux *http.ServeMux) {
 	}
 	for _, path := range []string{"/api/mailboxes/allocation-reset", "/api/reset-pool"} {
 		mux.HandleFunc(path, s.withAPIKey(actionExternalMailboxAllocationReset, s.resetExternalEmailAllocation))
+	}
+	for _, path := range []string{"/api/messages/latest", "/api/mail_new"} {
+		mux.HandleFunc(path, s.withAPIKeyProvider(actionExternalReadLatestMessage, s.latestExternalProviderMessage))
+	}
+	for _, path := range []string{"/api/messages", "/api/mail_all"} {
+		mux.HandleFunc(path, s.withAPIKeyProvider(actionExternalListMessages, s.listExternalProviderMessages))
+	}
+	for _, path := range []string{"/api/mailboxes/clear", "/api/process-mailbox"} {
+		mux.HandleFunc(path, s.withAPIKeyProvider(actionExternalClearMailbox, s.clearExternalProviderMailbox))
 	}
 
 	for _, path := range []string{"/api/domain-mail/mailboxes/allocate", "/api/domain-mail/get-mailbox"} {
@@ -55,6 +72,104 @@ func (s *Server) registerExternalRoutes(mux *http.ServeMux) {
 	for _, path := range []string{"/api/domain-mail/mailboxes/allocation-reset", "/api/domain-mail/reset-pool"} {
 		mux.HandleFunc(path, s.withAPIKey(actionDomainMailboxAllocationReset, s.resetDomainMailboxAllocation))
 	}
+}
+
+func (s *Server) latestExternalProviderMessage(w http.ResponseWriter, r *http.Request, principal APIKeyPrincipal) {
+	s.externalProviderMessages(w, r, principal, actionExternalReadLatestMessage, 1)
+}
+
+func (s *Server) listExternalProviderMessages(w http.ResponseWriter, r *http.Request, principal APIKeyPrincipal) {
+	s.externalProviderMessages(w, r, principal, actionExternalListMessages, 100)
+}
+
+func (s *Server) externalProviderMessages(w http.ResponseWriter, r *http.Request, principal APIKeyPrincipal, action string, limit int) {
+	started := time.Now()
+	input, err := parseExternalProviderMailInput(r, true)
+	if err != nil {
+		s.finishExternalError(w, r, principal, action, nil, started, err)
+		return
+	}
+	store, err := s.managementStore()
+	if err != nil {
+		s.finishExternalError(w, r, principal, action, nil, started, err)
+		return
+	}
+	databaseCtx, cancelDatabase := s.databaseContext(r.Context())
+	account, err := store.loadExternalMailAccountCredentials(databaseCtx, principal.ID, input.Email, s.cfg.EncryptionKey)
+	cancelDatabase()
+	if err != nil {
+		s.finishExternalError(w, r, principal, action, nil, started, err)
+		return
+	}
+	if account.Status == "DISABLED" {
+		err := &requestError{Status: http.StatusForbidden, Code: "EMAIL_DISABLED"}
+		s.finishExternalError(w, r, principal, action, &account.ID, started, err)
+		return
+	}
+	account.Proxy = input.Proxy
+	result, err := s.fetchAccountMailbox(r.Context(), account, input.Mailbox, limit, false)
+	if err != nil {
+		s.finishExternalError(w, r, principal, action, &account.ID, started, err)
+		return
+	}
+	s.logExternalCall(r, principal.ID, &account.ID, action, http.StatusOK, started)
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result, "email": account.Email})
+}
+
+func (s *Server) clearExternalProviderMailbox(w http.ResponseWriter, r *http.Request, principal APIKeyPrincipal) {
+	started := time.Now()
+	input, err := parseExternalProviderMailInput(r, false)
+	if err != nil {
+		s.finishExternalError(w, r, principal, actionExternalClearMailbox, nil, started, err)
+		return
+	}
+	store, err := s.managementStore()
+	if err != nil {
+		s.finishExternalError(w, r, principal, actionExternalClearMailbox, nil, started, err)
+		return
+	}
+	databaseCtx, cancelDatabase := s.databaseContext(r.Context())
+	account, err := store.loadExternalMailAccountCredentials(databaseCtx, principal.ID, input.Email, s.cfg.EncryptionKey)
+	cancelDatabase()
+	if err != nil {
+		s.finishExternalError(w, r, principal, actionExternalClearMailbox, nil, started, err)
+		return
+	}
+	account.Proxy = input.Proxy
+	result, err := s.clearAccountMailbox(r.Context(), account, input.Mailbox)
+	if err != nil {
+		s.finishExternalError(w, r, principal, actionExternalClearMailbox, &account.ID, started, err)
+		return
+	}
+	s.logExternalCall(r, principal.ID, &account.ID, actionExternalClearMailbox, http.StatusOK, started)
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result, "email": account.Email})
+}
+
+func parseExternalProviderMailInput(r *http.Request, allowSent bool) (externalProviderMailInput, error) {
+	var input externalProviderMailInput
+	if r.Method == http.MethodGet {
+		input.Email = strings.TrimSpace(r.URL.Query().Get("email"))
+		input.Mailbox = strings.TrimSpace(r.URL.Query().Get("mailbox"))
+		input.Socks5 = strings.TrimSpace(r.URL.Query().Get("socks5"))
+		input.HTTP = strings.TrimSpace(r.URL.Query().Get("http"))
+	} else if err := decodeJSONBody(r, &input); err != nil {
+		return input, err
+	}
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	if err := validateEmailAddress(input.Email); err != nil {
+		return input, err
+	}
+	mailbox, err := validateMailboxName(input.Mailbox, allowSent)
+	if err != nil {
+		return input, err
+	}
+	input.Mailbox = mailbox
+	proxyConfig, err := normalizeProviderProxyConfig(input.Socks5, input.HTTP)
+	if err != nil {
+		return input, err
+	}
+	input.Proxy = proxyConfig
+	return input, nil
 }
 
 func (s *Server) allocateExternalEmail(w http.ResponseWriter, r *http.Request, principal APIKeyPrincipal) {

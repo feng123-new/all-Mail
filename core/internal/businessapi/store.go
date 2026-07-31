@@ -2,6 +2,7 @@ package businessapi
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -62,8 +63,10 @@ func (s *PostgresStore) Ping(ctx context.Context) error {
 
 func (s *PostgresStore) FindAdmin(ctx context.Context, id int64) (Admin, error) {
 	var admin Admin
+	var twoFactorSecret sql.NullString
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, username, role::text, status::text, must_change_password, session_version
+		SELECT id, username, role::text, status::text, must_change_password, session_version,
+		       two_factor_enabled, two_factor_secret
 		FROM admins
 		WHERE id = $1
 	`, id).Scan(
@@ -73,12 +76,17 @@ func (s *PostgresStore) FindAdmin(ctx context.Context, id int64) (Admin, error) 
 		&admin.Status,
 		&admin.MustChangePassword,
 		&admin.SessionVersion,
+		&admin.TwoFactorEnabled,
+		&twoFactorSecret,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Admin{}, errNotFound
 	}
 	if err != nil {
 		return Admin{}, fmt.Errorf("load administrator: %w", err)
+	}
+	if twoFactorSecret.Valid {
+		admin.TwoFactorSecret = &twoFactorSecret.String
 	}
 	return admin, nil
 }

@@ -27,8 +27,8 @@ This document is the authoritative variable and secret-ownership contract for `a
 | Runtime | PostgreSQL | Redis | JWT | Encryption key | Provider/OAuth/Ingress secrets |
 | --- | --- | --- | --- | --- | --- |
 | `app` | No | No | No | No | No |
-| `go-business-api` | Yes | Yes | Read-only file | Read-only file | Database-encrypted ingress endpoint secrets only |
-| `business-api` | Yes | Yes | Runtime secret file | Runtime secret file | Database-encrypted state only |
+| `go-business-api` | Yes | Yes | Read-only file | Read-only file | Database-encrypted provider, OAuth, sending, and ingress secrets |
+| `business-api` | Yes | Yes | Runtime secret file | Runtime secret file | Database-encrypted state for remaining routes |
 | `worker-forwarding` | Yes | No | No | Read-only file | Resend API base URL only |
 | `worker-retention` | Yes | No | No | No | No |
 | `business-init` | Yes | No | Generates/imports | Generates/imports | One-shot compatibility inputs |
@@ -70,6 +70,7 @@ Redis      127.0.0.1:6380
 | `TRUSTED_PROXY_CIDRS` | blank | Go `app` | Direct reverse-proxy or tunnel peer CIDRs |
 | `READY_TIMEOUT_SECONDS` | `5` | Go runtimes | Readiness protocol-check bound |
 | `SHUTDOWN_TIMEOUT_SECONDS` | `15` | Go runtimes | Graceful shutdown bound |
+| `MAIL_PROVIDER_TIMEOUT_SECONDS` | `300` | gateway and private `go-business-api` | Provider API, OAuth, IMAP, SMTP, and Resend operation bound; the gateway adds 30 seconds for response delivery |
 | `PUBLIC_BASE_URL` | blank | initializer | External first-login URL |
 
 Internal transport URLs are fixed by Compose and are not operator-controlled route switches:
@@ -140,7 +141,7 @@ go-business-api:
 | `ENCRYPTION_KEY` | generated when blank | initializer and Fastify only |
 | `ENCRYPTION_KEY_FILE` | internal fixed paths | forwarding worker and private `go-business-api` only |
 
-The public `app` receives neither secret. The private Go business service receives a read-only encryption-key copy solely for persisted ingress endpoint secrets. The forwarding worker receives no JWT secret.
+The public `app` receives neither secret. The private Go business service receives a read-only encryption-key copy for persisted provider, OAuth, sending, and ingress secrets. The forwarding worker receives no JWT secret.
 
 Long-running Fastify uses `require-existing` mode and exits instead of generating replacement secrets.
 
@@ -192,6 +193,7 @@ These are Compose-internal inputs, not root `.env.example` ownership switches:
 | `ENCRYPTION_KEY_FILE` | fixed read-only path | Decrypt persisted ingress endpoint signing secrets |
 | `INGRESS_ALLOWED_SKEW_SECONDS` | `300` | Signed ingress timestamp window, limited to 1–3600 seconds |
 | `GO_BUSINESS_QUERY_TIMEOUT_SECONDS` | `10` | Per-request database bound |
+| `MAIL_PROVIDER_TIMEOUT_SECONDS` | `300` | Provider API, OAuth refresh, IMAP, SMTP, and Resend bound; separate from database queries |
 | `READY_TIMEOUT_SECONDS` | `5` | Protocol-check bound |
 | `SHUTDOWN_TIMEOUT_SECONDS` | `15` | Graceful shutdown bound |
 

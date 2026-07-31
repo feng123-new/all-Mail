@@ -17,17 +17,20 @@ import (
 )
 
 type Server struct {
-	cfg                config.GoBusinessAPIConfig
-	logger             *slog.Logger
-	store              Store
-	apiKeyStore        APIKeyStore
-	domainMailboxStore DomainMailboxStore
-	ingressStore       IngressStore
-	rateLimiter        RateLimiter
-	replayProtector    ReplayProtector
-	now                func() time.Time
-	ownStore           bool
-	ownRateLimiter     bool
+	cfg                 config.GoBusinessAPIConfig
+	logger              *slog.Logger
+	store               Store
+	apiKeyStore         APIKeyStore
+	domainMailboxStore  DomainMailboxStore
+	ingressStore        IngressStore
+	rateLimiter         RateLimiter
+	replayProtector     ReplayProtector
+	oauthStateStore     OAuthStateStore
+	providerHTTPClient  *http.Client
+	providerTokenSource func(context.Context, mailAccountCredentials) (string, error)
+	now                 func() time.Time
+	ownStore            bool
+	ownRateLimiter      bool
 }
 
 func New(ctx context.Context, cfg config.GoBusinessAPIConfig, logger *slog.Logger) (*Server, error) {
@@ -55,6 +58,7 @@ func New(ctx context.Context, cfg config.GoBusinessAPIConfig, logger *slog.Logge
 		ingressStore:       store,
 		rateLimiter:        limiter,
 		replayProtector:    limiter,
+		oauthStateStore:    limiter,
 		now:                time.Now,
 		ownStore:           true,
 		ownRateLimiter:     true,
@@ -83,6 +87,7 @@ func newWithDependencies(
 	if replayProtector == nil {
 		replayProtector = allowAllReplayProtector{}
 	}
+	oauthStateStore, _ := rateLimiter.(OAuthStateStore)
 	return &Server{
 		cfg:                cfg,
 		logger:             logger,
@@ -92,6 +97,7 @@ func newWithDependencies(
 		ingressStore:       ingressStore,
 		rateLimiter:        rateLimiter,
 		replayProtector:    replayProtector,
+		oauthStateStore:    oauthStateStore,
 		now:                time.Now,
 	}
 }
@@ -111,7 +117,7 @@ func (s *Server) Run(ctx context.Context) error {
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		WriteTimeout:      s.cfg.QueryTimeout + s.cfg.ProviderTimeout,
 		IdleTimeout:       90 * time.Second,
 	}
 
@@ -149,6 +155,9 @@ func (s *Server) Handler() http.Handler {
 	s.registerEmailGroupManagementRoutes(mux)
 	s.registerDomainMailboxManagementRoutes(mux)
 	s.registerMailboxUserManagementRoutes(mux)
+	s.registerMailAccountRoutes(mux)
+	s.registerOAuthRoutes(mux)
+	s.registerSendRoutes(mux)
 	mux.HandleFunc("/", s.notFound)
 	return s.withRequestMetadata(mux)
 }
@@ -207,6 +216,33 @@ func (s *Server) withAdministrator(next func(http.ResponseWriter, *http.Request,
 		}
 		next(w, r.WithContext(ctx), admin)
 	}
+}
+
+func (s *Server) withAdministratorProvider(next func(http.ResponseWriter, *http.Request, Admin)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		databaseCtx, cancelDatabase := context.WithTimeout(r.Context(), s.cfg.QueryTimeout)
+		admin, err := authenticateAdmin(databaseCtx, r, s.store, s.cfg.JWTSecret, s.now())
+		cancelDatabase()
+		if err != nil {
+			s.writeRequestError(w, r, err)
+			return
+		}
+		providerCtx, cancelProvider := context.WithTimeout(r.Context(), s.cfg.ProviderTimeout)
+		defer cancelProvider()
+		next(w, r.WithContext(providerCtx), admin)
+	}
+}
+
+func (s *Server) withProviderRequest(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ProviderTimeout)
+		defer cancel()
+		next(w, r.WithContext(ctx))
+	}
+}
+
+func (s *Server) databaseContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, s.cfg.QueryTimeout)
 }
 
 func (s *Server) dashboardStats(w http.ResponseWriter, r *http.Request, _ Admin) {

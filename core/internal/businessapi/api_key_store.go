@@ -726,6 +726,31 @@ func (s *PostgresStore) LogAPICall(
 	return nil
 }
 
+func (s *PostgresStore) logAdminAction(
+	ctx context.Context,
+	action string,
+	emailAccountID *int64,
+	requestIP string,
+	responseCode int,
+	responseTimeMS int64,
+	metadata map[string]any,
+) error {
+	encodedMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO api_logs (
+			email_account_id, action, request_ip, response_code, response_time_ms, metadata, created_at
+		)
+		VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::jsonb, CURRENT_TIMESTAMP)
+	`, emailAccountID, action, requestIP, responseCode, responseTimeMS, string(encodedMetadata))
+	if err != nil {
+		return fmt.Errorf("write admin audit log: %w", err)
+	}
+	return nil
+}
+
 const apiKeyDetailsSQL = `
 	SELECT
 		api_key.id,

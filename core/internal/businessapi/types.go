@@ -3,8 +3,11 @@ package businessapi
 import "time"
 
 const (
-	adminJWTAudience = "admin-console"
-	allMailJWTIssuer = "all-mail"
+	adminJWTAudience       = "admin-console"
+	adminRevealJWTAudience = "admin-email-secret-reveal"
+	adminRevealJWTPurpose  = "external_password_reveal"
+	adminRevealGrantTTL    = 10 * time.Minute
+	allMailJWTIssuer       = "all-mail"
 )
 
 var errNotFound = &storeError{message: "record not found"}
@@ -24,6 +27,8 @@ type Admin struct {
 	Status             string
 	MustChangePassword bool
 	SessionVersion     int64
+	TwoFactorEnabled   bool
+	TwoFactorSecret    *string
 }
 
 type DashboardStats struct {

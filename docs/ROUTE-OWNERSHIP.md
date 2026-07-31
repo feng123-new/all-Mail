@@ -74,6 +74,15 @@ The general `/admin/dashboard` catch-all remains Fastify-owned for unknown or fu
 
 `go-business-api` owns the complete administrator API-key surface, explicit fail-closed permissions, hash authentication, status and expiry checks, Redis limiting, usage accounting, resource scopes, allocation state, and request auditing.
 
+It also owns the complete external mailbox account, OAuth configuration/state, and sending administration prefixes:
+
+```text
+/admin/emails/**
+/admin/oauth/**
+/admin/send/**
+/oauth
+```
+
 Database-only external routes are also exact Go-owned entries:
 
 ```text
@@ -81,6 +90,9 @@ Database-only external routes are also exact Go-owned entries:
 /api/list-emails and /api/mailboxes
 /api/pool-stats and /api/mailboxes/allocation-stats
 /api/reset-pool and /api/mailboxes/allocation-reset
+/api/mail_new and /api/messages/latest
+/api/mail_all and /api/messages
+/api/process-mailbox and /api/mailboxes/clear
 /api/domain-mail/get-mailbox and /api/domain-mail/mailboxes/allocate
 /api/domain-mail/messages/latest and /api/domain-mail/mail_new
 /api/domain-mail/messages and /api/domain-mail/mail_all
@@ -89,7 +101,7 @@ Database-only external routes are also exact Go-owned entries:
 /api/domain-mail/reset-pool and /api/domain-mail/mailboxes/allocation-reset
 ```
 
-Provider-dependent mailbox operations and JavaScript regular-expression text extraction remain on `business-api`. Exact Fastify entries for `/api/domain-mail/messages/text` and `/api/domain-mail/mail_text` prevent broader Go message routes from taking those compatibility endpoints.
+Provider-dependent Gmail, Graph, IMAP, SMTP, OAuth, and Resend operations are Go-owned with a provider timeout separate from the database query timeout. JavaScript regular-expression text extraction remains on `business-api`; exact entries for `/api/domain-mail/messages/text` and `/api/domain-mail/mail_text` prevent broader Go message routes from taking those compatibility endpoints.
 
 ## Runtime loading and inspection
 
