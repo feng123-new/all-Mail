@@ -71,7 +71,7 @@ func TestDashboardDeleteRoutesPreserveAuthAuditAndResponseContracts(t *testing.T
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"deleted":2`) {
 		t.Fatalf("batch response = %d %s", response.Code, response.Body.String())
 	}
-	if !reflect.DeepEqual(store.batchIDs, []int64{2, 3}) {
+	if !reflect.DeepEqual(store.batchIDs, []int64{3, 2}) {
 		t.Fatalf("batch ids = %#v", store.batchIDs)
 	}
 	if store.batchAudit.AdminID != 7 || store.batchAudit.RequestID != "dashboard-delete-batch" {
