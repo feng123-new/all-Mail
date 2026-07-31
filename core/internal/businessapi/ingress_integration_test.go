@@ -2,6 +2,8 @@ package businessapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -47,6 +49,8 @@ func TestPostgresAPIKeyAndExternalRouteIntegrationIngress(t *testing.T) {
 	}()
 
 	secretEnvelope := encryptIngressTestSecret(t, testIngressEncryptionKey, testIngressSigningSecret)
+	secretDigest := sha256.Sum256([]byte(testIngressSigningSecret))
+	signingKeyHash := hex.EncodeToString(secretDigest[:])
 	var adminID, domainID, mailboxID, endpointID int64
 	if err := store.pool.QueryRow(ctx, `
 		INSERT INTO admins (
@@ -92,11 +96,11 @@ func TestPostgresAPIKeyAndExternalRouteIntegrationIngress(t *testing.T) {
 			signing_secret_encrypted, status, created_at, updated_at
 		)
 		VALUES (
-			$1, $2, 'integration ingress', 'CLOUDFLARE_WORKER', NULL,
-			$3, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+			$1, $2, 'integration ingress', 'CLOUDFLARE_WORKER', $3,
+			$4, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 		)
 		RETURNING id
-	`, domainID, testIngressKeyID, secretEnvelope).Scan(&endpointID); err != nil {
+	`, domainID, testIngressKeyID, signingKeyHash, secretEnvelope).Scan(&endpointID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
