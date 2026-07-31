@@ -73,23 +73,14 @@ replace_once(
 \tassert.doesNotMatch(goBusiness, /\\n\\s+ENCRYPTION_KEY:|INGRESS_SIGNING_SECRET|ports:/);''',
 )
 
-replace_once(
+insert_after(
     'scripts/bootstrap-admin-docker-smoke.sh',
-    '''docker compose exec -T go-business-api sh -lc '
-  test -r /var/lib/all-mail-secrets/jwt-secret
-  test -z "${JWT_SECRET:-}"
-  test -z "${ENCRYPTION_KEY:-}"
-  test "${REDIS_URL:-}" = "redis://redis:6379"
-' ''',
-    '''docker compose exec -T go-business-api sh -lc '
-  test -r /var/lib/all-mail-secrets/jwt-secret
-  test -r /var/lib/all-mail-encryption/encryption-key
+    """  test -r /var/lib/all-mail-secrets/jwt-secret
+""",
+    """  test -r /var/lib/all-mail-encryption/encryption-key
   test "${JWT_SECRET_FILE:-}" = "/var/lib/all-mail-secrets/jwt-secret"
   test "${ENCRYPTION_KEY_FILE:-}" = "/var/lib/all-mail-encryption/encryption-key"
-  test -z "${JWT_SECRET:-}"
-  test -z "${ENCRYPTION_KEY:-}"
-  test "${REDIS_URL:-}" = "redis://redis:6379"
-' ''',
+""",
 )
 insert_after(
     'scripts/bootstrap-admin-docker-smoke.sh',
