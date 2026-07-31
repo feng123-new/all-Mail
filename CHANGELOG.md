@@ -6,6 +6,8 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- aligned deployment, recovery, environment, and release documentation with the active `app` + `go-business-api` + `business-api` topology
+- added runtime-documentation contract tests for service lists, private ports, aggregate readiness, Secret ownership, and source-available licensing language
 - moved API-key administration, hash authentication, permission aliases, Redis-backed limiting, usage accounting, and allocation state into the private Go business service
 - moved database-only external email/domain-mail allocation, listing, statistics, reset, and persisted message reads to Go while retaining provider and regex compatibility routes on Fastify
 - added real PostgreSQL and Redis integration gates plus public-gateway bootstrap coverage for the second Go business vertical slice
@@ -41,5 +43,5 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 - added safe public screenshots for dashboard and Outlook OAuth setup to improve repository presentation
 - added a dedicated login screenshot, end-to-end Mermaid flow diagram, and clearer guided-reading links for the GitHub README
 - separated `docs/` into public operator docs plus `docs/internal/` for design notes, plans, and maintainer-only reference material
-- documented publish-readiness and open-source release closure guidance in the main README
+- documented source-available publication readiness and license messaging in the documentation index and release checklist
 - made backend static asset registration degrade gracefully when local `public/` assets are absent during tests or non-Docker runtimes
