@@ -15,10 +15,10 @@ function createRawEmailStream(rawEmail: string): ReadableStream<Uint8Array> {
 function createMessage(rawEmail: string): EmailMessageLike {
   const rawBytes = new TextEncoder().encode(rawEmail);
   return {
-    from: 'sender@example.org',
-    to: 'inbox@example.com',
+    from: 'sender@invalid.test',
+    to: 'inbox@invalid.test',
     headers: new Headers({
-      'message-id': '<stable-message-id@example.org>',
+      'message-id': '<stable-message-id@invalid.test>',
       subject: 'Worker test',
     }),
     raw: createRawEmailStream(rawEmail),
@@ -30,7 +30,7 @@ function createMessage(rawEmail: string): EmailMessageLike {
 }
 
 const env = {
-  ingressUrl: new URL('https://console.example.com/ingress/domain-mail/receive'),
+  ingressUrl: new URL('https://console.invalid.test/ingress/domain-mail/receive'),
   ingressKeyId: 'edge-key',
   ingressSigningSecret: 'edge-signing-secret',
   ingressProvider: 'CLOUDFLARE_EMAIL_ROUTING',
@@ -40,23 +40,15 @@ const env = {
 
 void test('buildIngressPayload uses a stable delivery key when message-id is present', async () => {
   const rawEmailA = [
-    'From: Sender <sender@example.org>',
-    'To: Inbox <inbox@example.com>',
+    'From: Sender <sender@invalid.test>',
+    'To: Inbox <inbox@invalid.test>',
     'Subject: Worker test',
-    'Message-ID: <stable-message-id@example.org>',
+    'Message-ID: <stable-message-id@invalid.test>',
     'Content-Type: text/plain; charset=utf-8',
     '',
     'First body variant',
   ].join('\r\n');
-  const rawEmailB = [
-    'From: Sender <sender@example.org>',
-    'To: Inbox <inbox@example.com>',
-    'Subject: Worker test',
-    'Message-ID: <stable-message-id@example.org>',
-    'Content-Type: text/plain; charset=utf-8',
-    '',
-    'Second body variant',
-  ].join('\r\n');
+  const rawEmailB = rawEmailA.replace('First body variant', 'Second body variant');
 
   const [payloadA, payloadB] = await Promise.all([
     buildIngressPayload(createMessage(rawEmailA), env),
@@ -76,13 +68,40 @@ void test('buildIngressPayload rejects oversized email before reading the raw st
   );
 });
 
-void test('buildIngressPayload marks raw storage as failed when the bucket write throws', async () => {
+void test('raw storage key and metadata contain no mailbox identity', async () => {
+  let storedKey = '';
+  let storedMetadata: Record<string, string> = {};
   const rawEmail = [
-    'From: Sender <sender@example.org>',
-    'To: Inbox <inbox@example.com>',
+    'From: Sender <sender@invalid.test>',
+    'To: Inbox <inbox@invalid.test>',
     'Subject: Worker test',
-    'Message-ID: <stable-message-id@example.org>',
-    'Content-Type: text/plain; charset=utf-8',
+    'Message-ID: <stable-message-id@invalid.test>',
+    '',
+    'Body',
+  ].join('\r\n');
+
+  const payload = await buildIngressPayload(createMessage(rawEmail), {
+    ...env,
+    rawEmailBucket: {
+      async put(key, _value, options) {
+        storedKey = key;
+        storedMetadata = options?.customMetadata ?? {};
+      },
+      async delete() {},
+    },
+  });
+
+  assert.equal(storedKey, `allmail-edge/raw/${payload.deliveryKey.slice(0, 2)}/${payload.deliveryKey}.eml`);
+  assert.deepEqual(Object.keys(storedMetadata).sort(), ['deliveryKey', 'receivedAt']);
+  assert.doesNotMatch(JSON.stringify({ storedKey, storedMetadata }), /sender|inbox|invalid\.test|@/i);
+});
+
+void test('failed raw storage logs only bounded identifiers', async () => {
+  const rawEmail = [
+    'From: Sender <sender@invalid.test>',
+    'To: Inbox <inbox@invalid.test>',
+    'Subject: Worker test',
+    'Message-ID: <stable-message-id@invalid.test>',
     '',
     'Body with failed storage',
   ].join('\r\n');
@@ -98,8 +117,9 @@ void test('buildIngressPayload marks raw storage as failed when the bucket write
       ...env,
       rawEmailBucket: {
         async put() {
-          throw new Error('R2 unavailable');
+          throw new Error('storage unavailable');
         },
+        async delete() {},
       },
     });
 
@@ -108,11 +128,10 @@ void test('buildIngressPayload marks raw storage as failed when the bucket write
     assert.equal(loggedErrors.length, 1);
     assert.equal(loggedErrors[0]?.[0], 'Failed to store raw email in R2');
     assert.deepEqual(loggedErrors[0]?.[1], {
-      domain: 'example.com',
-      localPart: 'inbox',
-      messageId: '<stable-message-id@example.org>',
-      error: 'R2 unavailable',
+      deliveryKey: payload.deliveryKey.slice(0, 12),
+      errorCode: 'Error',
     });
+    assert.doesNotMatch(JSON.stringify(loggedErrors), /sender|inbox|invalid\.test|storage unavailable/i);
   } finally {
     console.error = originalConsoleError;
   }
