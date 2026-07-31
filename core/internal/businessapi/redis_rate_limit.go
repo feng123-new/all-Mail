@@ -22,6 +22,13 @@ end
 return current
 `
 
+const replayReleaseScript = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+`
+
 type RateLimiter interface {
 	Ping(context.Context) error
 	Increment(context.Context, string, time.Duration) (int64, error)
@@ -43,7 +50,11 @@ func (allowAllRateLimiter) Ping(context.Context) error { return nil }
 func (allowAllRateLimiter) Increment(context.Context, string, time.Duration) (int64, error) {
 	return 1, nil
 }
-func (allowAllRateLimiter) Close() {}
+func (allowAllRateLimiter) Reserve(context.Context, string, string, time.Duration) (bool, error) {
+	return true, nil
+}
+func (allowAllRateLimiter) Release(context.Context, string, string) error { return nil }
+func (allowAllRateLimiter) Close()                                      {}
 
 func newRedisRateLimiter(rawURL string, timeout time.Duration) (*redisRateLimiter, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
@@ -115,6 +126,41 @@ func (c *redisRateLimiter) Increment(ctx context.Context, key string, ttl time.D
 		return 0, fmt.Errorf("increment API key rate limit returned %#v", response)
 	}
 	return count, nil
+}
+
+func (c *redisRateLimiter) Reserve(
+	ctx context.Context,
+	key string,
+	value string,
+	ttl time.Duration,
+) (bool, error) {
+	seconds := int64(ttl / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	response, err := c.command(ctx, "SET", key, value, "EX", strconv.FormatInt(seconds, 10), "NX")
+	if err != nil {
+		return false, fmt.Errorf("reserve ingress replay key: %w", err)
+	}
+	if response == nil {
+		return false, nil
+	}
+	status, ok := response.(string)
+	if !ok || strings.ToUpper(status) != "OK" {
+		return false, fmt.Errorf("reserve ingress replay key returned %#v", response)
+	}
+	return true, nil
+}
+
+func (c *redisRateLimiter) Release(ctx context.Context, key, value string) error {
+	response, err := c.command(ctx, "EVAL", replayReleaseScript, "1", key, value)
+	if err != nil {
+		return fmt.Errorf("release ingress replay key: %w", err)
+	}
+	if _, ok := response.(int64); !ok {
+		return fmt.Errorf("release ingress replay key returned %#v", response)
+	}
+	return nil
 }
 
 func (c *redisRateLimiter) command(ctx context.Context, command ...string) (any, error) {
