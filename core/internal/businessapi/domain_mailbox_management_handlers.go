@@ -31,24 +31,24 @@ type managedDomainMailboxBatchCreateInput struct {
 }
 
 type managedDomainMailboxUpdateInput struct {
-	DisplayNamePresent      bool
-	DisplayName             *string
-	Status                  *string
-	CanLogin                *bool
-	ProvisioningMode        *string
-	BatchTagPresent         bool
-	BatchTag                *string
-	QuotaMBPresent          bool
-	QuotaMB                 *int64
-	PasswordPresent         bool
-	PasswordHash            *string
-	OwnerUserIDPresent      bool
-	OwnerUserID             *int64
-	MemberUserIDsPresent    bool
-	MemberUserIDs           []int64
-	ForwardMode             *string
-	ForwardToPresent        bool
-	ForwardTo               *string
+	DisplayNamePresent   bool
+	DisplayName          *string
+	Status               *string
+	CanLogin             *bool
+	ProvisioningMode     *string
+	BatchTagPresent      bool
+	BatchTag             *string
+	QuotaMBPresent       bool
+	QuotaMB              *int64
+	PasswordPresent      bool
+	PasswordHash         *string
+	OwnerUserIDPresent   bool
+	OwnerUserID          *int64
+	MemberUserIDsPresent bool
+	MemberUserIDs        []int64
+	ForwardMode          *string
+	ForwardToPresent     bool
+	ForwardTo            *string
 }
 
 type managedDomainMailboxBatchDeleteInput struct {
@@ -109,9 +109,9 @@ type updateDomainMailboxManagementRequest struct {
 
 type batchDeleteDomainMailboxManagementRequest struct {
 	IDs              []int64 `json:"ids"`
-	DomainID         *int64   `json:"domainId"`
-	BatchTag         *string  `json:"batchTag"`
-	ProvisioningMode *string  `json:"provisioningMode"`
+	DomainID         *int64  `json:"domainId"`
+	BatchTag         *string `json:"batchTag"`
+	ProvisioningMode *string `json:"provisioningMode"`
 }
 
 func (s *Server) registerDomainMailboxManagementRoutes(mux *http.ServeMux) {
@@ -476,8 +476,8 @@ func parseManagedDomainMailboxBatchCreate(body batchCreateDomainMailboxManagemen
 	}
 	return managedDomainMailboxBatchCreateInput{
 		managedDomainMailboxCreateInput: base,
-		LocalParts: localParts,
-		BindAPIKeyIDs: normalizeManagementIDs(body.BindAPIKeyIDs),
+		LocalParts:                      localParts,
+		BindAPIKeyIDs:                   normalizeManagementIDs(body.BindAPIKeyIDs),
 	}, nil
 }
 

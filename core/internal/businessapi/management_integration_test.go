@@ -112,13 +112,13 @@ func TestPostgresAPIKeyAndExternalRouteIntegrationManagement(t *testing.T) {
 		t.Fatal(err)
 	}
 	mailbox, err := store.createManagedDomainMailbox(ctx, managedDomainMailboxCreateInput{
-		DomainID: domainID,
-		LocalPart: "inbox",
-		CanLogin: true,
+		DomainID:         domainID,
+		LocalPart:        "inbox",
+		CanLogin:         true,
 		ProvisioningMode: "MANUAL",
-		OwnerUserID: &mailboxUser.ID,
-		MemberUserIDs: nil,
-		ForwardMode: "DISABLED",
+		OwnerUserID:      &mailboxUser.ID,
+		MemberUserIDs:    nil,
+		ForwardMode:      "DISABLED",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -137,9 +137,9 @@ func TestPostgresAPIKeyAndExternalRouteIntegrationManagement(t *testing.T) {
 	copyMode := "COPY"
 	forwardTo := "target@example.net"
 	updatedMailbox, err := store.updateManagedDomainMailbox(ctx, mailboxID, managedDomainMailboxUpdateInput{
-		ForwardMode: &copyMode,
+		ForwardMode:      &copyMode,
 		ForwardToPresent: true,
-		ForwardTo: &forwardTo,
+		ForwardTo:        &forwardTo,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -149,10 +149,10 @@ func TestPostgresAPIKeyAndExternalRouteIntegrationManagement(t *testing.T) {
 	}
 	batchResult, err := store.batchCreateManagedDomainMailboxes(ctx, managedDomainMailboxBatchCreateInput{
 		managedDomainMailboxCreateInput: managedDomainMailboxCreateInput{
-			DomainID: domainID,
-			CanLogin: false,
+			DomainID:         domainID,
+			CanLogin:         false,
 			ProvisioningMode: "API_POOL",
-			ForwardMode: "DISABLED",
+			ForwardMode:      "DISABLED",
 		},
 		LocalParts: []string{"pool1", "pool2"},
 	})

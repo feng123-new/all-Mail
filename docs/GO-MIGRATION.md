@@ -31,6 +31,7 @@ Go owns:
 - API-key administration, explicit permissions, authentication, Redis limiting, usage accounting, and allocation state;
 - database-backed external mailbox/domain-mail allocation, listing, statistics, reset, and persisted message reads;
 - signed ingress authentication, encrypted endpoint-secret reads, Redis replay protection, mailbox resolution, inbound persistence, and forwarding-job creation;
+- administrator, email-group, domain-mailbox, and mailbox-user management, including batch mailbox transactions and membership synchronization;
 - checksummed additive migrations;
 - forwarding and API-log retention workers.
 
@@ -140,6 +141,11 @@ provider and regex compatibility routes    -> business-api
 
 ```text
 POST /ingress/domain-mail/receive              -> go-business-api
+
+/admin/admins/**                                -> go-business-api
+/admin/email-groups/**                         -> go-business-api
+/admin/domain-mailboxes/**                     -> go-business-api
+/admin/mailbox-users/**                        -> go-business-api
 other /ingress compatibility paths             -> business-api
 ```
 

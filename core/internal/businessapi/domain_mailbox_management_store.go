@@ -16,32 +16,32 @@ type managementRowScanner interface {
 }
 
 type managedDomainMailboxRow struct {
-	ID                  int64
-	DomainID            int64
-	LocalPart           string
-	Address             string
-	DisplayName         sql.NullString
-	Status              string
-	ProvisioningMode    string
-	BatchTag            sql.NullString
-	QuotaMB             sql.NullInt64
-	CanLogin            bool
-	IsCatchAllTarget    bool
-	OwnerUserID         sql.NullInt64
-	ForwardMode         string
-	ForwardTo           sql.NullString
-	Metadata            []byte
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	DomainName          string
-	DomainStatus        string
-	DomainCanSend       bool
-	DomainCanReceive    bool
-	OwnerUsername       sql.NullString
-	OwnerEmail          sql.NullString
-	InboundMessageCount int64
+	ID                   int64
+	DomainID             int64
+	LocalPart            string
+	Address              string
+	DisplayName          sql.NullString
+	Status               string
+	ProvisioningMode     string
+	BatchTag             sql.NullString
+	QuotaMB              sql.NullInt64
+	CanLogin             bool
+	IsCatchAllTarget     bool
+	OwnerUserID          sql.NullInt64
+	ForwardMode          string
+	ForwardTo            sql.NullString
+	Metadata             []byte
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	DomainName           string
+	DomainStatus         string
+	DomainCanSend        bool
+	DomainCanReceive     bool
+	OwnerUsername        sql.NullString
+	OwnerEmail           sql.NullString
+	InboundMessageCount  int64
 	OutboundMessageCount int64
-	APIUsageCount       int64
+	APIUsageCount        int64
 }
 
 func scanManagedDomainMailbox(scanner managementRowScanner) (managedDomainMailboxRow, error) {
@@ -138,9 +138,9 @@ func managedDomainMailboxMap(row managedDomainMailboxRow) map[string]any {
 	}
 	if row.OwnerUserID.Valid {
 		result["ownerUser"] = map[string]any{
-			"id": row.OwnerUserID.Int64,
+			"id":       row.OwnerUserID.Int64,
 			"username": row.OwnerUsername.String,
-			"email": nullableStringValue(row.OwnerEmail),
+			"email":    nullableStringValue(row.OwnerEmail),
 		}
 	} else {
 		result["ownerUser"] = nil
@@ -159,25 +159,25 @@ func hostedInternalProtocolSummary(mode string, canSend, canReceive bool) map[st
 		hint = "Hosted Internal · API_POOL：适合 API 池自动分配的站内邮箱，由内部域名收件链路统一承载。"
 	}
 	return map[string]any{
-		"providerProfile": profile,
+		"providerProfile":        profile,
 		"representativeProtocol": "hosted_internal",
-		"secondaryProtocols": []string{},
-		"profileSummaryHint": hint,
+		"secondaryProtocols":     []string{},
+		"profileSummaryHint":     hint,
 		"capabilitySummary": map[string]any{
-			"readInbox": canReceive,
-			"readJunk": false,
-			"readSent": false,
+			"readInbox":    canReceive,
+			"readJunk":     false,
+			"readSent":     false,
 			"clearMailbox": true,
-			"sendMail": canSend,
-			"usesOAuth": false,
-			"receiveMail": canReceive,
-			"apiAccess": mode == "API_POOL",
-			"forwarding": true,
-			"search": false,
+			"sendMail":     canSend,
+			"usesOAuth":    false,
+			"receiveMail":  canReceive,
+			"apiAccess":    mode == "API_POOL",
+			"forwarding":   true,
+			"search":       false,
 			"refreshToken": false,
-			"webhook": false,
+			"webhook":      false,
 			"aliasSupport": false,
-			"modes": []string{},
+			"modes":        []string{},
 		},
 	}
 }
@@ -275,7 +275,7 @@ func (s *PostgresStore) listManagedMailboxMemberships(ctx context.Context, mailb
 			return nil, fmt.Errorf("scan mailbox membership: %w", err)
 		}
 		result = append(result, map[string]any{
-			"id": membershipID,
+			"id":   membershipID,
 			"role": role,
 			"user": map[string]any{"id": userID, "username": username, "email": nullableStringValue(email), "status": status},
 		})
@@ -440,13 +440,13 @@ func (s *PostgresStore) batchCreateManagedDomainMailboxes(ctx context.Context, i
 	}
 	_ = createdIDs
 	return map[string]any{
-		"success": true,
-		"createdCount": len(created),
-		"batchTag": input.BatchTag,
+		"success":          true,
+		"createdCount":     len(created),
+		"batchTag":         input.BatchTag,
 		"provisioningMode": input.ProvisioningMode,
-		"domainId": input.DomainID,
-		"boundApiKeyIds": input.BindAPIKeyIDs,
-		"mailboxes": created,
+		"domainId":         input.DomainID,
+		"boundApiKeyIds":   input.BindAPIKeyIDs,
+		"mailboxes":        created,
 	}, nil
 }
 
@@ -731,8 +731,8 @@ func appendManagedAllowedDomainIDs(ctx context.Context, tx pgx.Tx, apiKeyIDs []i
 func managedMailboxMetadata(mode string, batchTag *string) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"provisioningMode": mode,
-		"batchTag": batchTag,
-		"updatedAt": time.Now().UTC().Format(time.RFC3339Nano),
+		"batchTag":         batchTag,
+		"updatedAt":        time.Now().UTC().Format(time.RFC3339Nano),
 	})
 }
 

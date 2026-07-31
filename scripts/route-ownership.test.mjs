@@ -83,6 +83,10 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 		"admin-dashboard-logs-read",
 		"admin-dashboard-log-delete",
 		"admin-dashboard-log-batch-delete",
+		"admin-administrators",
+		"admin-email-groups",
+		"admin-domain-mailboxes",
+		"admin-mailbox-users",
 	]) {
 		const route = manifest.routes.find((candidate) => candidate.id === id);
 		assert.equal(route?.owner, "go-business-api", id);
