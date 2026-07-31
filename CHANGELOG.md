@@ -6,6 +6,7 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- added durable administrator and mailbox session versions so password, role, status, mandatory-rotation, and 2FA changes immediately revoke older JWTs; also reduced default Microsoft OAuth scopes to identity and mail capabilities
 - replaced implicit full-access API-key permissions with an explicit fail-closed model, while backfilling historical NULL or empty permission maps to `all=true` before either runtime starts
 - aligned deployment, recovery, environment, and release documentation with the active `app` + `go-business-api` + `business-api` topology
 - added runtime-documentation contract tests for service lists, private ports, aggregate readiness, Secret ownership, and source-available licensing language
