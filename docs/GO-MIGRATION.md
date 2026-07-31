@@ -2,7 +2,7 @@
 
 ## Status
 
-The Go runtime is the canonical public Docker entrypoint. Migration is complete for public HTTP ownership, SPA delivery, route governance, forwarding, API-log retention, Dashboard reads and log-deletion writes, API-key administration/security, and the database-only external mailbox/domain-mail slice. The complete business API is not yet migrated.
+The Go runtime is the canonical public Docker entrypoint. Migration is complete for public HTTP ownership, SPA delivery, route governance, forwarding, API-log retention, Dashboard reads and log-deletion writes, API-key administration/security, signed domain-mail ingress, and the database-only external mailbox/domain-mail slice. The complete business API is not yet migrated.
 
 ```text
 Browser / automation / Cloudflare Worker
@@ -30,10 +30,11 @@ Go owns:
 - Dashboard statistics, trend, operation-log reads, single deletion, and batch deletion;
 - API-key administration, explicit permissions, authentication, Redis limiting, usage accounting, and allocation state;
 - database-backed external mailbox/domain-mail allocation, listing, statistics, reset, and persisted message reads;
+- signed ingress authentication, encrypted endpoint-secret reads, Redis replay protection, mailbox resolution, inbound persistence, and forwarding-job creation;
 - checksummed additive migrations;
 - forwarding and API-log retention workers.
 
-Fastify/Prisma still owns administrator and mailbox-portal authentication, OAuth, provider-dependent mailbox operations, domain/mailbox/alias/user writes, ingress, sending, JavaScript regex text extraction compatibility, durable business configuration import, initial administrator bootstrap, and complete business-schema migrations.
+Fastify/Prisma still owns administrator and mailbox-portal authentication, OAuth, provider-dependent mailbox operations, domain/mailbox/alias/user writes, sending, JavaScript regex text extraction compatibility, durable business configuration import, initial administrator bootstrap, and complete business-schema migrations.
 
 ## Runtime layout
 
@@ -106,9 +107,10 @@ worker-forwarding:
 
 go-business-api:
   JWT_SECRET_FILE=/var/lib/all-mail-secrets/jwt-secret
+  ENCRYPTION_KEY_FILE=/var/lib/all-mail-encryption/encryption-key
 ```
 
-The public `app` receives neither file. `go-business-api` receives PostgreSQL, Redis, and the read-only JWT file, but no encryption, ingress, OAuth, or provider credential.
+The public `app` receives neither file. `go-business-api` receives PostgreSQL, Redis, the read-only JWT file, and a read-only encryption-key copy used only to decrypt persisted ingress endpoint secrets; it receives no raw ingress secret, OAuth credential, or provider credential.
 
 ## Public gateway routing
 
@@ -134,6 +136,11 @@ POST   /admin/dashboard/logs/batch-delete  -> go-business-api
 database-only /api mailbox routes          -> go-business-api
 database-only /api/domain-mail routes      -> go-business-api
 provider and regex compatibility routes    -> business-api
+```
+
+```text
+POST /ingress/domain-mail/receive              -> go-business-api
+other /ingress compatibility paths             -> business-api
 ```
 
 Every response carries `X-All-Mail-Route-Owner` and `X-All-Mail-Route-Family`. See [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md).
@@ -203,12 +210,11 @@ Repository gates cover Go format/race/vet/build/govulncheck, route ownership, JW
 
 Recommended order:
 
-1. ingress validation, encrypted endpoint secrets, replay protection, persistence, forwarding-job creation, raw-message lifecycle, and outbound history;
-2. domain, mailbox, alias, user, and administrator writes;
-3. provider-dependent reads, synchronization, OAuth configuration, token refresh, and sending;
-4. mailbox-portal and administrator authentication;
-5. complete business-schema authority and encrypted-data cutover;
-6. zero-traffic observation and final Node/Prisma deletion.
+1. domain, mailbox, alias, user, and administrator writes;
+2. provider-dependent reads, synchronization, OAuth configuration, token refresh, sending, and outbound history;
+3. mailbox-portal and administrator authentication;
+4. complete business-schema authority and encrypted-data cutover;
+5. zero-traffic observation and final Node/Prisma deletion.
 
 Every slice must move authorization, validation, transactions, parity, failure injection, method-aware ownership, Docker smoke, and revision rollback together.
 

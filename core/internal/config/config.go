@@ -308,7 +308,7 @@ func (c APIConfig) TrustsProxy(address netip.Addr) bool {
 func loadEncryptionKeyFile() (string, error) {
 	keyFile := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY_FILE"))
 	if keyFile == "" {
-		return "", errors.New("ENCRYPTION_KEY_FILE is required for forwarding")
+		return "", errors.New("ENCRYPTION_KEY_FILE is required")
 	}
 	content, err := os.ReadFile(keyFile)
 	if err != nil {

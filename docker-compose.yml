@@ -145,6 +145,8 @@ services:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
       REDIS_URL: redis://redis:6379
       JWT_SECRET_FILE: /var/lib/all-mail-secrets/jwt-secret
+      ENCRYPTION_KEY_FILE: /var/lib/all-mail-encryption/encryption-key
+      INGRESS_ALLOWED_SKEW_SECONDS: ${INGRESS_ALLOWED_SKEW_SECONDS:-300}
       GO_BUSINESS_QUERY_TIMEOUT_SECONDS: 10
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
@@ -159,6 +161,7 @@ services:
     stop_grace_period: 30s
     volumes:
       - go_business_runtime_data:/var/lib/all-mail-secrets:ro
+      - forwarding_runtime_data:/var/lib/all-mail-encryption:ro
     networks:
       - app-network
     healthcheck:

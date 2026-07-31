@@ -64,8 +64,11 @@ test("Compose keeps infrastructure private and compatibility imports initializer
 	assert.match(goBusiness, /command: \["business-api"\]/);
 	assert.match(goBusiness, /DATABASE_URL:/);
 	assert.match(goBusiness, /JWT_SECRET_FILE: \/var\/lib\/all-mail-secrets\/jwt-secret/);
+	assert.match(goBusiness, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-encryption\/encryption-key/);
+	assert.match(goBusiness, /forwarding_runtime_data:\/var\/lib\/all-mail-encryption:ro/);
+	assert.match(goBusiness, /INGRESS_ALLOWED_SKEW_SECONDS:/);
 	assert.match(goBusiness, /REDIS_URL: redis:\/\/redis:6379/);
-	assert.doesNotMatch(goBusiness, /ENCRYPTION_KEY|INGRESS_SIGNING_SECRET|ports:/);
+	assert.doesNotMatch(goBusiness, /\n\s+ENCRYPTION_KEY:|INGRESS_SIGNING_SECRET|ports:/);
 	assert.doesNotMatch(app, /DATABASE_URL|REDIS_URL|JWT_SECRET|ENCRYPTION_KEY|GO_API_MODE|ALL_MAIL_ENV/);
 	assert.match(app, /BUSINESS_API_URL: http:\/\/business-api:3100/);
 	assert.match(app, /GO_BUSINESS_API_URL: http:\/\/go-business-api:3200/);
