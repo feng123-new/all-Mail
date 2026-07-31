@@ -18,6 +18,16 @@ function audienceValues(audience: unknown): string[] {
     return [];
 }
 
+function subjectText(subject: unknown): string | null {
+    if (typeof subject === 'string') {
+        return subject;
+    }
+    if (typeof subject === 'number' && Number.isSafeInteger(subject)) {
+        return String(subject);
+    }
+    return null;
+}
+
 export function sessionSubjectKind(audience: unknown): SessionSubjectKind | null {
     const values = new Set(audienceValues(audience));
     if (values.has(ADMIN_JWT_AUDIENCE) || values.has(ADMIN_REVEAL_JWT_AUDIENCE)) {
@@ -34,8 +44,12 @@ export async function loadSessionVersion(audience: unknown, subject: unknown): P
     if (!kind) {
         return null;
     }
-    const id = Number.parseInt(String(subject ?? ''), 10);
-    if (!Number.isInteger(id) || id <= 0) {
+    const rawSubject = subjectText(subject);
+    if (!rawSubject) {
+        return 0;
+    }
+    const id = Number.parseInt(rawSubject, 10);
+    if (!Number.isInteger(id) || id <= 0 || String(id) !== rawSubject) {
         return 0;
     }
 
