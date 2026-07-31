@@ -575,7 +575,7 @@ func (s *PostgresStore) batchDeleteManagedDomainMailboxes(ctx context.Context, i
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, address
 		FROM domain_mailboxes
-		WHERE (cardinality($1::bigint[]) = 0 OR id = ANY($1::bigint[]))
+		WHERE (COALESCE(cardinality($1::bigint[]), 0) = 0 OR id = ANY($1::bigint[]))
 		  AND ($2::bigint IS NULL OR domain_id = $2)
 		  AND ($3::text IS NULL OR batch_tag = $3)
 		  AND ($4::text IS NULL OR provisioning_mode::text = $4)
