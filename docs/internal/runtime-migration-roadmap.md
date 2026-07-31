@@ -74,15 +74,20 @@ Provider-dependent mailbox access and JavaScript regular-expression text extract
 
 Administrator and mailbox JWTs carry issuer, audience, algorithm, and durable session-version state. Password, role, status, mandatory-rotation, and 2FA changes increment the stored version and revoke older tokens. Browser cookies rotate after security changes.
 
+### Signed ingress and raw-message lifecycle
+
+`POST /ingress/domain-mail/receive` is owned by `go-business-api`. The Go handler verifies the existing HMAC canonical form, enforces a bounded timestamp window, decrypts the endpoint-scoped persisted signing secret, reserves delivery keys atomically in Redis, resolves exact mailboxes, aliases, and catch-all targets, and commits inbound messages, forwarding jobs, and endpoint usage in one PostgreSQL transaction. Database delivery keys remain the durable idempotency authority.
+
+The Cloudflare Email Worker now stores raw messages under deterministic SHA-256 object keys without domain, mailbox, sender, or recipient data in the path or R2 metadata. Permanent application-level rejection schedules compensating deletion with `ctx.waitUntil`; replay and retryable failures retain the deterministic object for idempotent retry. Logs contain only bounded request/error codes and truncated delivery hashes.
+
 ## Remaining vertical migrations
 
-1. Move ingress signature validation, encrypted endpoint secrets, replay protection, persistence, forwarding-job creation, raw-message lifecycle, and outbound history.
-2. Move domain, mailbox, alias, mailbox-user, and administrator write operations that do not require provider access.
-3. Move provider-dependent reads, synchronization, OAuth configuration, token refresh, and sending operations.
-4. Move mailbox-portal and administrator authentication, including login lockout, 2FA, password rotation, OAuth state, and JWT issuance.
-5. Transfer complete business-schema migration authority from Prisma to Go.
-6. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.
-7. Observe zero Fastify proxy traffic, then remove the Node/Prisma runtime in a separate revision.
+1. Move domain, mailbox, alias, mailbox-user, and administrator write operations that do not require provider access.
+2. Move provider-dependent reads, synchronization, OAuth configuration, token refresh, sending operations, and outbound history.
+3. Move mailbox-portal and administrator authentication, including login lockout, 2FA, password rotation, OAuth state, and JWT issuance.
+4. Transfer complete business-schema migration authority from Prisma to Go.
+5. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.
+6. Observe zero Fastify proxy traffic, then remove the Node/Prisma runtime in a separate revision.
 
 Each route cutover must include its Go handler, authorization, validation, transaction behavior, response parity, failure injection, method-aware manifest change, public-gateway Docker smoke, readiness checks, and revision rollback path.
 

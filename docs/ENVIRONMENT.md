@@ -27,7 +27,7 @@ This document is the authoritative variable and secret-ownership contract for `a
 | Runtime | PostgreSQL | Redis | JWT | Encryption key | Provider/OAuth/Ingress secrets |
 | --- | --- | --- | --- | --- | --- |
 | `app` | No | No | No | No | No |
-| `go-business-api` | Yes | Yes | Read-only file | No | No |
+| `go-business-api` | Yes | Yes | Read-only file | Read-only file | Database-encrypted ingress endpoint secrets only |
 | `business-api` | Yes | Yes | Runtime secret file | Runtime secret file | Database-encrypted state only |
 | `worker-forwarding` | Yes | No | No | Read-only file | Resend API base URL only |
 | `worker-retention` | Yes | No | No | No | No |
@@ -129,6 +129,7 @@ worker-forwarding:
 
 go-business-api:
   JWT_SECRET_FILE=/var/lib/all-mail-secrets/jwt-secret
+  ENCRYPTION_KEY_FILE=/var/lib/all-mail-encryption/encryption-key
 ```
 
 | Variable | Default | Consumer |
@@ -137,9 +138,9 @@ go-business-api:
 | `JWT_EXPIRES_IN` | `2h` | Fastify token issuance |
 | `JWT_SECRET_FILE` | internal fixed path | private `go-business-api` verification only |
 | `ENCRYPTION_KEY` | generated when blank | initializer and Fastify only |
-| `ENCRYPTION_KEY_FILE` | internal fixed path | forwarding worker only |
+| `ENCRYPTION_KEY_FILE` | internal fixed paths | forwarding worker and private `go-business-api` only |
 
-The public `app` receives neither secret. The private Go business service receives no encryption key. The forwarding worker receives no JWT secret.
+The public `app` receives neither secret. The private Go business service receives a read-only encryption-key copy solely for persisted ingress endpoint secrets. The forwarding worker receives no JWT secret.
 
 Long-running Fastify uses `require-existing` mode and exits instead of generating replacement secrets.
 
@@ -188,6 +189,8 @@ These are Compose-internal inputs, not root `.env.example` ownership switches:
 | `DATABASE_URL` | Compose-derived | Migrated business data access |
 | `REDIS_URL` | `redis://redis:6379` | Fail-closed API-key limiting and readiness |
 | `JWT_SECRET_FILE` | fixed read-only path | Existing administrator JWT verification |
+| `ENCRYPTION_KEY_FILE` | fixed read-only path | Decrypt persisted ingress endpoint signing secrets |
+| `INGRESS_ALLOWED_SKEW_SECONDS` | `300` | Signed ingress timestamp window, limited to 1–3600 seconds |
 | `GO_BUSINESS_QUERY_TIMEOUT_SECONDS` | `10` | Per-request database bound |
 | `READY_TIMEOUT_SECONDS` | `5` | Protocol-check bound |
 | `SHUTDOWN_TIMEOUT_SECONDS` | `15` | Graceful shutdown bound |

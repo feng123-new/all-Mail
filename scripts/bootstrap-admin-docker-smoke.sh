@@ -26,6 +26,9 @@ docker compose exec -T business-api sh -lc \
   '! grep -Eq "^(ADMIN_USERNAME|ADMIN_PASSWORD)=" /var/lib/all-mail/runtime-secrets.env'
 docker compose exec -T go-business-api sh -lc '
   test -r /var/lib/all-mail-secrets/jwt-secret
+  test -r /var/lib/all-mail-encryption/encryption-key
+  test "${JWT_SECRET_FILE:-}" = "/var/lib/all-mail-secrets/jwt-secret"
+  test "${ENCRYPTION_KEY_FILE:-}" = "/var/lib/all-mail-encryption/encryption-key"
   test -z "${JWT_SECRET:-}"
   test -z "${ENCRYPTION_KEY:-}"
   test "${REDIS_URL:-}" = "redis://redis:6379"
@@ -136,6 +139,16 @@ write_status=$(curl --silent --show-error \
   http://127.0.0.1:3002/admin/dashboard/logs/999999999)
 test "$write_status" = "200"
 grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$write_headers"
+
+ingress_headers="$RUNNER_TEMP/ingress-headers.txt"
+ingress_body="$RUNNER_TEMP/ingress-body.json"
+ingress_status=$(curl --silent --show-error \
+  -D "$ingress_headers" -o "$ingress_body" -w '%{http_code}' \
+  -H 'Content-Type: application/json' --data '{}' \
+  http://127.0.0.1:3002/ingress/domain-mail/receive)
+test "$ingress_status" = "401"
+grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$ingress_headers"
+grep -q 'INGRESS_SIGNATURE_REQUIRED' "$ingress_body"
 
 admin_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT id FROM admins ORDER BY id LIMIT 1')
 group_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc \

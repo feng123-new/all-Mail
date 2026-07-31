@@ -12,13 +12,15 @@ import (
 const goBusinessAPIURLEnvironment = "GO_BUSINESS_API_URL"
 
 type GoBusinessAPIConfig struct {
-	Port            int
-	DatabaseURL     string
-	RedisURL        string
-	JWTSecret       string
-	ReadyTimeout    time.Duration
-	QueryTimeout    time.Duration
-	ShutdownTimeout time.Duration
+	Port               int
+	DatabaseURL        string
+	RedisURL           string
+	JWTSecret          string
+	EncryptionKey      string
+	IngressAllowedSkew time.Duration
+	ReadyTimeout       time.Duration
+	QueryTimeout       time.Duration
+	ShutdownTimeout    time.Duration
 }
 
 func LoadGoBusinessAPIURL() (string, error) {
@@ -49,19 +51,29 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	if err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
+	ingressSkewSeconds, err := envInt("INGRESS_ALLOWED_SKEW_SECONDS", 300)
+	if err != nil {
+		return GoBusinessAPIConfig{}, err
+	}
 	jwtSecret, err := loadJWTSecretFile()
+	if err != nil {
+		return GoBusinessAPIConfig{}, err
+	}
+	encryptionKey, err := loadEncryptionKeyFile()
 	if err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
 
 	cfg := GoBusinessAPIConfig{
-		Port:            port,
-		DatabaseURL:     strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		RedisURL:        strings.TrimSpace(os.Getenv("REDIS_URL")),
-		JWTSecret:       jwtSecret,
-		ReadyTimeout:    time.Duration(readySeconds) * time.Second,
-		QueryTimeout:    time.Duration(querySeconds) * time.Second,
-		ShutdownTimeout: time.Duration(shutdownSeconds) * time.Second,
+		Port:               port,
+		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		RedisURL:           strings.TrimSpace(os.Getenv("REDIS_URL")),
+		JWTSecret:          jwtSecret,
+		EncryptionKey:      encryptionKey,
+		IngressAllowedSkew: time.Duration(ingressSkewSeconds) * time.Second,
+		ReadyTimeout:       time.Duration(readySeconds) * time.Second,
+		QueryTimeout:       time.Duration(querySeconds) * time.Second,
+		ShutdownTimeout:    time.Duration(shutdownSeconds) * time.Second,
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return GoBusinessAPIConfig{}, errors.New("PORT must be between 1 and 65535")
@@ -74,6 +86,9 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	}
 	if cfg.ReadyTimeout <= 0 || cfg.QueryTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
 		return GoBusinessAPIConfig{}, errors.New("Go business API timeouts must be positive")
+	}
+	if cfg.IngressAllowedSkew < time.Second || cfg.IngressAllowedSkew > time.Hour {
+		return GoBusinessAPIConfig{}, errors.New("INGRESS_ALLOWED_SKEW_SECONDS must be between 1 and 3600")
 	}
 	if err := validateAbsoluteURL("DATABASE_URL", cfg.DatabaseURL, "postgres", "postgresql"); err != nil {
 		return GoBusinessAPIConfig{}, err

@@ -12,7 +12,7 @@ export function parseRoutingAddress(address: string): ParsedRoutingAddress {
   const matchedAddress = cleanAddress(address);
   const atIndex = matchedAddress.lastIndexOf('@');
   if (atIndex <= 0 || atIndex === matchedAddress.length - 1) {
-    throw new Error(`Invalid routing address: ${address}`);
+    throw new Error('Invalid routing address');
   }
 
   return {
@@ -22,31 +22,14 @@ export function parseRoutingAddress(address: string): ParsedRoutingAddress {
   };
 }
 
-export function sanitizeStorageToken(value: string): string {
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-  return normalized || 'unknown';
-}
-
 export function buildRawObjectKey(input: {
   prefix: string;
-  receivedAt: Date;
-  domain: string;
-  localPart: string;
-  messageId?: string | null;
+  deliveryKey: string;
 }): string {
-  const year = input.receivedAt.getUTCFullYear();
-  const month = String(input.receivedAt.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(input.receivedAt.getUTCDate()).padStart(2, '0');
-  const timestamp = input.receivedAt.toISOString().replace(/[:.]/g, '-');
-  const messageToken = sanitizeStorageToken(input.messageId || crypto.randomUUID());
-
-  return [
-    input.prefix,
-    String(year),
-    month,
-    day,
-    sanitizeStorageToken(input.domain),
-    sanitizeStorageToken(input.localPart),
-    `${timestamp}-${messageToken}.eml`,
-  ].join('/');
+  const deliveryKey = input.deliveryKey.trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(deliveryKey)) {
+    throw new Error('deliveryKey must be a 64-character hexadecimal digest');
+  }
+  const prefix = input.prefix.replace(/^\/+|\/+$/g, '');
+  return `${prefix}/${deliveryKey.slice(0, 2)}/${deliveryKey}.eml`;
 }

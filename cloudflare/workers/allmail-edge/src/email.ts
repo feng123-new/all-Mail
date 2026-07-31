@@ -110,11 +110,7 @@ async function storeRawEmail(input: {
   env: ResolvedEnv;
   rawEmail: ArrayBuffer;
   receivedAt: Date;
-  domain: string;
-  localPart: string;
-  messageId?: string | null;
-  from: string;
-  to: string;
+  deliveryKey: string;
 }): Promise<string | null> {
   if (!input.env.rawEmailBucket) {
     return null;
@@ -122,10 +118,7 @@ async function storeRawEmail(input: {
 
   const objectKey = buildRawObjectKey({
     prefix: input.env.rawEmailObjectPrefix,
-    receivedAt: input.receivedAt,
-    domain: input.domain,
-    localPart: input.localPart,
-    messageId: input.messageId,
+    deliveryKey: input.deliveryKey,
   });
 
   try {
@@ -134,20 +127,15 @@ async function storeRawEmail(input: {
         contentType: 'message/rfc822',
       },
       customMetadata: {
-        domain: input.domain,
-        localPart: input.localPart,
-        from: input.from,
-        to: input.to,
+        deliveryKey: input.deliveryKey,
         receivedAt: input.receivedAt.toISOString(),
       },
     });
     return objectKey;
   } catch (error) {
     console.error('Failed to store raw email in R2', {
-      domain: input.domain,
-      localPart: input.localPart,
-      messageId: input.messageId,
-      error: error instanceof Error ? error.message : String(error),
+      deliveryKey: input.deliveryKey.slice(0, 12),
+      errorCode: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
     });
     return null;
   }
@@ -157,11 +145,7 @@ async function resolveRawStorage(input: {
   env: ResolvedEnv;
   rawEmail: ArrayBuffer;
   receivedAt: Date;
-  domain: string;
-  localPart: string;
-  messageId?: string | null;
-  from: string;
-  to: string;
+  deliveryKey: string;
 }): Promise<{ rawObjectKey: string | null; storageStatus: 'PENDING' | 'STORED' | 'FAILED' }> {
   if (!input.env.rawEmailBucket) {
     return {
@@ -175,6 +159,14 @@ async function resolveRawStorage(input: {
     rawObjectKey,
     storageStatus: rawObjectKey ? 'STORED' : 'FAILED',
   };
+}
+
+export async function deleteStoredRawEmail(payload: IngressReceiveInput, env: ResolvedEnv): Promise<void> {
+  const objectKey = payload.message.rawObjectKey;
+  if (!objectKey || !env.rawEmailBucket) {
+    return;
+  }
+  await env.rawEmailBucket.delete(objectKey);
 }
 
 export async function buildIngressPayload(message: EmailMessageLike, env: ResolvedEnv): Promise<IngressReceiveInput> {
@@ -194,20 +186,16 @@ export async function buildIngressPayload(message: EmailMessageLike, env: Resolv
     typeof parsed.messageId === 'string' ? parsed.messageId : null,
     headers['message-id'],
   );
-  const storage = await resolveRawStorage({
-    env,
-    rawEmail,
-    receivedAt,
-    domain: routing.domain,
-    localPart: routing.localPart,
-    messageId,
-    from: message.from,
-    to: message.to,
-  });
   const deliveryKey = await buildDeliveryKey({
     matchedAddress: routing.matchedAddress,
     messageId,
     rawEmail,
+  });
+  const storage = await resolveRawStorage({
+    env,
+    rawEmail,
+    receivedAt,
+    deliveryKey,
   });
   const summarizedMessage = buildMessageSummary({
     parsed,

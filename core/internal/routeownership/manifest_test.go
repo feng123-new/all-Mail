@@ -31,7 +31,8 @@ func TestCanonicalManifestClassifiesEveryGatewayFamily(t *testing.T) {
 		"domain regex fallback":   {method: "POST", path: "/api/domain-mail/messages/text", id: "domain-message-text", owner: OwnerBusinessAPI},
 		"external catch-all":      {method: "GET", path: "/api/unknown", id: "external-api", owner: OwnerBusinessAPI},
 		"mailbox portal":          {method: "GET", path: "/mail/api/session", id: "mailbox-portal", owner: OwnerBusinessAPI},
-		"ingress":                 {method: "POST", path: "/ingress/domain-mail/receive", id: "ingress-domain-mail", owner: OwnerBusinessAPI},
+		"ingress":                 {method: "POST", path: "/ingress/domain-mail/receive", id: "ingress-domain-mail", owner: OwnerGoBusinessAPI},
+		"ingress catch-all":       {method: "POST", path: "/ingress/unknown", id: "ingress-other", owner: OwnerBusinessAPI},
 		"spa":                     {method: "GET", path: "/settings/domains", id: "spa", owner: OwnerGo},
 		"prefix boundary":         {method: "GET", path: "/administrator", id: "spa", owner: OwnerGo},
 	}
@@ -49,9 +50,10 @@ func TestCanonicalManifestClassifiesEveryGatewayFamily(t *testing.T) {
 		manifest.Match("GET", "/admin/dashboard/stats"),
 		manifest.Match("DELETE", "/admin/dashboard/logs/42"),
 		manifest.Match("POST", "/admin/dashboard/logs/batch-delete"),
+		manifest.Match("POST", "/ingress/domain-mail/receive"),
 	} {
 		if route.MigrationStage != MigrationComplete || route.TargetOwner != "" || route.Owner != OwnerGoBusinessAPI {
-			t.Fatalf("completed Dashboard migration metadata = %#v", route)
+			t.Fatalf("completed Go business migration metadata = %#v", route)
 		}
 	}
 	if len(manifest.Digest()) != 64 {

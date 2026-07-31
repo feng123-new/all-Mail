@@ -7,6 +7,7 @@ export interface R2PutOptionsLike {
 
 export interface R2BucketLike {
   put(key: string, value: ArrayBuffer | Uint8Array, options?: R2PutOptionsLike): Promise<unknown>;
+  delete(key: string): Promise<void>;
 }
 
 export interface WorkerEnv {
