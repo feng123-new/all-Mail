@@ -171,8 +171,8 @@ func TestReadinessReportsDatabaseState(t *testing.T) {
 func TestVerifyAdminJWTRejectsTamperingAndExpiry(t *testing.T) {
 	now := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
 	valid := signTestJWT(t, 7, "admin-console", now.Add(time.Hour))
-	if id, err := verifyAdminJWT(valid, testJWTSecret, now); err != nil || id != 7 {
-		t.Fatalf("valid JWT = %d, %v", id, err)
+	if claims, err := verifyAdminJWT(valid, testJWTSecret, now); err != nil || claims.AdminID != 7 || claims.SessionVersion != 1 {
+		t.Fatalf("valid JWT = %#v, %v", claims, err)
 	}
 	if _, err := verifyAdminJWT(valid+"tampered", testJWTSecret, now); err == nil {
 		t.Fatal("verifyAdminJWT accepted a tampered token")
@@ -211,9 +211,11 @@ func signTestJWT(t *testing.T, subject int64, audience string, expiresAt time.Ti
 		t.Fatal(err)
 	}
 	payload, err := json.Marshal(map[string]any{
-		"sub": strconv.FormatInt(subject, 10),
-		"aud": audience,
-		"exp": expiresAt.Unix(),
+		"iss":            allMailJWTIssuer,
+		"sub":            strconv.FormatInt(subject, 10),
+		"aud":            audience,
+		"exp":            expiresAt.Unix(),
+		"sessionVersion": 1,
 	})
 	if err != nil {
 		t.Fatal(err)
