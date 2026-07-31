@@ -1,0 +1,75 @@
+name: PR33 fix ingress integration fixture
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr33-fix-ingress-fixture
+  cancel-in-progress: true
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/go-ingress-lifecycle
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+      - name: Align the ingress fixture with the database integrity constraint
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('core/internal/businessapi/ingress_integration_test.go')
+          content = path.read_text(encoding='utf-8')
+          content = content.replace(
+              'import (\n\t"context"\n\t"encoding/json"',
+              'import (\n\t"context"\n\t"crypto/sha256"\n\t"encoding/hex"\n\t"encoding/json"',
+              1,
+          )
+          content = content.replace(
+              '\tsecretEnvelope := encryptIngressTestSecret(t, testIngressEncryptionKey, testIngressSigningSecret)\n',
+              '\tsecretEnvelope := encryptIngressTestSecret(t, testIngressEncryptionKey, testIngressSigningSecret)\n'
+              '\tsecretDigest := sha256.Sum256([]byte(testIngressSigningSecret))\n'
+              '\tsigningKeyHash := hex.EncodeToString(secretDigest[:])\n',
+              1,
+          )
+          old = '''\t\tVALUES (
+\t\t\t$1, $2, 'integration ingress', 'CLOUDFLARE_WORKER', NULL,
+\t\t\t$3, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+\t\t)
+\t\tRETURNING id
+\t`, domainID, testIngressKeyID, secretEnvelope).Scan(&endpointID); err != nil {'''
+          new = '''\t\tVALUES (
+\t\t\t$1, $2, 'integration ingress', 'CLOUDFLARE_WORKER', $3,
+\t\t\t$4, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+\t\t)
+\t\tRETURNING id
+\t`, domainID, testIngressKeyID, signingKeyHash, secretEnvelope).Scan(&endpointID); err != nil {'''
+          if old not in content:
+              raise SystemExit('ingress endpoint fixture block was not found')
+          path.write_text(content.replace(old, new, 1), encoding='utf-8')
+          PY
+          gofmt -w core/internal/businessapi/ingress_integration_test.go
+          git diff --check
+          cd core
+          go test -race ./internal/businessapi
+      - name: Commit the fixture correction
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/internal/businessapi/ingress_integration_test.go
+          git commit -m "test(ingress): persist signing hash in integration fixture"
+          git push origin HEAD:agent/go-ingress-lifecycle
