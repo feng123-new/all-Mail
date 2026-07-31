@@ -112,25 +112,23 @@
     },
     {
       "id": "admin-dashboard-log-delete",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/dashboard/logs",
       "methods": [
         "DELETE"
       ],
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-dashboard-log-batch-delete",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "exact",
       "path": "/admin/dashboard/logs/batch-delete",
       "methods": [
         "POST"
       ],
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-dashboard-other",

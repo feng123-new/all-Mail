@@ -2,92 +2,79 @@
 
 ## Purpose
 
-`config/route-ownership.json` is the canonical public route-and-method ownership contract for `all-Mail`. It determines which runtime owns a request, which stable route-family label appears in metrics, and which private upstream receives migrated or remaining business traffic.
+`config/route-ownership.json` is the canonical public route-and-method ownership contract. It decides which runtime handles a request, which stable route-family label appears in metrics, and which private upstream receives business traffic.
 
-Ownership changes only through reviewed source control. There is no environment flag that can silently move production traffic between implementations.
+Ownership changes only through reviewed source control. There is no environment variable that can silently switch implementations.
 
 ## Owners
 
 | Owner | Meaning |
 | --- | --- |
-| `go` | The public Go gateway handles the route directly, including system endpoints and the React SPA fallback. |
-| `go-business-api` | The public gateway forwards the route to the private Go business service. |
-| `business-api` | The public gateway forwards the route to the private Fastify/Prisma business API. |
+| `go` | The public gateway handles the route directly, including system endpoints and the React SPA fallback. |
+| `go-business-api` | The public gateway forwards to the private migrated Go business service. |
+| `business-api` | The public gateway forwards to the remaining Fastify/Prisma service. |
 
-The public `app` has no database URL, Redis URL, JWT secret, or encryption key. Database-backed Go handlers live in `go-business-api`, not in the Internet-facing gateway.
+The public `app` has no database URL, Redis URL, JWT secret, or encryption key.
 
-## Method-aware match semantics
+## Method-aware matching
 
 Manifest version 2 supports:
 
 | Field | Meaning |
 | --- | --- |
 | `match: exact` | Match only the declared path. |
-| `match: prefix` | Match the path and slash-separated descendants; `/admin` does not match `/administrator`. |
-| `match: fallback` | Final Go-owned SPA route when no exact or prefix route matches. |
-| `methods` | Optional bounded list of HTTP methods. Omitted means all methods. |
+| `match: prefix` | Match the path and slash-separated descendants. |
+| `match: fallback` | Final Go-owned SPA route. |
+| `methods` | Optional bounded HTTP method list; omitted means all methods. |
 
-Supported method values are:
+Supported methods are:
 
 ```text
 GET HEAD POST PUT PATCH DELETE OPTIONS
 ```
 
-Matching uses the request method plus path. Exact routes win first, prefix routes are evaluated longest-prefix-first, and the SPA fallback runs last. Two routes may share the same path only when their method sets do not overlap.
-
-This allows a read-only vertical cutover without accidentally moving writes. For example:
-
-```text
-GET    /admin/dashboard/logs      -> go-business-api
-DELETE /admin/dashboard/logs/:id  -> business-api
-POST   /admin/dashboard/logs/batch-delete -> business-api
-```
+Exact routes win first, prefixes are evaluated longest-prefix-first, and fallback runs last. Routes may share a path only when their method sets do not overlap.
 
 ## Migration states
 
 | State | Meaning |
 | --- | --- |
-| `complete` | A route is owned by `go` or `go-business-api` and has no target owner. |
-| `observing` | A route remains Fastify-owned while behavior and traffic are measured. |
-| `pending` | A route remains Fastify-owned and targets a Go owner later. |
+| `complete` | The route is owned by Go and has no target owner. |
+| `observing` | Fastify still owns the route while behavior or traffic is measured. |
+| `pending` | Fastify owns the route and a later Go owner is declared. |
 
-The loader rejects unsupported versions, unknown fields, invalid owners or methods, duplicate IDs, overlapping path/method matchers, missing fallback routes, unsafe completed ownership, invalid target owners, and trailing JSON.
+The loader rejects unsupported versions, unknown fields, invalid owners or methods, duplicate IDs, overlapping path/method matchers, unsafe completed ownership, missing fallback, invalid targets, and trailing JSON.
 
-## Current Dashboard split
+## Current Dashboard ownership
 
-The first database-backed Go cutover is complete for these reads:
-
-```text
-GET /admin/dashboard/stats
-GET /admin/dashboard/api-trend
-GET /admin/dashboard/logs
-```
-
-They are owned by `go-business-api`. The private service:
-
-- verifies the existing HS256 administrator token;
-- requires audience `admin-console`;
-- reloads the administrator from PostgreSQL;
-- rejects missing or disabled administrators;
-- preserves `mustChangePassword` enforcement;
-- validates query parameters;
-- queries PostgreSQL in UTC;
-- preserves the existing success/error envelope and request ID.
-
-These writes remain on Fastify until audit and transaction parity is implemented:
+All implemented Dashboard operations are now Go-owned:
 
 ```text
+GET    /admin/dashboard/stats
+GET    /admin/dashboard/api-trend
+GET    /admin/dashboard/logs
 DELETE /admin/dashboard/logs/:id
 POST   /admin/dashboard/logs/batch-delete
 ```
 
-The old Fastify read handlers remain temporarily for revision rollback. Do not delete them until production metrics prove their Fastify proxy traffic is zero for the agreed observation window.
+The private `go-business-api`:
 
-## API-key and database external-route split
+- verifies HS256 tokens with issuer `all-mail` and audience `admin-console`;
+- compares durable administrator session versions;
+- reloads the administrator from PostgreSQL;
+- rejects missing, disabled, stale-session, or mandatory-password-change accounts;
+- bounds query and batch parameters;
+- preserves the response envelope and request ID;
+- deletes logs transactionally;
+- writes an administrator audit record in the same transaction.
 
-The second private Go business slice moves the complete administrator API-key surface to `go-business-api`, including create/list/detail/update/delete, allocation statistics, allocation reset, and assigned-mailbox management. The same service now owns API-key hash authentication, status/expiry checks, permission aliases and wildcards, Redis-backed per-minute limiting, usage accounting, and request audit logging.
+The general `/admin/dashboard` catch-all remains Fastify-owned for unknown or future methods. Fastify Dashboard handlers remain as revision rollback code and receive no traffic for methods explicitly owned by Go.
 
-Database-only external operations are also Go-owned through exact route entries:
+## API-key and database external routes
+
+`go-business-api` owns the complete administrator API-key surface, explicit fail-closed permissions, hash authentication, status and expiry checks, Redis limiting, usage accounting, resource scopes, allocation state, and request auditing.
+
+Database-only external routes are also exact Go-owned entries:
 
 ```text
 /api/get-email and /api/mailboxes/allocate
@@ -102,25 +89,23 @@ Database-only external operations are also Go-owned through exact route entries:
 /api/domain-mail/reset-pool and /api/domain-mail/mailboxes/allocation-reset
 ```
 
-Provider-dependent mailbox reads and the JavaScript regular-expression text extraction routes remain on `business-api`. Exact Fastify ownership entries for `/api/domain-mail/messages/text` and `/api/domain-mail/mail_text` prevent the broader Go message route from accidentally taking those compatibility endpoints.
-
-`go-business-api` now receives the private Redis URL in addition to PostgreSQL and its read-only JWT file. Redis failure makes readiness and API-key limiting fail closed. The public gateway still receives none of those credentials.
+Provider-dependent mailbox operations and JavaScript regular-expression text extraction remain on `business-api`. Exact Fastify entries for `/api/domain-mail/messages/text` and `/api/domain-mail/mail_text` prevent broader Go message routes from taking those compatibility endpoints.
 
 ## Runtime loading and inspection
 
-The Go image contains the exact manifest at:
+The Go image contains the reviewed manifest at:
 
 ```text
 /app/config/route-ownership.json
 ```
 
-The internal path is selected by:
+Selected by:
 
 ```text
 ALL_MAIL_ROUTE_OWNERSHIP_FILE=/app/config/route-ownership.json
 ```
 
-The process fails before listening if the file is missing or unsafe. Inspect the loaded version and SHA-256 digest with:
+The process fails before listening if the manifest is missing or unsafe. Inspect the active version, digest, and route set with:
 
 ```bash
 docker compose exec -T app allmail routes
@@ -130,7 +115,7 @@ docker compose exec -T app allmail routes
 
 ## Response diagnostics
 
-Every public response includes exactly one canonical pair:
+Every public response contains one canonical pair:
 
 ```text
 X-All-Mail-Route-Owner: go | go-business-api | business-api
@@ -150,21 +135,17 @@ GET /admin/dashboard/stats
   owner: go-business-api
   family: admin-dashboard-stats-read
 
-POST /admin/api-keys
+DELETE /admin/dashboard/logs/42
   owner: go-business-api
-  family: admin-api-keys
+  family: admin-dashboard-log-delete
 
-GET /api/get-email
+POST /admin/dashboard/logs/batch-delete
   owner: go-business-api
-  family: ext-email-allocate-compat
+  family: admin-dashboard-log-batch-delete
 
 GET /api/domain-mail/messages/text
   owner: business-api
   family: domain-message-text
-
-DELETE /admin/dashboard/logs/42
-  owner: business-api
-  family: admin-dashboard-log-delete
 
 GET /settings/domains
   owner: go
@@ -173,7 +154,7 @@ GET /settings/domains
 
 ## Prometheus metrics
 
-The public Go `/metrics` endpoint exports bounded route-family metrics:
+The public `/metrics` endpoint exports bounded route-family metrics:
 
 ```text
 allmail_route_manifest_info
@@ -184,50 +165,33 @@ allmail_route_request_duration_seconds
 allmail_business_proxy_errors_total
 ```
 
-`allmail_route_owner_info` includes the committed method list. Request method labels are restricted to:
+Request methods are restricted to `GET POST PUT PATCH DELETE HEAD OPTIONS OTHER`; arbitrary methods collapse to `OTHER`. Status labels are bounded to classes. Raw paths, identities, addresses, API keys, request IDs, secrets, and error text never become labels.
 
-```text
-GET POST PUT PATCH DELETE HEAD OPTIONS OTHER
-```
-
-Unknown client method strings collapse to `OTHER`, preventing unbounded time series and memory growth. Status labels are limited to `1xx`, `2xx`, `3xx`, `4xx`, `5xx`, and `other`. Raw paths, user IDs, domains, mailbox addresses, API keys, request IDs, secrets, and error text never become metric labels.
-
-Proxy error metrics identify both the stable family and private upstream:
+Proxy errors identify both family and private upstream:
 
 ```text
 allmail_business_proxy_errors_total{family="...",upstream="go-business-api|business-api"}
 ```
 
-A non-zero rate blocks deletion or further cutover for that route family.
+Non-zero Fastify traffic or errors block deletion of a rollback handler.
 
 ## Cutover requirements
 
-A route/method migration PR must include:
+A route migration must include:
 
 1. a private Go handler and data-access implementation;
-2. the same authentication and authorization boundary;
-3. bounded validation and response-shape parity fixtures;
-4. database timeout, cancellation, transaction, and failure tests as applicable;
+2. equivalent authentication and authorization;
+3. bounded validation and response-shape parity;
+4. transaction, cancellation, and failure tests where applicable;
 5. audit and request-ID behavior;
-6. the method-aware manifest owner change;
-7. Docker smoke through the public gateway;
-8. private-service readiness and Secret isolation checks;
+6. the method-aware owner change;
+7. public-gateway Docker smoke;
+8. readiness and secret-isolation checks;
 9. a revision rollback path;
-10. an observation window proving old-upstream traffic and errors remain zero before deleting the Fastify handler.
+10. a later observation window before deleting the Fastify handler.
 
-Rollback is revision-based. Never introduce an environment-controlled dual writer or mutable ownership switch.
-
-## Adding or changing a Fastify prefix
-
-Any change to `server/src/routes/prefixes.ts` must update `config/route-ownership.json` in the same PR. Repository tests reject uncovered prefixes. A specific method-aware route may be added beneath an existing namespace while retaining the namespace catch-all for all other methods and unknown paths.
+Rollback is revision-based. Never introduce a mutable dual writer or environment-controlled owner switch.
 
 ## Final deletion gate
 
-`business-api`, `business-init`, Prisma, `server/`, and `Dockerfile.server` remain required until:
-
-- every public path and method is Go-owned;
-- Fastify proxy requests and errors remain zero for the agreed observation period;
-- Go owns the complete business schema and migration ledger;
-- encrypted historical fields remain readable;
-- fresh install, in-place upgrade, backup restore, and rollback no longer require Node or Prisma;
-- the final image and SBOM contain neither runtime.
+`business-api`, `business-init`, Prisma, `server/`, and `Dockerfile.server` remain required until every public method is Go-owned, Fastify traffic is zero for the agreed period, Go owns the complete schema and migration ledger, historical ciphertext remains readable, and install/upgrade/restore/rollback no longer need Node. The final image and SBOM must contain neither Node nor Prisma.

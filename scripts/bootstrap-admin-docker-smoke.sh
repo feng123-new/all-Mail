@@ -135,7 +135,7 @@ write_status=$(curl --silent --show-error \
   -X DELETE -H "Cookie: token=$token" \
   http://127.0.0.1:3002/admin/dashboard/logs/999999999)
 test "$write_status" = "200"
-grep -qi '^X-All-Mail-Route-Owner: business-api' "$write_headers"
+grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$write_headers"
 
 admin_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT id FROM admins ORDER BY id LIMIT 1')
 group_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc \

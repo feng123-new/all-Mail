@@ -55,10 +55,10 @@ func TestHealthAndDualBusinessProxiesUseCanonicalRouteOwnership(t *testing.T) {
 	request = httptest.NewRequest(http.MethodDelete, "/admin/dashboard/logs/42", nil)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "business") {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "goBusiness") {
 		t.Fatalf("Dashboard write proxy response = %d %s", response.Code, response.Body.String())
 	}
-	assertRouteHeaders(t, response, "business-api", "admin-dashboard-log-delete")
+	assertRouteHeaders(t, response, "go-business-api", "admin-dashboard-log-delete")
 
 	request = httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	response = httptest.NewRecorder()
@@ -68,7 +68,7 @@ func TestHealthAndDualBusinessProxiesUseCanonicalRouteOwnership(t *testing.T) {
 		`allmail_route_owner_info{family="admin-dashboard-stats-read",owner="go-business-api"`,
 		`allmail_route_requests_total{family="admin-other",owner="business-api",method="GET",status_class="2xx"} 1`,
 		`allmail_route_requests_total{family="admin-dashboard-stats-read",owner="go-business-api",method="GET",status_class="2xx"} 1`,
-		`allmail_route_requests_total{family="admin-dashboard-log-delete",owner="business-api",method="DELETE",status_class="2xx"} 1`,
+		`allmail_route_requests_total{family="admin-dashboard-log-delete",owner="go-business-api",method="DELETE",status_class="2xx"} 1`,
 	} {
 		if !strings.Contains(metrics, expected) {
 			t.Fatalf("metrics are missing %q:\n%s", expected, metrics)
@@ -90,12 +90,12 @@ func TestRouteManifestKeepsMethodAndNamespaceBoundaries(t *testing.T) {
 	}
 	assertRouteHeaders(t, goRead, "go-business-api", "admin-dashboard-logs-read")
 
-	fastifyWrite := httptest.NewRecorder()
-	server.Handler().ServeHTTP(fastifyWrite, httptest.NewRequest(http.MethodPost, "/admin/dashboard/logs/batch-delete", nil))
-	if fastifyWrite.Code != http.StatusServiceUnavailable || !strings.Contains(fastifyWrite.Body.String(), "BUSINESS_API_NOT_CONFIGURED") {
-		t.Fatalf("Fastify write response = %d %s", fastifyWrite.Code, fastifyWrite.Body.String())
+	goWrite := httptest.NewRecorder()
+	server.Handler().ServeHTTP(goWrite, httptest.NewRequest(http.MethodPost, "/admin/dashboard/logs/batch-delete", nil))
+	if goWrite.Code != http.StatusServiceUnavailable || !strings.Contains(goWrite.Body.String(), "GO_BUSINESS_API_NOT_CONFIGURED") {
+		t.Fatalf("Go write response = %d %s", goWrite.Code, goWrite.Body.String())
 	}
-	assertRouteHeaders(t, fastifyWrite, "business-api", "admin-dashboard-log-batch-delete")
+	assertRouteHeaders(t, goWrite, "go-business-api", "admin-dashboard-log-batch-delete")
 
 	backend := httptest.NewRecorder()
 	server.Handler().ServeHTTP(backend, httptest.NewRequest(http.MethodGet, "/api/unknown", nil))

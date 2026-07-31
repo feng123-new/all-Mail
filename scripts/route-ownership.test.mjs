@@ -81,17 +81,25 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 		"admin-dashboard-stats-read",
 		"admin-dashboard-trend-read",
 		"admin-dashboard-logs-read",
+		"admin-dashboard-log-delete",
+		"admin-dashboard-log-batch-delete",
 	]) {
 		const route = manifest.routes.find((candidate) => candidate.id === id);
-		assert.equal(route?.owner, "go-business-api");
-		assert.equal(route?.migrationStage, "complete");
+		assert.equal(route?.owner, "go-business-api", id);
+		assert.equal(route?.migrationStage, "complete", id);
+		assert.equal(route?.targetOwner, undefined, id);
+	}
+	for (const id of [
+		"admin-dashboard-stats-read",
+		"admin-dashboard-trend-read",
+		"admin-dashboard-logs-read",
+	]) {
+		const route = manifest.routes.find((candidate) => candidate.id === id);
 		assert.deepEqual(route?.methods, ["GET", "HEAD"]);
 	}
-	for (const id of ["admin-dashboard-log-delete", "admin-dashboard-log-batch-delete", "admin-dashboard-other"]) {
-		const route = manifest.routes.find((candidate) => candidate.id === id);
-		assert.equal(route?.owner, "business-api");
-		assert.equal(route?.targetOwner, "go-business-api");
-	}
+	const dashboardCatchAll = manifest.routes.find((candidate) => candidate.id === "admin-dashboard-other");
+	assert.equal(dashboardCatchAll?.owner, "business-api");
+	assert.equal(dashboardCatchAll?.targetOwner, "go-business-api");
 
 	const apiKeyAdmin = manifest.routes.find((candidate) => candidate.id === "admin-api-keys");
 	assert.equal(apiKeyAdmin?.owner, "go-business-api");
