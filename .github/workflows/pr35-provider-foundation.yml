@@ -1,0 +1,44 @@
+name: PR35 validate provider foundation
+
+on:
+  push:
+    branches:
+      - agent/go-mail-operations
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/go-mail-operations
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+      - name: Normalize interfaces and dependencies
+        run: |
+          python3 scripts/pr35_foundation_patch.py
+          cd core
+          go get github.com/emersion/go-imap@v1.2.1
+          go get github.com/emersion/go-message@v0.18.2
+          go mod tidy
+          gofmt -w ./internal/businessapi ./internal/legacycrypto
+          go test ./internal/businessapi ./internal/legacycrypto
+          go vet ./internal/businessapi ./internal/legacycrypto
+          go build -trimpath -o /tmp/allmail ./cmd/allmail
+      - name: Commit validated foundation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/go.mod core/go.sum core/internal/businessapi core/internal/legacycrypto
+          git rm scripts/pr35_foundation_patch.py
+          git commit -m "feat(go-business): validate provider protocol foundation"
+          git push origin HEAD:agent/go-mail-operations
