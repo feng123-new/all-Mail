@@ -11,13 +11,19 @@ const permissionsSchema = z.record(z.boolean()).superRefine((permissions, ctx) =
             });
         }
     }
+    if (!Object.values(permissions).some((enabled) => enabled === true)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'At least one permission must be enabled',
+        });
+    }
 });
 
 export const createApiKeySchema = z.object({
     name: z.string().min(1).max(100),
     rateLimit: z.number().min(1).max(10000).optional(),
     expiresAt: z.string().datetime().nullable().optional(),
-    permissions: permissionsSchema.optional(),
+    permissions: permissionsSchema,
     allowedGroupIds: z.array(z.number().int().positive()).optional(),
     allowedEmailIds: z.array(z.number().int().positive()).optional(),
     allowedDomainIds: z.array(z.number().int().positive()).optional(),
