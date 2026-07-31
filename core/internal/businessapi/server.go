@@ -22,7 +22,9 @@ type Server struct {
 	store              Store
 	apiKeyStore        APIKeyStore
 	domainMailboxStore DomainMailboxStore
+	ingressStore       IngressStore
 	rateLimiter        RateLimiter
+	replayProtector    ReplayProtector
 	now                func() time.Time
 	ownStore           bool
 	ownRateLimiter     bool
@@ -50,7 +52,9 @@ func New(ctx context.Context, cfg config.GoBusinessAPIConfig, logger *slog.Logge
 		store:              store,
 		apiKeyStore:        store,
 		domainMailboxStore: store,
+		ingressStore:       store,
 		rateLimiter:        limiter,
+		replayProtector:    limiter,
 		now:                time.Now,
 		ownStore:           true,
 		ownRateLimiter:     true,
@@ -74,13 +78,20 @@ func newWithDependencies(
 	if rateLimiter == nil {
 		rateLimiter = allowAllRateLimiter{}
 	}
+	ingressStore, _ := store.(IngressStore)
+	replayProtector, _ := rateLimiter.(ReplayProtector)
+	if replayProtector == nil {
+		replayProtector = allowAllReplayProtector{}
+	}
 	return &Server{
 		cfg:                cfg,
 		logger:             logger,
 		store:              store,
 		apiKeyStore:        apiKeyStore,
 		domainMailboxStore: domainMailboxStore,
+		ingressStore:       ingressStore,
 		rateLimiter:        rateLimiter,
+		replayProtector:    replayProtector,
 		now:                time.Now,
 	}
 }
@@ -133,6 +144,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerDashboardWriteRoutes(mux)
 	s.registerAPIKeyRoutes(mux)
 	s.registerExternalRoutes(mux)
+	s.registerIngressRoutes(mux)
 	mux.HandleFunc("/", s.notFound)
 	return s.withRequestMetadata(mux)
 }
