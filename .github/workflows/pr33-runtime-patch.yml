@@ -42,14 +42,13 @@ jobs:
           POSTGRES_PASSWORD=ci-postgres-password-0123456789abcdef docker compose config --quiet
           cd core
           go test -race ./internal/config ./internal/routeownership
-      - name: Commit permanent changes and remove temporary tooling
+      - name: Commit non-workflow runtime contracts
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md docker-compose.yml core/internal/config/config.go \
             scripts/env-contract.test.mjs scripts/bootstrap-admin-docker-smoke.sh \
-            .github/workflows/config-security.yml docs/GO-MIGRATION.md docs/ENVIRONMENT.md \
-            docs/internal/runtime-migration-roadmap.md
-          git rm scripts/pr33_runtime_patch.py .github/workflows/pr33-runtime-patch.yml
+            docs/GO-MIGRATION.md docs/ENVIRONMENT.md docs/internal/runtime-migration-roadmap.md
+          git rm scripts/pr33_runtime_patch.py
           git commit -m "chore(ingress): finalize runtime and operator contracts"
           git push origin HEAD:agent/go-ingress-lifecycle
