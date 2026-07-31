@@ -19,9 +19,19 @@ func TestPostgresAPIKeyAndExternalRouteIntegrationDashboardWrites(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
 
 	var singleID, batchIDOne, batchIDTwo int64
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_, _ = store.pool.Exec(cleanupCtx, `
+			DELETE FROM api_logs
+			WHERE id = ANY($1::bigint[])
+			   OR action IN ($2, $3)
+		`, []int64{singleID, batchIDOne, batchIDTwo}, actionAdminDashboardLogDelete, actionAdminDashboardLogsBatchDelete)
+		store.Close()
+	}()
+
 	for index, target := range []*int64{&singleID, &batchIDOne, &batchIDTwo} {
 		if err := store.pool.QueryRow(ctx, `
 			INSERT INTO api_logs (action, response_code, created_at)
@@ -31,15 +41,6 @@ func TestPostgresAPIKeyAndExternalRouteIntegrationDashboardWrites(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		_, _ = store.pool.Exec(cleanupCtx, `
-			DELETE FROM api_logs
-			WHERE id = ANY($1::bigint[])
-			   OR action IN ($2, $3)
-		`, []int64{singleID, batchIDOne, batchIDTwo}, actionAdminDashboardLogDelete, actionAdminDashboardLogsBatchDelete)
-	})
 
 	deleted, err := store.DeleteDashboardLog(ctx, singleID, DashboardDeleteAudit{
 		AdminID:   99,
