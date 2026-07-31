@@ -56,9 +56,13 @@ export function parseApiPermissions(value: unknown): ApiPermissions | undefined 
     return Object.fromEntries(entries);
 }
 
+export function hasEnabledApiPermission(permissions: ApiPermissions | undefined): boolean {
+    return Boolean(permissions && Object.values(permissions).some((enabled) => enabled === true));
+}
+
 export function isApiPermissionAllowed(permissions: ApiPermissions | undefined, action: string): boolean {
     if (!permissions || Object.keys(permissions).length === 0) {
-        return true;
+        return false;
     }
 
     const actionKey = normalizeApiPermissionKey(action);
