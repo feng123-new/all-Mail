@@ -6,97 +6,95 @@
 client / reverse proxy
         |
         v
-app (Go gateway + React + method-aware route telemetry)
+app (Go gateway + React + route-family telemetry)
         |
         +----------------------------+
         |                            |
         v                            v
 go-business-api                business-api
-(private Go business routes)   (Fastify + Prisma remaining routes)
+private migrated Go routes     remaining Fastify/Prisma routes
         |                            |
         +-------------+--------------+
                       v
-                 PostgreSQL
+             PostgreSQL + Redis
 
 business-init -> go-migrate -> long-running services
 worker-forwarding and worker-retention are independent Go processes
 ```
 
-The public `app` remains least privilege: it receives no database URL, Redis URL, JWT secret, or encryption key. It owns routing and forwards each committed route family to one of two private upstreams:
-
-- `go-business-api` owns migrated database-backed Go handlers;
-- `business-api` owns the remaining Fastify/Prisma handlers;
-- `GO_BUSINESS_API_URL` and `BUSINESS_API_URL` are internal Compose inputs, never operator-controlled ownership switches;
-- `business-init` owns Prisma migration, durable configuration import, runtime-secret initialization, first-administrator bootstrap, and least-privilege secret export;
-- `Dockerfile.server` builds the two Node business roles;
-- the shared Go image builds `app`, `go-business-api`, migrations, and workers;
-- `runtime_secrets_data` retains the explicit physical name `${COMPOSE_PROJECT_NAME}_legacy_runtime_data` so upgrades reuse existing JWT and encryption state.
+The public `app` remains least privilege: it receives no database URL, Redis URL, JWT secret, or encryption key. `config/route-ownership.json` is the reviewed method-aware ownership authority; `GO_BUSINESS_API_URL` and `BUSINESS_API_URL` are transport targets, never mutable ownership switches.
 
 ## Completed migration foundation
 
-The platform and ownership foundation is complete:
+The platform foundation is complete:
 
-- `config/route-ownership.json` is the reviewed machine-readable ownership authority;
-- manifest version 2 supports HTTP-method-specific exact and longest-prefix ownership;
-- system routes and the SPA remain directly Go-owned;
-- every response carries stable owner and route-family headers;
-- Prometheus metrics expose declared methods, owner, request volume, bounded method/status classes, inflight work, duration, and private-upstream proxy errors;
-- arbitrary client method strings are collapsed to `OTHER` to prevent metric cardinality growth;
-- `allmail routes` prints the active manifest digest and method-aware route set;
-- ownership cannot be changed by an environment flag;
-- Fastify route-prefix additions must update the manifest in the same PR;
-- a private `go-business-api` now provides authenticated Dashboard reads without giving the public gateway database credentials;
-- Dashboard GET routes are Go-owned while Dashboard log deletion remains Fastify-owned by method.
+- Go owns the public listener, React SPA, trusted-proxy boundary, request IDs, security headers, health, readiness, and metrics;
+- the route ownership manifest supports exact, prefix, fallback, and HTTP-method-specific ownership;
+- every response carries a stable route owner and route-family header;
+- bounded Prometheus metrics expose route owner, methods, traffic, latency, inflight work, and private-upstream errors;
+- `allmail routes` prints the active manifest and digest;
+- forwarding and API-log retention run as independent Go workers;
+- a private `go-business-api` receives only PostgreSQL, Redis, and a read-only JWT file;
+- the public gateway receives no business credential.
 
-## First vertical cutover: Dashboard reads
+## Completed vertical cutovers
 
-These routes are now owned by `go-business-api`:
+### Dashboard reads and log-deletion writes
 
-```text
-GET /admin/dashboard/stats
-GET /admin/dashboard/api-trend
-GET /admin/dashboard/logs
-```
-
-The private service verifies the existing HS256 administrator token, requires the `admin-console` audience, reloads the administrator from PostgreSQL, rejects disabled accounts, and preserves the mandatory initial-password-change boundary. Dashboard queries use UTC, bounded query parameters, PostgreSQL protocol checks, and the existing response envelope.
-
-These write routes deliberately remain on Fastify until audit and transaction parity is implemented:
+The following routes are owned by `go-business-api`:
 
 ```text
+GET    /admin/dashboard/stats
+GET    /admin/dashboard/api-trend
+GET    /admin/dashboard/logs
 DELETE /admin/dashboard/logs/:id
 POST   /admin/dashboard/logs/batch-delete
 ```
 
-The Fastify read handlers also remain temporarily as revision rollback code. They are deleted only after an observation window confirms that the corresponding Fastify route-family proxy traffic remains zero.
+The private service verifies the existing administrator JWT, requires issuer `all-mail` and audience `admin-console`, reloads account and session-version state from PostgreSQL, rejects disabled or stale sessions, and preserves the mandatory password-change boundary.
 
-## Second vertical cutover: API-key security and database external routes
+Dashboard log deletion is transactional. The target delete and a separate administrator audit record commit together. Batch input is bounded to 1–1000 positive IDs, duplicates are normalized, and audit metadata records the administrator ID, request ID, client IP, requested/deleted counts, and response time.
 
-`go-business-api` now owns the administrator API-key surface, API-key hash authentication, permissions and aliases, fail-closed Redis limiting, usage accounting, email/domain mailbox allocation state, and persisted domain-message reads. Exact route ownership keeps provider-dependent APIs and JavaScript regex text extraction on Fastify.
+Fastify Dashboard handlers remain temporarily as revision rollback code. They receive no traffic for methods owned by Go and may be removed only after the observation window proves zero Fastify requests and proxy errors for those route families.
 
-The private Go service now depends on PostgreSQL, Redis, and the read-only JWT file. The public gateway remains credential-free.
+### API-key security and database-backed external routes
+
+`go-business-api` owns:
+
+- administrator API-key create/list/detail/update/delete;
+- explicit fail-closed permissions, aliases, wildcards, scopes, status, and expiry;
+- SHA-256 key lookup, Redis-backed limiting, usage accounting, and API audit logs;
+- external mailbox allocation/list/statistics/reset;
+- domain mailbox allocation/list/statistics/reset;
+- persisted domain-message reads.
+
+Provider-dependent mailbox access and JavaScript regular-expression text extraction remain Fastify-owned.
+
+### Session-security foundation
+
+Administrator and mailbox JWTs carry issuer, audience, algorithm, and durable session-version state. Password, role, status, mandatory-rotation, and 2FA changes increment the stored version and revoke older tokens. Browser cookies rotate after security changes.
 
 ## Remaining vertical migrations
 
-1. Decide and migrate Dashboard log-deletion writes with audit and transaction parity.
-2. Move ingress validation, encrypted endpoint secrets, replay protection, persistence, forwarding-job creation, and outbound history.
-3. Move provider-dependent mailbox reads, provider synchronization, OAuth configuration, and sending operations.
-4. Move domain, mailbox, alias, and user write operations.
-5. Move mailbox-portal and administrator authentication, including login lockout, 2FA, password rotation, OAuth state, and JWT issuance.
-6. Transfer complete business-schema migration authority from Prisma to Go.
-7. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.
-8. Observe zero Fastify proxy traffic, then remove the Node/Prisma runtime in a separate revision.
+1. Move ingress signature validation, encrypted endpoint secrets, replay protection, persistence, forwarding-job creation, raw-message lifecycle, and outbound history.
+2. Move domain, mailbox, alias, mailbox-user, and administrator write operations that do not require provider access.
+3. Move provider-dependent reads, synchronization, OAuth configuration, token refresh, and sending operations.
+4. Move mailbox-portal and administrator authentication, including login lockout, 2FA, password rotation, OAuth state, and JWT issuance.
+5. Transfer complete business-schema migration authority from Prisma to Go.
+6. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.
+7. Observe zero Fastify proxy traffic, then remove the Node/Prisma runtime in a separate revision.
 
-Each route cutover must change the method-aware manifest owner in the same revision as its Go handler, authorization, validation, response parity, failure injection, Docker smoke, and rollback tests. Deleting a Fastify handler requires a later observation window in which that route family's Fastify proxy traffic and proxy errors remain zero.
+Each route cutover must include its Go handler, authorization, validation, transaction behavior, response parity, failure injection, method-aware manifest change, public-gateway Docker smoke, readiness checks, and revision rollback path.
 
 ## Final Node/Prisma deletion gates
 
-The `server/` runtime, Prisma engine, `business-api`, `business-init`, and `Dockerfile.server` may be removed only when all of the following are true:
+`server/`, Prisma, `business-api`, `business-init`, and `Dockerfile.server` may be removed only when all of the following are true:
 
-- no public route or HTTP method is owned by Fastify in the route ownership manifest;
-- route-family Fastify proxy requests and proxy errors remain zero for the agreed observation window;
+- no public path or HTTP method is Fastify-owned;
+- Fastify proxy requests and proxy errors remain zero for the agreed observation window;
 - fresh install, in-place upgrade, backup restore, and rollback no longer require Node;
 - Go owns the complete business schema and migration ledger;
-- all historical encrypted values remain readable after the cutover;
+- every historical encrypted value remains readable;
 - the final image and SBOM contain no Node runtime or Prisma engine.
 
-Until those gates are met, the Node business runtime is active production code rather than removable redundancy.
+Until those gates are met, the Node business runtime is active production code, not removable redundancy.
