@@ -6,6 +6,7 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- replaced implicit full-access API-key permissions with an explicit fail-closed model, while backfilling historical NULL or empty permission maps to `all=true` before either runtime starts
 - aligned deployment, recovery, environment, and release documentation with the active `app` + `go-business-api` + `business-api` topology
 - added runtime-documentation contract tests for service lists, private ports, aggregate readiness, Secret ownership, and source-available licensing language
 - moved API-key administration, hash authentication, permission aliases, Redis-backed limiting, usage accounting, and allocation state into the private Go business service
