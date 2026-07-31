@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -72,6 +73,9 @@ func decodeOptionalInt64Slice(raw json.RawMessage, field string, maximum int) ([
 	}
 	if maximum > 0 && len(values) > maximum {
 		return nil, true, validationError(field + " contains too many values")
+	}
+	if err := requirePositiveIDs(values, field); err != nil {
+		return nil, true, err
 	}
 	values = normalizeManagementIDs(values)
 	return values, true, nil
@@ -141,6 +145,10 @@ func formatOptionalTime(value *time.Time) *string {
 	}
 	result := formatAPITime(*value)
 	return &result
+}
+
+func errorsIsNoRows(err error) bool {
+	return errors.Is(err, pgx.ErrNoRows)
 }
 
 func managementPGCode(err error) string {
