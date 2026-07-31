@@ -30,8 +30,6 @@ def regex_once(path: str, pattern: str, replacement: str) -> None:
     write(path, updated)
 
 
-# Keep Prisma's declared schema aligned with the additive migration so future
-# Prisma operations do not attempt to remove the durable session-version fields.
 regex_once(
     "server/prisma/schema.prisma",
     r"(model Admin \{.*?lastLoginIp\s+String\?\s+@map\(\"last_login_ip\"\)\s+@db\.VarChar\(45\)\n)(\s+createdAt)",
@@ -43,8 +41,6 @@ regex_once(
     r"\1  sessionVersion     Int               @default(1) @map(\"session_version\")\n\2",
 )
 
-# The private Go business service reloads the same version from PostgreSQL on
-# every administrator request.
 replace_once(
     "core/internal/businessapi/store.go",
     "SELECT id, username, role::text, status::text, must_change_password\n",
@@ -56,7 +52,6 @@ replace_once(
     "\t\t&admin.MustChangePassword,\n\t\t&admin.SessionVersion,\n\t)",
 )
 
-# Update Go JWT fixtures for the new issuer and version contract.
 replace_once(
     "core/internal/businessapi/server_test.go",
     "\tif id, err := verifyAdminJWT(valid, testJWTSecret, now); err != nil || id != 7 {\n\t\tt.Fatalf(\"valid JWT = %d, %v\", id, err)\n\t}",
@@ -68,8 +63,11 @@ replace_once(
     "\t\t\"iss\":            allMailJWTIssuer,\n\t\t\"sub\":            strconv.FormatInt(subject, 10),\n\t\t\"aud\":            audience,\n\t\t\"exp\":            expiresAt.Unix(),\n\t\t\"sessionVersion\": 1,\n",
 )
 
-# A mailbox password change invalidates the old token and immediately rotates
-# the browser cookie to the newly incremented version.
+replace_once(
+    "server/src/modules/mailbox-user/mailboxPortal.routes.ts",
+    "import type { FastifyPluginAsync, FastifyRequest } from 'fastify';\n",
+    "import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';\n",
+)
 replace_once(
     "server/src/modules/mailbox-user/mailboxPortal.routes.ts",
     "import { z } from 'zod';\n",
@@ -78,7 +76,7 @@ replace_once(
 replace_once(
     "server/src/modules/mailbox-user/mailboxPortal.routes.ts",
     "function getMailboxAuthContext(request: FastifyRequest) {\n",
-    "async function rotateMailboxSession(request: FastifyRequest, reply: Parameters<FastifyPluginAsync>[0] extends never ? never : any): Promise<void> {\n    const mailboxUser = getMailboxAuthContext(request);\n    const token = await signToken({\n        sub: String(mailboxUser.id),\n        mailboxUserId: mailboxUser.id,\n        username: mailboxUser.username,\n        role: mailboxUser.role,\n        mailboxIds: mailboxUser.mailboxIds,\n    }, { audience: MAILBOX_JWT_AUDIENCE });\n    reply.cookie('mailbox_token', token, mailboxSessionCookieOptions);\n}\n\nfunction getMailboxAuthContext(request: FastifyRequest) {\n",
+    "async function rotateMailboxSession(request: FastifyRequest, reply: FastifyReply): Promise<void> {\n    const mailboxUser = getMailboxAuthContext(request);\n    const token = await signToken({\n        sub: String(mailboxUser.id),\n        mailboxUserId: mailboxUser.id,\n        username: mailboxUser.username,\n        role: mailboxUser.role,\n        mailboxIds: mailboxUser.mailboxIds,\n    }, { audience: MAILBOX_JWT_AUDIENCE });\n    reply.cookie('mailbox_token', token, mailboxSessionCookieOptions);\n}\n\nfunction getMailboxAuthContext(request: FastifyRequest) {\n",
 )
 replace_once(
     "server/src/modules/mailbox-user/mailboxPortal.routes.ts",
@@ -86,15 +84,12 @@ replace_once(
     "    }, async (request, reply) => {\n        const mailboxUser = getMailboxAuthContext(request);\n        const input = mailboxPortalChangePasswordSchema.parse(request.body);\n        const result = await mailboxUserService.changePassword(mailboxUser.id, input);\n        await rotateMailboxSession(request, reply);\n        return { success: true, data: result };\n    });\n\n    fastify.post('/forwarding'",
 )
 
-# Default Microsoft authorization is least privilege. Optional contacts,
-# calendars, or mailbox-settings scopes must be explicitly configured.
 replace_once(
     "server/src/modules/email/email.oauth.service.ts",
     '"offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.ReadWrite";',
     '"offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send";',
 )
 
-# Keep the local helper guide truthful about the reduced default.
 readme = read("oauth-temp/README.md")
 broad = "offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.ReadWrite"
 readme = readme.replace(broad, "offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send")
