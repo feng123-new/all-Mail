@@ -10,15 +10,15 @@ import (
 )
 
 const (
-	actionAdminDashboardLogDelete      = "admin_dashboard_log_delete"
+	actionAdminDashboardLogDelete       = "admin_dashboard_log_delete"
 	actionAdminDashboardLogsBatchDelete = "admin_dashboard_logs_batch_delete"
 )
 
 type DashboardDeleteAudit struct {
-	AdminID       int64
-	RequestID     string
-	RequestIP     string
-	ResponseTime  int64
+	AdminID   int64
+	RequestID string
+	RequestIP string
+	StartedAt time.Time
 }
 
 type DashboardWriteStore interface {
@@ -98,12 +98,16 @@ func writeDashboardDeleteAudit(
 	if err != nil {
 		return fmt.Errorf("encode Dashboard deletion audit: %w", err)
 	}
+	responseTime := time.Since(audit.StartedAt).Milliseconds()
+	if audit.StartedAt.IsZero() || responseTime < 0 {
+		responseTime = 0
+	}
 	_, err = transaction.Exec(ctx, `
 		INSERT INTO api_logs (
 			action, request_ip, response_code, response_time_ms, metadata, created_at
 		)
-		VALUES ($1, NULLIF($2, ''), 200, $3, $4::jsonb, $5)
-	`, action, audit.RequestIP, audit.ResponseTime, string(encoded), time.Now().UTC())
+		VALUES ($1, NULLIF($2, ''), 200, $3, $4::jsonb, CURRENT_TIMESTAMP)
+	`, action, audit.RequestIP, responseTime, string(encoded))
 	if err != nil {
 		return fmt.Errorf("write Dashboard deletion audit: %w", err)
 	}
