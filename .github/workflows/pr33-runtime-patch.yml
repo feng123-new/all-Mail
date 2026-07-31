@@ -1,0 +1,50 @@
+name: PR33 runtime contract patch
+
+on:
+  push:
+    branches:
+      - agent/go-ingress-lifecycle
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/go-ingress-lifecycle
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - name: Apply runtime, smoke and documentation contracts
+        run: |
+          python3 scripts/pr33_runtime_patch.py
+          gofmt -w core/internal/config/config.go
+          git diff --check
+          bash -n scripts/bootstrap-admin-docker-smoke.sh
+          node --test scripts/*.test.mjs
+          cp .env.example .env
+          POSTGRES_PASSWORD=ci-postgres-password-0123456789abcdef docker compose config --quiet
+          cd core
+          go test -race ./internal/config ./internal/routeownership
+      - name: Commit permanent changes and remove temporary tooling
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md docker-compose.yml core/internal/config/config.go \
+            scripts/env-contract.test.mjs scripts/bootstrap-admin-docker-smoke.sh \
+            .github/workflows/config-security.yml docs/GO-MIGRATION.md docs/ENVIRONMENT.md \
+            docs/internal/runtime-migration-roadmap.md
+          git rm scripts/pr33_runtime_patch.py .github/workflows/pr33-runtime-patch.yml
+          git commit -m "chore(ingress): finalize runtime and operator contracts"
+          git push origin HEAD:agent/go-ingress-lifecycle
