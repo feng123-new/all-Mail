@@ -60,6 +60,20 @@ func decodeNullableString(raw json.RawMessage, field string) (*string, bool, err
 	return &value, true, nil
 }
 
+func decodeNullableInt64(raw json.RawMessage, field string) (*int64, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	if strings.TrimSpace(string(raw)) == "null" {
+		return nil, true, nil
+	}
+	var value int64
+	if err := json.Unmarshal(raw, &value); err != nil || value <= 0 {
+		return nil, true, validationError(field + " must be a positive integer or null")
+	}
+	return &value, true, nil
+}
+
 func decodeOptionalInt64Slice(raw json.RawMessage, field string, maximum int) ([]int64, bool, error) {
 	if len(raw) == 0 {
 		return nil, false, nil
