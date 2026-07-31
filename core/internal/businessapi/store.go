@@ -63,7 +63,7 @@ func (s *PostgresStore) Ping(ctx context.Context) error {
 func (s *PostgresStore) FindAdmin(ctx context.Context, id int64) (Admin, error) {
 	var admin Admin
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, username, role::text, status::text, must_change_password
+		SELECT id, username, role::text, status::text, must_change_password, session_version
 		FROM admins
 		WHERE id = $1
 	`, id).Scan(
@@ -72,6 +72,7 @@ func (s *PostgresStore) FindAdmin(ctx context.Context, id int64) (Admin, error) 
 		&admin.Role,
 		&admin.Status,
 		&admin.MustChangePassword,
+		&admin.SessionVersion,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Admin{}, errNotFound

@@ -1,5 +1,7 @@
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { signToken } from '../../lib/jwt.js';
+import { MAILBOX_JWT_AUDIENCE } from '../../lib/session-version.js';
 import {
     mailboxPortalChangePasswordSchema,
     mailboxPortalListForwardingJobsSchema,
@@ -28,6 +30,18 @@ const mailboxClearCookieOptions = {
     sameSite: 'lax' as const,
     path: '/',
 };
+
+async function rotateMailboxSession(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const mailboxUser = getMailboxAuthContext(request);
+    const token = await signToken({
+        sub: String(mailboxUser.id),
+        mailboxUserId: mailboxUser.id,
+        username: mailboxUser.username,
+        role: mailboxUser.role,
+        mailboxIds: mailboxUser.mailboxIds,
+    }, { audience: MAILBOX_JWT_AUDIENCE });
+    reply.cookie('mailbox_token', token, mailboxSessionCookieOptions);
+}
 
 function getMailboxAuthContext(request: FastifyRequest) {
     const mailboxUser = request.mailboxUser;
@@ -196,10 +210,11 @@ const mailboxPortalRoutes: FastifyPluginAsync = async (fastify) => {
 
     fastify.post('/change-password', {
         preHandler: [fastify.authenticateMailboxJwt],
-    }, async (request) => {
+    }, async (request, reply) => {
         const mailboxUser = getMailboxAuthContext(request);
         const input = mailboxPortalChangePasswordSchema.parse(request.body);
         const result = await mailboxUserService.changePassword(mailboxUser.id, input);
+        await rotateMailboxSession(request, reply);
         return { success: true, data: result };
     });
 

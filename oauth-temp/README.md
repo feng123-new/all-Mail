@@ -30,7 +30,7 @@ cp oauth-temp/config.example.env oauth-temp/config.env
 默认值提供一套可重复的公开示例组合（Graph-only 默认授权）：
 
 - `TENANT=consumers`
-- `SCOPES=offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.ReadWrite`
+- `SCOPES=offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send`
 - `SEPARATOR=----`
 
 如果脚本无法从 `id_token` 推断邮箱地址，再补 `ACCOUNT_EMAIL=你的邮箱地址`。
@@ -76,7 +76,7 @@ ALLOW_TARGET_ID_REPLACE=true
 3. 提示你粘贴浏览器最后跳转的完整回调 URL
 4. 自动完成：
    - 授权码兑换 token
-   - 为 Graph 邮件、联系人、日历、邮箱设置完成 consent
+   - 为 Graph 身份、邮件读写和发信完成最小权限 consent
    - 验证旧逻辑（不带 `client_secret`）为何失败
    - 验证修复后逻辑（带 `client_secret`）是否刷新成功
    - 尝试 IMAP XOAUTH2 登录
@@ -194,7 +194,7 @@ http://localhost:8765/callback?code=...&state=...
 
 ### 3. 为什么现在默认是 Graph-only scopes
 
-all-Mail 默认要解决的是 Outlook 账号的 Graph 读信、清空、发信，以及后续联系人、日历、邮箱设置扩展能力，所以默认会把这几组 **Microsoft Graph** scope 一起申请。
+all-Mail 默认只申请 Outlook Graph 身份、邮件读写和发信所需权限。联系人、日历和邮箱设置写权限属于可选扩展，必须由部署者显式加入 `SCOPES`。
 
 如果授权时只有部分 Graph scope，常见问题会变成：
 
@@ -225,7 +225,7 @@ all-Mail 默认要解决的是 Outlook 账号的 Graph 读信、清空、发信�
 - `User.Read`：读取 `/me` 基础信息，确认当前授权的是哪一个 Outlook 账号
 - `Mail.ReadWrite`：保证邮件读取、列表同步、清空等 Graph 邮件能力完整
 - `Mail.Send`：保证 Outlook 账号可直接发信
-- `Contacts.ReadWrite / Calendars.ReadWrite / MailboxSettings.ReadWrite`：为联系人、日历、邮箱设置相关扩展预留，减少后续重新授权
+- 联系人、日历和邮箱设置写权限：默认不申请，仅在对应功能实际启用时显式追加
 
 如果你要专门调试 IMAP OAuth，请把 `SCOPES=` 改成单独的 IMAP 集合，例如：
 

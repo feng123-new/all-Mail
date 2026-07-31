@@ -24,7 +24,7 @@ const OAUTH_RESULT_TTL_SECONDS = 15 * 60;
 const GOOGLE_DEFAULT_SCOPES =
 	"openid email profile https://www.googleapis.com/auth/gmail.modify https://mail.google.com/";
 const MICROSOFT_DEFAULT_SCOPES =
-	"offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.ReadWrite";
+	"offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send";
 
 type OAuthProvider = "GMAIL" | "OUTLOOK";
 type OAuthResultStatus = "success" | "warning" | "error";

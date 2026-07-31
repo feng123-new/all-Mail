@@ -23,6 +23,7 @@ model Admin {
   twoFactorTempSecret String?   @map("two_factor_temp_secret") @db.Text
   lastLoginAt  DateTime? @map("last_login_at")
   lastLoginIp  String?   @map("last_login_ip") @db.VarChar(45)
+  sessionVersion Int       @default(1) @map(\"session_version\")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -220,6 +221,7 @@ model MailboxUser {
   mustChangePassword Boolean           @default(true) @map("must_change_password")
   lastLoginAt        DateTime?         @map("last_login_at")
   lastLoginIp        String?           @map("last_login_ip") @db.VarChar(45)
+  sessionVersion     Int               @default(1) @map(\"session_version\")
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
 
