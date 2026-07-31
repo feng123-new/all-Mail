@@ -130,6 +130,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/dashboard/stats", s.withAdministrator(s.dashboardStats))
 	mux.HandleFunc("GET /admin/dashboard/api-trend", s.withAdministrator(s.dashboardTrend))
 	mux.HandleFunc("GET /admin/dashboard/logs", s.withAdministrator(s.dashboardLogs))
+	s.registerDashboardWriteRoutes(mux)
 	s.registerAPIKeyRoutes(mux)
 	s.registerExternalRoutes(mux)
 	mux.HandleFunc("/", s.notFound)
