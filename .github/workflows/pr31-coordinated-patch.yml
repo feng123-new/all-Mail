@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - agent/oauth-session-security
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
