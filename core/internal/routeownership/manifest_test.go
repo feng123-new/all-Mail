@@ -21,8 +21,8 @@ func TestCanonicalManifestClassifiesEveryGatewayFamily(t *testing.T) {
 		"health":                  {method: "GET", path: "/health", id: "system-health", owner: OwnerGo},
 		"dashboard stats":         {method: "GET", path: "/admin/dashboard/stats", id: "admin-dashboard-stats-read", owner: OwnerGoBusinessAPI},
 		"dashboard head":          {method: "HEAD", path: "/admin/dashboard/logs", id: "admin-dashboard-logs-read", owner: OwnerGoBusinessAPI},
-		"dashboard log delete":    {method: "DELETE", path: "/admin/dashboard/logs/42", id: "admin-dashboard-log-delete", owner: OwnerBusinessAPI},
-		"dashboard batch delete":  {method: "POST", path: "/admin/dashboard/logs/batch-delete", id: "admin-dashboard-log-batch-delete", owner: OwnerBusinessAPI},
+		"dashboard log delete":    {method: "DELETE", path: "/admin/dashboard/logs/42", id: "admin-dashboard-log-delete", owner: OwnerGoBusinessAPI},
+		"dashboard batch delete":  {method: "POST", path: "/admin/dashboard/logs/batch-delete", id: "admin-dashboard-log-batch-delete", owner: OwnerGoBusinessAPI},
 		"dashboard catch-all":     {method: "POST", path: "/admin/dashboard/unknown", id: "admin-dashboard-other", owner: OwnerBusinessAPI},
 		"API key admin":           {method: "POST", path: "/admin/api-keys", id: "admin-api-keys", owner: OwnerGoBusinessAPI},
 		"admin catch-all":         {method: "GET", path: "/admin/unknown", id: "admin-other", owner: OwnerBusinessAPI},
@@ -45,13 +45,14 @@ func TestCanonicalManifestClassifiesEveryGatewayFamily(t *testing.T) {
 		})
 	}
 
-	readRoute := manifest.Match("GET", "/admin/dashboard/stats")
-	if readRoute.MigrationStage != MigrationComplete || readRoute.TargetOwner != "" {
-		t.Fatalf("dashboard read migration metadata = %#v", readRoute)
-	}
-	writeRoute := manifest.Match("DELETE", "/admin/dashboard/logs/42")
-	if writeRoute.MigrationStage != MigrationPending || writeRoute.TargetOwner != OwnerGoBusinessAPI {
-		t.Fatalf("dashboard write migration metadata = %#v", writeRoute)
+	for _, route := range []Route{
+		manifest.Match("GET", "/admin/dashboard/stats"),
+		manifest.Match("DELETE", "/admin/dashboard/logs/42"),
+		manifest.Match("POST", "/admin/dashboard/logs/batch-delete"),
+	} {
+		if route.MigrationStage != MigrationComplete || route.TargetOwner != "" || route.Owner != OwnerGoBusinessAPI {
+			t.Fatalf("completed Dashboard migration metadata = %#v", route)
+		}
 	}
 	if len(manifest.Digest()) != 64 {
 		t.Fatalf("manifest digest = %q", manifest.Digest())
