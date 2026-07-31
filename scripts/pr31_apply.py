@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,24 +21,36 @@ def replace_once(path: str, old: str, new: str) -> None:
     write(path, content.replace(old, new, 1))
 
 
-def regex_once(path: str, pattern: str, replacement: str) -> None:
-    content = read(path)
-    updated, count = re.subn(pattern, replacement, content, count=1, flags=re.DOTALL)
-    if count != 1:
-        raise SystemExit(f"expected one regex match in {path}, found {count}: {pattern}")
-    write(path, updated)
+# Earlier workflow staging may already have inserted these fields. Normalize the
+# escaped map syntax first, then add a field only when that model still lacks it.
+schema_path = "server/prisma/schema.prisma"
+schema = read(schema_path).replace(r'@map(\"session_version\")', '@map("session_version")')
+admin_start = schema.index("model Admin {")
+admin_end = schema.index("\n}\n", admin_start)
+admin_block = schema[admin_start:admin_end]
+if "sessionVersion" not in admin_block:
+    anchor = '  lastLoginIp  String?   @map("last_login_ip") @db.VarChar(45)\n'
+    if anchor not in admin_block:
+        raise SystemExit("Admin session-version insertion anchor is missing")
+    schema = schema[:admin_start] + admin_block.replace(
+        anchor,
+        anchor + '  sessionVersion Int       @default(1) @map("session_version")\n',
+        1,
+    ) + schema[admin_end:]
 
-
-regex_once(
-    "server/prisma/schema.prisma",
-    r"(model Admin \{.*?lastLoginIp\s+String\?\s+@map\(\"last_login_ip\"\)\s+@db\.VarChar\(45\)\n)(\s+createdAt)",
-    r"\1  sessionVersion Int       @default(1) @map(\"session_version\")\n\2",
-)
-regex_once(
-    "server/prisma/schema.prisma",
-    r"(model MailboxUser \{.*?lastLoginIp\s+String\?\s+@map\(\"last_login_ip\"\)\s+@db\.VarChar\(45\)\n)(\s+createdAt)",
-    r"\1  sessionVersion     Int               @default(1) @map(\"session_version\")\n\2",
-)
+mailbox_start = schema.index("model MailboxUser {")
+mailbox_end = schema.index("\n}\n", mailbox_start)
+mailbox_block = schema[mailbox_start:mailbox_end]
+if "sessionVersion" not in mailbox_block:
+    anchor = '  lastLoginIp        String?           @map("last_login_ip") @db.VarChar(45)\n'
+    if anchor not in mailbox_block:
+        raise SystemExit("MailboxUser session-version insertion anchor is missing")
+    schema = schema[:mailbox_start] + mailbox_block.replace(
+        anchor,
+        anchor + '  sessionVersion     Int               @default(1) @map("session_version")\n',
+        1,
+    ) + schema[mailbox_end:]
+write(schema_path, schema)
 
 replace_once(
     "core/internal/businessapi/store.go",
@@ -90,7 +101,8 @@ replace_once(
     '"offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send";',
 )
 
-readme = read("oauth-temp/README.md")
+readme_path = "oauth-temp/README.md"
+readme = read(readme_path)
 broad = "offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.ReadWrite"
 readme = readme.replace(broad, "offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send")
 readme = readme.replace(
@@ -105,4 +117,4 @@ readme = readme.replace(
     "- `Contacts.ReadWrite / Calendars.ReadWrite / MailboxSettings.ReadWrite`：为联系人、日历、邮箱设置相关扩展预留，减少后续重新授权\n",
     "- 联系人、日历和邮箱设置写权限：默认不申请，仅在对应功能实际启用时显式追加\n",
 )
-write("oauth-temp/README.md", readme)
+write(readme_path, readme)
