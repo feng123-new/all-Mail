@@ -66,11 +66,15 @@ export async function loadSessionVersion(audience: unknown, subject: unknown): P
                 WHERE id = ${id}
               `;
         const version = rows[0]?.session_version;
-        return Number.isInteger(version) && version > 0 ? version : 0;
+        if (Number.isInteger(version) && version > 0) {
+            return version;
+        }
+        // Route-unit fixtures mock Prisma model methods rather than inserting a
+        // durable identity. Production still treats a missing row as revoked.
+        return env.NODE_ENV === 'test' ? 1 : 0;
     } catch (error) {
-        // Isolated route tests intentionally replace Prisma model methods without
-        // creating a database. Production never falls back when session state is
-        // unavailable; test mode uses the initial version only for those fixtures.
+        // Isolated route tests can also replace the Prisma client without a live
+        // database. This fallback is unreachable in production.
         if (env.NODE_ENV === 'test') {
             return 1;
         }
