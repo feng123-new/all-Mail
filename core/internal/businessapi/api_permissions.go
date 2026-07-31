@@ -58,7 +58,7 @@ func normalizePermissionKey(value string) string {
 
 func normalizePermissions(input map[string]bool) (map[string]bool, error) {
 	if len(input) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("at least one permission must be enabled")
 	}
 	result := make(map[string]bool, len(input))
 	unknown := make([]string, 0)
@@ -77,10 +77,12 @@ func normalizePermissions(input map[string]bool) (map[string]bool, error) {
 		sort.Strings(unknown)
 		return nil, fmt.Errorf("unknown permission keys: %s", strings.Join(unknown, ", "))
 	}
-	if len(result) == 0 {
-		return nil, nil
+	for _, enabled := range result {
+		if enabled {
+			return result, nil
+		}
 	}
-	return result, nil
+	return nil, fmt.Errorf("at least one permission must be enabled")
 }
 
 func isKnownPermission(normalized string) bool {
@@ -93,7 +95,7 @@ func isKnownPermission(normalized string) bool {
 
 func permissionAllowed(permissions map[string]bool, action string) bool {
 	if len(permissions) == 0 {
-		return true
+		return false
 	}
 	for wildcard := range wildcardPermissions {
 		if permissions[wildcard] {

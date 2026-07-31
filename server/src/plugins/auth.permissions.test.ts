@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { isApiPermissionAllowed, parseApiPermissions } from './api-permissions.js';
 
-void test('allows all actions when permissions not set', () => {
-    assert.equal(isApiPermissionAllowed(undefined, 'external_read_latest_message'), true);
+void test('denies all actions when permissions are missing or empty', () => {
+    assert.equal(isApiPermissionAllowed(undefined, 'external_read_latest_message'), false);
+    assert.equal(isApiPermissionAllowed({}, 'external_read_latest_message'), false);
 });
 
 void test('supports wildcard allow', () => {
