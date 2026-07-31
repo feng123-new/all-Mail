@@ -56,7 +56,7 @@ test("operator documentation matches the canonical Compose topology", async () =
 
 	assert.match(environment, /GO_BUSINESS_API_URL=http:\/\/go-business-api:3200/);
 	assert.match(environment, /JWT_SECRET_FILE=\/var\/lib\/all-mail-secrets\/jwt-secret/);
-	assert.match(environment, /go_business_runtime_data/);
+	assert.match(`${runbook}\n${environment}`, /go_business_runtime_data/);
 });
 
 test("all runtime doctors and private network checks are documented", async () => {
