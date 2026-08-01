@@ -4,13 +4,18 @@ on:
   push:
     branches:
       - agent/final-go-cutover
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'chore(ci): apply route cutover patch'
+    if: >-
+      (github.event_name == 'push' && github.event.head_commit.message == 'chore(ci): apply route cutover patch') ||
+      (github.event_name == 'pull_request' && github.head_ref == 'agent/final-go-cutover')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +26,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if git log --format=%s --all | grep -Fxq 'feat(go-business): complete public route cutover'; then
+            echo 'route-cutover commit is already present'
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           cat .github/route-cutover-patch/part-* | base64 --decode | gzip --decompress > /tmp/route-cutover.patch
