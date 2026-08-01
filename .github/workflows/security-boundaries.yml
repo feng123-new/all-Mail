@@ -1,0 +1,94 @@
+name: Security boundaries
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: security-boundary-contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Verify browser and Compose boundary contracts
+        run: |
+          ./scripts/sanitize-runtime-env.sh node --test \
+            scripts/portal-credential-security.test.mjs \
+            scripts/security-boundary.test.mjs
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+
+      - name: Verify Go secret migration and production loaders
+        working-directory: core
+        run: |
+          test -z "$(gofmt -l internal/config internal/initialize internal/secretstate)"
+          go test -race ./internal/config ./internal/initialize ./internal/secretstate
+
+  docker-boundaries:
+    name: security-boundary-docker-smoke
+    runs-on: ubuntu-latest
+    needs: contracts
+    env:
+      POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Prepare isolated production environment
+        run: cp .env.example .env
+
+      - name: Validate Compose models
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+
+      - name: Start complete production topology
+        shell: bash
+        run: |
+          set +e
+          bash ./scripts/compose-up.sh 2>&1 | tee "$RUNNER_TEMP/security-boundary-start.log"
+          status=${PIPESTATUS[0]}
+          docker compose ps -a --no-trunc > "$RUNNER_TEMP/security-boundary-ps.txt" 2>&1 || true
+          docker compose logs --no-color --timestamps > "$RUNNER_TEMP/security-boundary-compose.log" 2>&1 || true
+          exit "$status"
+
+      - name: Verify live network, secret and Redis boundaries
+        run: bash ./scripts/security-boundary-docker-smoke.sh
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-boundary-diagnostics
+          path: |
+            ${{ runner.temp }}/security-boundary-start.log
+            ${{ runner.temp }}/security-boundary-ps.txt
+            ${{ runner.temp }}/security-boundary-compose.log
+          if-no-files-found: warn
+
+      - name: Clean up disposable stack
+        if: always()
+        run: docker compose down -v --remove-orphans || true
