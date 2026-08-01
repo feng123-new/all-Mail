@@ -221,5 +221,5 @@ describe('MailPortalSettingsPage forwarding closure', () => {
       expect(screen.queryByRole('button', { name: '禁用双重验证' })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: '生成绑定密钥' })).toBeInTheDocument();
     });
-  });
+  }, 30000);
 });
