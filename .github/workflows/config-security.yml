@@ -46,6 +46,7 @@ jobs:
           if grep -R -nE \
             --include='*.go' \
             --exclude='*_test.go' \
+            --exclude='preflight.go' \
             'GO_JOBS_HEARTBEAT_SECONDS|GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS|ALL_MAIL_SECRET_STATE_DIR|ALL_MAIL_PUBLIC_BASE_URL|GO_API_MODE' \
             ./cmd ./internal; then
             echo 'removed Go configuration alias remains in production code'

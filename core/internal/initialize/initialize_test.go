@@ -52,18 +52,22 @@ func TestProductionPreflightRejectsWeakDatabasePassword(t *testing.T) {
 }
 
 func TestProductionPreflightRejectsRetiredVariable(t *testing.T) {
-	err := validatePreflight(Config{
-		Migration: config.MigrationConfig{
-			DatabaseURL: "postgresql://allmail:abcdefghijklmnopqrstuvwxyz@postgres:5432/allmail",
-			Directory:   "/app/migrations",
-		},
-		StateDir: "/var/lib/all-mail",
-		Environment: map[string]string{
-			"NODE_ENV":       "production",
-			"LEGACY_API_URL": "",
-		},
-	})
-	if err == nil {
-		t.Fatal("retired production variable was accepted")
+	for _, name := range retiredEnvironmentVariables {
+		t.Run(name, func(t *testing.T) {
+			err := validatePreflight(Config{
+				Migration: config.MigrationConfig{
+					DatabaseURL: "postgresql://allmail:abcdefghijklmnopqrstuvwxyz@postgres:5432/allmail",
+					Directory:   "/app/migrations",
+				},
+				StateDir: "/var/lib/all-mail",
+				Environment: map[string]string{
+					"NODE_ENV": "production",
+					name:       "",
+				},
+			})
+			if err == nil {
+				t.Fatalf("retired production variable %s was accepted", name)
+			}
+		})
 	}
 }
