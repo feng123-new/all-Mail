@@ -75,3 +75,11 @@ test('Redis requires the initializer-managed password file', async () => {
   assert.match(redis, /REDISCLI_AUTH/);
   assert.doesNotMatch(redis, /--protected-mode no/);
 });
+
+test('development Redis is loopback-only and explicitly not the production auth model', async () => {
+  const overlay = await read('docker-compose.dev.yml');
+  assert.match(overlay, /entrypoint:\s*\[\]/);
+  assert.match(overlay, /command:\s*\["redis-server", "--appendonly", "yes", "--port", "6379"\]/);
+  assert.match(overlay, /127\.0\.0\.1:\$\{DEV_REDIS_PORT:-6380\}:6379/);
+  assert.match(overlay, /not a production topology or security model/i);
+});
