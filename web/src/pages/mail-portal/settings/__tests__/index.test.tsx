@@ -1,5 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { portalAccountContract } from '../../../../contracts/portal/account';
@@ -110,8 +109,8 @@ describe('MailPortalSettingsPage forwarding closure', () => {
     expect(screen.getByText('待配置发件')).toBeInTheDocument();
     expect(screen.getByText('发件已就绪')).toBeInTheDocument();
 
-    await userEvent.click(screen.getByLabelText('选择邮箱'));
-    await userEvent.click(await screen.findByTitle('second@example.com'));
+    fireEvent.mouseDown(screen.getByLabelText('选择邮箱'));
+    fireEvent.click(await screen.findByTitle('second@example.com'));
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('move@example.net')).toBeInTheDocument();
@@ -120,7 +119,6 @@ describe('MailPortalSettingsPage forwarding closure', () => {
 	}, 20000);
 
   it('loads two-factor status only after a forced password change is cleared', async () => {
-    const user = userEvent.setup();
     useMailboxAuthStore.setState({
       mailboxUser: {
         id: 1,
@@ -160,10 +158,10 @@ describe('MailPortalSettingsPage forwarding closure', () => {
     expect(await screen.findByText('当前账号仍处于首次密码状态')).toBeInTheDocument();
     expect(portalAccountContract.getTwoFactorStatus).not.toHaveBeenCalled();
 
-    await user.type(screen.getByLabelText('当前密码'), 'old-password');
-    await user.type(screen.getByLabelText('新密码'), 'new-password');
-    await user.type(screen.getByLabelText('确认新密码'), 'new-password');
-    await user.click(screen.getByRole('button', { name: '更新密码' }));
+    fireEvent.change(screen.getByLabelText('当前密码'), { target: { value: 'old-password' } });
+    fireEvent.change(screen.getByLabelText('新密码'), { target: { value: 'new-password' } });
+    fireEvent.change(screen.getByLabelText('确认新密码'), { target: { value: 'new-password' } });
+    fireEvent.click(screen.getByRole('button', { name: '更新密码' }));
 
     await waitFor(() => {
       expect(portalAccountContract.getTwoFactorStatus).toHaveBeenCalled();
@@ -171,7 +169,6 @@ describe('MailPortalSettingsPage forwarding closure', () => {
   });
 
   it('sets up, enables, refreshes, and disables mailbox two-factor authentication', async () => {
-    const user = userEvent.setup();
     let twoFactorStatus = { enabled: false, pending: false };
     vi.mocked(portalAccountContract.getTwoFactorStatus).mockImplementation(
       () => ok(twoFactorStatus) as never,
@@ -194,7 +191,7 @@ describe('MailPortalSettingsPage forwarding closure', () => {
       expect(portalAccountContract.getTwoFactorStatus).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole('button', { name: '生成绑定密钥' }));
+    fireEvent.click(screen.getByRole('button', { name: '生成绑定密钥' }));
     expect(await screen.findByText('JBSWY3DPEHPK3PXP')).toBeInTheDocument();
     expect(screen.getByTestId('two-factor-qr-code')).toHaveAttribute(
       'data-value',
@@ -202,9 +199,9 @@ describe('MailPortalSettingsPage forwarding closure', () => {
     );
     expect(portalAccountContract.setupTwoFactor).toHaveBeenCalledTimes(1);
 
-    await user.type(screen.getByLabelText('输入验证器中的 6 位验证码'), '123456');
+    fireEvent.change(screen.getByLabelText('输入验证器中的 6 位验证码'), { target: { value: '123456' } });
     twoFactorStatus = { enabled: true, pending: false };
-    await user.click(screen.getByRole('button', { name: '启用双重验证' }));
+    fireEvent.click(screen.getByRole('button', { name: '启用双重验证' }));
 
     await waitFor(() => {
       expect(portalAccountContract.enableTwoFactor).toHaveBeenCalledWith('123456');
@@ -212,10 +209,10 @@ describe('MailPortalSettingsPage forwarding closure', () => {
     expect(await screen.findByRole('button', { name: '禁用双重验证' })).toBeInTheDocument();
 
     const passwordInputs = screen.getAllByLabelText('当前密码');
-    await user.type(passwordInputs[passwordInputs.length - 1], 'current-password');
-    await user.type(screen.getByLabelText('验证码'), '654321');
+    fireEvent.change(passwordInputs[passwordInputs.length - 1], { target: { value: 'current-password' } });
+    fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '654321' } });
     twoFactorStatus = { enabled: false, pending: false };
-    await user.click(screen.getByRole('button', { name: '禁用双重验证' }));
+    fireEvent.click(screen.getByRole('button', { name: '禁用双重验证' }));
 
     await waitFor(() => {
       expect(portalAccountContract.disableTwoFactor).toHaveBeenCalledWith('current-password', '654321');
