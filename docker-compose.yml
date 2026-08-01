@@ -67,6 +67,11 @@ x-business-api-runtime: &business-api-runtime
 
 x-business-init-runtime: &business-init-runtime
   <<: *go-runtime
+  user: "0:0"
+  cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
 
 services:
   business-init:

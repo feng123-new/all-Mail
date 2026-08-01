@@ -44,6 +44,11 @@ func WithLock(stateDir string, timeout time.Duration, run func() error) error {
 	if err := os.Chmod(lockPath, 0o600); err != nil {
 		return fmt.Errorf("set runtime secret lock permissions: %w", err)
 	}
+	if os.Geteuid() == 0 {
+		if err := os.Chown(lockPath, 10001, 10001); err != nil {
+			return fmt.Errorf("set runtime secret lock ownership: %w", err)
+		}
+	}
 	deadline := time.Now().Add(timeout)
 	for {
 		err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)

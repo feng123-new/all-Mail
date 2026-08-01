@@ -169,8 +169,10 @@ jobs:
           WORKER_HEARTBEAT_MAX_AGE_SECONDS: 10
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO api_logs (created_at)
-          VALUES (now() - interval '45 days'), (now() - interval '5 days');
+          INSERT INTO api_logs (action, created_at)
+          VALUES
+              ('retention-fixture', now() - interval '45 days'),
+              ('retention-fixture', now() - interval '5 days');
           SQL
           mkdir -p "$ALL_MAIL_STATE_DIR"
           ./allmail worker retention &
