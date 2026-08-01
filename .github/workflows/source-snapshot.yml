@@ -18,12 +18,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Archive source
-        run: git archive --format=tar.gz --output=all-mail-source.tar.gz HEAD
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: core/go.sum
+      - name: Download Go modules
+        working-directory: core
+        run: go mod download
+      - name: Archive source and Go module cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --output=all-mail-source.tar.gz HEAD
+          gomodcache="$(go env GOMODCACHE)"
+          mkdir -p export
+          tar -C "$(dirname "$gomodcache")" -czf export/go-mod-cache.tar.gz "$(basename "$gomodcache")"
+          go version > export/go-version.txt
+          go env GOMODCACHE >> export/go-version.txt
       - name: Upload source snapshot
         uses: actions/upload-artifact@v4
         with:
           name: all-mail-source
           path: all-mail-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+      - name: Upload Go module cache
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-mail-go-toolchain
+          path: export
           if-no-files-found: error
           retention-days: 1
