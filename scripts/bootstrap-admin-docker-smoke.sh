@@ -267,7 +267,10 @@ test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT
 docker compose exec -T go-business-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
 docker compose exec -T go-business-api sh -lc 'test -r /var/lib/all-mail/runtime-secrets.env'
 docker compose exec -T go-business-api sh -lc 'test -r /var/lib/all-mail-secrets/jwt-secret'
-test "$(docker compose exec -T go-business-api cat /var/lib/all-mail/pre-rename-volume-marker)" = "preserved"
+docker compose exec -T go-business-api sh -lc 'test ! -e /var/lib/all-mail-state'
+project_name=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
+legacy_volume="${project_name}_legacy_runtime_data"
+test "$(docker run --rm -v "${legacy_volume}:/state:ro" postgres:16-alpine cat /state/pre-rename-volume-marker)" = "preserved"
 
 docker compose exec -T app allmail doctor api
 docker compose exec -T go-business-api allmail doctor business-api

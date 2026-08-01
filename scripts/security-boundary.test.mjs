@@ -65,6 +65,14 @@ test('long-running services receive isolated secret exports only', async () => {
   assert.match(initializer, /redis_runtime_data/);
 });
 
+test('legacy master state stays preserved without a long-running service mount', async () => {
+  const smoke = await read('scripts/bootstrap-admin-docker-smoke.sh');
+
+  assert.doesNotMatch(smoke, /go-business-api cat \/var\/lib\/all-mail\/pre-rename-volume-marker/);
+  assert.match(smoke, /legacy_volume="\$\{project_name\}_legacy_runtime_data"/);
+  assert.match(smoke, /-v "\$\{legacy_volume\}:\/state:ro"/);
+});
+
 test('temporary initializer receives database access without widening the long-running app', async () => {
   const [overlay, script] = await Promise.all([
     read('docker-compose.init.yml'),
@@ -85,8 +93,8 @@ test('Redis requires the initializer-managed password file', async () => {
   assert.match(redis, /redis_runtime_data:\/run\/all-mail-secrets:ro/);
   assert.match(redis, /cat \/run\/all-mail-secrets\/redis-password/);
   assert.match(redis, /requirepass/);
-  assert.match(redis, /exec su-exec redis redis-server/);
-  assert.doesNotMatch(redis, /\bgosu\b/);
+  assert.match(redis, /exec gosu redis redis-server/);
+  assert.doesNotMatch(redis, /\bsu-exec\b/);
   assert.match(redis, /REDISCLI_AUTH/);
   assert.doesNotMatch(redis, /--protected-mode no/);
 });
