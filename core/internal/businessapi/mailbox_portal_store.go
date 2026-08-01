@@ -30,6 +30,11 @@ type MailboxPortalStore interface {
 	ListMailboxPortalMailboxes(context.Context, int64) ([]map[string]any, error)
 	ListMailboxPortalMessages(context.Context, MailboxPortalMessageListInput) (MailboxPortalMessageList, error)
 	GetMailboxPortalMessage(context.Context, int64, int64) (map[string]any, error)
+	ListMailboxPortalSentMessages(context.Context, MailboxPortalSentMessageListInput) (map[string]any, error)
+	GetMailboxPortalSentMessage(context.Context, int64, int64) (map[string]any, error)
+	ListMailboxPortalForwardingJobs(context.Context, MailboxPortalForwardingJobListInput) (map[string]any, error)
+	UpdateMailboxPortalForwarding(context.Context, MailboxPortalForwardingUpdateInput) (map[string]any, error)
+	GetMailboxPortalSendMailbox(context.Context, int64, int64) (MailboxPortalSendMailbox, error)
 }
 
 var _ MailboxPortalStore = (*PostgresStore)(nil)

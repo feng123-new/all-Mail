@@ -1,6 +1,7 @@
 package businessapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,6 +12,11 @@ func (s *Server) registerMailboxPortalReadRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /mail/api/mailboxes", s.withMailbox(s.mailboxPortalMailboxes))
 	mux.HandleFunc("GET /mail/api/messages", s.withMailbox(s.mailboxPortalMessages))
 	mux.HandleFunc("GET /mail/api/messages/{id}", s.withMailbox(s.mailboxPortalMessageDetail))
+	mux.HandleFunc("GET /mail/api/sent-messages", s.withMailbox(s.mailboxPortalSentMessages))
+	mux.HandleFunc("GET /mail/api/sent-messages/{id}", s.withMailbox(s.mailboxPortalSentMessageDetail))
+	mux.HandleFunc("GET /mail/api/forwarding-jobs", s.withMailbox(s.mailboxPortalForwardingJobs))
+	mux.HandleFunc("POST /mail/api/forwarding", s.withMailbox(s.mailboxPortalUpdateForwarding))
+	mux.HandleFunc("POST /mail/api/send", s.withMailboxProvider(s.mailboxPortalSendMessage))
 }
 
 func (s *Server) mailboxPortalMailboxes(w http.ResponseWriter, r *http.Request, identity MailboxIdentity) {
@@ -129,4 +135,243 @@ func portalMailboxIDAllowed(id int64, allowed []int64) bool {
 		}
 	}
 	return false
+}
+
+type mailboxPortalForwardingRequest struct {
+	MailboxID   int64           `json:"mailboxId"`
+	ForwardMode string          `json:"forwardMode"`
+	ForwardTo   json.RawMessage `json:"forwardTo"`
+}
+
+type mailboxPortalSendRequest struct {
+	MailboxID int64    `json:"mailboxId"`
+	To        []string `json:"to"`
+	Subject   string   `json:"subject"`
+	HTML      string   `json:"html"`
+	Text      string   `json:"text"`
+}
+
+func (s *Server) mailboxPortalSentMessages(w http.ResponseWriter, r *http.Request, identity MailboxIdentity) {
+	mailboxID, err := requirePositivePortalQueryID(r, "mailboxId")
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	if !portalMailboxIDAllowed(mailboxID, identity.MailboxIDs) {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"})
+		return
+	}
+	page, err := parseMailboxPortalQueryInt(r, "page", 1, 1, 1_000_000)
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	pageSize, err := parseMailboxPortalQueryInt(r, "pageSize", 20, 1, 100)
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	store, err := s.requireMailboxPortalStore()
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	result, err := store.ListMailboxPortalSentMessages(r.Context(), MailboxPortalSentMessageListInput{
+		MailboxUserID: identity.ID, MailboxID: mailboxID, Page: page, PageSize: pageSize,
+	})
+	if errors.Is(err, errNotFound) {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"})
+		return
+	}
+	if err != nil {
+		s.writeStoreError(w, r, "list mailbox portal sent messages", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
+}
+
+func (s *Server) mailboxPortalSentMessageDetail(w http.ResponseWriter, r *http.Request, identity MailboxIdentity) {
+	id, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("id")), 10, 64)
+	if err != nil {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusBadRequest, Code: "OUTBOUND_MESSAGE_INVALID_ID"})
+		return
+	}
+	store, err := s.requireMailboxPortalStore()
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	result, err := store.GetMailboxPortalSentMessage(r.Context(), id, identity.ID)
+	if errors.Is(err, errNotFound) {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusNotFound, Code: "OUTBOUND_MESSAGE_NOT_FOUND"})
+		return
+	}
+	if err != nil {
+		s.writeStoreError(w, r, "get mailbox portal sent message", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
+}
+
+func (s *Server) mailboxPortalForwardingJobs(w http.ResponseWriter, r *http.Request, identity MailboxIdentity) {
+	page, err := parseMailboxPortalQueryInt(r, "page", 1, 1, 1_000_000)
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	pageSize, err := parseMailboxPortalQueryInt(r, "pageSize", 5, 1, 20)
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	mailboxID, err := parseOptionalPositiveQueryID(r, "mailboxId")
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	if mailboxID != nil && !portalMailboxIDAllowed(*mailboxID, identity.MailboxIDs) {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"})
+		return
+	}
+	store, err := s.requireMailboxPortalStore()
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	result, err := store.ListMailboxPortalForwardingJobs(r.Context(), MailboxPortalForwardingJobListInput{
+		MailboxUserID: identity.ID, MailboxID: mailboxID, Page: page, PageSize: pageSize,
+	})
+	if errors.Is(err, errNotFound) {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"})
+		return
+	}
+	if err != nil {
+		s.writeStoreError(w, r, "list mailbox portal forwarding jobs", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
+}
+
+func (s *Server) mailboxPortalUpdateForwarding(w http.ResponseWriter, r *http.Request, identity MailboxIdentity) {
+	var body mailboxPortalForwardingRequest
+	if err := decodeRequiredJSONObject(r, &body); err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	if body.MailboxID <= 0 {
+		s.writeRequestError(w, r, validationError("mailboxId must be a positive integer"))
+		return
+	}
+	if !portalMailboxIDAllowed(body.MailboxID, identity.MailboxIDs) {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"})
+		return
+	}
+	if err := validateManagementEnum("forwardMode", body.ForwardMode, "DISABLED", "COPY", "MOVE"); err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	forwardTo, _, err := decodeNullableString(body.ForwardTo, "forwardTo")
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	if body.ForwardMode != "DISABLED" {
+		if forwardTo == nil {
+			s.writeRequestError(w, r, &requestError{Status: http.StatusBadRequest, Code: "FORWARD_TARGET_REQUIRED"})
+			return
+		}
+		if err := validateEmailAddress(*forwardTo); err != nil {
+			s.writeRequestError(w, r, err)
+			return
+		}
+	} else {
+		forwardTo = nil
+	}
+	store, err := s.requireMailboxPortalStore()
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	result, err := store.UpdateMailboxPortalForwarding(r.Context(), MailboxPortalForwardingUpdateInput{
+		MailboxUserID: identity.ID, MailboxID: body.MailboxID,
+		ForwardMode: body.ForwardMode, ForwardTo: forwardTo,
+	})
+	if errors.Is(err, errNotFound) {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"})
+		return
+	}
+	if err != nil {
+		s.writeStoreError(w, r, "update mailbox portal forwarding", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
+}
+
+func (s *Server) mailboxPortalSendMessage(w http.ResponseWriter, r *http.Request, identity MailboxIdentity) {
+	var body mailboxPortalSendRequest
+	if err := decodeRequiredJSONObject(r, &body); err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	if body.MailboxID <= 0 {
+		s.writeRequestError(w, r, validationError("mailboxId must be a positive integer"))
+		return
+	}
+	if !portalMailboxIDAllowed(body.MailboxID, identity.MailboxIDs) {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"})
+		return
+	}
+	recipients, err := validateRecipientList(body.To)
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	body.Subject = strings.TrimSpace(body.Subject)
+	body.HTML = strings.TrimSpace(body.HTML)
+	body.Text = strings.TrimSpace(body.Text)
+	if body.Subject == "" || len(body.Subject) > 500 {
+		s.writeRequestError(w, r, validationError("subject must contain between 1 and 500 characters"))
+		return
+	}
+	store, err := s.requireMailboxPortalStore()
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	databaseCtx, cancelDatabase := s.databaseContext(r.Context())
+	mailbox, err := store.GetMailboxPortalSendMailbox(databaseCtx, identity.ID, body.MailboxID)
+	cancelDatabase()
+	if errors.Is(err, errNotFound) {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"})
+		return
+	}
+	if err != nil {
+		s.writeStoreError(w, r, "load mailbox portal send mailbox", err)
+		return
+	}
+	if !mailbox.DomainCanSend {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusBadRequest, Code: "DOMAIN_SEND_DISABLED"})
+		return
+	}
+	mailboxID := mailbox.ID
+	result, err := s.performOutboundSend(r.Context(), outboundSendRequest{
+		DomainID: mailbox.DomainID, MailboxID: &mailboxID, From: strings.ToLower(mailbox.Address),
+		To: recipients, Subject: body.Subject, HTML: body.HTML, Text: body.Text,
+	})
+	if err != nil {
+		s.writeStoreError(w, r, "send mailbox portal message", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
+}
+
+func requirePositivePortalQueryID(r *http.Request, name string) (int64, error) {
+	if !r.URL.Query().Has(name) {
+		return 0, validationError(name + " is required")
+	}
+	value, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get(name)), 10, 64)
+	if err != nil || value <= 0 {
+		return 0, validationError(name + " must be a positive integer")
+	}
+	return value, nil
 }

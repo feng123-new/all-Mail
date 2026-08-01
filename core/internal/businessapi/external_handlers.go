@@ -50,6 +50,9 @@ func (s *Server) registerExternalRoutes(mux *http.ServeMux) {
 	for _, path := range []string{"/api/messages", "/api/mail_all"} {
 		mux.HandleFunc(path, s.withAPIKeyProvider(actionExternalListMessages, s.listExternalProviderMessages))
 	}
+	for _, path := range []string{"/api/messages/text", "/api/mail_text"} {
+		mux.HandleFunc(path, s.withAuthenticatedAPIKeyProvider(s.externalProviderMessageText))
+	}
 	for _, path := range []string{"/api/mailboxes/clear", "/api/process-mailbox"} {
 		mux.HandleFunc(path, s.withAPIKeyProvider(actionExternalClearMailbox, s.clearExternalProviderMailbox))
 	}
@@ -62,6 +65,9 @@ func (s *Server) registerExternalRoutes(mux *http.ServeMux) {
 	}
 	for _, path := range []string{"/api/domain-mail/messages", "/api/domain-mail/mail_all"} {
 		mux.HandleFunc(path, s.withAPIKey(actionDomainListMessages, s.listDomainMessages))
+	}
+	for _, path := range []string{"/api/domain-mail/messages/text", "/api/domain-mail/mail_text"} {
+		mux.HandleFunc(path, s.withAuthenticatedAPIKey(s.domainMessageText))
 	}
 	for _, path := range []string{"/api/domain-mail/mailboxes", "/api/domain-mail/list-mailboxes"} {
 		mux.HandleFunc(path, s.withAPIKey(actionDomainListMailboxes, s.listDomainMailboxes))

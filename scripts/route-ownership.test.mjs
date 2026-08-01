@@ -105,8 +105,9 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 		assert.deepEqual(route?.methods, ["GET", "HEAD"]);
 	}
 	const dashboardCatchAll = manifest.routes.find((candidate) => candidate.id === "admin-dashboard-other");
-	assert.equal(dashboardCatchAll?.owner, "business-api");
-	assert.equal(dashboardCatchAll?.targetOwner, "go-business-api");
+	assert.equal(dashboardCatchAll?.owner, "go-business-api");
+	assert.equal(dashboardCatchAll?.migrationStage, "complete");
+	assert.equal(dashboardCatchAll?.targetOwner, undefined);
 
 	const apiKeyAdmin = manifest.routes.find((candidate) => candidate.id === "admin-api-keys");
 	assert.equal(apiKeyAdmin?.owner, "go-business-api");
@@ -124,10 +125,15 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 		assert.equal(route?.migrationStage, "complete", id);
 		assert.equal(route?.match, "exact", id);
 	}
-	for (const id of ["domain-message-text", "domain-message-text-compat"]) {
+	for (const id of [
+		"ext-email-text", "ext-email-text-compat",
+		"domain-message-text", "domain-message-text-compat",
+	]) {
 		const route = manifest.routes.find((candidate) => candidate.id === id);
-		assert.equal(route?.owner, "business-api", id);
-		assert.equal(route?.targetOwner, "go-business-api", id);
+		assert.equal(route?.owner, "go-business-api", id);
+		assert.equal(route?.migrationStage, "complete", id);
+		assert.equal(route?.targetOwner, undefined, id);
+		assert.equal(route?.match, "exact", id);
 	}
 
 	const ingress = manifest.routes.find((candidate) => candidate.id === "ingress-domain-mail");
@@ -135,8 +141,24 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 	assert.equal(ingress?.migrationStage, "complete");
 	assert.equal(ingress?.targetOwner, undefined);
 	const ingressCatchAll = manifest.routes.find((candidate) => candidate.id === "ingress-other");
-	assert.equal(ingressCatchAll?.owner, "business-api");
-	assert.equal(ingressCatchAll?.targetOwner, "go-business-api");
+	assert.equal(ingressCatchAll?.owner, "go-business-api");
+	assert.equal(ingressCatchAll?.migrationStage, "complete");
+	assert.equal(ingressCatchAll?.targetOwner, undefined);
+
+	for (const id of [
+		"admin-domains", "admin-domain-messages", "admin-forwarding-jobs", "admin-other",
+		"external-domain-mail", "external-api", "mailbox-portal", "ingress-other",
+		"mailbox-portal-sent-messages", "mailbox-portal-forwarding-jobs",
+		"mailbox-portal-send", "mailbox-portal-forwarding",
+	]) {
+		const route = manifest.routes.find((candidate) => candidate.id === id);
+		assert.equal(route?.owner, "go-business-api", id);
+		assert.equal(route?.migrationStage, "complete", id);
+		assert.equal(route?.targetOwner, undefined, id);
+	}
+
+	assert.equal(manifest.routes.some((route) => route.owner === "business-api"), false);
+	assert.equal(manifest.routes.some((route) => route.migrationStage !== "complete"), false);
 
 	const oauthCompatibility = manifest.routes.find((candidate) => candidate.id === "oauth-compatibility");
 	assert.equal(oauthCompatibility?.owner, "go-business-api");

@@ -1,6 +1,7 @@
 package businessapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -376,6 +377,21 @@ func (s *Server) withMailbox(next func(http.ResponseWriter, *http.Request, Mailb
 			return
 		}
 		next(w, r.WithContext(ctx), identity)
+	}
+}
+
+func (s *Server) withMailboxProvider(next func(http.ResponseWriter, *http.Request, MailboxIdentity)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		databaseCtx, cancelDatabase := s.databaseContext(r.Context())
+		identity, err := authenticateMailbox(databaseCtx, r, s.mailboxAuthStore, s.cfg.JWTSecret, s.now())
+		cancelDatabase()
+		if err != nil {
+			s.writeRequestError(w, r, err)
+			return
+		}
+		providerCtx, cancelProvider := context.WithTimeout(r.Context(), s.cfg.ProviderTimeout)
+		defer cancelProvider()
+		next(w, r.WithContext(providerCtx), identity)
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/readiness"
 )
 
-func TestHealthAndDualBusinessProxiesUseCanonicalRouteOwnership(t *testing.T) {
+func TestHealthAndGoBusinessProxyUseCanonicalRouteOwnership(t *testing.T) {
 	fastify := testReadyUpstream(t, `{"business":true}`)
 	goBusiness := testReadyUpstream(t, `{"goBusiness":true}`)
 
@@ -39,10 +39,10 @@ func TestHealthAndDualBusinessProxiesUseCanonicalRouteOwnership(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/admin/test", nil)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "business") {
-		t.Fatalf("Fastify proxy response = %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "goBusiness") {
+		t.Fatalf("Go business catch-all response = %d %s", response.Code, response.Body.String())
 	}
-	assertRouteHeaders(t, response, "business-api", "admin-other")
+	assertRouteHeaders(t, response, "go-business-api", "admin-other")
 
 	request = httptest.NewRequest(http.MethodGet, "/admin/dashboard/stats", nil)
 	response = httptest.NewRecorder()
@@ -66,7 +66,7 @@ func TestHealthAndDualBusinessProxiesUseCanonicalRouteOwnership(t *testing.T) {
 	metrics := response.Body.String()
 	for _, expected := range []string{
 		`allmail_route_owner_info{family="admin-dashboard-stats-read",owner="go-business-api"`,
-		`allmail_route_requests_total{family="admin-other",owner="business-api",method="GET",status_class="2xx"} 1`,
+		`allmail_route_requests_total{family="admin-other",owner="go-business-api",method="GET",status_class="2xx"} 1`,
 		`allmail_route_requests_total{family="admin-dashboard-stats-read",owner="go-business-api",method="GET",status_class="2xx"} 1`,
 		`allmail_route_requests_total{family="admin-dashboard-log-delete",owner="go-business-api",method="DELETE",status_class="2xx"} 1`,
 	} {
@@ -99,10 +99,10 @@ func TestRouteManifestKeepsMethodAndNamespaceBoundaries(t *testing.T) {
 
 	backend := httptest.NewRecorder()
 	server.Handler().ServeHTTP(backend, httptest.NewRequest(http.MethodGet, "/api/unknown", nil))
-	if backend.Code != http.StatusServiceUnavailable || !strings.Contains(backend.Body.String(), "BUSINESS_API_NOT_CONFIGURED") {
-		t.Fatalf("backend namespace response = %d %s", backend.Code, backend.Body.String())
+	if backend.Code != http.StatusServiceUnavailable || !strings.Contains(backend.Body.String(), "GO_BUSINESS_API_NOT_CONFIGURED") {
+		t.Fatalf("Go business namespace response = %d %s", backend.Code, backend.Body.String())
 	}
-	assertRouteHeaders(t, backend, "business-api", "external-api")
+	assertRouteHeaders(t, backend, "go-business-api", "external-api")
 
 	spa := httptest.NewRecorder()
 	server.Handler().ServeHTTP(spa, httptest.NewRequest(http.MethodGet, "/administrator", nil))
@@ -185,10 +185,9 @@ func TestProxyRejectsSpoofedForwardingAndOwnershipHeadersFromUntrustedPeer(t *te
 
 	server := mustGateway(t, config.APIConfig{
 		StaticDir:       writeStaticIndex(t),
-		BusinessAPIURL:  fastify.URL,
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
-	}, "")
+	}, fastify.URL)
 	request := httptest.NewRequest(http.MethodGet, "http://mail.example/admin/test", nil)
 	request.RemoteAddr = "192.0.2.44:43123"
 	request.Header.Set("X-Forwarded-For", "203.0.113.9")
@@ -221,7 +220,7 @@ func TestProxyRejectsSpoofedForwardingAndOwnershipHeadersFromUntrustedPeer(t *te
 	if got := header.Get(routeFamilyHeader); got != "" {
 		t.Fatalf("route family header leaked downstream: %q", got)
 	}
-	assertRouteHeaders(t, response, "business-api", "admin-other")
+	assertRouteHeaders(t, response, "go-business-api", "admin-other")
 }
 
 func TestProxyAcceptsCanonicalClientIPOnlyFromTrustedPeer(t *testing.T) {
@@ -238,11 +237,10 @@ func TestProxyAcceptsCanonicalClientIPOnlyFromTrustedPeer(t *testing.T) {
 
 	server := mustGateway(t, config.APIConfig{
 		StaticDir:         writeStaticIndex(t),
-		BusinessAPIURL:    fastify.URL,
 		TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 		ReadyTimeout:      time.Second,
 		ShutdownTimeout:   time.Second,
-	}, "")
+	}, fastify.URL)
 	request := httptest.NewRequest(http.MethodGet, "http://mail.example/admin/test", nil)
 	request.RemoteAddr = "10.10.0.5:43123"
 	request.Header.Set("CF-Connecting-IP", "198.51.100.22")

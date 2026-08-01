@@ -23,28 +23,29 @@ func TestCanonicalManifestClassifiesEveryGatewayFamily(t *testing.T) {
 		"dashboard head":            {method: "HEAD", path: "/admin/dashboard/logs", id: "admin-dashboard-logs-read", owner: OwnerGoBusinessAPI},
 		"dashboard log delete":      {method: "DELETE", path: "/admin/dashboard/logs/42", id: "admin-dashboard-log-delete", owner: OwnerGoBusinessAPI},
 		"dashboard batch delete":    {method: "POST", path: "/admin/dashboard/logs/batch-delete", id: "admin-dashboard-log-batch-delete", owner: OwnerGoBusinessAPI},
-		"dashboard catch-all":       {method: "POST", path: "/admin/dashboard/unknown", id: "admin-dashboard-other", owner: OwnerBusinessAPI},
+		"dashboard catch-all":       {method: "POST", path: "/admin/dashboard/unknown", id: "admin-dashboard-other", owner: OwnerGoBusinessAPI},
 		"API key admin":             {method: "POST", path: "/admin/api-keys", id: "admin-api-keys", owner: OwnerGoBusinessAPI},
 		"administrator management":  {method: "GET", path: "/admin/admins", id: "admin-administrators", owner: OwnerGoBusinessAPI},
 		"email group management":    {method: "POST", path: "/admin/email-groups", id: "admin-email-groups", owner: OwnerGoBusinessAPI},
 		"domain mailbox management": {method: "PATCH", path: "/admin/domain-mailboxes/42", id: "admin-domain-mailboxes", owner: OwnerGoBusinessAPI},
 		"mailbox user management":   {method: "DELETE", path: "/admin/mailbox-users/42", id: "admin-mailbox-users", owner: OwnerGoBusinessAPI},
 		"administrator login":       {method: "POST", path: "/admin/auth/login", id: "admin-auth", owner: OwnerGoBusinessAPI},
-		"admin catch-all":           {method: "GET", path: "/admin/unknown", id: "admin-other", owner: OwnerBusinessAPI},
+		"admin catch-all":           {method: "GET", path: "/admin/unknown", id: "admin-other", owner: OwnerGoBusinessAPI},
 		"external email allocate":   {method: "GET", path: "/api/get-email", id: "ext-email-allocate-compat", owner: OwnerGoBusinessAPI},
 		"domain mail":               {method: "POST", path: "/api/domain-mail/messages", id: "domain-email-list", owner: OwnerGoBusinessAPI},
-		"domain regex fallback":     {method: "POST", path: "/api/domain-mail/messages/text", id: "domain-message-text", owner: OwnerBusinessAPI},
-		"external catch-all":        {method: "GET", path: "/api/unknown", id: "external-api", owner: OwnerBusinessAPI},
+		"domain message text":       {method: "POST", path: "/api/domain-mail/messages/text", id: "domain-message-text", owner: OwnerGoBusinessAPI},
+		"external message text":     {method: "GET", path: "/api/messages/text", id: "ext-email-text", owner: OwnerGoBusinessAPI},
+		"external catch-all":        {method: "GET", path: "/api/unknown", id: "external-api", owner: OwnerGoBusinessAPI},
 		"mailbox portal session":    {method: "GET", path: "/mail/api/session", id: "mailbox-portal-session", owner: OwnerGoBusinessAPI},
 		"mailbox portal login":      {method: "POST", path: "/mail/api/login", id: "mailbox-portal-login", owner: OwnerGoBusinessAPI},
 		"mailbox portal two-factor": {method: "POST", path: "/mail/api/2fa/enable", id: "mailbox-portal-two-factor", owner: OwnerGoBusinessAPI},
 		"mailbox portal mailboxes":  {method: "HEAD", path: "/mail/api/mailboxes", id: "mailbox-portal-mailboxes", owner: OwnerGoBusinessAPI},
 		"mailbox portal messages":   {method: "GET", path: "/mail/api/messages/42", id: "mailbox-portal-messages", owner: OwnerGoBusinessAPI},
-		"mailbox portal sending":    {method: "POST", path: "/mail/api/send", id: "mailbox-portal", owner: OwnerBusinessAPI},
-		"mailbox portal sent reads": {method: "GET", path: "/mail/api/sent-messages", id: "mailbox-portal", owner: OwnerBusinessAPI},
-		"mailbox portal forwarding": {method: "POST", path: "/mail/api/forwarding", id: "mailbox-portal", owner: OwnerBusinessAPI},
+		"mailbox portal sending":    {method: "POST", path: "/mail/api/send", id: "mailbox-portal-send", owner: OwnerGoBusinessAPI},
+		"mailbox portal sent reads": {method: "GET", path: "/mail/api/sent-messages", id: "mailbox-portal-sent-messages", owner: OwnerGoBusinessAPI},
+		"mailbox portal forwarding": {method: "POST", path: "/mail/api/forwarding", id: "mailbox-portal-forwarding", owner: OwnerGoBusinessAPI},
 		"ingress":                   {method: "POST", path: "/ingress/domain-mail/receive", id: "ingress-domain-mail", owner: OwnerGoBusinessAPI},
-		"ingress catch-all":         {method: "POST", path: "/ingress/unknown", id: "ingress-other", owner: OwnerBusinessAPI},
+		"ingress catch-all":         {method: "POST", path: "/ingress/unknown", id: "ingress-other", owner: OwnerGoBusinessAPI},
 		"spa":                       {method: "GET", path: "/settings/domains", id: "spa", owner: OwnerGo},
 		"prefix boundary":           {method: "GET", path: "/administrator", id: "spa", owner: OwnerGo},
 	}
@@ -70,6 +71,14 @@ func TestCanonicalManifestClassifiesEveryGatewayFamily(t *testing.T) {
 	} {
 		if route.MigrationStage != MigrationComplete || route.TargetOwner != "" || route.Owner != OwnerGoBusinessAPI {
 			t.Fatalf("completed Go business migration metadata = %#v", route)
+		}
+	}
+	for _, route := range manifest.Snapshot().Routes {
+		if route.Owner == OwnerBusinessAPI {
+			t.Fatalf("legacy Fastify owner remains in canonical manifest: %#v", route)
+		}
+		if route.MigrationStage != MigrationComplete || route.TargetOwner != "" {
+			t.Fatalf("incomplete canonical route remains after Go cutover: %#v", route)
 		}
 	}
 	if len(manifest.Digest()) != 64 {

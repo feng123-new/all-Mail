@@ -13,6 +13,34 @@ import (
 	"time"
 )
 
+func (s *Server) withAuthenticatedAPIKey(next func(http.ResponseWriter, *http.Request, APIKeyPrincipal)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.QueryTimeout)
+		defer cancel()
+		principal, err := s.authenticateAPIKey(ctx, r)
+		if err != nil {
+			s.writeRequestError(w, r, err)
+			return
+		}
+		next(w, r.WithContext(ctx), principal)
+	}
+}
+
+func (s *Server) withAuthenticatedAPIKeyProvider(next func(http.ResponseWriter, *http.Request, APIKeyPrincipal)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		databaseCtx, cancelDatabase := context.WithTimeout(r.Context(), s.cfg.QueryTimeout)
+		principal, err := s.authenticateAPIKey(databaseCtx, r)
+		cancelDatabase()
+		if err != nil {
+			s.writeRequestError(w, r, err)
+			return
+		}
+		providerCtx, cancelProvider := context.WithTimeout(r.Context(), s.cfg.ProviderTimeout)
+		defer cancelProvider()
+		next(w, r.WithContext(providerCtx), principal)
+	}
+}
+
 func (s *Server) withAPIKey(action string, next func(http.ResponseWriter, *http.Request, APIKeyPrincipal)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()

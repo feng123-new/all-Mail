@@ -42,6 +42,26 @@ func (s *fakeMailboxPortalStore) GetMailboxPortalMessage(_ context.Context, id, 
 	return s.detail, s.err
 }
 
+func (s *fakeMailboxPortalStore) ListMailboxPortalSentMessages(_ context.Context, _ MailboxPortalSentMessageListInput) (map[string]any, error) {
+	return nil, s.err
+}
+
+func (s *fakeMailboxPortalStore) GetMailboxPortalSentMessage(_ context.Context, _, _ int64) (map[string]any, error) {
+	return nil, s.err
+}
+
+func (s *fakeMailboxPortalStore) ListMailboxPortalForwardingJobs(_ context.Context, _ MailboxPortalForwardingJobListInput) (map[string]any, error) {
+	return nil, s.err
+}
+
+func (s *fakeMailboxPortalStore) UpdateMailboxPortalForwarding(_ context.Context, _ MailboxPortalForwardingUpdateInput) (map[string]any, error) {
+	return nil, s.err
+}
+
+func (s *fakeMailboxPortalStore) GetMailboxPortalSendMailbox(_ context.Context, _, _ int64) (MailboxPortalSendMailbox, error) {
+	return MailboxPortalSendMailbox{}, s.err
+}
+
 func TestMailboxPortalReadRoutesAreRegisteredThroughServerHandler(t *testing.T) {
 	server := testServer(&fakeStore{})
 	for _, target := range []string{

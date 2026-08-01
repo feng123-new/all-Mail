@@ -12,6 +12,14 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/legacycrypto"
 )
 
+type outboundSendStore interface {
+	loadResendSendConfig(context.Context, int64, *int64, string, string) (resendSendConfig, error)
+	createPendingOutboundMessage(context.Context, int64, *int64, string, []string, string, string, string) (int64, error)
+	completeOutboundMessage(context.Context, int64, string, string, string) (map[string]any, error)
+}
+
+var _ outboundSendStore = (*PostgresStore)(nil)
+
 type resendSendConfig struct {
 	DomainID       int64
 	DomainName     string
@@ -130,9 +138,13 @@ func safeOutboundMessage(row outboundMessageRow, includeBody bool) map[string]an
 		"domain": map[string]any{"id": row.DomainID, "name": row.DomainName, "canSend": row.DomainCanSend, "canReceive": row.DomainCanReceive},
 	}
 	if row.MailboxID.Valid {
-		result["mailbox"] = map[string]any{
+		mailbox := map[string]any{
 			"id": row.MailboxID.Int64, "address": row.MailboxAddress.String, "provisioningMode": row.ProvisioningMode.String,
 		}
+		for key, value := range hostedInternalProtocolSummary(row.ProvisioningMode.String, row.DomainCanSend, row.DomainCanReceive) {
+			mailbox[key] = value
+		}
+		result["mailbox"] = mailbox
 	} else {
 		result["mailbox"] = nil
 	}
