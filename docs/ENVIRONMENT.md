@@ -31,8 +31,7 @@ This document is the authoritative variable and secret-ownership contract for `a
 | `business-api` | Yes | Yes | Runtime secret file | Runtime secret file | Database-encrypted state for remaining routes |
 | `worker-forwarding` | Yes | No | No | Read-only file | Resend API base URL only |
 | `worker-retention` | Yes | No | No | No | No |
-| `business-init` | Yes | No | Generates/imports | Generates/imports | One-shot compatibility inputs |
-| `go-migrate` | Yes | No | No | No | No |
+| `business-init` | Yes | No | Generates/imports | Generates/imports and verifies persisted ciphertext | One-shot compatibility inputs |
 
 The public Go gateway is intentionally credential-free. Migrated database-backed handlers run in the separate private `go-business-api` process.
 
@@ -93,7 +92,7 @@ Removed gateway aliases include `GO_API_MODE`, `ALL_MAIL_ENV`, and `ALL_MAIL_PUB
 | `POSTGRES_USER` | `allmail` | Compose, init, migrations, workers, business APIs | Internal database identity |
 | `POSTGRES_PASSWORD` | required | Compose, init, migrations, workers, business APIs | At least 24 URL-safe characters; no fallback |
 | `POSTGRES_DB` | `allmail` | Compose, init, migrations, workers, business APIs | Database name |
-| `DATABASE_URL` | Compose-derived | `business-init`, `go-migrate`, both business APIs, both Go workers | Never supplied to public `app` |
+| `DATABASE_URL` | Compose-derived | `business-init`, both business APIs, both Go workers | Never supplied to public `app` |
 | `REDIS_URL` | Compose-derived | `business-api`, `go-business-api`, local development | Never supplied to `business-init`, workers, or public `app` |
 | `DEV_POSTGRES_PORT` | `15433` | development overlay | Local only |
 | `DEV_REDIS_PORT` | `6380` | development overlay | Local only |
@@ -155,7 +154,6 @@ The initializer alone accepts:
 | --- | --- | --- |
 | `ADMIN_USERNAME` | `admin` | Initial database administrator |
 | `ADMIN_PASSWORD` | generated when blank | Initial temporary password |
-| `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD` | `false` | Opt-in startup log output |
 | `BOOTSTRAP_ADMIN_SECRET_FILE` | internal path | One-time credential file |
 
 The credential is persisted separately at `/var/lib/all-mail/bootstrap-admin.env`. During the authentication cutover, both private business APIs mount the existing runtime volume so whichever owner handles the first password rotation can remove the file. Neither API receives the bootstrap username or password as environment variables, and the public gateway receives neither the file nor the credential. PR #37 separates this cleanup file from long-lived runtime secrets.
@@ -227,10 +225,12 @@ MICROSOFT_OAUTH_SCOPES
 Startup order:
 
 ```text
-Prisma migrations
+Go-owned Prisma-history execution/adoption
+→ numbered Go migrations and catalog fingerprint validation
+→ historical ciphertext verification
 → idempotent durable configuration import
 → administrator bootstrap
-→ Go additive migrations
+→ second ciphertext verification and key-file export
 → private business APIs and workers
 → public gateway
 ```
@@ -264,12 +264,11 @@ The Cloudflare Worker keeps its matching secret through Wrangler secret storage.
 
 | Variable | Default | Consumer | Notes |
 | --- | --- | --- | --- |
-| `ALL_MAIL_MIGRATION_DIR` | `/app/migrations` | `go-migrate` | Numbered Go SQL path |
-| `ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR` | absent | explicit initializer repair | Reviewed recovery only |
+| `ALL_MAIL_MIGRATION_DIR` | `/app/migrations` | `business-init`, `allmail migrate` | Numbered Go SQL path |
 | `ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE` | internal | initializer | Forwarding key export |
 | `ALL_MAIL_EXPORT_JWT_SECRET_FILE` | internal | initializer | Go-business JWT export |
 
-The repair switch is deliberately absent from `.env.example`.
+There is no Prisma/P3005 repair switch or `db push` fallback.
 
 ## Worker settings
 

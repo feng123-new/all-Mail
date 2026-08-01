@@ -18,7 +18,7 @@ private migrated Go routes     remaining Fastify/Prisma routes
                       v
              PostgreSQL + Redis
 
-business-init -> go-migrate -> long-running services
+business-init (Go schema + initialization) -> long-running services
 worker-forwarding and worker-retention are independent Go processes
 ```
 
@@ -36,6 +36,7 @@ The platform foundation is complete:
 - forwarding and API-log retention run as independent Go workers;
 - a private `go-business-api` receives only PostgreSQL, Redis, and a read-only JWT file;
 - the public gateway receives no business credential.
+- Go owns the complete business schema, canonical migration ledger, runtime-secret initialization, durable environment import, historical ciphertext preflight, and first-administrator bootstrap.
 
 ## Completed vertical cutovers
 
@@ -91,21 +92,19 @@ The Cloudflare Email Worker now stores raw messages under deterministic SHA-256 
 ## Remaining vertical migrations
 
 1. Move remaining domain, message, alias, and portal operations.
-2. Transfer complete business-schema migration authority from Prisma to Go.
-3. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.
-4. Observe zero Fastify proxy traffic, then remove the Node/Prisma runtime in a separate revision.
+2. Observe zero Fastify proxy traffic, then remove the Node/Prisma runtime in a separate revision.
 
 Each route cutover must include its Go handler, authorization, validation, transaction behavior, response parity, failure injection, method-aware manifest change, public-gateway Docker smoke, readiness checks, and revision rollback path.
 
 ## Final Node/Prisma deletion gates
 
-`server/`, Prisma, `business-api`, `business-init`, and `Dockerfile.server` may be removed only when all of the following are true:
+`server/`, Prisma, `business-api`, and `Dockerfile.server` may be removed only when all of the following are true:
 
 - no public path or HTTP method is Fastify-owned;
 - Fastify proxy requests and proxy errors remain zero for the agreed observation window;
-- fresh install, in-place upgrade, backup restore, and rollback no longer require Node;
-- Go owns the complete business schema and migration ledger;
-- every historical encrypted value remains readable;
+- fresh install, in-place upgrade, backup restore, and rollback no longer require Node (complete);
+- Go owns the complete business schema and migration ledger (complete);
+- every historical encrypted value remains readable (complete);
 - the final image and SBOM contain no Node runtime or Prisma engine.
 
 Until those gates are met, the Node business runtime is active production code, not removable redundancy.

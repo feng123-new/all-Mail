@@ -17,7 +17,7 @@ const expectedLongRunning = [
 	"redis",
 ];
 
-const expectedOneShot = ["business-init", "go-migrate"];
+const expectedOneShot = ["business-init"];
 
 function composeServices(compose) {
 	const servicesStart = compose.indexOf("\nservices:\n");

@@ -100,6 +100,8 @@ jobs:
 
           init_deps = services['business-init'].get('depends_on', {})
           assert 'redis' not in init_deps, 'business-init still waits for Redis'
+          assert services['business-init'].get('command') == ['init'], 'business-init is not the Go initializer'
+          assert 'go-migrate' not in services, 'retired go-migrate one-shot remains in Compose'
 
           for name in ('postgres', 'redis'):
               assert not services[name].get('ports'), f'{name} is published by production Compose'

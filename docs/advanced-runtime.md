@@ -31,16 +31,18 @@ Equivalent:
 ```bash
 cp server/.env.example server/.env
 npm --prefix server install
-npm --prefix server run db:migrate
 ```
 
-A fresh database needs one explicit one-shot administrator bootstrap:
+A fresh database needs the same Go initializer used by production:
 
 ```bash
-ADMIN_USERNAME=admin \
-ADMIN_PASSWORD=change-me-now \
-BOOTSTRAP_ADMIN_SECRET_FILE=.all-mail-runtime/bootstrap-admin.env \
-npm --prefix server run bootstrap:admin
+(cd core && \
+  DATABASE_URL='<local-postgresql-url>' \
+  ALL_MAIL_MIGRATION_DIR="$PWD/migrations" \
+  ALL_MAIL_STATE_DIR="$PWD/../.all-mail-runtime" \
+  ADMIN_USERNAME=admin \
+  ADMIN_PASSWORD=change-me-now \
+  go run ./cmd/allmail init)
 ```
 
 Then start the API:
@@ -61,15 +63,17 @@ The long-running API:
 
 Do not add `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `DOMAIN_BOOTSTRAP_ADMIN_*`, or `ADMIN_2FA_SECRET` to `server/.env`.
 
-## Bootstrap development scenarios
+## Initializer development scenarios
 
 ### Generated password
 
 ```bash
+DATABASE_URL='<local-postgresql-url>' \
+ALL_MAIL_MIGRATION_DIR="$PWD/core/migrations" \
+ALL_MAIL_STATE_DIR="$PWD/.all-mail-runtime" \
 ADMIN_USERNAME=admin \
 ADMIN_PASSWORD= \
-BOOTSTRAP_ADMIN_SECRET_FILE=.all-mail-runtime/bootstrap-admin.env \
-npm --prefix server run bootstrap:admin
+./core/allmail init
 ```
 
 Read the protected file, log in, and change the password. A successful first rotation removes it.
@@ -80,7 +84,7 @@ Running the command again when an administrator exists must not create a second 
 
 ### Old combined-file migration
 
-Docker `business-init` automatically migrates `bootstrap-secrets.env`. For local testing, run `scripts/bootstrap-secrets.mjs` against an isolated state directory before `bootstrap:admin` and verify:
+Docker `business-init` and `allmail init` automatically migrate `bootstrap-secrets.env`. For local testing, point `ALL_MAIL_STATE_DIR` at an isolated directory and verify:
 
 ```text
 runtime-secrets.env
@@ -112,8 +116,10 @@ Components:
 
 ```bash
 allmail api
+allmail business-api
 allmail worker forwarding
 allmail worker retention
+allmail init
 allmail migrate
 ```
 

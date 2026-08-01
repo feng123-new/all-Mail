@@ -14,8 +14,8 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/config"
 	"github.com/feng123-new/all-Mail/core/internal/doctor"
 	"github.com/feng123-new/all-Mail/core/internal/httpapi"
+	"github.com/feng123-new/all-Mail/core/internal/initialize"
 	"github.com/feng123-new/all-Mail/core/internal/jobs"
-	"github.com/feng123-new/all-Mail/core/internal/migrate"
 	"github.com/feng123-new/all-Mail/core/internal/routeownership"
 )
 
@@ -25,6 +25,7 @@ const usageText = `Usage:
   allmail routes
   allmail worker forwarding
   allmail worker retention
+  allmail init
   allmail migrate
   allmail doctor api
   allmail doctor business-api
@@ -79,12 +80,14 @@ func main() {
 		default:
 			fatal(logger, fmt.Errorf("unknown worker %q; use forwarding or retention", os.Args[2]))
 		}
+	case "init":
+		cfg, err := initialize.LoadConfig()
+		fatalIf(logger, err)
+		fatalIf(logger, initialize.Run(ctx, cfg, logger))
 	case "migrate":
 		cfg, err := config.LoadMigration()
 		fatalIf(logger, err)
-		migrationCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-		defer cancel()
-		fatalIf(logger, migrate.Run(migrationCtx, cfg, logger))
+		fatalIf(logger, initialize.SchemaOnly(ctx, cfg, logger))
 	case "doctor":
 		if len(os.Args) < 3 {
 			fatal(logger, fmt.Errorf("usage: allmail doctor api|business-api|worker"))
@@ -120,7 +123,7 @@ func main() {
 			fatal(logger, fmt.Errorf("unknown doctor target %q", os.Args[2]))
 		}
 	default:
-		fatal(logger, fmt.Errorf("unknown command %q; use api, business-api, routes, worker, migrate or doctor", command))
+		fatal(logger, fmt.Errorf("unknown command %q; use api, business-api, routes, worker, init, migrate or doctor", command))
 	}
 }
 
