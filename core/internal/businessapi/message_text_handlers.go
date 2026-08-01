@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/dlclark/regexp2/v2"
 )
 
 type messageTextInput struct {
@@ -129,21 +130,39 @@ func parseMessageTextInput(r *http.Request, trimMatch bool) (messageTextInput, e
 	return input, nil
 }
 
-var errMessageTextNoMatch = errors.New("message text did not match")
+const (
+	messageTextPatternMaxBytes = 4096
+	messageTextMatchTimeout    = 250 * time.Millisecond
+)
+
+var (
+	errMessageTextNoMatch        = errors.New("message text did not match")
+	errMessageTextPatternTooLong = errors.New("message text pattern is too long")
+)
 
 func extractMessageText(content, pattern string, firstCapture bool) (string, error) {
-	expression, err := regexp.Compile(pattern)
+	if len(pattern) > messageTextPatternMaxBytes {
+		return "", errMessageTextPatternTooLong
+	}
+	expression, err := regexp2.Compile(pattern, regexp2.ECMAScript)
 	if err != nil {
 		return "", err
 	}
-	indexes := expression.FindStringSubmatchIndex(content)
-	if indexes == nil {
+	expression.MatchTimeout = messageTextMatchTimeout
+	match, err := expression.FindStringMatch(content)
+	if err != nil {
+		return "", err
+	}
+	if match == nil {
 		return "", errMessageTextNoMatch
 	}
-	if firstCapture && len(indexes) >= 4 && indexes[2] >= 0 && indexes[3] > indexes[2] {
-		return content[indexes[2]:indexes[3]], nil
+	if firstCapture && match.GroupCount() > 1 {
+		group := match.GroupByNumber(1)
+		if group != nil && group.String() != "" {
+			return group.String(), nil
+		}
 	}
-	return content[indexes[0]:indexes[1]], nil
+	return match.String(), nil
 }
 
 func (s *Server) requirePlainTextPermission(
