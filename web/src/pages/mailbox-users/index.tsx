@@ -7,6 +7,7 @@ import { mailboxUsersContract } from '../../contracts/admin/mailboxUsers';
 import { adminI18n } from '../../i18n/catalog/admin';
 import { useI18n } from '../../i18n';
 import { defineMessage } from '../../i18n/messages';
+import { clearLegacyPortalCredentialPrefills } from '../../utils/portalCredentialStorage';
 import { requestData } from '../../utils/request';
 
 interface UserRecord {
@@ -42,9 +43,6 @@ interface MailboxUserDetail {
 	}>;
 }
 
-const PORTAL_LOGIN_PREFILL_PREFIX = 'all-mail:portal-login:';
-const PORTAL_LOGIN_PREFILL_TTL_MS = 10 * 60 * 1000;
-
 const mailboxUsersI18n = {
     fetchUsersFailed: defineMessage('mailboxUsers.fetchUsersFailed', '获取邮箱用户失败', 'Failed to load portal users'),
     fetchMailboxesFailed: defineMessage('mailboxUsers.fetchMailboxesFailed', '获取域名邮箱失败', 'Failed to load domain mailboxes'),
@@ -61,16 +59,16 @@ const mailboxUsersI18n = {
     mustChangePassword: defineMessage('mailboxUsers.mustChangePassword', '必须改密', 'Password reset required'),
     mailboxCount: defineMessage('mailboxUsers.mailboxCount', '邮箱数', 'Mailbox count'),
     portalEntry: defineMessage('mailboxUsers.portalEntry', '门户入口', 'Portal access'),
-    openPortalHint: defineMessage('mailboxUsers.openPortalHint', '打开门户登录页，并默认填入门户用户名；如果你刚刚重置过密码，也会短时自动带入这次新密码。', 'Open the portal login page with the username prefilled. If you just reset the password, the new password is also prefilled briefly.'),
+    openPortalHint: defineMessage('mailboxUsers.openPortalHint', '打开门户登录页，并默认填入门户用户名。密码不会写入浏览器存储或自动带入。', 'Open the portal login page with the username prefilled. Passwords are never stored or prefilled by the browser.'),
     portalLogin: defineMessage('mailboxUsers.portalLogin', '门户登录', 'Portal login'),
-    copyLinkHint: defineMessage('mailboxUsers.copyLinkHint', '复制门户登录链接，方便发给用户自己登录', 'Copy the portal login link so the user can sign in directly.'),
+    copyLinkHint: defineMessage('mailboxUsers.copyLinkHint', '复制只包含门户用户名的登录链接，方便发给用户自己登录', 'Copy a login link that contains only the portal username so the user can sign in directly.'),
     copyLink: defineMessage('mailboxUsers.copyLink', '复制链接', 'Copy link'),
     actions: defineMessage('mailboxUsers.actions', '动作', 'Actions'),
     edit: defineMessage('mailboxUsers.edit', '编辑', 'Edit'),
     deleteConfirm: defineMessage('mailboxUsers.deleteConfirm', '确定删除门户用户 {username} 吗？', 'Delete portal user {username}?'),
     deleteDescription: defineMessage('mailboxUsers.deleteDescription', '会自动解除该用户和域名邮箱的负责人/成员关系。', 'This also removes the user from domain-mailbox ownership and membership.'),
     delete: defineMessage('mailboxUsers.delete', '删除', 'Delete'),
-    subtitle: defineMessage('mailboxUsers.subtitle', '这里统一管理门户登录用户、初始密码和邮箱访问范围；你可以直接打开门户登录页，默认填入门户用户名，刚刚修改过的门户密码也会短时自动带入。', 'Manage portal users, initial passwords, and mailbox access scope in one place. The portal login page can open with the username prefilled, and recently reset passwords are briefly prefilled too.'),
+    subtitle: defineMessage('mailboxUsers.subtitle', '这里统一管理门户登录用户、初始密码和邮箱访问范围；门户入口只会预填用户名，密码必须由用户自行输入。', 'Manage portal users, initial passwords, and mailbox access scope in one place. Portal links prefill only the username; users must enter the password themselves.'),
     editPortalUser: defineMessage('mailboxUsers.editPortalUser', '编辑门户用户', 'Edit portal user'),
     usernameRequired: defineMessage('mailboxUsers.usernameRequired', '请输入门户用户名', 'Enter the portal username'),
 	usernameExample: defineMessage('mailboxUsers.usernameExample', '例如：portal-user-01', 'Example: portal-user-01'),
@@ -100,8 +98,11 @@ const MailboxUsersPage: FC = () => {
     const [form] = Form.useForm<MailboxUserFormValues>();
 	const isMountedRef = useRef(true);
 
-	useEffect(() => () => {
-		isMountedRef.current = false;
+	useEffect(() => {
+        clearLegacyPortalCredentialPrefills();
+        return () => {
+            isMountedRef.current = false;
+        };
 	}, []);
 
 	const portalBaseUrl = useMemo(() => {
@@ -110,21 +111,6 @@ const MailboxUsersPage: FC = () => {
 		}
 		return `${globalThis.location.origin}/mail/login`;
 	}, []);
-
-    const savePortalCredentialPrefill = useCallback((username: string, password?: string) => {
-        const normalizedPassword = password?.trim();
-        if (!normalizedPassword) {
-            return;
-        }
-
-		globalThis.localStorage?.setItem(
-			`${PORTAL_LOGIN_PREFILL_PREFIX}${username}`,
-			JSON.stringify({
-				password: normalizedPassword,
-                expiresAt: Date.now() + PORTAL_LOGIN_PREFILL_TTL_MS,
-            })
-        );
-    }, []);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -227,7 +213,6 @@ const MailboxUsersPage: FC = () => {
 
         const result = await requestData(() => action, editing ? t(mailboxUsersI18n.updateFailed) : t(mailboxUsersI18n.createFailed));
         if (result) {
-            savePortalCredentialPrefill(username, values.portalPassword);
             setModalVisible(false);
             await loadData();
         }
@@ -240,7 +225,6 @@ const MailboxUsersPage: FC = () => {
             t(mailboxUsersI18n.deleteFailed, { username: record.username })
         );
 		if (result) {
-			globalThis.localStorage?.removeItem(`${PORTAL_LOGIN_PREFILL_PREFIX}${record.username}`);
 			message.success(t(mailboxUsersI18n.deleted, { username: record.username }));
 			await loadData();
 		}
