@@ -27,6 +27,17 @@ func TestExtractMessageTextPreservesExternalAndDomainCompatibility(t *testing.T)
 	if _, err := extractMessageText(content, `missing`, true); err != errMessageTextNoMatch {
 		t.Fatalf("no-match error = %v", err)
 	}
+	lookbehind, err := extractMessageText("Code: 483921", `(?<=Code: )\d{6}`, true)
+	if err != nil || lookbehind != "483921" {
+		t.Fatalf("ECMAScript lookbehind = %q, err=%v", lookbehind, err)
+	}
+	backreference, err := extractMessageText("token-token", `^(\w+)-\1$`, false)
+	if err != nil || backreference != "token-token" {
+		t.Fatalf("ECMAScript backreference = %q, err=%v", backreference, err)
+	}
+	if _, err := extractMessageText("x", strings.Repeat("a", messageTextPatternMaxBytes+1), true); err != errMessageTextPatternTooLong {
+		t.Fatalf("oversized pattern error = %v", err)
+	}
 }
 
 func TestDomainMessageTextRoutesReturnPlainTextAndAuditOutcomes(t *testing.T) {
