@@ -23,6 +23,7 @@ type Config struct {
 	BootstrapAdminFile      string
 	EncryptionKeyExportFile string
 	JWTSecretExportFile     string
+	RedisPasswordExportFile string
 	Environment             map[string]string
 }
 
@@ -45,6 +46,7 @@ func LoadConfig() (Config, error) {
 		BootstrapAdminFile:      bootstrapFile,
 		EncryptionKeyExportFile: strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE")),
 		JWTSecretExportFile:     strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_JWT_SECRET_FILE")),
+		RedisPasswordExportFile: strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_REDIS_PASSWORD_FILE")),
 		Environment:             currentEnvironment(),
 	}, nil
 }
@@ -115,7 +117,13 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 			return err
 		}
 		if cfg.BootstrapAdminFile != state.BootstrapAdminFile {
+			if err := migrateBootstrapAdminSecret(state.BootstrapAdminFile, cfg.BootstrapAdminFile); err != nil {
+				return err
+			}
 			state.BootstrapAdminFile = cfg.BootstrapAdminFile
+			if err := writeRuntimeBoundaryManifest(cfg.BootstrapAdminFile); err != nil {
+				return err
+			}
 		}
 		if err := SchemaOnly(ctx, cfg.Migration, logger); err != nil {
 			return err
@@ -136,7 +144,12 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		if err := secretstate.Finalize(state, cfg.EncryptionKeyExportFile, cfg.JWTSecretExportFile); err != nil {
+		if err := secretstate.Finalize(
+			state,
+			cfg.EncryptionKeyExportFile,
+			cfg.JWTSecretExportFile,
+			cfg.RedisPasswordExportFile,
+		); err != nil {
 			return err
 		}
 		logger.Info("Go initialization completed",
