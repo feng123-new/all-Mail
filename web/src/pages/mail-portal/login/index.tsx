@@ -9,8 +9,8 @@ import { defineMessage } from '../../../i18n/messages';
 import { type MailboxUser, useMailboxAuthStore } from '../../../stores/mailboxAuthStore';
 import { fullWidthStyle, noMarginBottomStyle } from '../../../styles/common';
 import { getErrorMessage } from '../../../utils/error';
+import { clearLegacyPortalCredentialPrefills } from '../../../utils/portalCredentialStorage';
 
-const PORTAL_LOGIN_PREFILL_PREFIX = 'all-mail:portal-login:';
 const { Text } = Typography;
 
 const mailPortalLoginI18n = {
@@ -24,7 +24,7 @@ const mailPortalLoginI18n = {
     featureWorkflowDescription: defineMessage('mailPortalLogin.feature.workflowDescription', '查看收件、历史发件，并在允许发件时直接开始写信。', 'Review inbox and sent history, then start writing immediately when sending is enabled.'),
     featureSecurityTitle: defineMessage('mailPortalLogin.feature.securityTitle', '安全状态集中处理', 'Security state in one place'),
     featureSecurityDescription: defineMessage('mailPortalLogin.feature.securityDescription', '首次密码提醒、转发策略和门户会话都在设置中心统一维护。', 'First-password reminders, forwarding policy, and portal session state are all maintained in Settings.'),
-    notice: defineMessage('mailPortalLogin.notice', '门户用户名支持预填。如果你从管理员后台或用户通知里带了用户名参数进来，登录页会自动帮你填好用户名。', 'Portal usernames support prefill. If you arrive from the admin console or a user notice with a username parameter, the login page fills it automatically.'),
+    notice: defineMessage('mailPortalLogin.notice', '门户用户名支持预填。如果你从管理员后台或用户通知里带了用户名参数进来，登录页会自动帮你填好用户名；密码始终需要自行输入。', 'Portal usernames support prefill. If you arrive from the admin console or a user notice with a username parameter, the login page fills it automatically; passwords must always be entered by the user.'),
     formTitle: defineMessage('mailPortalLogin.formTitle', '登录邮箱门户', 'Sign in to the mailbox portal'),
     formDescription: defineMessage('mailPortalLogin.formDescription', '默认使用门户用户名 + 密码登录；登录后会直接进入工作台。', 'Use portal username + password by default. After sign-in you go straight to the workspace.'),
     footer: defineMessage('mailPortalLogin.footer', '如果门户账号仍处于首次密码状态，登录后会在工作台和设置中心看到明确提醒。', 'If the portal account is still using the first password, the workspace and Settings will show a clear reminder after sign-in.'),
@@ -49,11 +49,6 @@ const mailPortalLoginI18n = {
     otpPlaceholder: defineMessage('mailPortalLogin.otpPlaceholder', '6 位验证码', '6-digit verification code'),
 } as const;
 
-interface PortalLoginPrefillPayload {
-    password?: string;
-    expiresAt?: number;
-}
-
 const MailPortalLoginPage = () => {
     const { t } = useI18n();
     const navigate = useNavigate();
@@ -70,24 +65,8 @@ const MailPortalLoginPage = () => {
     const portalUsername = useMemo(() => searchParams.get('username')?.trim() || '', [searchParams]);
 
     useEffect(() => {
-        const nextValues: { username: string; password?: string } = { username: portalUsername };
-        if (portalUsername) {
-            const storageKey = `${PORTAL_LOGIN_PREFILL_PREFIX}${portalUsername}`;
-            const saved = window.localStorage.getItem(storageKey);
-            if (saved) {
-                try {
-                    const parsed = JSON.parse(saved) as PortalLoginPrefillPayload;
-                    if (parsed.expiresAt && parsed.expiresAt > Date.now() && parsed.password) {
-                        nextValues.password = parsed.password;
-                    } else {
-                        window.localStorage.removeItem(storageKey);
-                    }
-                } catch {
-                    window.localStorage.removeItem(storageKey);
-                }
-            }
-        }
-        form.setFieldsValue({ username: nextValues.username, password: nextValues.password || '' });
+        clearLegacyPortalCredentialPrefills();
+        form.setFieldsValue({ username: portalUsername, password: '' });
     }, [form, portalUsername]);
 
     const finishLogin = (mailboxUser: MailboxUser) => {
@@ -104,7 +83,6 @@ const MailPortalLoginPage = () => {
             const response = await portalAccountContract.login(values.username, values.password);
             if (response.code === 200) {
                 const payload = response.data as { mailboxUser: MailboxUser };
-                window.localStorage.removeItem(`${PORTAL_LOGIN_PREFILL_PREFIX}${values.username.trim()}`);
                 finishLogin(payload.mailboxUser);
             }
         } catch (error) {
@@ -140,7 +118,6 @@ const MailPortalLoginPage = () => {
             const response = await portalAccountContract.login(pendingCredentials.username, pendingCredentials.password, otp);
             if (response.code === 200) {
                 const payload = response.data as { mailboxUser: MailboxUser };
-                window.localStorage.removeItem(`${PORTAL_LOGIN_PREFILL_PREFIX}${pendingCredentials.username.trim()}`);
                 setOtpModalVisible(false);
                 setPendingCredentials(null);
                 setOtpCode('');
