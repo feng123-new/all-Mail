@@ -214,4 +214,4 @@ For the authentication slice, the rollback revision reverts the affected manifes
 
 ## Final deletion gate
 
-`business-api`, `business-init`, Prisma, `server/`, and `Dockerfile.server` remain required until every public method is Go-owned, Fastify traffic is zero for the agreed period, Go owns the complete schema and migration ledger, historical ciphertext remains readable, and install/upgrade/restore/rollback no longer need Node. The final image and SBOM must contain neither Node nor Prisma.
+`business-api`, Prisma, `server/`, and `Dockerfile.server` remain required until every public method is Go-owned and Fastify traffic is zero for the agreed period. Go `business-init` already owns the complete schema/ledger, historical ciphertext preflight, and install/upgrade/restore/rollback path. The final long-running image and SBOM must contain neither Node nor Prisma.

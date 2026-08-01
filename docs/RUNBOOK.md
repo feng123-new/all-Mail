@@ -27,7 +27,6 @@ Completed one-shot services:
 
 ```text
 business-init
-go-migrate
 ```
 
 Baseline commands:
@@ -54,7 +53,6 @@ Logs:
 
 ```bash
 docker compose logs business-init --tail=300
-docker compose logs go-migrate --tail=300
 docker compose logs go-business-api --tail=300
 docker compose logs business-api --tail=300
 docker compose logs app --tail=300
@@ -68,10 +66,9 @@ Investigate the earliest failed stage:
 
 1. PostgreSQL and Redis;
 2. `business-init`;
-3. `go-migrate`;
-4. `business-api` and `go-business-api`;
-5. `app`;
-6. independent workers.
+3. `business-api` and `go-business-api`;
+4. `app`;
+5. independent workers.
 
 Do not repeatedly restart downstream services while an earlier one-shot stage is failed.
 
@@ -92,7 +89,9 @@ The initializer owns:
 - long-lived JWT and encryption-secret persistence;
 - forwarding encryption-key export;
 - Go-business JWT export;
-- Prisma migrations;
+- immutable Prisma-history execution/adoption and canonical ledger ownership;
+- numbered Go migrations and owned-catalog fingerprint validation;
+- historical ciphertext authentication and in-memory rewrite checks;
 - durable environment import;
 - idempotent first administrator creation.
 
@@ -100,21 +99,11 @@ The initializer owns:
 docker compose logs business-init --tail=400
 ```
 
-### Prisma P3005
+### Schema adoption failure
 
-After inspection and backup, run the explicit one-shot compatibility repair only when appropriate:
+The Go initializer rejects unknown/newer migrations, unresolved Prisma rows, history gaps, checksum mismatches, malformed same-name objects, and ledgerless catalogs that do not match the complete owned-schema fingerprint. It never falls back to Prisma or `db push`.
 
-```bash
-docker compose run --rm \
-  -e ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR=true \
-  business-init
-```
-
-Do not persist the switch.
-
-### Prisma P3009
-
-A failed migration record requires manual recovery. Repeated restarts do not repair it. Use `docker compose down -v` only for disposable data.
+Inspect `allmail_schema_migrations`, `_prisma_migrations`, and `runtime_migrations` without deleting or editing rows. Restore a matching backup or repair the proven catalog defect under a reviewed maintenance procedure, then rerun `business-init`. Use `docker compose down -v` only for disposable data.
 
 ### Administrator 2FA integrity migration
 
@@ -263,13 +252,14 @@ Common causes:
 
 Do not reintroduce `ADMIN_2FA_SECRET` or login-time account creation.
 
-## `go-migrate` failed
+## Go schema initialization failed
 
 ```bash
-docker compose logs go-migrate --tail=300
+docker compose logs business-init --tail=300
+docker compose run --rm business-init
 ```
 
-Never edit applied numbered migrations or delete `runtime_migrations` to bypass checksum validation.
+Never edit applied history or delete `allmail_schema_migrations`, `_prisma_migrations`, or `runtime_migrations` to bypass validation.
 
 ## Public Go gateway unhealthy
 
@@ -311,7 +301,7 @@ docker compose exec -T business-api node -e \
   "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(console.error)"
 ```
 
-Confirm Prisma migrations completed, PostgreSQL and Redis are healthy, UID is `10001`, and runtime secrets validate.
+Confirm Go schema initialization completed, PostgreSQL and Redis are healthy, UID is `10001`, and runtime secrets validate.
 
 ## Wrong route owner or unexpected 404
 
@@ -411,4 +401,4 @@ Before risky upgrades preserve:
 - the private Go JWT volume;
 - the exact Git revision and `.env` contract.
 
-Rollback with the target revision's deployment guide and restore the secret layout it expects. Never run initializers, workers, or business APIs from two revisions against the same persisted state.
+Treat the PostgreSQL backup and all secret volumes as one restore unit. Roll back with the target revision's deployment guide and restore the secret layout it expects. Never run initializers, workers, or business APIs from two revisions against the same persisted state.

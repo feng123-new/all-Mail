@@ -9,14 +9,15 @@ const read = (relativePath) => readFile(path.join(repoRoot, relativePath), "utf8
 
 test("legacy implicit-all API keys are backfilled before fail-closed runtimes start", async () => {
 	const [migration, compose] = await Promise.all([
-		read("server/prisma/migrations/20260731_api_key_explicit_permissions/migration.sql"),
+		read("core/internal/schema/migrations/20260731_api_key_explicit_permissions.sql"),
 		read("docker-compose.yml"),
 	]);
 	assert.match(migration, /UPDATE api_keys/);
 	assert.match(migration, /permissions = '\{"all": true\}'::jsonb/);
 	assert.match(migration, /permissions IS NULL/);
 	assert.match(migration, /permissions = '\{\}'::jsonb/);
-	assert.match(compose, /business-init:[\s\S]*go-migrate:[\s\S]*business-api:/);
+	assert.match(compose, /business-init:[\s\S]*command: \["init"\][\s\S]*business-api:/);
+	assert.doesNotMatch(compose, /\n  go-migrate:/);
 });
 
 test("both active API-key implementations deny missing permissions", async () => {

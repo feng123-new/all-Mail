@@ -9,7 +9,8 @@ Current ownership:
 - remaining business paths are proxied to the internal Fastify business API;
 - `allmail worker forwarding` owns mailbox forwarding;
 - `allmail worker retention` owns API-log retention;
-- `allmail migrate` owns checksummed additive Go migrations.
+- `allmail init` owns runtime-secret migration, complete schema adoption/migration, ciphertext verification, durable import, and first-administrator bootstrap;
+- `allmail migrate` owns schema-only adoption and migration through the same canonical ledger.
 
 The public Go gateway deliberately receives no PostgreSQL URL, Redis URL, JWT secret, or encryption key. The separate private Go business process receives PostgreSQL, Redis, and a read-only JWT secret file; gateway readiness verifies both private upstreams.
 
@@ -29,6 +30,7 @@ go build -trimpath -o ./allmail ./cmd/allmail
 ./allmail business-api
 ./allmail worker forwarding
 ./allmail worker retention
+./allmail init
 ./allmail migrate
 ./allmail doctor api
 ./allmail doctor business-api
@@ -61,6 +63,6 @@ It no longer reads `ENCRYPTION_KEY`, `ALL_MAIL_SECRET_STATE_DIR`, or the legacy 
 
 ## Migration rules
 
-The migration runner uses a direct `pgx` connection and one transaction with an advisory lock and SHA-256 checksums. It does not require the `psql` executable.
+The schema runner embeds the immutable Prisma history, verifies its raw SHA-256 checksums, adopts known Prisma or ledgerless-final databases, executes the numbered Go runtime migrations, and records both histories in `allmail_schema_migrations`. Its final PostgreSQL catalog fingerprint covers owned columns, defaults, constraints, indexes, enums, session functions, and triggers. It does not require Node, Prisma, or `psql`.
 
-Never edit an applied numbered migration. Add a new migration and preserve the existing checksum history. Read [`../docs/GO-MIGRATION.md`](../docs/GO-MIGRATION.md) before changing route ownership, worker state machines or applied migrations.
+Never edit an applied migration in either embedded history. Add a new migration and preserve the existing checksum history. Read [`../docs/GO-MIGRATION.md`](../docs/GO-MIGRATION.md) before changing route ownership, worker state machines, schema contracts, or applied migrations.

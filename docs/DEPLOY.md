@@ -29,7 +29,6 @@ Completed one-shot services:
 
 ```text
 business-init
-go-migrate
 ```
 
 Only `app` is host-published. Both business APIs, PostgreSQL, and Redis stay private to the Compose network.
@@ -97,11 +96,11 @@ Expected sequence:
 3. It migrates any old combined secret bundle into separate runtime and administrator files.
 4. It loads or generates the long-lived JWT and encryption secrets.
 5. It exports a read-only forwarding encryption-key file and a separate read-only JWT file for `go-business-api`.
-6. It applies Prisma migrations, imports durable compatibility configuration, and bootstraps the first database administrator under an advisory lock.
-7. `go-migrate` applies checksummed additive Go migrations.
-8. `business-api` and `go-business-api` become healthy.
-9. `app` aggregates both private upstream readiness and becomes healthy.
-10. Both Go workers become healthy.
+6. It executes or adopts the immutable Prisma history, applies numbered Go migrations, and validates the complete owned-catalog fingerprint.
+7. It authenticates every historical ciphertext category, imports durable compatibility configuration, and bootstraps the first database administrator under advisory locks.
+8. It publishes the forwarding encryption key and Go-business JWT only after the database phases pass.
+9. `business-api` and `go-business-api` become healthy.
+10. `app` aggregates both private upstreams and becomes healthy; both Go workers become healthy.
 
 ## Verify service and network ownership
 
@@ -163,13 +162,14 @@ docker compose exec business-api sh -lc '
 '
 ```
 
-The private Go business service receives PostgreSQL, Redis, and one read-only JWT file, but no encryption or provider secret:
+The private Go business service receives PostgreSQL, Redis, and read-only JWT/encryption files, but no raw secret environment value:
 
 ```bash
 docker compose exec go-business-api sh -lc '
   test -n "${DATABASE_URL:-}"
   test "${REDIS_URL:-}" = "redis://redis:6379"
   test -r /var/lib/all-mail-secrets/jwt-secret
+  test -r /var/lib/all-mail-encryption/encryption-key
   test -z "${JWT_SECRET:-}"
   test -z "${ENCRYPTION_KEY:-}"
   test -z "${INGRESS_SIGNING_SECRET:-}"
@@ -273,33 +273,27 @@ Fastify development remains available while its routes are still active:
 
 ```bash
 cp server/.env.example server/.env
-npm --prefix server run db:migrate
-ADMIN_USERNAME=admin \
-ADMIN_PASSWORD=change-me-now \
-BOOTSTRAP_ADMIN_SECRET_FILE=.all-mail-runtime/bootstrap-admin.env \
-npm --prefix server run bootstrap:admin
+(cd core && \
+  DATABASE_URL='<local-postgresql-url>' \
+  ALL_MAIL_MIGRATION_DIR="$PWD/migrations" \
+  ALL_MAIL_STATE_DIR="$PWD/../.all-mail-runtime" \
+  ADMIN_USERNAME=admin \
+  ADMIN_PASSWORD=change-me-now \
+  go run ./cmd/allmail init)
 npm run dev:api
 ```
 
-`server/.env` contains no administrator username or password. The bootstrap command is explicit and one-shot.
+`server/.env` contains no administrator username or password. The Go initializer is explicit and one-shot.
 
 ## Migration expectations
 
-- `business-init` is the only Docker role that runs Prisma migrations and administrator bootstrap.
-- `go-migrate` is the only role that applies numbered Go migrations.
+- `business-init` is the only Docker role that mutates schema, initializes secrets, imports compatibility configuration, or bootstraps an administrator.
+- `allmail migrate` is the schema-only operational entrypoint and uses the same Go-owned history and ledger.
 - Long-running services never mutate schema or create administrators at startup.
-- Applied Go migrations are checksummed and immutable.
+- Applied Prisma-history and Go migrations are checksummed and immutable.
+- Existing Prisma ledgers must be a known checksum-matching prefix; ledgerless databases must match the complete catalog fingerprint.
 - Route ownership changes only through `config/route-ownership.json`.
-- P3009 requires manual recovery.
-- P3005 does not silently fall back to `db push`.
-
-Reviewed P3005 compatibility repair only:
-
-```bash
-docker compose run --rm \
-  -e ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR=true \
-  business-init
-```
+- Unknown, unresolved, gapped, checksum-mismatched, or structurally drifted histories require backup-based/manual recovery; no `db push` fallback exists.
 
 ## Update an existing deployment
 
@@ -345,4 +339,6 @@ docker compose up -d --build --wait --wait-timeout 300
 
 To roll back below that floor, stop the entire stack and restore a PostgreSQL backup captured before the first mailbox 2FA mutation on the cutover revision. Restore the matching runtime secret volumes as well, then deploy the older application revision. A database restore is mandatory; changing only the image or Git revision is not a valid rollback below the floor.
 
-Preserve the PostgreSQL backup and every runtime secret volume expected by the target revision. Do not run initializers, workers, or business APIs from two revisions against the same persisted state.
+The PR #37 schema head writes compatibility rows to `_prisma_migrations` and `runtime_migrations`, so a known-good PR #36-or-newer image can read this exact schema during the immediate rollback window. Any later Go-only migration needs its own backward-compatibility declaration; otherwise restore PostgreSQL.
+
+Preserve the PostgreSQL backup and every runtime secret volume expected by the target revision. Database and secret-volume backups are one rollback unit. Do not run initializers, workers, or business APIs from two revisions against the same persisted state.

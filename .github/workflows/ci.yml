@@ -148,24 +148,10 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_ci?sslmode=disable
           ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
         run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE TABLE admins (id integer PRIMARY KEY);
-          CREATE TABLE email_accounts (id integer PRIMARY KEY);
-          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
-          CREATE TABLE api_logs (
-              id bigserial PRIMARY KEY,
-              created_at timestamptz NOT NULL DEFAULT now()
-          );
-          CREATE TYPE "ForwardJobStatus" AS ENUM ('PENDING', 'RUNNING', 'SENT', 'FAILED', 'SKIPPED');
-          CREATE TABLE mailbox_forward_jobs (
-              id bigserial PRIMARY KEY,
-              status "ForwardJobStatus" NOT NULL DEFAULT 'PENDING',
-              next_attempt_at timestamptz,
-              created_at timestamptz NOT NULL DEFAULT now()
-          );
-          SQL
           ./allmail migrate
           ./allmail migrate
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM allmail_schema_migrations')" = "18"
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM _prisma_migrations')" = "14"
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "4"
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
           test "$(psql "$DATABASE_URL" -Atqc "SELECT datetime_precision FROM information_schema.columns WHERE table_name = 'mailbox_forward_jobs' AND column_name = 'lease_expires_at'")" = "3"
@@ -183,8 +169,10 @@ jobs:
           WORKER_HEARTBEAT_MAX_AGE_SECONDS: 10
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO api_logs (created_at)
-          VALUES (now() - interval '45 days'), (now() - interval '5 days');
+          INSERT INTO api_logs (action, created_at)
+          VALUES
+              ('retention-fixture', now() - interval '45 days'),
+              ('retention-fixture', now() - interval '5 days');
           SQL
           mkdir -p "$ALL_MAIL_STATE_DIR"
           ./allmail worker retention &
@@ -209,26 +197,19 @@ jobs:
           ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
         run: |
           createdb -h 127.0.0.1 -U postgres allmail_legacy_ledger
+          ./allmail migrate
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE TABLE admins (id integer PRIMARY KEY);
-          CREATE TABLE email_accounts (id integer PRIMARY KEY);
-          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
-          CREATE TABLE runtime_migrations (
-              name text PRIMARY KEY,
-              applied_at timestamptz NOT NULL DEFAULT now()
-          );
-          CREATE TYPE "ForwardJobStatus" AS ENUM ('PENDING', 'RUNNING', 'SENT', 'FAILED', 'SKIPPED');
-          CREATE TABLE mailbox_forward_jobs (
-              id bigserial PRIMARY KEY,
-              status "ForwardJobStatus" NOT NULL DEFAULT 'PENDING',
-              next_attempt_at timestamptz,
-              created_at timestamptz NOT NULL DEFAULT now()
-          );
-          INSERT INTO runtime_migrations (name)
-          VALUES ('0001_go_runtime_foundation'), ('0002_runtime_security_state');
+          ALTER TABLE runtime_migrations ALTER COLUMN checksum DROP NOT NULL;
+          UPDATE runtime_migrations SET checksum = NULL
+          WHERE name IN ('0001_go_runtime_foundation', '0002_runtime_security_state');
+          DELETE FROM runtime_migrations
+          WHERE name IN ('0003_forwarding_execution_v1', '0004_backfill_mail_account_oauth_authority');
+          DELETE FROM allmail_schema_migrations WHERE position >= 1000;
           SQL
           ./allmail migrate
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "4"
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM allmail_schema_migrations WHERE position >= 1000')" = "4"
 
       - name: Reject malformed pre-existing schema
         env:
@@ -236,17 +217,15 @@ jobs:
           ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
         run: |
           createdb -h 127.0.0.1 -U postgres allmail_corrupt
+          ./allmail migrate
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE TABLE admins (id integer PRIMARY KEY);
-          CREATE TABLE email_accounts (id integer PRIMARY KEY);
-          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
-          CREATE TABLE runtime_login_attempts (subject_key varchar(255) PRIMARY KEY);
+          ALTER TABLE runtime_login_attempts ALTER COLUMN subject_key TYPE varchar(254);
           SQL
           if ./allmail migrate; then
             echo "migration unexpectedly accepted malformed runtime_login_attempts"
             exit 1
           fi
-          test "$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('runtime_migrations') IS NULL")" = "t"
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT character_maximum_length FROM information_schema.columns WHERE table_name = 'runtime_login_attempts' AND column_name = 'subject_key'")" = "254"
 
       - name: Reject malformed forwarding lease schema
         env:
@@ -254,27 +233,30 @@ jobs:
           ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
         run: |
           createdb -h 127.0.0.1 -U postgres allmail_forwarding_corrupt
+          ./allmail migrate
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE TABLE admins (id integer PRIMARY KEY);
-          CREATE TABLE email_accounts (id integer PRIMARY KEY);
-          CREATE TABLE outbound_messages (id bigint PRIMARY KEY);
-          CREATE TYPE "ForwardJobStatus" AS ENUM ('PENDING', 'RUNNING', 'SENT', 'FAILED', 'SKIPPED');
-          CREATE TABLE mailbox_forward_jobs (
-              id bigserial PRIMARY KEY,
-              status "ForwardJobStatus" NOT NULL DEFAULT 'PENDING',
-              next_attempt_at timestamptz,
-              lease_expires_at text,
-              created_at timestamptz NOT NULL DEFAULT now()
-          );
+          ALTER TABLE mailbox_forward_jobs ALTER COLUMN lease_expires_at TYPE text;
           SQL
           if ./allmail migrate; then
             echo "migration unexpectedly accepted malformed mailbox_forward_jobs.lease_expires_at"
             exit 1
           fi
-          test "$(psql "$DATABASE_URL" -Atqc "SELECT to_regclass('runtime_migrations') IS NULL")" = "t"
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT data_type FROM information_schema.columns WHERE table_name = 'mailbox_forward_jobs' AND column_name = 'lease_expires_at'")" = "text"
 
       - name: Install Prisma integration dependencies
         run: ../scripts/sanitize-runtime-env.sh npm --prefix ../server ci
+
+      - name: Verify Go schema initialization matrix
+        env:
+          ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
+          ALLMAIL_SCHEMA_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_schema_integration?sslmode=disable
+        run: |
+          createdb -h 127.0.0.1 -U postgres allmail_schema_integration
+          go test -run TestGoSchemaInitializationMatrix -count=1 ./internal/schema
+          createdb -h 127.0.0.1 -U postgres allmail_schema_restore
+          pg_dump "$ALLMAIL_SCHEMA_TEST_DATABASE_URL" -Fc | \
+            pg_restore -d 'postgresql://postgres:postgres@127.0.0.1:5432/allmail_schema_restore?sslmode=disable' --no-owner --no-privileges
+          DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/allmail_schema_restore?sslmode=disable' ./allmail migrate
 
       - name: Verify API-key and external-route state machine
         env:

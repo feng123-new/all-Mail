@@ -4,7 +4,6 @@ x-bootstrap-environment: &bootstrap-environment
   NODE_ENV: production
   PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
   ALL_MAIL_STATE_DIR: /var/lib/all-mail
-  ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD: ${ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD:-false}
   DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
   JWT_SECRET: ${JWT_SECRET:-}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
@@ -67,15 +66,12 @@ x-business-api-runtime: &business-api-runtime
     dockerfile: Dockerfile.server
 
 x-business-init-runtime: &business-init-runtime
-  image: ${ALL_MAIL_SERVER_IMAGE:-all-mail-server}:${ALL_MAIL_IMAGE_TAG:-local}
-  build:
-    context: .
-    dockerfile: Dockerfile.server
-  read_only: true
-  tmpfs:
-    - /tmp:size=64m,mode=1777
-  security_opt:
-    - no-new-privileges:true
+  <<: *go-runtime
+  user: "0:0"
+  cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
 
 services:
   business-init:
@@ -83,6 +79,7 @@ services:
     command: ["init"]
     environment:
       <<: *bootstrap-environment
+      ALL_MAIL_MIGRATION_DIR: /app/migrations
       ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE: /var/lib/all-mail-forwarding/encryption-key
       ALL_MAIL_EXPORT_JWT_SECRET_FILE: /var/lib/all-mail-go-business/jwt-secret
     depends_on:
@@ -96,21 +93,6 @@ services:
     networks:
       - app-network
 
-  go-migrate:
-    <<: *go-runtime
-    command: ["migrate"]
-    environment:
-      ALL_MAIL_MIGRATION_DIR: /app/migrations
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
-    depends_on:
-      business-init:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-    restart: "no"
-    networks:
-      - app-network
-
   business-api:
     <<: *business-api-runtime
     command: ["api"]
@@ -118,7 +100,7 @@ services:
       <<: *api-environment
       PORT: 3100
     depends_on:
-      go-migrate:
+      business-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
@@ -158,7 +140,7 @@ services:
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
-      go-migrate:
+      business-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
@@ -194,7 +176,7 @@ services:
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
-      go-migrate:
+      business-init:
         condition: service_completed_successfully
       business-api:
         condition: service_healthy
@@ -228,7 +210,7 @@ services:
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
-      go-migrate:
+      business-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
@@ -262,7 +244,7 @@ services:
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
-      go-migrate:
+      business-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy

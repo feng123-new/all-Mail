@@ -20,7 +20,6 @@
     { "name": "ADMIN_USERNAME", "scope": ["init"], "secret": false },
     { "name": "ADMIN_PASSWORD", "scope": ["init"], "secret": true },
     { "name": "PUBLIC_BASE_URL", "scope": ["init"], "secret": false },
-    { "name": "ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD", "scope": ["init"], "secret": false },
     { "name": "ADMIN_LOGIN_MAX_ATTEMPTS", "scope": ["business-api", "go-business-api"], "secret": false },
     { "name": "ADMIN_LOGIN_LOCK_MINUTES", "scope": ["business-api", "go-business-api"], "secret": false },
     { "name": "ADMIN_2FA_WINDOW", "scope": ["business-api", "go-business-api"], "secret": false },

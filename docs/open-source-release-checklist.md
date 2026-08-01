@@ -51,7 +51,7 @@ docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 ```
 
-- [ ] `business-init` and `go-migrate` completed successfully.
+- [ ] Go `business-init` completed successfully and `go-migrate` is absent.
 - [ ] `app`, `go-business-api`, `business-api`, both workers, PostgreSQL, and Redis remain healthy.
 - [ ] No `go-jobs`, `legacy-jobs`, or Node `jobs` service exists.
 - [ ] The Go runtime image does not contain `psql`.
@@ -59,11 +59,9 @@ docker compose exec -T worker-retention allmail doctor worker retention
 
 ## P3 — migration and release safety
 
-- [ ] Review Prisma and Go migrations for the release.
-- [ ] Confirm no applied Go migration was edited after checksum recording.
-- [ ] Confirm P3005 automatic `db push` remains disabled.
-- [ ] Document intentional one-time use of `ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR=true`.
-- [ ] Treat P3009 as manual recovery.
+- [ ] Review the embedded Prisma history, numbered Go migrations, and catalog fingerprint for the release.
+- [ ] Confirm no applied migration was edited after checksum recording.
+- [ ] Confirm unknown, unresolved, checksum-mismatched, and drifted schemas fail closed without Prisma or `db push`.
 - [ ] Verify PostgreSQL and every runtime-secret volume are backed up before risky deployment.
 - [ ] Verify rollback uses a previous known-good revision or image with matching persisted state.
 - [ ] Confirm initializers, workers, and business APIs from two revisions cannot run concurrently.
@@ -76,7 +74,7 @@ docker compose exec -T worker-retention allmail doctor worker retention
 - [ ] `README.md` identifies `go-business-api` as the private migrated Go business service.
 - [ ] `README.md` identifies `business-api` as the remaining Fastify/Prisma business service.
 - [ ] Default long-running service list is `app`, `go-business-api`, `business-api`, `worker-forwarding`, `worker-retention`, `postgres`, and `redis`.
-- [ ] Completed one-shot list is `business-init` and `go-migrate`.
+- [ ] Completed one-shot list is only `business-init`.
 - [ ] Local development documentation does not claim production topology equivalence.
 - [ ] Cloudflare documentation routes ingress through the public Go listener.
 - [ ] `DEPLOY.md`, `RUNBOOK.md`, `ENVIRONMENT.md`, `GO-MIGRATION.md`, and `docker-compose.yml` agree.

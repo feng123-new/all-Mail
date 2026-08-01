@@ -2,6 +2,7 @@
 set -euo pipefail
 
 : "${RUNNER_TEMP:=/tmp}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:${APP_PORT:-3002}}"
 
 json_body() {
   python3 - "$@" <<'PY'
@@ -57,7 +58,7 @@ curl --fail --silent --show-error \
   -D "$login_headers" -o "$login_body" \
   -H 'Content-Type: application/json' \
   --data "$(python3 -c 'import json,sys; print(json.dumps({"username":sys.argv[1],"password":sys.argv[2]}))' "$username" "$password")" \
-  http://127.0.0.1:3002/admin/auth/login
+  "$BASE_URL/admin/auth/login"
 python3 - "$login_body" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding='utf-8') as handle:
@@ -73,7 +74,7 @@ blocked_body="$RUNNER_TEMP/dashboard-blocked.json"
 blocked_status=$(curl --silent --show-error \
   -D "$blocked_headers" -o "$blocked_body" -w '%{http_code}' \
   -H "Cookie: token=$old_token" \
-  http://127.0.0.1:3002/admin/dashboard/stats)
+  "$BASE_URL/admin/dashboard/stats")
 test "$blocked_status" = "403"
 grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$blocked_headers"
 grep -q 'PASSWORD_CHANGE_REQUIRED' "$blocked_body"
@@ -86,7 +87,7 @@ curl --fail --silent --show-error \
   -H 'Content-Type: application/json' \
   -H "Cookie: token=$old_token" \
   --data "$(python3 -c 'import json,sys; print(json.dumps({"oldPassword":sys.argv[1],"newPassword":sys.argv[2]}))' "$password" "$rotated")" \
-  http://127.0.0.1:3002/admin/auth/change-password
+  "$BASE_URL/admin/auth/change-password"
 python3 - "$rotate_body" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding='utf-8') as handle:
@@ -107,7 +108,7 @@ stale_body="$RUNNER_TEMP/stale-session.json"
 stale_status=$(curl --silent --show-error \
   -D "$stale_headers" -o "$stale_body" -w '%{http_code}' \
   -H "Cookie: token=$old_token" \
-  http://127.0.0.1:3002/admin/dashboard/stats)
+  "$BASE_URL/admin/dashboard/stats")
 test "$stale_status" = "401"
 grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$stale_headers"
 grep -q 'INVALID_TOKEN' "$stale_body"
@@ -122,7 +123,7 @@ for route in \
   curl --fail --silent --show-error \
     -D "$dashboard_headers" -o "$dashboard_body" \
     -H "Cookie: token=$token" \
-    "http://127.0.0.1:3002$route"
+    "$BASE_URL$route"
   grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$dashboard_headers"
   python3 - "$dashboard_body" <<'PY'
 import json, sys
@@ -141,7 +142,7 @@ for route in \
   management_headers="$RUNNER_TEMP/$(printf '%s' "$route" | tr '/?=&' '____').management.headers"
   management_body="$RUNNER_TEMP/$(printf '%s' "$route" | tr '/?=&' '____').management.json"
   curl --fail --silent --show-error -D "$management_headers" -o "$management_body" \
-    -H "Cookie: token=$token" "http://127.0.0.1:3002$route"
+    -H "Cookie: token=$token" "$BASE_URL$route"
   grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$management_headers"
   python3 - "$management_body" <<'PY'
 import json, sys
@@ -155,7 +156,7 @@ write_headers="$RUNNER_TEMP/dashboard-write-headers.txt"
 write_status=$(curl --silent --show-error \
   -D "$write_headers" -o /dev/null -w '%{http_code}' \
   -X DELETE -H "Cookie: token=$token" \
-  http://127.0.0.1:3002/admin/dashboard/logs/999999999)
+  "$BASE_URL/admin/dashboard/logs/999999999")
 test "$write_status" = "200"
 grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$write_headers"
 
@@ -164,7 +165,7 @@ ingress_body="$RUNNER_TEMP/ingress-body.json"
 ingress_status=$(curl --silent --show-error \
   -D "$ingress_headers" -o "$ingress_body" -w '%{http_code}' \
   -H 'Content-Type: application/json' --data '{}' \
-  http://127.0.0.1:3002/ingress/domain-mail/receive)
+  "$BASE_URL/ingress/domain-mail/receive")
 test "$ingress_status" = "401"
 grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$ingress_headers"
 grep -q 'INGRESS_SIGNATURE_REQUIRED' "$ingress_body"
@@ -175,7 +176,7 @@ group_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc \
 email_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc \
   "INSERT INTO email_accounts (email, provider, auth_type, status, group_id, updated_at) VALUES ('pool-ci@example.com', 'GMAIL', 'GOOGLE_OAUTH', 'ACTIVE', $group_id, CURRENT_TIMESTAMP) RETURNING id")
 domain_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc \
-  "INSERT INTO domains (name, status, can_receive, can_send, created_by_admin_id, updated_at) VALUES ('ci.example', 'ACTIVE', TRUE, TRUE, $admin_id, CURRENT_TIMESTAMP) RETURNING id")
+  "INSERT INTO domains (name, status, can_receive, can_send, send_approved, send_approved_at, send_approval_source, created_by_admin_id, updated_at) VALUES ('ci.example', 'ACTIVE', TRUE, TRUE, TRUE, CURRENT_TIMESTAMP, 'ci-smoke', $admin_id, CURRENT_TIMESTAMP) RETURNING id")
 mailbox_id=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc \
   "INSERT INTO domain_mailboxes (domain_id, local_part, address, status, provisioning_mode, batch_tag, updated_at) VALUES ($domain_id, 'pool', 'pool@ci.example', 'ACTIVE', 'API_POOL', 'ci-batch', CURRENT_TIMESTAMP) RETURNING id")
 docker compose exec -T postgres psql -U allmail -d allmail -v ON_ERROR_STOP=1 -c \
@@ -186,7 +187,7 @@ api_key_headers="$RUNNER_TEMP/api-key-create-headers.txt"
 api_key_body="$RUNNER_TEMP/api-key-create.json"
 curl --fail --silent --show-error -D "$api_key_headers" -o "$api_key_body" \
   -H 'Content-Type: application/json' -H "Cookie: token=$token" \
-  --data "$create_key_body" http://127.0.0.1:3002/admin/api-keys
+  --data "$create_key_body" "$BASE_URL/admin/api-keys"
 grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$api_key_headers"
 raw_api_key=$(python3 - "$api_key_body" <<'PY'
 import json, sys
@@ -207,7 +208,7 @@ for route in \
   api_headers="$RUNNER_TEMP/$(printf '%s' "$route" | tr '/?=&@' '_____').headers"
   api_body="$RUNNER_TEMP/$(printf '%s' "$route" | tr '/?=&@' '_____').json"
   curl --fail --silent --show-error -D "$api_headers" -o "$api_body" \
-    -H "X-API-Key: $raw_api_key" "http://127.0.0.1:3002$route"
+    -H "X-API-Key: $raw_api_key" "$BASE_URL$route"
   grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$api_headers"
   python3 - "$api_body" <<'PY'
 import json, sys
@@ -220,14 +221,14 @@ done
 regex_headers="$RUNNER_TEMP/domain-regex-headers.txt"
 curl --globoff --fail --silent --show-error -D "$regex_headers" -o /dev/null \
   -H "X-API-Key: $raw_api_key" \
-  'http://127.0.0.1:3002/api/domain-mail/messages/text?email=pool@ci.example&match=([0-9]{6})'
+  "$BASE_URL/api/domain-mail/messages/text?email=pool@ci.example&match=([0-9]{6})"
 grep -qi '^X-All-Mail-Route-Owner: business-api' "$regex_headers"
 
 denied_body="$RUNNER_TEMP/denied-key-create.json"
 curl --fail --silent --show-error -o "$denied_body" \
   -H 'Content-Type: application/json' -H "Cookie: token=$token" \
   --data '{"name":"ci-denied-key","rateLimit":20,"permissions":{"list_emails":true}}' \
-  http://127.0.0.1:3002/admin/api-keys
+  "$BASE_URL/admin/api-keys"
 denied_key=$(python3 - "$denied_body" <<'PY'
 import json, sys
 print(json.load(open(sys.argv[1], encoding='utf-8'))['data']['key'])
@@ -236,7 +237,7 @@ PY
 denied_headers="$RUNNER_TEMP/denied-call-headers.txt"
 denied_response="$RUNNER_TEMP/denied-call.json"
 denied_status=$(curl --silent --show-error -D "$denied_headers" -o "$denied_response" -w '%{http_code}' \
-  -H "X-API-Key: $denied_key" http://127.0.0.1:3002/api/get-email)
+  -H "X-API-Key: $denied_key" "$BASE_URL/api/get-email")
 test "$denied_status" = "403"
 grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$denied_headers"
 grep -q 'FORBIDDEN_PERMISSION' "$denied_response"
@@ -245,17 +246,17 @@ limited_body="$RUNNER_TEMP/limited-key-create.json"
 curl --fail --silent --show-error -o "$limited_body" \
   -H 'Content-Type: application/json' -H "Cookie: token=$token" \
   --data '{"name":"ci-limited-key","rateLimit":1,"permissions":{"list_emails":true}}' \
-  http://127.0.0.1:3002/admin/api-keys
+  "$BASE_URL/admin/api-keys"
 limited_key=$(python3 - "$limited_body" <<'PY'
 import json, sys
 print(json.load(open(sys.argv[1], encoding='utf-8'))['data']['key'])
 PY
 )
 curl --fail --silent --show-error -o /dev/null -H "X-API-Key: $limited_key" \
-  http://127.0.0.1:3002/api/list-emails
+  "$BASE_URL/api/list-emails"
 limited_response="$RUNNER_TEMP/limited-call.json"
 limited_status=$(curl --silent --show-error -o "$limited_response" -w '%{http_code}' \
-  -H "X-API-Key: $limited_key" http://127.0.0.1:3002/api/list-emails)
+  -H "X-API-Key: $limited_key" "$BASE_URL/api/list-emails")
 test "$limited_status" = "429"
 grep -q 'RATE_LIMIT_EXCEEDED' "$limited_response"
 test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc "SELECT COUNT(*) FROM api_logs WHERE api_key_id = (SELECT id FROM api_keys WHERE name = 'ci-go-key')")" -ge 5

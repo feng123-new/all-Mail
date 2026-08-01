@@ -33,17 +33,17 @@ Go owns:
 - signed ingress authentication, encrypted endpoint-secret reads, Redis replay protection, mailbox resolution, inbound persistence, and forwarding-job creation;
 - administrator, email-group, domain-mailbox, and mailbox-user management, including batch mailbox transactions and membership synchronization;
 - external mailbox account management, OAuth state/configuration, Gmail/Graph/IMAP/SMTP provider operations, sending configuration/history, and Resend delivery;
+- complete business-schema history, Prisma/runtime-ledger adoption, catalog fingerprint validation, runtime-secret initialization, durable environment import, ciphertext compatibility verification, and first-administrator bootstrap;
 - checksummed additive migrations;
 - forwarding and API-log retention workers.
 
-Fastify/Prisma still owns remaining domain/message/alias and mailbox-portal operations, JavaScript regex text extraction compatibility, durable business configuration import, initial administrator bootstrap, complete business-schema migrations, and dormant authentication handlers retained for revision rollback.
+Fastify/Prisma still owns remaining domain/message/alias and mailbox-portal operations, JavaScript regex text extraction compatibility, and dormant authentication handlers retained for revision rollback.
 
 ## Runtime layout
 
 ```text
-business-init       secrets + Prisma migrations + durable imports + first administrator
-                    + least-privilege secret exports
-go-migrate          additive checksummed Go migrations
+business-init       Go secrets + complete schema adoption/migration + ciphertext verification
+                    + durable imports + first administrator + least-privilege exports
 app                 public gateway, SPA, method-aware private-upstream routing
 go-business-api     private migrated business handlers
 business-api        remaining Fastify/Prisma handlers
@@ -64,13 +64,12 @@ postgres + redis healthy
 business-init
   - split old secret bundle
   - establish runtime secrets
-  - export forwarding key and Go-business JWT
-  - Prisma migrate
+  - execute or adopt the immutable Prisma history
+  - apply numbered Go migrations and finalize the canonical ledger
+  - verify every historical ciphertext category
   - durable configuration import
   - advisory-locked administrator bootstrap
-        |
-        v
-go-migrate
+  - export forwarding and Go-business key files
         |
         +------------------------------+
         |              |               |
@@ -218,9 +217,9 @@ Public metrics expose bounded owner, method, status-class, inflight, latency, re
 
 ## Migration guarantees
 
-The Go migration runner uses a direct `pgx` transaction, lexical numbered files, SHA-256 checksums, an advisory transaction lock, immutable ledger validation, and atomic recording. The Go image contains no `psql`.
+The Go migration runner uses direct `pgx` transactions, an explicit immutable Prisma manifest, lexical numbered Go files, SHA-256 checksums, advisory locks, prefix validation, and atomic canonical/compatibility ledger recording. Empty databases execute the real history. Existing Prisma-ledger databases are adopted only when names, order, checksums, and migration postconditions match. Ledgerless databases are adopted only when the complete owned-catalog fingerprint matches.
 
-Prisma still owns the complete business schema in `business-init`; transferring that authority is a later deletion gate.
+`allmail_schema_migrations` is authoritative. `_prisma_migrations` and `runtime_migrations` remain compatibility mirrors for revision rollback. The Go image contains no Node, Prisma CLI, or `psql`.
 
 Repository gates cover Go format/race/vet/build/govulncheck, route ownership, JWT/session parity, Dashboard read/write fixtures, real PostgreSQL/Redis integrations, Fastify, React, Worker, dependency audit, Docker bootstrap, secret isolation, stale-token revocation, route-owner smoke, and all runtime doctors.
 
@@ -229,8 +228,7 @@ Repository gates cover Go format/race/vet/build/govulncheck, route ownership, JW
 Recommended order:
 
 1. remaining domain, message, alias, and portal operations;
-2. complete business-schema authority and encrypted-data cutover;
-3. zero-traffic observation and final Node/Prisma deletion.
+2. zero-traffic observation and final Node/Prisma deletion.
 
 Every slice must move authorization, validation, transactions, parity, failure injection, method-aware ownership, Docker smoke, and revision rollback together.
 

@@ -23,8 +23,8 @@ RUN apt-get update -y \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 allmail \
     && useradd --system --uid 10001 --gid allmail --home-dir /var/lib/all-mail --shell /usr/sbin/nologin allmail \
-    && mkdir -p /app/config /app/public /app/migrations /var/lib/all-mail \
-    && chown -R allmail:allmail /app /var/lib/all-mail
+    && mkdir -p /app/config /app/public /app/migrations /var/lib/all-mail /var/lib/all-mail-forwarding /var/lib/all-mail-go-business \
+    && chown -R allmail:allmail /app /var/lib/all-mail /var/lib/all-mail-forwarding /var/lib/all-mail-go-business
 
 ENV ALL_MAIL_STATIC_DIR=/app/public \
     ALL_MAIL_STATE_DIR=/var/lib/all-mail \

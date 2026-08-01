@@ -11,7 +11,7 @@ This guide applies when upgrading from a revision that used the migration-era na
 | `LEGACY_API_URL` | `BUSINESS_API_URL` |
 | `ALL_MAIL_LEGACY_IMAGE` | `ALL_MAIL_SERVER_IMAGE` |
 | `Dockerfile.legacy` | `Dockerfile.server` |
-| `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR` | `ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR` |
+| `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR` | Removed; the Go initializer has no `db push` fallback |
 
 The logical Compose volume is now `runtime_secrets_data`, but its explicit physical name remains:
 
@@ -57,7 +57,6 @@ Expected one-shot services:
 
 ```text
 business-init
-go-migrate
 ```
 
 Confirm the old service containers are absent:
@@ -81,15 +80,9 @@ docker compose exec -T worker-retention allmail doctor worker retention
 
 The runtime secret file must contain the same long-lived keys used before the rename. Do not regenerate `JWT_SECRET` or `ENCRYPTION_KEY` during this service-name-only cutover.
 
-## Explicit P3005 repair
+## Schema adoption
 
-The repair switch is no longer injected into normal Compose startup. Use it only for a reviewed one-shot recovery:
-
-```bash
-docker compose run --rm \
-  -e ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR=true \
-  business-init
-```
+`business-init` is now the Go initializer. It adopts a known checksum-matching Prisma history or a ledgerless database whose complete catalog matches the owned-schema fingerprint. Unknown, unresolved, gapped, or drifted histories stop without a Prisma or `db push` fallback.
 
 ## Rollback
 

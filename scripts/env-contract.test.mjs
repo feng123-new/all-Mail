@@ -80,22 +80,25 @@ test("Compose keeps infrastructure private and compatibility imports initializer
 });
 
 test("administrator bootstrap, config import, and least-privilege secret exports remain one-shot", async () => {
-	const [entrypoint, processes, auth, secretScript, ci, compose] = await Promise.all([
-		read("docker/entrypoint.sh"), read("server/src/runtime/processes.ts"),
-		read("server/src/modules/auth/auth.service.ts"), read("scripts/bootstrap-secrets.mjs"),
+	const [entrypoint, initializer, processes, auth, secretState, ci, compose] = await Promise.all([
+		read("docker/entrypoint.sh"), read("core/internal/initialize/initialize.go"),
+		read("server/src/runtime/processes.ts"), read("server/src/modules/auth/auth.service.ts"),
+		read("core/internal/secretstate/secretstate.go"),
 		read(".github/workflows/ci.yml"), read("docker-compose.yml"),
 	]);
-	const migrationIndex = entrypoint.indexOf("run_business_migrations");
-	const importIndex = entrypoint.indexOf("npm run config:import-env");
-	const bootstrapIndex = entrypoint.lastIndexOf("node dist/runtime/bootstrapAdmin.js");
-	assert.ok(migrationIndex >= 0 && importIndex > migrationIndex && bootstrapIndex > importIndex);
+	const migrationIndex = initializer.indexOf("SchemaOnly(ctx");
+	const verificationIndex = initializer.indexOf("VerifyCiphertexts(ctx", migrationIndex);
+	const importIndex = initializer.indexOf("ImportEnvironment(ctx", verificationIndex);
+	const bootstrapIndex = initializer.indexOf("BootstrapAdministrator(ctx", importIndex);
+	const finalizeIndex = initializer.indexOf("secretstate.Finalize", bootstrapIndex);
+	assert.ok(migrationIndex >= 0 && verificationIndex > migrationIndex && importIndex > verificationIndex && bootstrapIndex > importIndex && finalizeIndex > bootstrapIndex);
 	assert.doesNotMatch(processes, /ensureBootstrapAdmin|bootstrapAdministrator/);
 	assert.doesNotMatch(auth, /createBootstrapAdmin|adminId === 0|legacyEnv|env\.ADMIN_USERNAME|env\.ADMIN_PASSWORD/);
 	assert.match(auth, /BOOTSTRAP_ADMIN_SECRET_FILE/);
-	assert.match(secretScript, /runtime-secrets\.env[\s\S]*bootstrap-admin\.env[\s\S]*bootstrap-secrets\.env/);
-	assert.match(entrypoint, /bootstrap_mode=require-existing[\s\S]*bootstrap_mode=init/);
-	assert.match(entrypoint, /ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE/);
-	assert.match(entrypoint, /ALL_MAIL_EXPORT_JWT_SECRET_FILE/);
+	assert.match(secretState, /runtime-secrets\.env[\s\S]*bootstrap-admin\.env[\s\S]*bootstrap-secrets\.env/);
+	assert.match(entrypoint, /--mode require-existing/);
+	assert.doesNotMatch(entrypoint, /db:migrate|config:import-env|bootstrapAdmin|P3005/);
+	assert.match(initializer, /EncryptionKeyExportFile[\s\S]*JWTSecretExportFile/);
 	assert.match(compose, /ALL_MAIL_EXPORT_JWT_SECRET_FILE: \/var\/lib\/all-mail-go-business\/jwt-secret/);
 	assert.match(compose, /go_business_runtime_data:\/var\/lib\/all-mail-secrets:ro/);
 	assert.match(ci, /test -r \/var\/lib\/all-mail\/runtime-secrets\.env/);
@@ -176,10 +179,11 @@ test("local tooling has no retired fallback and proxies every namespace", async 
 });
 
 test("business runtime naming preserves the pre-rename physical secret volume", async () => {
-	const [compose, goConfig, entrypoint] = await Promise.all([
+	const [compose, goConfig, entrypoint, schema] = await Promise.all([
 		read("docker-compose.yml"),
 		read("core/internal/config/config.go"),
 		read("docker/entrypoint.sh"),
+		read("core/internal/schema/schema.go"),
 	]);
 	assert.match(compose, /\n  business-init:/);
 	assert.match(compose, /\n  business-api:/);
@@ -191,7 +195,8 @@ test("business runtime naming preserves the pre-rename physical secret volume", 
 	assert.doesNotMatch(compose, /ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR/);
 	assert.match(goConfig, /BUSINESS_API_URL/);
 	assert.doesNotMatch(goConfig, /LEGACY_API_URL/);
-	assert.match(entrypoint, /ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR/);
+	assert.doesNotMatch(entrypoint, /ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR|db:migrate|db:push/);
+	assert.match(schema, /allmail_schema_migrations/);
 	await access(path.join(repoRoot, "Dockerfile.server"));
 	await assert.rejects(access(path.join(repoRoot, "Dockerfile.legacy")));
 });

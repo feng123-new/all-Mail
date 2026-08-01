@@ -56,20 +56,19 @@ flowchart TD
     Forwarding --> Providers
     Retention[worker-retention] --> Postgres
 
-    LegacyInit[business-init one-shot] --> RuntimeSecrets[runtime-secrets.env]
-    LegacyInit --> AdminSecret[bootstrap-admin.env]
-    LegacyInit --> Postgres
-    GoMigrate[go-migrate one-shot] --> Postgres
-    LegacyInit --> GoMigrate
-    GoMigrate --> Legacy
-    GoMigrate --> GoAPI
-    GoMigrate --> Forwarding
-    GoMigrate --> Retention
+    GoInit[business-init: Go one-shot] --> RuntimeSecrets[runtime-secrets.env]
+    GoInit --> AdminSecret[bootstrap-admin.env]
+    GoInit --> Postgres
+    GoInit --> Legacy
+    GoInit --> GoBusiness
+    GoInit --> GoAPI
+    GoInit --> Forwarding
+    GoInit --> Retention
 ```
 
 The public Go gateway receives no PostgreSQL URL, Redis URL, JWT secret, encryption key, or provider credential. It routes committed business families to one of two private upstreams. `go-business-api` receives PostgreSQL, Redis, read-only JWT and encryption-key files, and resolves database-encrypted provider credentials for migrated mailbox, OAuth, and sending routes; Fastify keeps the remaining business routes.
 
-The initial database administrator is created only by `business-init` after Prisma migrations. The long-running Fastify API receives no administrator username, initial password, or environment-managed 2FA secret.
+The Go `business-init` service owns the complete schema history, secret initialization, durable compatibility import, ciphertext preflight, and initial database administrator. The long-running Fastify API receives no administrator username, initial password, or environment-managed 2FA secret.
 
 ### Long-running services
 
@@ -87,8 +86,7 @@ The initial database administrator is created only by `business-init` after Pris
 
 | Service | Responsibility |
 | --- | --- |
-| `business-init` | Split/migrate secrets, apply Prisma migrations, and create the initial database administrator under an advisory lock |
-| `go-migrate` | Apply checksummed additive Go migrations through one direct `pgx` transaction |
+| `business-init` | Go-owned secret migration, complete schema adoption/migration, ciphertext verification, durable import, administrator bootstrap, and least-privilege key export |
 
 ## Provider support
 
@@ -132,8 +130,7 @@ docker compose ps -a
 
 Expected behavior:
 
-- `business-init` exits after secret migration, Prisma migrations, and idempotent administrator bootstrap;
-- `go-migrate` exits after Go migrations;
+- `business-init` exits after Go-owned secret migration, complete schema migration/adoption, ciphertext verification, durable import, and idempotent administrator bootstrap;
 - `app`, `go-business-api`, `worker-forwarding`, `worker-retention`, `business-api`, `postgres` and `redis` remain healthy;
 - PostgreSQL and Redis are not published to the host.
 
@@ -183,7 +180,7 @@ docker compose exec business-api sh -lc \
    grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-admin.env"
 ```
 
-Set `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD=true` only for short-lived controlled recovery. After login, the administrator is forced to change the password. A successful first rotation removes `bootstrap-admin.env`; rerunning `business-init` does not recreate it or create another administrator.
+After login, the administrator is forced to change the password. A successful first rotation removes `bootstrap-admin.env`; rerunning `business-init` does not recreate it or create another administrator. The initializer never prints the temporary password to logs.
 
 Upgrades from the old `bootstrap-secrets.env` layout are migrated automatically. The old file is split and deleted after its values have been preserved.
 
@@ -203,14 +200,16 @@ Production keeps PostgreSQL and Redis private. Local development explicitly publ
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
 ```
 
-Initialize a fresh local business database and administrator explicitly:
+Initialize a fresh local business database and administrator with the same Go path used in production:
 
 ```bash
-npm --prefix server run db:migrate
-ADMIN_USERNAME=admin \
-ADMIN_PASSWORD=change-me-now \
-BOOTSTRAP_ADMIN_SECRET_FILE=.all-mail-runtime/bootstrap-admin.env \
-npm --prefix server run bootstrap:admin
+(cd core && \
+  DATABASE_URL='<local-postgresql-url>' \
+  ALL_MAIL_MIGRATION_DIR="$PWD/migrations" \
+  ALL_MAIL_STATE_DIR="$PWD/../.all-mail-runtime" \
+  ADMIN_USERNAME=admin \
+  ADMIN_PASSWORD=change-me-now \
+  go run ./cmd/allmail init)
 npm run dev:api
 ```
 
@@ -243,7 +242,8 @@ Before upgrading, back up PostgreSQL and the legacy runtime volume. This revisio
 | Command | Purpose |
 | --- | --- |
 | `npm run dev:api` | Run only the Fastify business API for local development |
-| `npm --prefix server run bootstrap:admin` | Explicitly bootstrap a fresh local database administrator |
+| `allmail init` | Apply/adopt the complete schema and initialize secrets, durable configuration, and the first administrator |
+| `allmail migrate` | Apply/adopt the complete schema without secret or administrator phases |
 | `npm run dev:web` | Run the Vite frontend development server |
 | `./bin/all-mail deps up` | Start PostgreSQL and Redis through the development overlay |
 | `./bin/all-mail doctor` | Check local env resolution, infrastructure reachability and build artifacts |
@@ -270,21 +270,21 @@ Production startup remains Docker Compose. The repository CLI does not expose a 
 
 ```text
 ├── core/                            # Go gateway, workers, migrations and runtime contracts
-├── server/                          # Compatibility Fastify/Prisma business API and one-shot admin bootstrap
+├── server/                          # Compatibility Fastify/Prisma business API
 ├── web/                             # React admin console and mailbox portal UI
 ├── cloudflare/workers/allmail-edge/ # Signed inbound email Worker
 ├── docker/                          # One-shot/bootstrap and business API entrypoint
 ├── scripts/                         # Secret migration, verification and helper tooling
 ├── docs/                            # Public operator docs and internal migration notes
 ├── Dockerfile                       # Go runtime plus built React SPA
-├── Dockerfile.server                # Compatibility Fastify API and initializer runtime
+├── Dockerfile.server                # Compatibility Fastify API runtime
 ├── docker-compose.yml               # Canonical production topology
 └── docker-compose.dev.yml           # Local PostgreSQL/Redis host-port overlay
 ```
 
 ## Remaining migration boundary
 
-Fastify/Prisma still owns remaining domain/message and mailbox-portal operations, JavaScript regex text extraction compatibility, durable initialization, the existing business-schema migration history, and dormant authentication handlers for revision rollback. The private Go business service owns administrator and mailbox authentication, portal mailbox/inbound-message reads, API-key administration, external mailbox accounts, OAuth, provider operations, sending administration/history, and migrated external routes.
+Fastify/Prisma still owns remaining domain/message and mailbox-portal operations, JavaScript regex text extraction compatibility, and dormant authentication handlers retained for revision rollback. Go owns schema and initialization authority in addition to administrator/mailbox authentication, portal mailbox/inbound-message reads, API-key administration, external mailbox accounts, OAuth, provider operations, sending administration/history, and migrated external routes.
 
 The removed environment administrator is not a fallback. Remaining capabilities must move to Go as vertical slices with authorization, validation, transaction, parity and failure-injection tests.
 
