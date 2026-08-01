@@ -1,4 +1,4 @@
-name: Apply final Go route cutover
+name: Development toolchain export
 
 on:
   push:
@@ -6,28 +6,33 @@ on:
       - agent/final-go-cutover
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply:
-    if: github.event.head_commit.message == 'chore(ci): apply route cutover patch'
+  export:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
         with:
-          ref: agent/final-go-cutover
-          fetch-depth: 0
-      - name: Apply reviewed route-cutover commit
+          go-version-file: .go-version
+          cache-dependency-path: core/go.sum
+      - name: Download Go modules
+        working-directory: core
+        run: go mod download
+      - name: Package Go module cache
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          cat .github/route-cutover-patch/part-* | base64 --decode | gzip --decompress > /tmp/route-cutover.patch
-          git am --3way --committer-date-is-author-date /tmp/route-cutover.patch
-          node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("config/route-ownership.json","utf8")); if(data.routes.some((route)=>route.owner==="business-api")){process.exit(1)}'
-          rm -rf .github/route-cutover-patch
-          rm -f .github/workflows/dev-toolchain-export.yml .github/workflows/source-snapshot.yml
-          git add -A
-          git commit -m "chore(ci): remove temporary cutover tooling [skip ci]"
-          git push origin HEAD:agent/final-go-cutover
+          gomodcache="$(go env GOMODCACHE)"
+          mkdir -p export
+          tar -C "$(dirname "$gomodcache")" -czf export/go-mod-cache.tar.gz "$(basename "$gomodcache")"
+          go version > export/go-version.txt
+          go env GOMODCACHE >> export/go-version.txt
+      - name: Upload Go module cache
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-mail-go-toolchain
+          path: export
+          if-no-files-found: error
+          retention-days: 1
