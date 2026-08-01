@@ -1,0 +1,27 @@
+name: Source snapshot
+
+on:
+  push:
+    branches:
+      - agent/final-go-cutover
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    if: github.event.head_commit.message == 'chore(ci): capture source snapshot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Archive source
+        run: git archive --format=tar.gz --output=all-mail-source.tar.gz HEAD
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-mail-source
+          path: all-mail-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
