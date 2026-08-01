@@ -6,6 +6,11 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- removed portal-password persistence and prefill from browser storage, added cleanup for historical `all-mail:portal-login:` entries, and limited portal links to username-only prefill
+- split the production topology across public, private-app, provider-egress, database, and cache networks so the public gateway cannot directly reach PostgreSQL or Redis
+- added initializer-managed Redis authentication with a dedicated read-only password export, authenticated readiness, and live unauthenticated-access rejection tests
+- isolated the master runtime-secret volume from every long-running service, moved the one-time administrator credential into its own volume, and added conflict-safe in-place upgrade migration
+- added static and live Docker release gates for browser credential handling, container networks, secret mounts, Redis authentication, private ports, and backward-compatible secret migration
 - moved administrator, email-group, domain-mailbox, and mailbox-user management to the private Go business service with bcrypt-compatible passwords and PostgreSQL transactions
 - moved signed domain-mail ingress to the private Go business service with endpoint-scoped encrypted secrets, Redis replay protection, transactional mailbox routing and persistence, and PII-free compensating R2 lifecycle handling
 - moved the Dashboard single and batch operation-log deletion endpoints to the private Go business service with bounded validation and transactionally coupled administrator audit records
