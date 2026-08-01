@@ -95,11 +95,15 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	if err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
+	redisURL, err := loadRedisURLWithPasswordFile(strings.TrimSpace(os.Getenv("REDIS_URL")), runtimeEnvironment)
+	if err != nil {
+		return GoBusinessAPIConfig{}, err
+	}
 
 	cfg := GoBusinessAPIConfig{
 		Port:                   port,
 		DatabaseURL:            strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		RedisURL:               strings.TrimSpace(os.Getenv("REDIS_URL")),
+		RedisURL:               redisURL,
 		JWTSecret:              jwtSecret,
 		EncryptionKey:          encryptionKey,
 		Admin2FAWindow:         admin2FAWindow,
@@ -209,6 +213,34 @@ func loadJWTSecretFile() (string, error) {
 		return "", errors.New("JWT_SECRET_FILE must contain at least 32 characters")
 	}
 	return secret, nil
+}
+
+func loadRedisURLWithPasswordFile(rawURL, runtimeEnvironment string) (string, error) {
+	passwordFile := strings.TrimSpace(os.Getenv("REDIS_PASSWORD_FILE"))
+	if passwordFile == "" {
+		if runtimeEnvironment == "production" {
+			return "", errors.New("REDIS_PASSWORD_FILE is required for the production Go business API")
+		}
+		return rawURL, nil
+	}
+	content, err := os.ReadFile(passwordFile)
+	if err != nil {
+		return "", fmt.Errorf("read REDIS_PASSWORD_FILE: %w", err)
+	}
+	password := strings.TrimSpace(string(content))
+	if len(password) < 32 {
+		return "", errors.New("REDIS_PASSWORD_FILE must contain at least 32 characters")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		return "", errors.New("REDIS_URL must be an absolute Redis URL")
+	}
+	username := ""
+	if parsed.User != nil {
+		username = parsed.User.Username()
+	}
+	parsed.User = url.UserPassword(username, password)
+	return parsed.String(), nil
 }
 
 func validateRedisURL(raw string) error {
