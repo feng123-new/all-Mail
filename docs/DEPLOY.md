@@ -331,12 +331,18 @@ ADMIN_2FA_SECRET
 
 ## Rollback
 
-Rollback is revision based:
+Rollback is revision based, but the administrator/mailbox authentication cutover establishes a Fastify compatibility floor. The revision that first makes `go-business-api` own administrator and mailbox authentication, while retaining database-backed compatibility handlers in `business-api`, is the oldest application revision that may use post-cutover authentication state.
+
+After any mailbox user enables 2FA on the cutover revision, do not roll `business-api` back to the PR #35 image or any earlier revision while keeping the current PostgreSQL state. Those older handlers do not enforce mailbox TOTP or the cutover's revocable session version and can accept password-only or stale sessions.
+
+For an application-only rollback, deploy a known-good revision at or above the authentication compatibility floor:
 
 ```bash
 docker compose down
-git switch <known-good-tag-or-commit>
+git switch <known-good-compatible-tag-or-commit>
 docker compose up -d --build --wait --wait-timeout 300
 ```
+
+To roll back below that floor, stop the entire stack and restore a PostgreSQL backup captured before the first mailbox 2FA mutation on the cutover revision. Restore the matching runtime secret volumes as well, then deploy the older application revision. A database restore is mandatory; changing only the image or Git revision is not a valid rollback below the floor.
 
 Preserve the PostgreSQL backup and every runtime secret volume expected by the target revision. Do not run initializers, workers, or business APIs from two revisions against the same persisted state.

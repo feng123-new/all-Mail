@@ -1,16 +1,17 @@
+import { LockOutlined, MailOutlined, SafetyCertificateOutlined, SendOutlined, UserOutlined } from '@ant-design/icons';
+import { Alert, Button, Form, Input, Modal, message, Space, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Alert, Button, Form, Input, message } from 'antd';
-import { LockOutlined, MailOutlined, SafetyCertificateOutlined, SendOutlined, UserOutlined } from '@ant-design/icons';
 import { AuthSplitLayout } from '../../../components';
 import { portalAccountContract } from '../../../contracts/portal/account';
 import { useI18n } from '../../../i18n';
 import { defineMessage } from '../../../i18n/messages';
 import { type MailboxUser, useMailboxAuthStore } from '../../../stores/mailboxAuthStore';
-import { noMarginBottomStyle } from '../../../styles/common';
+import { fullWidthStyle, noMarginBottomStyle } from '../../../styles/common';
 import { getErrorMessage } from '../../../utils/error';
 
 const PORTAL_LOGIN_PREFILL_PREFIX = 'all-mail:portal-login:';
+const { Text } = Typography;
 
 const mailPortalLoginI18n = {
     mailboxPortalTag: defineMessage('mailPortalLogin.tag.mailboxPortal', '邮箱门户', 'Mailbox portal'),
@@ -36,6 +37,16 @@ const mailPortalLoginI18n = {
     loginSuccess: defineMessage('mailPortalLogin.loginSuccess', '邮箱门户登录成功', 'Mailbox portal sign-in succeeded'),
     invalidCredentials: defineMessage('mailPortalLogin.invalidCredentials', '门户用户名或密码错误，请检查后重试。', 'The portal username or password is incorrect. Check it and try again.'),
     loginFailed: defineMessage('mailPortalLogin.loginFailed', '邮箱门户登录失败', 'Mailbox portal sign-in failed'),
+    otpRequiredInfo: defineMessage('mailPortalLogin.otpRequiredInfo', '该账号已启用二次验证，请输入 6 位验证码', 'This account uses two-factor verification. Enter the 6-digit code.'),
+    otpRequired: defineMessage('mailPortalLogin.otpRequired', '请输入 6 位验证码', 'Enter a 6-digit verification code.'),
+    otpInvalid: defineMessage('mailPortalLogin.otpInvalid', '验证码错误，请重试', 'The verification code is invalid. Try again.'),
+    otpFailed: defineMessage('mailPortalLogin.otpFailed', '验证失败', 'Verification failed'),
+    otpModalTitle: defineMessage('mailPortalLogin.otpModalTitle', '二次验证', 'Two-factor verification'),
+    otpModalConfirm: defineMessage('mailPortalLogin.otpModalConfirm', '验证并登录', 'Verify and sign in'),
+    otpModalCancel: defineMessage('mailPortalLogin.otpModalCancel', '取消', 'Cancel'),
+    otpModalDescription: defineMessage('mailPortalLogin.otpModalDescription', '请输入验证器中的 6 位动态码', 'Enter the 6-digit code from your authenticator app.'),
+    otpInputLabel: defineMessage('mailPortalLogin.otpInputLabel', '验证码', 'Verification code'),
+    otpPlaceholder: defineMessage('mailPortalLogin.otpPlaceholder', '6 位验证码', '6-digit verification code'),
 } as const;
 
 interface PortalLoginPrefillPayload {
@@ -50,6 +61,10 @@ const MailPortalLoginPage = () => {
     const { setAuth } = useMailboxAuthStore();
     const [loading, setLoading] = useState(false);
     const [formError, setFormError] = useState<string | null>(null);
+    const [otpModalVisible, setOtpModalVisible] = useState(false);
+    const [otpLoading, setOtpLoading] = useState(false);
+    const [otpCode, setOtpCode] = useState('');
+    const [pendingCredentials, setPendingCredentials] = useState<{ username: string; password: string } | null>(null);
     const [form] = Form.useForm<{ username: string; password: string }>();
 
     const portalUsername = useMemo(() => searchParams.get('username')?.trim() || '', [searchParams]);
@@ -75,6 +90,13 @@ const MailPortalLoginPage = () => {
         form.setFieldsValue({ username: nextValues.username, password: nextValues.password || '' });
     }, [form, portalUsername]);
 
+    const finishLogin = (mailboxUser: MailboxUser) => {
+        setFormError(null);
+        setAuth(mailboxUser);
+        message.success(t(mailPortalLoginI18n.loginSuccess));
+        navigate(mailboxUser.mustChangePassword ? '/mail/settings' : '/mail/overview');
+    };
+
     const handleSubmit = async (values: { username: string; password: string }) => {
         setLoading(true);
         try {
@@ -83,13 +105,16 @@ const MailPortalLoginPage = () => {
             if (response.code === 200) {
                 const payload = response.data as { mailboxUser: MailboxUser };
                 window.localStorage.removeItem(`${PORTAL_LOGIN_PREFILL_PREFIX}${values.username.trim()}`);
-                setAuth(payload.mailboxUser);
-                message.success(t(mailPortalLoginI18n.loginSuccess));
-                navigate(payload.mailboxUser.mustChangePassword ? '/mail/settings' : '/mail/overview');
+                finishLogin(payload.mailboxUser);
             }
         } catch (error) {
             const errCode = String((error as { code?: unknown })?.code || '').toUpperCase();
-            if (errCode === 'INVALID_CREDENTIALS') {
+            if (errCode === 'OTP_REQUIRED' || errCode === 'INVALID_OTP') {
+                setPendingCredentials({ username: values.username, password: values.password });
+                setOtpCode('');
+                setOtpModalVisible(true);
+                message.info(t(mailPortalLoginI18n.otpRequiredInfo));
+            } else if (errCode === 'INVALID_CREDENTIALS') {
                 setFormError(t(mailPortalLoginI18n.invalidCredentials));
             } else {
                 setFormError(getErrorMessage(error, t(mailPortalLoginI18n.loginFailed)));
@@ -99,47 +124,112 @@ const MailPortalLoginPage = () => {
         }
     };
 
+    const handleOtpConfirm = async () => {
+        if (!pendingCredentials) {
+            return;
+        }
+
+        const otp = otpCode.trim();
+        if (!/^\d{6}$/.test(otp)) {
+            message.error(t(mailPortalLoginI18n.otpRequired));
+            return;
+        }
+
+        setOtpLoading(true);
+        try {
+            const response = await portalAccountContract.login(pendingCredentials.username, pendingCredentials.password, otp);
+            if (response.code === 200) {
+                const payload = response.data as { mailboxUser: MailboxUser };
+                window.localStorage.removeItem(`${PORTAL_LOGIN_PREFILL_PREFIX}${pendingCredentials.username.trim()}`);
+                setOtpModalVisible(false);
+                setPendingCredentials(null);
+                setOtpCode('');
+                finishLogin(payload.mailboxUser);
+            }
+        } catch (error) {
+            const errCode = String((error as { code?: unknown })?.code || '').toUpperCase();
+            if (errCode === 'INVALID_OTP') {
+                message.error(t(mailPortalLoginI18n.otpInvalid));
+            } else {
+                message.error(getErrorMessage(error, t(mailPortalLoginI18n.otpFailed)));
+            }
+        } finally {
+            setOtpLoading(false);
+        }
+    };
+
     return (
-        <AuthSplitLayout
-            tags={[
-                { key: 'mailbox-portal', color: 'blue', label: t(mailPortalLoginI18n.mailboxPortalTag) },
-                { key: 'user-workspace', color: 'cyan', label: t(mailPortalLoginI18n.userWorkspaceTag) },
-            ]}
-            title={t(mailPortalLoginI18n.title)}
-            subtitle={t(mailPortalLoginI18n.subtitle)}
-            features={[
-                { key: 'mailbox', icon: <MailOutlined />, title: t(mailPortalLoginI18n.featureMailboxTitle), description: t(mailPortalLoginI18n.featureMailboxDescription) },
-                { key: 'workflow', icon: <SendOutlined />, title: t(mailPortalLoginI18n.featureWorkflowTitle), description: t(mailPortalLoginI18n.featureWorkflowDescription) },
-                { key: 'security', icon: <SafetyCertificateOutlined />, title: t(mailPortalLoginI18n.featureSecurityTitle), description: t(mailPortalLoginI18n.featureSecurityDescription) },
-            ]}
-            notice={t(mailPortalLoginI18n.notice)}
-            formTitle={t(mailPortalLoginI18n.formTitle)}
-            formDescription={t(mailPortalLoginI18n.formDescription)}
-            footer={t(mailPortalLoginI18n.footer)}
-        >
-            <Form form={form} layout="vertical" onFinish={handleSubmit} autoComplete="off" onValuesChange={() => { if (formError) setFormError(null); }}>
-                <Form.Item label={t(mailPortalLoginI18n.usernameLabel)} name="username" rules={[{ required: true, message: t(mailPortalLoginI18n.usernameRequired) }]}> 
-                    <Input prefix={<UserOutlined />} placeholder={t(mailPortalLoginI18n.usernameLabel)} autoComplete="username" size="large" />
-                </Form.Item>
-                <Form.Item label={t(mailPortalLoginI18n.passwordLabel)} name="password" rules={[{ required: true, message: t(mailPortalLoginI18n.passwordRequired) }]}> 
-                    <Input.Password prefix={<LockOutlined />} placeholder={t(mailPortalLoginI18n.passwordLabel)} autoComplete="current-password" size="large" />
-                </Form.Item>
-                {formError ? (
-                    <Alert
-                        type="error"
-                        showIcon
-                        title={t(mailPortalLoginI18n.formUnavailable)}
-                        description={formError}
-                        style={{ marginBottom: 16 }}
+        <>
+            <AuthSplitLayout
+                tags={[
+                    { key: 'mailbox-portal', color: 'blue', label: t(mailPortalLoginI18n.mailboxPortalTag) },
+                    { key: 'user-workspace', color: 'cyan', label: t(mailPortalLoginI18n.userWorkspaceTag) },
+                ]}
+                title={t(mailPortalLoginI18n.title)}
+                subtitle={t(mailPortalLoginI18n.subtitle)}
+                features={[
+                    { key: 'mailbox', icon: <MailOutlined />, title: t(mailPortalLoginI18n.featureMailboxTitle), description: t(mailPortalLoginI18n.featureMailboxDescription) },
+                    { key: 'workflow', icon: <SendOutlined />, title: t(mailPortalLoginI18n.featureWorkflowTitle), description: t(mailPortalLoginI18n.featureWorkflowDescription) },
+                    { key: 'security', icon: <SafetyCertificateOutlined />, title: t(mailPortalLoginI18n.featureSecurityTitle), description: t(mailPortalLoginI18n.featureSecurityDescription) },
+                ]}
+                notice={t(mailPortalLoginI18n.notice)}
+                formTitle={t(mailPortalLoginI18n.formTitle)}
+                formDescription={t(mailPortalLoginI18n.formDescription)}
+                footer={t(mailPortalLoginI18n.footer)}
+            >
+                <Form form={form} layout="vertical" onFinish={handleSubmit} autoComplete="off" onValuesChange={() => { if (formError) setFormError(null); }}>
+                    <Form.Item label={t(mailPortalLoginI18n.usernameLabel)} name="username" rules={[{ required: true, message: t(mailPortalLoginI18n.usernameRequired) }]}>
+                        <Input prefix={<UserOutlined />} placeholder={t(mailPortalLoginI18n.usernameLabel)} autoComplete="username" size="large" />
+                    </Form.Item>
+                    <Form.Item label={t(mailPortalLoginI18n.passwordLabel)} name="password" rules={[{ required: true, message: t(mailPortalLoginI18n.passwordRequired) }]}>
+                        <Input.Password prefix={<LockOutlined />} placeholder={t(mailPortalLoginI18n.passwordLabel)} autoComplete="current-password" size="large" />
+                    </Form.Item>
+                    {formError ? (
+                        <Alert
+                            type="error"
+                            showIcon
+                            title={t(mailPortalLoginI18n.formUnavailable)}
+                            description={formError}
+                            style={{ marginBottom: 16 }}
+                        />
+                    ) : null}
+                    <Form.Item style={noMarginBottomStyle}>
+                        <Button type="primary" htmlType="submit" loading={loading} block size="large">
+                            {t(mailPortalLoginI18n.enterWorkspace)}
+                        </Button>
+                    </Form.Item>
+                </Form>
+            </AuthSplitLayout>
+
+            <Modal
+                title={t(mailPortalLoginI18n.otpModalTitle)}
+                open={otpModalVisible}
+                onOk={handleOtpConfirm}
+                onCancel={() => {
+                    setOtpModalVisible(false);
+                    setPendingCredentials(null);
+                    setOtpCode('');
+                }}
+                okText={t(mailPortalLoginI18n.otpModalConfirm)}
+                cancelText={t(mailPortalLoginI18n.otpModalCancel)}
+                confirmLoading={otpLoading}
+                destroyOnHidden
+            >
+                <Space orientation="vertical" style={fullWidthStyle}>
+                    <Text type="secondary">{t(mailPortalLoginI18n.otpModalDescription)}</Text>
+                    <Input
+                        aria-label={t(mailPortalLoginI18n.otpInputLabel)}
+                        autoComplete="one-time-code"
+                        inputMode="numeric"
+                        maxLength={6}
+                        onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder={t(mailPortalLoginI18n.otpPlaceholder)}
+                        prefix={<SafetyCertificateOutlined />}
+                        value={otpCode}
                     />
-                ) : null}
-                <Form.Item style={noMarginBottomStyle}>
-                    <Button type="primary" htmlType="submit" loading={loading} block size="large">
-                        {t(mailPortalLoginI18n.enterWorkspace)}
-                    </Button>
-                </Form.Item>
-            </Form>
-        </AuthSplitLayout>
+                </Space>
+            </Modal>
+        </>
     );
 };
 

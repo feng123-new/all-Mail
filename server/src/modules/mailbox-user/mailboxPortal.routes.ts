@@ -2,18 +2,20 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { signToken } from '../../lib/jwt.js';
 import { MAILBOX_JWT_AUDIENCE } from '../../lib/session-version.js';
-import {
-    mailboxPortalChangePasswordSchema,
-    mailboxPortalListForwardingJobsSchema,
-    mailboxPortalLoginSchema,
-    mailboxPortalListSentMessagesSchema,
-    mailboxPortalSendMessageSchema,
-    mailboxPortalUpdateForwardingSchema,
-} from './mailboxUser.schema.js';
-import { mailboxUserService } from './mailboxUser.service.js';
+import { AppError } from '../../plugins/error.js';
 import { messageService } from '../message/message.service.js';
 import { sendService } from '../send/send.service.js';
-import { AppError } from '../../plugins/error.js';
+import {
+    mailboxPortalChangePasswordSchema,
+    mailboxPortalDisable2FaSchema,
+    mailboxPortalListForwardingJobsSchema,
+    mailboxPortalListSentMessagesSchema,
+    mailboxPortalLoginSchema,
+    mailboxPortalSendMessageSchema,
+    mailboxPortalUpdateForwardingSchema,
+    mailboxPortalVerify2FaSchema,
+} from './mailboxUser.schema.js';
+import { mailboxUserService } from './mailboxUser.service.js';
 
 const isSecureCookie = process.env.NODE_ENV === 'production';
 const mailboxSessionCookieOptions = {
@@ -31,7 +33,11 @@ const mailboxClearCookieOptions = {
     path: '/',
 };
 
-async function rotateMailboxSession(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+async function rotateMailboxSession(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    sessionVersion: number,
+): Promise<void> {
     const mailboxUser = getMailboxAuthContext(request);
     const token = await signToken({
         sub: String(mailboxUser.id),
@@ -39,7 +45,7 @@ async function rotateMailboxSession(request: FastifyRequest, reply: FastifyReply
         username: mailboxUser.username,
         role: mailboxUser.role,
         mailboxIds: mailboxUser.mailboxIds,
-    }, { audience: MAILBOX_JWT_AUDIENCE });
+    }, { audience: MAILBOX_JWT_AUDIENCE, sessionVersion });
     reply.cookie('mailbox_token', token, mailboxSessionCookieOptions);
 }
 
@@ -68,7 +74,59 @@ const mailboxPortalRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticateMailboxJwt],
     }, async (request) => {
         const mailboxUser = getMailboxAuthContext(request);
-        const result = await mailboxUserService.getSession(mailboxUser.id);
+        const result = await mailboxUserService.getSession(mailboxUser.id, mailboxUser.sessionVersion);
+        return { success: true, data: result };
+    });
+
+    fastify.get('/2fa/status', {
+        preHandler: [fastify.authenticateMailboxJwt],
+    }, async (request) => {
+        const mailboxUser = getMailboxAuthContext(request);
+        const result = await mailboxUserService.getTwoFactorStatus(mailboxUser.id, mailboxUser.sessionVersion);
+        return { success: true, data: result };
+    });
+
+    fastify.post('/2fa/setup', {
+        preHandler: [fastify.authenticateMailboxJwt],
+    }, async (request, reply) => {
+        const mailboxUser = getMailboxAuthContext(request);
+        const { sessionVersion, ...result } = await mailboxUserService.setupTwoFactor(
+            mailboxUser.id,
+            mailboxUser.sessionVersion,
+        );
+        await rotateMailboxSession(request, reply, sessionVersion);
+        return { success: true, data: result };
+    });
+
+    fastify.post('/2fa/enable', {
+        preHandler: [fastify.authenticateMailboxJwt],
+    }, async (request, reply) => {
+        const mailboxUser = getMailboxAuthContext(request);
+        const input = mailboxPortalVerify2FaSchema.parse(request.body);
+        const { sessionVersion, ...result } = await mailboxUserService.enableTwoFactor(
+            mailboxUser.id,
+            mailboxUser.sessionVersion,
+            input,
+        );
+        if (sessionVersion !== mailboxUser.sessionVersion) {
+            await rotateMailboxSession(request, reply, sessionVersion);
+        }
+        return { success: true, data: result };
+    });
+
+    fastify.post('/2fa/disable', {
+        preHandler: [fastify.authenticateMailboxJwt],
+    }, async (request, reply) => {
+        const mailboxUser = getMailboxAuthContext(request);
+        const input = mailboxPortalDisable2FaSchema.parse(request.body);
+        const { sessionVersion, ...result } = await mailboxUserService.disableTwoFactor(
+            mailboxUser.id,
+            mailboxUser.sessionVersion,
+            input,
+        );
+        if (sessionVersion !== mailboxUser.sessionVersion) {
+            await rotateMailboxSession(request, reply, sessionVersion);
+        }
         return { success: true, data: result };
     });
 
@@ -94,19 +152,11 @@ const mailboxPortalRoutes: FastifyPluginAsync = async (fastify) => {
             unreadOnly: z.coerce.boolean().default(false),
         }).parse(request.query);
 
-        const mailboxIds = mailboxUser.mailboxIds || [];
-        if (input.mailboxId && !mailboxIds.includes(input.mailboxId)) {
-            throw new AppError('FORBIDDEN_MAILBOX', 'You do not have access to this mailbox', 403);
-        }
-
-        const result = await messageService.list({
+        const result = await messageService.listForMailboxUser(mailboxUser.id, {
             page: input.page,
             pageSize: input.pageSize,
             mailboxId: input.mailboxId,
             unreadOnly: input.unreadOnly,
-            allowedMailboxIds: mailboxIds,
-        }, {
-            portalVisibleOnly: true,
         });
 
         return {
@@ -120,13 +170,8 @@ const mailboxPortalRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request) => {
         const mailboxUser = getMailboxAuthContext(request);
         const { id } = request.params as { id: string };
-        const result = await messageService.getById(id, { portalVisibleOnly: true });
-        const mailboxIds = mailboxUser.mailboxIds || [];
-        if (result.mailbox?.id && !mailboxIds.includes(result.mailbox.id)) {
-            throw new AppError('FORBIDDEN_MAILBOX', 'You do not have access to this mailbox', 403);
-        }
-        await messageService.markRead(id, mailboxIds);
-        return { success: true, data: { ...result, isRead: true } };
+        const result = await messageService.getForMailboxUser(mailboxUser.id, id);
+        return { success: true, data: result };
     });
 
     fastify.get('/sent-messages', {
@@ -213,8 +258,12 @@ const mailboxPortalRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request, reply) => {
         const mailboxUser = getMailboxAuthContext(request);
         const input = mailboxPortalChangePasswordSchema.parse(request.body);
-        const result = await mailboxUserService.changePassword(mailboxUser.id, input);
-        await rotateMailboxSession(request, reply);
+        const { sessionVersion, ...result } = await mailboxUserService.changePassword(
+            mailboxUser.id,
+            mailboxUser.sessionVersion,
+            input,
+        );
+        await rotateMailboxSession(request, reply, sessionVersion);
         return { success: true, data: result };
     });
 

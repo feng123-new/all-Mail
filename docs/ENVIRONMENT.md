@@ -27,7 +27,7 @@ This document is the authoritative variable and secret-ownership contract for `a
 | Runtime | PostgreSQL | Redis | JWT | Encryption key | Provider/OAuth/Ingress secrets |
 | --- | --- | --- | --- | --- | --- |
 | `app` | No | No | No | No | No |
-| `go-business-api` | Yes | Yes | Read-only file | Read-only file | Database-encrypted provider, OAuth, sending, and ingress secrets |
+| `go-business-api` | Yes | Yes | Read-only file | Read-only file | Database-encrypted provider, OAuth, sending, and ingress secrets; temporary bootstrap-file cleanup access |
 | `business-api` | Yes | Yes | Runtime secret file | Runtime secret file | Database-encrypted state for remaining routes |
 | `worker-forwarding` | Yes | No | No | Read-only file | Resend API base URL only |
 | `worker-retention` | Yes | No | No | No | No |
@@ -136,10 +136,12 @@ go-business-api:
 | Variable | Default | Consumer |
 | --- | --- | --- |
 | `JWT_SECRET` | generated when blank | initializer and Fastify only |
-| `JWT_EXPIRES_IN` | `2h` | Fastify token issuance |
-| `JWT_SECRET_FILE` | internal fixed path | private `go-business-api` verification only |
+| `JWT_EXPIRES_IN` | `2h` | Fastify and private Go token issuance |
+| `JWT_SECRET_FILE` | internal fixed path | private `go-business-api` issuance and verification |
 | `ENCRYPTION_KEY` | generated when blank | initializer and Fastify only |
 | `ENCRYPTION_KEY_FILE` | internal fixed paths | forwarding worker and private `go-business-api` only |
+
+`JWT_EXPIRES_IN` has one shared grammar in both private APIs: a positive integer number of seconds, or a positive integer followed by `s`, `m`, `h`, or `d` (for example `7200`, `30m`, `2h`, or `1d`). Composite durations such as `1h30m`, word forms such as `2 hours`, zero, negative, and overflowing values are rejected at startup.
 
 The public `app` receives neither secret. The private Go business service receives a read-only encryption-key copy for persisted provider, OAuth, sending, and ingress secrets. The forwarding worker receives no JWT secret.
 
@@ -156,7 +158,7 @@ The initializer alone accepts:
 | `ALL_MAIL_PRINT_BOOTSTRAP_PASSWORD` | `false` | Opt-in startup log output |
 | `BOOTSTRAP_ADMIN_SECRET_FILE` | internal path | One-time credential file |
 
-The credential is persisted separately at `/var/lib/all-mail/bootstrap-admin.env`. The long-running Fastify API receives only the cleanup path so it can remove the file after password rotation; it does not receive the username or password. The private Go service and public gateway receive neither the file nor the credential.
+The credential is persisted separately at `/var/lib/all-mail/bootstrap-admin.env`. During the authentication cutover, both private business APIs mount the existing runtime volume so whichever owner handles the first password rotation can remove the file. Neither API receives the bootstrap username or password as environment variables, and the public gateway receives neither the file nor the credential. PR #37 separates this cleanup file from long-lived runtime secrets.
 
 After successful first password rotation, `bootstrap-admin.env` is deleted. Re-running the initializer does not recreate it when an administrator already exists.
 
@@ -176,9 +178,9 @@ There is no environment-backed or virtual administrator. Administrator 2FA is da
 
 | Variable | Default | Consumer |
 | --- | --- | --- |
-| `ADMIN_LOGIN_MAX_ATTEMPTS` | `5` | Fastify while administrator auth remains there |
-| `ADMIN_LOGIN_LOCK_MINUTES` | `15` | Fastify while administrator auth remains there |
-| `ADMIN_2FA_WINDOW` | `1` | Fastify database-managed 2FA |
+| `ADMIN_LOGIN_MAX_ATTEMPTS` | `5` | Both private APIs during auth rollback compatibility |
+| `ADMIN_LOGIN_LOCK_MINUTES` | `15` | Both private APIs during auth rollback compatibility |
+| `ADMIN_2FA_WINDOW` | `1` | Both private APIs for database-managed administrator and mailbox-user 2FA |
 
 ## Private Go business service
 
@@ -189,8 +191,14 @@ These are Compose-internal inputs, not root `.env.example` ownership switches:
 | `PORT` | `3200` | Private listener |
 | `DATABASE_URL` | Compose-derived | Migrated business data access |
 | `REDIS_URL` | `redis://redis:6379` | Fail-closed API-key limiting and readiness |
-| `JWT_SECRET_FILE` | fixed read-only path | Existing administrator JWT verification |
+| `NODE_ENV` | `production` | Forces secure browser-session cookies in the production topology |
+| `JWT_SECRET_FILE` | fixed read-only path | Administrator and mailbox JWT issuance and verification |
 | `ENCRYPTION_KEY_FILE` | fixed read-only path | Decrypt persisted ingress endpoint signing secrets |
+| `JWT_EXPIRES_IN` | `2h` | Administrator and mailbox session lifetime |
+| `ADMIN_LOGIN_MAX_ATTEMPTS` | `5` | Shared fail-closed administrator and mailbox login threshold |
+| `ADMIN_LOGIN_LOCK_MINUTES` | `15` | Shared Redis lock duration |
+| `ADMIN_2FA_WINDOW` | `1` | TOTP tolerance for administrator and mailbox-user 2FA |
+| `BOOTSTRAP_ADMIN_SECRET_FILE` | fixed writable path | Deletes the consumed one-time credential after forced rotation |
 | `INGRESS_ALLOWED_SKEW_SECONDS` | `300` | Signed ingress timestamp window, limited to 1–3600 seconds |
 | `GO_BUSINESS_QUERY_TIMEOUT_SECONDS` | `10` | Per-request database bound |
 | `MAIL_PROVIDER_TIMEOUT_SECONDS` | `300` | Provider API, OAuth refresh, IMAP, SMTP, and Resend bound; separate from database queries |

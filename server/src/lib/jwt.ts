@@ -1,5 +1,5 @@
 import * as jose from 'jose';
-import { env } from '../config/env.js';
+import { env, parseJWTDurationSeconds } from '../config/env.js';
 import { JWT_ISSUER, loadSessionVersion, sessionSubjectKind } from './session-version.js';
 
 const secret = new TextEncoder().encode(env.JWT_SECRET);
@@ -19,35 +19,43 @@ export interface JwtPayload {
 interface SignTokenOptions {
     audience?: string | string[];
     expiresIn?: string;
+    sessionVersion?: number;
 }
 
 /**
- * Sign a token with one explicit algorithm, issuer, audience and the current
- * durable session version for administrator and mailbox-portal identities.
+ * Sign a token with one explicit algorithm, issuer, audience and either the
+ * caller-confirmed or current durable session version.
  */
 export async function signToken(payload: JwtPayload, options: SignTokenOptions = {}): Promise<string> {
     let sessionVersion = payload.sessionVersion;
     if (sessionSubjectKind(options.audience)) {
-        sessionVersion = await loadSessionVersion(options.audience, payload.sub) ?? undefined;
+        sessionVersion = options.sessionVersion
+            ?? await loadSessionVersion(options.audience, payload.sub)
+            ?? undefined;
         if (!sessionVersion || sessionVersion <= 0) {
             throw new Error('Session subject does not exist');
         }
+        if (!Number.isInteger(sessionVersion)) {
+            throw new Error('Session version must be a positive integer');
+        }
     }
 
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const expiresInSeconds = parseJWTDurationSeconds(options.expiresIn || env.JWT_EXPIRES_IN);
     let signer = new jose.SignJWT({
         ...payload,
         ...(sessionVersion ? { sessionVersion } : {}),
     } as jose.JWTPayload)
         .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
         .setIssuer(JWT_ISSUER)
-        .setIssuedAt();
+        .setIssuedAt(issuedAt);
 
     if (options.audience) {
         signer = signer.setAudience(options.audience);
     }
 
     return signer
-        .setExpirationTime(options.expiresIn || env.JWT_EXPIRES_IN)
+        .setExpirationTime(issuedAt + expiresInSeconds)
         .sign(secret);
 }
 

@@ -1,20 +1,62 @@
-import prisma from '../../lib/prisma.js';
-import { hashPassword, verifyPassword } from '../../lib/crypto.js';
+import { env } from '../../config/env.js';
+import { decrypt, encrypt, hashPassword, verifyPassword } from '../../lib/crypto.js';
 import { signToken } from '../../lib/jwt.js';
+import prisma from '../../lib/prisma.js';
 import { AppError } from '../../plugins/error.js';
+import {
+    buildMailboxLoginAttemptCacheKey,
+    mailboxLoginAttempts,
+} from '../auth/login-attempts.js';
+import { buildTotpUri, generateBase32Secret, verifyTotpCode } from '../auth/totp.js';
 import { getHostedInternalProtocolSummary } from '../mail/hostedInternal.contract.js';
 import type {
     AddMailboxMembershipsInput,
     CreateMailboxUserInput,
     ListMailboxUserInput,
     MailboxPortalChangePasswordInput,
+    MailboxPortalDisable2FaInput,
     MailboxPortalListForwardingJobsInput,
     MailboxPortalLoginInput,
     MailboxPortalUpdateForwardingInput,
+    MailboxPortalVerify2FaInput,
     UpdateMailboxUserInput,
 } from './mailboxUser.schema.js';
 
 const MAILBOX_JWT_AUDIENCE = 'mailbox-portal';
+
+function formatMailboxLockMessage(lockSeconds: number): string {
+    const minutes = Math.max(1, Math.ceil(lockSeconds / 60));
+    return `Too many failed attempts. Please try again in ${minutes} minute(s)`;
+}
+
+function decryptMailboxTwoFactorSecret(encryptedSecret: string | null | undefined): string | null {
+    if (!encryptedSecret) {
+        return null;
+    }
+    try {
+        return decrypt(encryptedSecret);
+    } catch {
+        throw new AppError('TWO_FACTOR_SECRET_INVALID', 'Invalid two-factor configuration', 500);
+    }
+}
+
+async function rejectMailboxLogin(
+    cacheKey: string,
+    code: 'INVALID_CREDENTIALS' | 'INVALID_OTP',
+): Promise<never> {
+    const lockSeconds = await mailboxLoginAttempts.recordFailure(cacheKey);
+    if (lockSeconds > 0) {
+        throw new AppError('ACCOUNT_LOCKED', formatMailboxLockMessage(lockSeconds), 429);
+    }
+    if (code === 'INVALID_OTP') {
+        throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
+    }
+    throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password', 401);
+}
+
+function mailboxSessionChanged(): AppError {
+    return new AppError('INVALID_MAILBOX_TOKEN', 'Mailbox session changed', 401);
+}
 
 function normalizeDistinctIds(ids: number[] | undefined): number[] {
     return Array.from(new Set((ids || []).filter((id) => Number.isInteger(id) && id > 0)));
@@ -293,6 +335,11 @@ export const mailboxUserService = {
 
     async login(input: MailboxPortalLoginInput, ip?: string) {
         const username = input.username.trim();
+        const loginAttemptCacheKey = buildMailboxLoginAttemptCacheKey(username, ip);
+        const lockSeconds = await mailboxLoginAttempts.getLockRemainingSeconds(loginAttemptCacheKey);
+        if (lockSeconds > 0) {
+            throw new AppError('ACCOUNT_LOCKED', formatMailboxLockMessage(lockSeconds), 429);
+        }
         const user = await prisma.mailboxUser.findFirst({
             where: {
                 OR: [
@@ -307,10 +354,13 @@ export const mailboxUserService = {
                 passwordHash: true,
                 status: true,
                 mustChangePassword: true,
+                sessionVersion: true,
+                twoFactorEnabled: true,
+                twoFactorSecret: true,
             },
         });
         if (!user) {
-            throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password', 401);
+            return rejectMailboxLogin(loginAttemptCacheKey, 'INVALID_CREDENTIALS');
         }
         if (user.status !== 'ACTIVE') {
             throw new AppError('ACCOUNT_DISABLED', 'Mailbox user is disabled', 403);
@@ -318,17 +368,42 @@ export const mailboxUserService = {
 
         const isValid = await verifyPassword(input.password, user.passwordHash);
         if (!isValid) {
-            throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password', 401);
+            return rejectMailboxLogin(loginAttemptCacheKey, 'INVALID_CREDENTIALS');
+        }
+
+        if (user.twoFactorEnabled) {
+            if (input.otp === undefined) {
+                throw new AppError('OTP_REQUIRED', 'Two-factor code is required', 401);
+            }
+            const secret = decryptMailboxTwoFactorSecret(user.twoFactorSecret);
+            if (!secret) {
+                throw new AppError(
+                    'TWO_FACTOR_CONFIGURATION_INVALID',
+                    'Invalid two-factor configuration',
+                    500,
+                );
+            }
+            if (!verifyTotpCode(secret, input.otp, env.ADMIN_2FA_WINDOW)) {
+                return rejectMailboxLogin(loginAttemptCacheKey, 'INVALID_OTP');
+            }
         }
 
         const mailboxIds = await getAccessibleMailboxIds(user.id);
-        await prisma.mailboxUser.update({
-            where: { id: user.id },
+        await mailboxLoginAttempts.clear(loginAttemptCacheKey);
+        const loginUpdate = await prisma.mailboxUser.updateMany({
+            where: {
+                id: user.id,
+                sessionVersion: user.sessionVersion,
+                status: 'ACTIVE',
+            },
             data: {
                 lastLoginAt: new Date(),
                 lastLoginIp: ip || null,
             },
         });
+        if (loginUpdate.count !== 1) {
+            throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password', 401);
+        }
 
         const token = await signToken({
             sub: user.id.toString(),
@@ -336,7 +411,7 @@ export const mailboxUserService = {
             username: user.username,
             role: 'MAILBOX_USER',
             mailboxIds,
-        }, { audience: MAILBOX_JWT_AUDIENCE });
+        }, { audience: MAILBOX_JWT_AUDIENCE, sessionVersion: user.sessionVersion });
 
         return {
             token,
@@ -350,9 +425,9 @@ export const mailboxUserService = {
         };
     },
 
-    async getSession(userId: number) {
-        const user = await prisma.mailboxUser.findUnique({
-            where: { id: userId },
+    async getSession(userId: number, authenticatedVersion: number) {
+        const user = await prisma.mailboxUser.findFirst({
+            where: { id: userId, sessionVersion: authenticatedVersion },
             select: {
                 id: true,
                 username: true,
@@ -363,7 +438,7 @@ export const mailboxUserService = {
             },
         });
         if (!user) {
-            throw new AppError('MAILBOX_USER_NOT_FOUND', 'Mailbox user not found', 404);
+            throw mailboxSessionChanged();
         }
         const mailboxIds = await getAccessibleMailboxIds(userId);
         return {
@@ -420,13 +495,13 @@ export const mailboxUserService = {
         return mailboxes.map((mailbox) => enrichAccessibleMailbox(mailbox));
     },
 
-    async changePassword(userId: number, input: MailboxPortalChangePasswordInput) {
-        const user = await prisma.mailboxUser.findUnique({
-            where: { id: userId },
-            select: { id: true, passwordHash: true },
+    async changePassword(userId: number, authenticatedVersion: number, input: MailboxPortalChangePasswordInput) {
+        const user = await prisma.mailboxUser.findFirst({
+            where: { id: userId, sessionVersion: authenticatedVersion },
+            select: { id: true, passwordHash: true, sessionVersion: true },
         });
         if (!user) {
-            throw new AppError('MAILBOX_USER_NOT_FOUND', 'Mailbox user not found', 404);
+            throw mailboxSessionChanged();
         }
 
         const isValid = await verifyPassword(input.oldPassword, user.passwordHash);
@@ -434,15 +509,162 @@ export const mailboxUserService = {
             throw new AppError('INVALID_PASSWORD', 'Invalid old password', 400);
         }
 
-        await prisma.mailboxUser.update({
-            where: { id: userId },
+        const result = await prisma.mailboxUser.updateMany({
+            where: {
+                id: userId,
+                sessionVersion: authenticatedVersion,
+                passwordHash: user.passwordHash,
+                status: 'ACTIVE',
+            },
             data: {
                 passwordHash: await hashPassword(input.newPassword),
                 mustChangePassword: false,
             },
         });
+        if (result.count !== 1) {
+            throw mailboxSessionChanged();
+        }
 
-        return { success: true };
+        return { success: true, sessionVersion: authenticatedVersion + 1 };
+    },
+
+    async getTwoFactorStatus(userId: number, authenticatedVersion: number) {
+        const user = await prisma.mailboxUser.findFirst({
+            where: { id: userId, sessionVersion: authenticatedVersion },
+            select: {
+                id: true,
+                twoFactorEnabled: true,
+                twoFactorSecret: true,
+            },
+        });
+        if (!user) {
+            throw mailboxSessionChanged();
+        }
+        return {
+            enabled: user.twoFactorEnabled,
+            pending: !user.twoFactorEnabled && Boolean(user.twoFactorSecret),
+        };
+    },
+
+    async setupTwoFactor(userId: number, authenticatedVersion: number) {
+        const user = await prisma.mailboxUser.findFirst({
+            where: { id: userId, sessionVersion: authenticatedVersion },
+            select: {
+                id: true,
+                username: true,
+                sessionVersion: true,
+                twoFactorEnabled: true,
+            },
+        });
+        if (!user) {
+            throw mailboxSessionChanged();
+        }
+        if (user.twoFactorEnabled) {
+            throw new AppError('TWO_FACTOR_ENABLED', 'Two-factor already enabled', 400);
+        }
+
+        const secret = generateBase32Secret();
+        const result = await prisma.mailboxUser.updateMany({
+            where: {
+                id: user.id,
+                sessionVersion: authenticatedVersion,
+                twoFactorEnabled: false,
+                status: 'ACTIVE',
+            },
+            data: { twoFactorSecret: encrypt(secret) },
+        });
+        if (result.count !== 1) {
+            throw mailboxSessionChanged();
+        }
+        return {
+            secret,
+            otpauthUrl: buildTotpUri(secret, user.username, 'all-Mail'),
+            sessionVersion: authenticatedVersion + 1,
+        };
+    },
+
+    async enableTwoFactor(userId: number, authenticatedVersion: number, input: MailboxPortalVerify2FaInput) {
+        const user = await prisma.mailboxUser.findFirst({
+            where: { id: userId, sessionVersion: authenticatedVersion },
+            select: {
+                id: true,
+                sessionVersion: true,
+                twoFactorEnabled: true,
+                twoFactorSecret: true,
+            },
+        });
+        if (!user) {
+            throw mailboxSessionChanged();
+        }
+        if (user.twoFactorEnabled) {
+            return { enabled: true, sessionVersion: authenticatedVersion };
+        }
+
+        const secret = decryptMailboxTwoFactorSecret(user.twoFactorSecret);
+        if (!secret) {
+            throw new AppError('TWO_FACTOR_SETUP_REQUIRED', 'Please generate setup secret first', 400);
+        }
+        if (!verifyTotpCode(secret, input.otp, env.ADMIN_2FA_WINDOW)) {
+            throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
+        }
+        const result = await prisma.mailboxUser.updateMany({
+            where: {
+                id: user.id,
+                sessionVersion: authenticatedVersion,
+                twoFactorEnabled: false,
+                twoFactorSecret: user.twoFactorSecret,
+                status: 'ACTIVE',
+            },
+            data: { twoFactorEnabled: true },
+        });
+        if (result.count !== 1) {
+            throw mailboxSessionChanged();
+        }
+        return { enabled: true, sessionVersion: authenticatedVersion + 1 };
+    },
+
+    async disableTwoFactor(userId: number, authenticatedVersion: number, input: MailboxPortalDisable2FaInput) {
+        const user = await prisma.mailboxUser.findFirst({
+            where: { id: userId, sessionVersion: authenticatedVersion },
+            select: {
+                id: true,
+                passwordHash: true,
+                sessionVersion: true,
+                twoFactorEnabled: true,
+                twoFactorSecret: true,
+            },
+        });
+        if (!user) {
+            throw mailboxSessionChanged();
+        }
+        if (!user.twoFactorEnabled) {
+            return { enabled: false, sessionVersion: authenticatedVersion };
+        }
+
+        if (!await verifyPassword(input.password, user.passwordHash)) {
+            throw new AppError('INVALID_PASSWORD', 'Invalid password', 400);
+        }
+        const secret = decryptMailboxTwoFactorSecret(user.twoFactorSecret);
+        if (!secret || !verifyTotpCode(secret, input.otp, env.ADMIN_2FA_WINDOW)) {
+            throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
+        }
+        const result = await prisma.mailboxUser.updateMany({
+            where: {
+                id: user.id,
+                sessionVersion: authenticatedVersion,
+                twoFactorEnabled: true,
+                twoFactorSecret: user.twoFactorSecret,
+                status: 'ACTIVE',
+            },
+            data: {
+                twoFactorEnabled: false,
+                twoFactorSecret: null,
+            },
+        });
+        if (result.count !== 1) {
+            throw mailboxSessionChanged();
+        }
+        return { enabled: false, sessionVersion: authenticatedVersion + 1 };
     },
 
     async updateForwarding(userId: number, input: MailboxPortalUpdateForwardingInput) {

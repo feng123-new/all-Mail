@@ -10,6 +10,7 @@ WORKDIR /src/core
 COPY core/go.mod core/go.sum ./
 RUN go mod download
 COPY config/route-ownership.json /src/config/route-ownership.json
+COPY config/jwt-duration-vectors.json /src/config/jwt-duration-vectors.json
 COPY core ./
 RUN test -z "$(gofmt -l .)" \
     && go test ./... \

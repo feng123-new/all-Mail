@@ -1,5 +1,5 @@
-import type { CSSProperties } from 'react';
 import type { ThemeConfig } from 'antd';
+import type { CSSProperties } from 'react';
 
 export const shellPalette = {
   primary: '#1d4ed8',
@@ -43,6 +43,7 @@ export const shellMetrics = {
   contentMaxWidth: 1520,
   portalContentMaxWidth: 1400,
   cardPadding: 22,
+  twoFactorQrSize: 180,
 };
 
 export const shellShadows = {

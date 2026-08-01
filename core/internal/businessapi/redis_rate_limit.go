@@ -144,6 +144,36 @@ func (c *redisRateLimiter) Set(ctx context.Context, key, value string, ttl time.
 	return nil
 }
 
+func (c *redisRateLimiter) TTL(ctx context.Context, key string) (time.Duration, error) {
+	response, err := c.command(ctx, "TTL", key)
+	if err != nil {
+		return 0, fmt.Errorf("read Redis key TTL: %w", err)
+	}
+	seconds, ok := response.(int64)
+	if !ok {
+		return 0, fmt.Errorf("read Redis key TTL returned %#v", response)
+	}
+	if seconds <= 0 {
+		return 0, nil
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
+func (c *redisRateLimiter) Delete(ctx context.Context, keys ...string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	command := append([]string{"DEL"}, keys...)
+	response, err := c.command(ctx, command...)
+	if err != nil {
+		return fmt.Errorf("delete Redis keys: %w", err)
+	}
+	if _, ok := response.(int64); !ok {
+		return fmt.Errorf("delete Redis keys returned %#v", response)
+	}
+	return nil
+}
+
 func (c *redisRateLimiter) Get(ctx context.Context, key string) (string, bool, error) {
 	response, err := c.command(ctx, "GET", key)
 	if err != nil {

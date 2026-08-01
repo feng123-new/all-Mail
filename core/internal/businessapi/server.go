@@ -20,10 +20,14 @@ type Server struct {
 	cfg                 config.GoBusinessAPIConfig
 	logger              *slog.Logger
 	store               Store
+	authStore           AuthenticationStore
+	mailboxAuthStore    MailboxAuthenticationStore
+	mailboxPortalStore  MailboxPortalStore
 	apiKeyStore         APIKeyStore
 	domainMailboxStore  DomainMailboxStore
 	ingressStore        IngressStore
 	rateLimiter         RateLimiter
+	loginStore          loginProtectionStore
 	replayProtector     ReplayProtector
 	oauthStateStore     OAuthStateStore
 	providerHTTPClient  *http.Client
@@ -53,10 +57,14 @@ func New(ctx context.Context, cfg config.GoBusinessAPIConfig, logger *slog.Logge
 		cfg:                cfg,
 		logger:             logger,
 		store:              store,
+		authStore:          store,
+		mailboxAuthStore:   store,
+		mailboxPortalStore: store,
 		apiKeyStore:        store,
 		domainMailboxStore: store,
 		ingressStore:       store,
 		rateLimiter:        limiter,
+		loginStore:         limiter,
 		replayProtector:    limiter,
 		oauthStateStore:    limiter,
 		now:                time.Now,
@@ -83,6 +91,10 @@ func newWithDependencies(
 		rateLimiter = allowAllRateLimiter{}
 	}
 	ingressStore, _ := store.(IngressStore)
+	authStore, _ := store.(AuthenticationStore)
+	mailboxAuthStore, _ := store.(MailboxAuthenticationStore)
+	mailboxPortalStore, _ := store.(MailboxPortalStore)
+	loginStore, _ := rateLimiter.(loginProtectionStore)
 	replayProtector, _ := rateLimiter.(ReplayProtector)
 	if replayProtector == nil {
 		replayProtector = allowAllReplayProtector{}
@@ -92,10 +104,14 @@ func newWithDependencies(
 		cfg:                cfg,
 		logger:             logger,
 		store:              store,
+		authStore:          authStore,
+		mailboxAuthStore:   mailboxAuthStore,
+		mailboxPortalStore: mailboxPortalStore,
 		apiKeyStore:        apiKeyStore,
 		domainMailboxStore: domainMailboxStore,
 		ingressStore:       ingressStore,
 		rateLimiter:        rateLimiter,
+		loginStore:         loginStore,
 		replayProtector:    replayProtector,
 		oauthStateStore:    oauthStateStore,
 		now:                time.Now,
@@ -147,6 +163,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/dashboard/stats", s.withAdministrator(s.dashboardStats))
 	mux.HandleFunc("GET /admin/dashboard/api-trend", s.withAdministrator(s.dashboardTrend))
 	mux.HandleFunc("GET /admin/dashboard/logs", s.withAdministrator(s.dashboardLogs))
+	s.registerAuthenticationRoutes(mux)
+	s.registerMailboxAuthenticationRoutes(mux)
+	s.registerMailboxPortalReadRoutes(mux)
 	s.registerDashboardWriteRoutes(mux)
 	s.registerAPIKeyRoutes(mux)
 	s.registerExternalRoutes(mux)

@@ -85,9 +85,16 @@ jobs:
           assert 'ENCRYPTION_KEY' not in forwarding_env
 
           go_business_env = services['go-business-api'].get('environment', {})
+          assert go_business_env.get('NODE_ENV') == 'production'
           assert go_business_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail-encryption/encryption-key'
+          assert go_business_env.get('JWT_EXPIRES_IN') == '2h'
+          assert go_business_env.get('ADMIN_LOGIN_MAX_ATTEMPTS') == '5'
+          assert go_business_env.get('ADMIN_LOGIN_LOCK_MINUTES') == '15'
+          assert go_business_env.get('BOOTSTRAP_ADMIN_SECRET_FILE') == '/var/lib/all-mail/bootstrap-admin.env'
           assert go_business_env.get('INGRESS_ALLOWED_SKEW_SECONDS') == '300'
           assert 'ENCRYPTION_KEY' not in go_business_env
+          go_business_mounts = services['go-business-api'].get('volumes', [])
+          assert any(mount.get('target') == '/var/lib/all-mail' and not mount.get('read_only', False) for mount in go_business_mounts), 'Go auth cannot remove the consumed bootstrap credential'
 
           assert services['worker-retention'].get('volumes') in (None, []), 'retention heartbeat must stay ephemeral'
 
@@ -100,4 +107,3 @@ jobs:
           assert services['app'].get('ports'), 'public Go app has no published port'
           assert model['volumes']['runtime_secrets_data']['name'] == 'all-mail_legacy_runtime_data'
           PY
-

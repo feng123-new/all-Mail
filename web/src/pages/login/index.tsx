@@ -103,7 +103,7 @@ const LoginPage: FC = () => {
             }
         } catch (err: unknown) {
             const errCode = String((err as { code?: unknown })?.code || '').toUpperCase();
-            if (errCode === 'INVALID_OTP') {
+            if (errCode === 'OTP_REQUIRED' || errCode === 'INVALID_OTP') {
                 setPendingCredentials({ username: values.username, password: values.password });
                 setOtpCode('');
                 setOtpModalVisible(true);

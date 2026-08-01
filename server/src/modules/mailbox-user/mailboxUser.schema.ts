@@ -31,11 +31,21 @@ export const addMailboxMembershipsSchema = z.object({
 export const mailboxPortalLoginSchema = z.object({
     username: z.string().trim().min(1),
     password: z.string().min(1),
+    otp: z.string().regex(/^\d{6}$/, 'OTP must be 6 digits').optional(),
 });
 
 export const mailboxPortalChangePasswordSchema = z.object({
     oldPassword: z.string().min(1),
     newPassword: z.string().min(8),
+});
+
+export const mailboxPortalVerify2FaSchema = z.object({
+    otp: z.string().regex(/^\d{6}$/, 'OTP must be 6 digits'),
+});
+
+export const mailboxPortalDisable2FaSchema = z.object({
+    password: z.string().min(1, 'Password is required'),
+    otp: z.string().regex(/^\d{6}$/, 'OTP must be 6 digits'),
 });
 
 export const mailboxPortalUpdateForwardingSchema = z.object({
@@ -70,6 +80,8 @@ export type UpdateMailboxUserInput = z.infer<typeof updateMailboxUserSchema>;
 export type AddMailboxMembershipsInput = z.infer<typeof addMailboxMembershipsSchema>;
 export type MailboxPortalLoginInput = z.infer<typeof mailboxPortalLoginSchema>;
 export type MailboxPortalChangePasswordInput = z.infer<typeof mailboxPortalChangePasswordSchema>;
+export type MailboxPortalVerify2FaInput = z.infer<typeof mailboxPortalVerify2FaSchema>;
+export type MailboxPortalDisable2FaInput = z.infer<typeof mailboxPortalDisable2FaSchema>;
 export type MailboxPortalUpdateForwardingInput = z.infer<typeof mailboxPortalUpdateForwardingSchema>;
 export type MailboxPortalListSentMessagesInput = z.infer<typeof mailboxPortalListSentMessagesSchema>;
 export type MailboxPortalListForwardingJobsInput = z.infer<typeof mailboxPortalListForwardingJobsSchema>;
