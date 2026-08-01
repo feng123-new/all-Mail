@@ -27,14 +27,14 @@ func TestResolveGeneratesStableSplitRuntimeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.JWTSecret) != 64 || len(first.EncryptionKey) != 32 || len(first.CreatedKeys) != 2 {
+	if len(first.JWTSecret) != 64 || len(first.EncryptionKey) != 32 || len(first.RedisPassword) != 64 || len(first.CreatedKeys) != 3 {
 		t.Fatalf("first state = %#v", first)
 	}
 	second, err := Resolve(directory, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.JWTSecret != first.JWTSecret || second.EncryptionKey != first.EncryptionKey || len(second.CreatedKeys) != 0 {
+	if second.JWTSecret != first.JWTSecret || second.EncryptionKey != first.EncryptionKey || second.RedisPassword != first.RedisPassword || len(second.CreatedKeys) != 0 {
 		t.Fatalf("second state = %#v", second)
 	}
 	info, err := os.Stat(first.RuntimeSecretsFile)
@@ -43,6 +43,28 @@ func TestResolveGeneratesStableSplitRuntimeState(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("runtime secret mode = %o", info.Mode().Perm())
+	}
+}
+
+func TestResolveAddsRedisPasswordToExistingRuntimeState(t *testing.T) {
+	directory := t.TempDir()
+	runtimeFile := filepath.Join(directory, runtimeSecretsFilename)
+	if err := os.WriteFile(runtimeFile, []byte("JWT_SECRET="+testJWTSecret+"\nENCRYPTION_KEY="+testEncryptionKey+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := Resolve(directory, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.RedisPassword) != 64 || len(state.CreatedKeys) != 1 || state.CreatedKeys[0] != "REDIS_PASSWORD" {
+		t.Fatalf("upgraded state = %#v", state)
+	}
+	persisted, err := ReadEnvFile(runtimeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted["REDIS_PASSWORD"] != state.RedisPassword {
+		t.Fatalf("persisted Redis password was not upgraded: %#v", persisted)
 	}
 }
 
