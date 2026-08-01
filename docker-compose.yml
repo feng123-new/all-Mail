@@ -171,7 +171,7 @@ services:
         CONFIG
         chown -R redis:redis /data /tmp/all-mail-redis
         chmod 0600 /tmp/all-mail-redis/redis.conf
-        exec gosu redis redis-server /tmp/all-mail-redis/redis.conf
+        exec su-exec redis redis-server /tmp/all-mail-redis/redis.conf
     restart: unless-stopped
     networks:
       - cache-network
