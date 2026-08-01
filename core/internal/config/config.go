@@ -12,13 +12,13 @@ import (
 )
 
 type APIConfig struct {
-	Port              int
-	StaticDir         string
-	BusinessAPIURL    string
-	TrustedProxyCIDRs []netip.Prefix
-	ReadyTimeout      time.Duration
-	ProviderTimeout   time.Duration
-	ShutdownTimeout   time.Duration
+	Port                 int
+	StaticDir            string
+	TrustedProxyCIDRs    []netip.Prefix
+	ReadyTimeout         time.Duration
+	BusinessQueryTimeout time.Duration
+	ProviderTimeout      time.Duration
+	ShutdownTimeout      time.Duration
 }
 
 type ForwardingConfig struct {
@@ -69,6 +69,10 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	businessQuerySeconds, err := envInt("GO_BUSINESS_QUERY_TIMEOUT_SECONDS", 10)
+	if err != nil {
+		return APIConfig{}, err
+	}
 	providerSeconds, err := envInt("MAIL_PROVIDER_TIMEOUT_SECONDS", 300)
 	if err != nil {
 		return APIConfig{}, err
@@ -78,28 +82,22 @@ func LoadAPI() (APIConfig, error) {
 		return APIConfig{}, err
 	}
 	cfg := APIConfig{
-		Port:              port,
-		StaticDir:         env("ALL_MAIL_STATIC_DIR", "/app/public"),
-		BusinessAPIURL:    strings.TrimSpace(os.Getenv("BUSINESS_API_URL")),
-		TrustedProxyCIDRs: trustedProxyCIDRs,
-		ReadyTimeout:      time.Duration(readySeconds) * time.Second,
-		ProviderTimeout:   time.Duration(providerSeconds) * time.Second,
-		ShutdownTimeout:   time.Duration(shutdownSeconds) * time.Second,
+		Port:                 port,
+		StaticDir:            env("ALL_MAIL_STATIC_DIR", "/app/public"),
+		TrustedProxyCIDRs:    trustedProxyCIDRs,
+		ReadyTimeout:         time.Duration(readySeconds) * time.Second,
+		BusinessQueryTimeout: time.Duration(businessQuerySeconds) * time.Second,
+		ProviderTimeout:      time.Duration(providerSeconds) * time.Second,
+		ShutdownTimeout:      time.Duration(shutdownSeconds) * time.Second,
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return APIConfig{}, errors.New("PORT must be between 1 and 65535")
 	}
-	if cfg.ReadyTimeout <= 0 || cfg.ProviderTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
+	if cfg.ReadyTimeout <= 0 || cfg.BusinessQueryTimeout <= 0 || cfg.ProviderTimeout <= 0 || cfg.ShutdownTimeout <= 0 {
 		return APIConfig{}, errors.New("API runtime timeouts must be positive")
 	}
 	if strings.TrimSpace(cfg.StaticDir) == "" {
 		return APIConfig{}, errors.New("ALL_MAIL_STATIC_DIR is required")
-	}
-	if cfg.BusinessAPIURL == "" {
-		return APIConfig{}, errors.New("BUSINESS_API_URL is required until all business routes are migrated")
-	}
-	if err := validateAbsoluteURL("BUSINESS_API_URL", cfg.BusinessAPIURL, "http", "https"); err != nil {
-		return APIConfig{}, err
 	}
 	return cfg, nil
 }
@@ -293,13 +291,6 @@ func LoadMigration() (MigrationConfig, error) {
 
 func (c APIConfig) Address() string {
 	return fmt.Sprintf(":%d", c.Port)
-}
-
-func (c APIConfig) BusinessURL() (*url.URL, error) {
-	if c.BusinessAPIURL == "" {
-		return nil, errors.New("BUSINESS_API_URL is not configured")
-	}
-	return url.Parse(c.BusinessAPIURL)
 }
 
 func (c APIConfig) TrustsProxy(address netip.Addr) bool {

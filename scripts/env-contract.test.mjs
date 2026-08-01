@@ -1,202 +1,100 @@
-import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
-import path from "node:path";
-import test from "node:test";
-import { fileURLToPath } from "node:url";
+import assert from 'node:assert/strict';
+import { access, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const read = (relativePath) => readFile(path.join(repoRoot, relativePath), "utf8");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const read = (relativePath) => readFile(path.join(repoRoot, relativePath), 'utf8');
 
 function parseEnvKeys(content) {
-	return content.split(/\r?\n/)
-		.map((line) => line.trim())
-		.filter((line) => line && !line.startsWith("#") && line.includes("="))
-		.map((line) => line.slice(0, line.indexOf("=")).trim())
-		.sort();
+  return content.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#') && line.includes('='))
+    .map((line) => line.slice(0, line.indexOf('=')).trim())
+    .sort();
 }
 
-function section(content, start, end) {
-	const startIndex = content.indexOf(start);
-	assert.notEqual(startIndex, -1, `missing section ${start}`);
-	const endIndex = end ? content.indexOf(end, startIndex + start.length) : -1;
-	return content.slice(startIndex, endIndex < 0 ? content.length : endIndex);
+function serviceSection(compose, name, nextName) {
+  const start = compose.indexOf(`\n  ${name}:`);
+  assert.notEqual(start, -1, `missing Compose service ${name}`);
+  const end = nextName ? compose.indexOf(`\n  ${nextName}:`, start + 1) : compose.indexOf('\nnetworks:', start + 1);
+  return compose.slice(start, end < 0 ? compose.length : end);
 }
 
-test("the production template matches the canonical manifest", async () => {
-	const [template, active, retired] = await Promise.all([
-		read(".env.example"),
-		read("config/runtime-env.json").then(JSON.parse),
-		read("config/retired-env.json").then(JSON.parse),
-	]);
-	const keys = parseEnvKeys(template);
-	assert.deepEqual(keys, active.variables.map(({ name }) => name).sort());
-	for (const name of retired.variables) assert.equal(keys.includes(name), false, name);
-	assert.match(template, /^POSTGRES_PASSWORD=$/m);
-	assert.match(template, /^INGRESS_IMPORT_KEY_ID=allmail-edge-main$/m);
-	await assert.rejects(access(path.join(repoRoot, ".env.cloudflare.example")));
-	await assert.rejects(access(path.join(repoRoot, ".env.basic.example")));
+test('the production template matches the canonical manifest', async () => {
+  const [template, active, retired] = await Promise.all([
+    read('.env.example'),
+    read('config/runtime-env.json').then(JSON.parse),
+    read('config/retired-env.json').then(JSON.parse),
+  ]);
+  const keys = parseEnvKeys(template);
+  assert.deepEqual(keys, active.variables.map(({ name }) => name).sort());
+  for (const name of retired.variables) assert.equal(keys.includes(name), false, name);
+  assert.match(template, /^POSTGRES_PASSWORD=$/m);
+  assert.match(template, /\.\/scripts\/compose-up\.sh/);
 });
 
-test("Compose keeps infrastructure private and compatibility imports initializer-only", async () => {
-	const [compose, devCompose] = await Promise.all([read("docker-compose.yml"), read("docker-compose.dev.yml")]);
-	assert.match(compose, /\$\{APP_PUBLISH_HOST:-127\.0\.0\.1\}:\$\{APP_PORT:-3002\}:3000/);
-	assert.doesNotMatch(section(compose, "\n  postgres:", "\nnetworks:"), /\n\s+ports:/);
-	assert.doesNotMatch(section(compose, "\n  redis:", "\n  postgres:"), /\n\s+ports:/);
-	assert.match(devCompose, /DEV_POSTGRES_PORT:-15433/);
-	assert.match(devCompose, /DEV_REDIS_PORT:-6380/);
+test('production Compose contains only Go runtimes and private state services', async () => {
+  const compose = await read('docker-compose.yml');
+  for (const service of ['app', 'go-business-api', 'worker-forwarding', 'worker-retention', 'postgres', 'redis']) {
+    assert.match(compose, new RegExp(`\\n[ ]{2}${service.replaceAll('-', '\\-')}:`));
+  }
+  assert.doesNotMatch(compose, /\n[ ]{2}business-(?:api|init):|Dockerfile\.server|(?<!GO_)BUSINESS_API_URL/);
 
-	const bootstrap = section(compose, "x-bootstrap-environment:", "\nx-api-environment:");
-	const api = section(compose, "x-api-environment:", "\nx-allmail-hardening:");
-	const goBusiness = section(compose, "\n  go-business-api:", "\n  app:");
-	const app = section(compose, "\n  app:", "\n  worker-forwarding:");
-	const forwarding = section(compose, "\n  worker-forwarding:", "\n  worker-retention:");
-	assert.match(bootstrap, /ADMIN_USERNAME:[\s\S]*ADMIN_PASSWORD:/);
-	for (const name of [
-		"SEND_ENABLED_DOMAINS", "INGRESS_SIGNING_SECRET", "INGRESS_IMPORT_KEY_ID",
-		"GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
-		"MICROSOFT_OAUTH_CLIENT_ID", "MICROSOFT_OAUTH_CLIENT_SECRET",
-	]) assert.match(bootstrap, new RegExp(`\\n\\s+${name}:`), name);
-	for (const name of [
-		"ADMIN_USERNAME", "ADMIN_PASSWORD", "SEND_ENABLED_DOMAINS", "INGRESS_SIGNING_SECRET",
-		"INGRESS_IMPORT_KEY_ID", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
-		"MICROSOFT_OAUTH_CLIENT_ID", "MICROSOFT_OAUTH_CLIENT_SECRET",
-	]) assert.doesNotMatch(api, new RegExp(`\\n\\s+${name}:`), name);
-	assert.match(goBusiness, /command: \["business-api"\]/);
-	assert.match(goBusiness, /DATABASE_URL:/);
-	assert.match(goBusiness, /JWT_SECRET_FILE: \/var\/lib\/all-mail-secrets\/jwt-secret/);
-	assert.match(goBusiness, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-encryption\/encryption-key/);
-	assert.match(goBusiness, /forwarding_runtime_data:\/var\/lib\/all-mail-encryption:ro/);
-	assert.match(goBusiness, /INGRESS_ALLOWED_SKEW_SECONDS:/);
-	assert.match(goBusiness, /REDIS_URL: redis:\/\/redis:6379/);
-	assert.doesNotMatch(goBusiness, /\n\s+ENCRYPTION_KEY:|INGRESS_SIGNING_SECRET|ports:/);
-	assert.doesNotMatch(app, /DATABASE_URL|REDIS_URL|JWT_SECRET|ENCRYPTION_KEY|GO_API_MODE|ALL_MAIL_ENV/);
-	assert.match(app, /BUSINESS_API_URL: http:\/\/business-api:3100/);
-	assert.match(app, /GO_BUSINESS_API_URL: http:\/\/go-business-api:3200/);
-	assert.match(forwarding, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-secrets\/encryption-key/);
-	assert.doesNotMatch(forwarding, /\n\s+ENCRYPTION_KEY:/);
-	assert.match(compose, /command: \["worker", "forwarding"\]/);
-	assert.match(compose, /command: \["worker", "retention"\]/);
-	assert.doesNotMatch(compose, /\n[ ]{2}(?:go-jobs|legacy-jobs|jobs):|retention_runtime_data/);
+  const app = serviceSection(compose, 'app', 'go-business-api');
+  assert.doesNotMatch(app, /DATABASE_URL|REDIS_URL|JWT_SECRET|ENCRYPTION_KEY/);
+  assert.match(app, /GO_BUSINESS_API_URL: http:\/\/go-business-api:3200/);
+
+  const business = serviceSection(compose, 'go-business-api', 'worker-forwarding');
+  assert.match(business, /DATABASE_URL:[\s\S]*REDIS_URL: redis:\/\/redis:6379/);
+  assert.match(business, /JWT_SECRET_FILE: \/var\/lib\/all-mail-secrets\/jwt-secret/);
+  assert.match(business, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-encryption\/encryption-key/);
+  assert.doesNotMatch(business, /\n\s+JWT_SECRET:|\n\s+ENCRYPTION_KEY:/);
+
+  assert.match(compose, /runtime_secrets_data:[\s\S]*name: "\$\{COMPOSE_PROJECT_NAME:-all-mail\}_legacy_runtime_data"/);
+  assert.doesNotMatch(serviceSection(compose, 'postgres', null), /\n\s+ports:/);
+  assert.doesNotMatch(serviceSection(compose, 'redis', 'postgres'), /\n\s+ports:/);
 });
 
-test("administrator bootstrap, config import, and least-privilege secret exports remain one-shot", async () => {
-	const [entrypoint, initializer, processes, auth, secretState, ci, compose] = await Promise.all([
-		read("docker/entrypoint.sh"), read("core/internal/initialize/initialize.go"),
-		read("server/src/runtime/processes.ts"), read("server/src/modules/auth/auth.service.ts"),
-		read("core/internal/secretstate/secretstate.go"),
-		read(".github/workflows/ci.yml"), read("docker-compose.yml"),
-	]);
-	const migrationIndex = initializer.indexOf("SchemaOnly(ctx");
-	const verificationIndex = initializer.indexOf("VerifyCiphertexts(ctx", migrationIndex);
-	const importIndex = initializer.indexOf("ImportEnvironment(ctx", verificationIndex);
-	const bootstrapIndex = initializer.indexOf("BootstrapAdministrator(ctx", importIndex);
-	const finalizeIndex = initializer.indexOf("secretstate.Finalize", bootstrapIndex);
-	assert.ok(migrationIndex >= 0 && verificationIndex > migrationIndex && importIndex > verificationIndex && bootstrapIndex > importIndex && finalizeIndex > bootstrapIndex);
-	assert.doesNotMatch(processes, /ensureBootstrapAdmin|bootstrapAdministrator/);
-	assert.doesNotMatch(auth, /createBootstrapAdmin|adminId === 0|legacyEnv|env\.ADMIN_USERNAME|env\.ADMIN_PASSWORD/);
-	assert.match(auth, /BOOTSTRAP_ADMIN_SECRET_FILE/);
-	assert.match(secretState, /runtime-secrets\.env[\s\S]*bootstrap-admin\.env[\s\S]*bootstrap-secrets\.env/);
-	assert.match(entrypoint, /--mode require-existing/);
-	assert.doesNotMatch(entrypoint, /db:migrate|config:import-env|bootstrapAdmin|P3005/);
-	assert.match(initializer, /EncryptionKeyExportFile[\s\S]*JWTSecretExportFile/);
-	assert.match(compose, /ALL_MAIL_EXPORT_JWT_SECRET_FILE: \/var\/lib\/all-mail-go-business\/jwt-secret/);
-	assert.match(compose, /go_business_runtime_data:\/var\/lib\/all-mail-secrets:ro/);
-	assert.match(ci, /test -r \/var\/lib\/all-mail\/runtime-secrets\.env/);
-	assert.match(ci, /test ! -e \/var\/lib\/all-mail\/bootstrap-secrets\.env/);
+test('temporary initialization is outside the declared Compose service graph', async () => {
+  const script = await read('scripts/compose-up.sh');
+  assert.match(script, /up -d --wait[\s\S]*postgres/);
+  assert.match(script, /run --rm --no-deps --user 0:0/);
+  assert.match(script, /--cap-add CHOWN[\s\S]*--cap-add DAC_OVERRIDE[\s\S]*--cap-add FOWNER/);
+  assert.match(script, /--env-from-file "\$env_file"/);
+  assert.match(script, /--env-from-file "\$env_file"[\s\S]*-e DATABASE_URL=/);
+  assert.match(script, /app init/);
+  assert.match(script, /ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE/);
+  assert.match(script, /ALL_MAIL_EXPORT_JWT_SECRET_FILE/);
 });
 
-test("long-running business code no longer reads imported environment settings", async () => {
-	const [serverTemplate, envLoader, oauthService, domainService, ingressAuth] = await Promise.all([
-		read("server/.env.example"), read("server/src/config/env.ts"),
-		read("server/src/modules/email/email.oauth-config.service.ts"),
-		read("server/src/modules/domain/domain.service.ts"), read("server/src/plugins/auth.ts"),
-	]);
-	for (const name of [
-		"SEND_ENABLED_DOMAINS", "INGRESS_SIGNING_SECRET", "GOOGLE_OAUTH_CLIENT_ID",
-		"GOOGLE_OAUTH_CLIENT_SECRET", "MICROSOFT_OAUTH_CLIENT_ID", "MICROSOFT_OAUTH_CLIENT_SECRET",
-	]) {
-		assert.doesNotMatch(serverTemplate, new RegExp(`^${name}=`, "m"), name);
-		assert.doesNotMatch(envLoader, new RegExp(name), name);
-	}
-	assert.doesNotMatch(oauthService, /process\.env|env\.(?:GOOGLE|MICROSOFT)_OAUTH/);
-	assert.doesNotMatch(domainService, /SEND_ENABLED_DOMAINS|DOMAIN_SEND_NOT_ALLOWED/);
-	assert.doesNotMatch(ingressAuth, /env\.INGRESS_SIGNING_SECRET/);
-	assert.match(ingressAuth, /signing_secret_encrypted/);
+test('CI runs every PostgreSQL business API integration suite', async () => {
+  const workflow = await read('.github/workflows/ci.yml');
+  assert.match(workflow, /go test -run '\^TestPostgres' -count=1 \.\/internal\/businessapi/);
+  assert.doesNotMatch(workflow, /go test -run TestPostgresAPIKeyAndExternalRouteIntegration /);
 });
 
-test("production images and root scripts retain the hardened topology", async () => {
-	const [compose, dockerfile, serverDockerfile, entrypoint, packageJson] = await Promise.all([
-		read("docker-compose.yml"), read("Dockerfile"), read("Dockerfile.server"), read("docker/entrypoint.sh"),
-		read("package.json").then(JSON.parse),
-	]);
-	assert.match(compose, /x-server-runtime:[\s\S]*?user: "10001:10001"/);
-	assert.match(serverDockerfile, /FROM node:24-bookworm-slim[\s\S]*useradd --system --uid 10001[\s\S]*gosu/);
-	assert.match(dockerfile, /FROM node:24-bookworm-slim/);
-	assert.match(entrypoint, /chown -R 10001:10001 "\$ALL_MAIL_STATE_DIR"/);
-	assert.equal(packageJson.files, undefined);
-	for (const name of ["start:npm", "start:npm:jobs", "docker:rollback:jobs"]) assert.equal(packageJson.scripts[name], undefined);
-	assert.doesNotMatch(packageJson.scripts["install:all"], /legacy-peer-deps/);
-	assert.match(packageJson.scripts["verify:release"], /npm run check:go[\s\S]*npm run audit:prod/);
+test('retired Node and Prisma production runtime files remain absent', async () => {
+  for (const relativePath of ['server', 'Dockerfile.server', 'docker/entrypoint.sh']) {
+    await assert.rejects(access(path.join(repoRoot, relativePath)), relativePath);
+  }
+  const [dockerfile, packageJSON] = await Promise.all([
+    read('Dockerfile'),
+    read('package.json').then(JSON.parse),
+  ]);
+  assert.doesNotMatch(dockerfile, /COPY server|Dockerfile\.server|prisma|node_modules.*runtime/i);
+  for (const scriptName of ['install:server', 'build:server', 'test:server', 'audit:server']) {
+    assert.equal(packageJSON.scripts[scriptName], undefined, scriptName);
+  }
 });
 
-test("obsolete runtime files remain deleted", async () => {
-	for (const relativePath of [
-		"scripts/start-all-mail.mjs", "scripts/prepare-public.mjs", "server/src/worker.ts",
-		"server/src/jobs/forwarding.worker.ts", "server/src/jobs/api-log-retention.ts",
-	]) await assert.rejects(access(path.join(repoRoot, relativePath)), relativePath);
-});
-
-test("operator documentation uses canonical paths and redacts secrets", async () => {
-	const combined = (await Promise.all([
-		"core/README.md", "docs/DEPLOY.md", "docs/RUNBOOK.md", "docs/GO-MIGRATION.md",
-	].map(read))).join("\n");
-	assert.doesNotMatch(
-		combined,
-		/\/var\/lib\/all-mail\/encryption-key|\/var\/lib\/all-mail\/worker-forwarding-heartbeat\.json|cat\s+\/var\/lib\/all-mail\/runtime-secrets\.env/,
-	);
-	assert.match(combined, /\/var\/lib\/all-mail-secrets\/encryption-key/);
-	assert.match(combined, /\/tmp\/all-mail\/worker-forwarding-heartbeat\.json/);
-	assert.match(combined, /runtime-secrets\.env[\s\S]*?<redacted>/);
-});
-
-test("business API omits retired direct dependencies", async () => {
-	const pkg = JSON.parse(await read("server/package.json"));
-	for (const name of ["@fastify/rate-limit", "@fastify/static", "@fastify/swagger", "@fastify/swagger-ui", "pg"])
-		assert.equal(pkg.dependencies[name], undefined, name);
-	assert.equal(pkg.dependencies["pino-pretty"], undefined);
-	assert.equal(typeof pkg.devDependencies["pino-pretty"], "string");
-	assert.equal(pkg.devDependencies["@types/pg"], undefined);
-});
-
-test("local tooling has no retired fallback and proxies every namespace", async () => {
-	const [ingress, cli, vite] = await Promise.all([
-		read("server/scripts/ensure-ingress-endpoint.ts"), read("bin/all-mail.mjs"), read("web/vite.config.ts"),
-	]);
-	assert.doesNotMatch(ingress, /process\.env\.POSTGRES_PORT|entries\.get\(["']POSTGRES_PORT["']\)|allmail_dev_password/);
-	assert.doesNotMatch(cli, /ALL_MAIL_ENV_FILE|POSTGRES_HOST|REDIS_HOST/);
-	for (const prefix of ["/admin", "/api", "/mail", "/ingress", "/oauth"])
-		assert.match(vite, new RegExp(`['"]${prefix}['"]`));
-});
-
-test("business runtime naming preserves the pre-rename physical secret volume", async () => {
-	const [compose, goConfig, entrypoint, schema] = await Promise.all([
-		read("docker-compose.yml"),
-		read("core/internal/config/config.go"),
-		read("docker/entrypoint.sh"),
-		read("core/internal/schema/schema.go"),
-	]);
-	assert.match(compose, /\n  business-init:/);
-	assert.match(compose, /\n  business-api:/);
-	assert.match(compose, /\n  go-business-api:/);
-	assert.doesNotMatch(compose, /\n  legacy-(?:init|api):/);
-	assert.match(compose, /BUSINESS_API_URL: http:\/\/business-api:3100/);
-	assert.match(compose, /GO_BUSINESS_API_URL: http:\/\/go-business-api:3200/);
-	assert.match(compose, /runtime_secrets_data:[\s\S]*name: "\$\{COMPOSE_PROJECT_NAME:-all-mail\}_legacy_runtime_data"/);
-	assert.doesNotMatch(compose, /ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR/);
-	assert.match(goConfig, /BUSINESS_API_URL/);
-	assert.doesNotMatch(goConfig, /LEGACY_API_URL/);
-	assert.doesNotMatch(entrypoint, /ALL_MAIL_ALLOW_PRISMA_P3005_REPAIR|db:migrate|db:push/);
-	assert.match(schema, /allmail_schema_migrations/);
-	await access(path.join(repoRoot, "Dockerfile.server"));
-	await assert.rejects(access(path.join(repoRoot, "Dockerfile.legacy")));
+test('the final route manifest has no legacy owner or migration state', async () => {
+  const manifest = JSON.parse(await read('config/route-ownership.json'));
+  assert.equal(manifest.version, 3);
+  for (const route of manifest.routes) {
+    assert.ok(['go', 'go-business-api'].includes(route.owner), route.id);
+    assert.equal(route.migrationStage, 'complete', route.id);
+    assert.equal(route.targetOwner, undefined, route.id);
+  }
 });

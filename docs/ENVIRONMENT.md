@@ -4,52 +4,50 @@
 
 This document is the authoritative variable and secret-ownership contract for `all-Mail`.
 
-- Use [`DEPLOY.md`](./DEPLOY.md) for production startup and rollback.
+- Use [`DEPLOY.md`](./DEPLOY.md) for production startup, restore, and rollback.
 - Use [`RUNBOOK.md`](./RUNBOOK.md) for recovery.
 - Use [`GO-MIGRATION.md`](./GO-MIGRATION.md) for route and runtime ownership.
 - Use [`../CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) for Worker-specific settings.
 
-## Template ownership
+## Configuration surfaces
 
 | Surface | Purpose |
 | --- | --- |
-| `.env.example` | Single production Docker template and one-shot compatibility import inputs |
+| `.env.example` | Single production Docker template and temporary initializer inputs |
 | `config/runtime-env.json` | Exact operator-visible key set and process scope |
 | `config/retired-env.json` | Names rejected by production validation |
 | `docker-compose.yml` | Canonical production topology and internal variables |
 | `docker-compose.dev.yml` | Local PostgreSQL and Redis host-port overlay |
-| `server/.env.example` | Remaining Fastify development settings only |
 | `web/.env.example` | Vite frontend development proxy settings |
 | Worker `.dev.vars.example` | Worker-local variables and secrets |
+
+Production startup is always:
+
+```bash
+cp .env.example .env
+./scripts/compose-up.sh
+```
 
 ## Runtime credential matrix
 
 | Runtime | PostgreSQL | Redis | JWT | Encryption key | Provider/OAuth/Ingress secrets |
 | --- | --- | --- | --- | --- | --- |
 | `app` | No | No | No | No | No |
-| `go-business-api` | Yes | Yes | Read-only file | Read-only file | Database-encrypted provider, OAuth, sending, and ingress secrets; temporary bootstrap-file cleanup access |
-| `business-api` | Yes | Yes | Runtime secret file | Runtime secret file | Database-encrypted state for remaining routes |
-| `worker-forwarding` | Yes | No | No | Read-only file | Resend API base URL only |
+| `go-business-api` | Yes | Yes | Read-only file | Read-only file | Database-encrypted values |
+| `worker-forwarding` | Yes | No | No | Read-only file | Resend base URL only |
 | `worker-retention` | Yes | No | No | No | No |
-| `business-init` | Yes | No | Generates/imports | Generates/imports and verifies persisted ciphertext | One-shot compatibility inputs |
+| Temporary `app init` run | Yes | No | Generates/imports | Generates/imports and verifies ciphertext | One-shot compatibility inputs |
 
-The public Go gateway is intentionally credential-free. Migrated database-backed handlers run in the separate private `go-business-api` process.
+The public Go gateway is credential-free. All database-backed HTTP handlers run in the private `go-business-api` process.
 
 ## Production and development networking
 
-Production:
+Only `app` is published in production. `go-business-api`, PostgreSQL, and Redis remain private.
+
+Development publishes dependencies through the overlay:
 
 ```bash
-cp .env.example .env
-docker compose up -d --build --wait --wait-timeout 300
-```
-
-Only `app` is published. Both business APIs, PostgreSQL, and Redis remain private on the Compose network.
-
-Development:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
+./bin/all-mail deps up
 ```
 
 Defaults:
@@ -59,153 +57,136 @@ PostgreSQL 127.0.0.1:15433
 Redis      127.0.0.1:6380
 ```
 
-## Public gateway
+## Public gateway and Compose controls
 
 | Variable | Default | Consumer | Meaning |
 | --- | --- | --- | --- |
-| `COMPOSE_PROJECT_NAME` | `all-mail` | Compose | Project namespace |
+| `COMPOSE_PROJECT_NAME` | `all-mail` | Compose | Project and volume namespace |
 | `APP_PUBLISH_HOST` | `127.0.0.1` | Compose | Public bind address |
-| `APP_PORT` | `3002` | Compose | Public Go port |
-| `TRUSTED_PROXY_CIDRS` | blank | Go `app` | Direct reverse-proxy or tunnel peer CIDRs |
+| `APP_PORT` | `3002` | Compose | Public host port |
+| `TRUSTED_PROXY_CIDRS` | blank | `app` | Direct reverse-proxy or tunnel peer CIDRs |
 | `READY_TIMEOUT_SECONDS` | `5` | Go runtimes | Readiness protocol-check bound |
 | `SHUTDOWN_TIMEOUT_SECONDS` | `15` | Go runtimes | Graceful shutdown bound |
-| `MAIL_PROVIDER_TIMEOUT_SECONDS` | `300` | gateway and private `go-business-api` | Provider API, OAuth, IMAP, SMTP, and Resend operation bound; the gateway adds 30 seconds for response delivery |
-| `PUBLIC_BASE_URL` | blank | initializer | External first-login URL |
+| `MAIL_PROVIDER_TIMEOUT_SECONDS` | `300` | `app`, `go-business-api` | Provider operation bound; the gateway allows response-delivery margin |
+| `ALL_MAIL_ENV_FILE` | `.env` | startup helper | Alternate production environment file |
+| `ALL_MAIL_WAIT_TIMEOUT` | `300` | startup helper | Compose wait timeout in seconds |
+| `ALL_MAIL_GO_IMAGE` | `all-mail-go` | Compose | Shared Go image repository override |
+| `ALL_MAIL_IMAGE_TAG` | `local` | Compose | Shared Go image tag override |
 
-Internal transport URLs are fixed by Compose and are not operator-controlled route switches:
+The private transport URL is fixed by Compose and is not an ownership switch:
 
 ```text
-BUSINESS_API_URL=http://business-api:3100
 GO_BUSINESS_API_URL=http://go-business-api:3200
 ```
 
-`config/route-ownership.json`, not an environment flag, decides which private upstream owns each route and HTTP method.
-
-`TRUSTED_PROXY_CIDRS` must list only direct peers. The Go gateway discards forwarded identity from every other peer and writes one canonical client identity downstream.
-
-Removed gateway aliases include `GO_API_MODE`, `ALL_MAIL_ENV`, and `ALL_MAIL_PUBLIC_BASE_URL`.
+`config/route-ownership.json` decides which routes are handled directly by `app` and which are proxied. `TRUSTED_PROXY_CIDRS` must list only direct peers; blanket trust is rejected.
 
 ## PostgreSQL and Redis
 
 | Variable | Default | Consumers | Notes |
 | --- | --- | --- | --- |
-| `POSTGRES_USER` | `allmail` | Compose, init, migrations, workers, business APIs | Internal database identity |
-| `POSTGRES_PASSWORD` | required | Compose, init, migrations, workers, business APIs | At least 24 URL-safe characters; no fallback |
-| `POSTGRES_DB` | `allmail` | Compose, init, migrations, workers, business APIs | Database name |
-| `DATABASE_URL` | Compose-derived | `business-init`, both business APIs, both Go workers | Never supplied to public `app` |
-| `REDIS_URL` | Compose-derived | `business-api`, `go-business-api`, local development | Never supplied to `business-init`, workers, or public `app` |
+| `POSTGRES_USER` | `allmail` | Compose, initializer, workers, private API | Internal database identity |
+| `POSTGRES_PASSWORD` | required | Compose, initializer, workers, private API | At least 24 URL-safe characters; no fallback |
+| `POSTGRES_DB` | `allmail` | Compose, initializer, workers, private API | Database name |
+| `DATABASE_URL` | Compose-derived | Temporary initializer, private API, workers | Never supplied to `app` |
+| `REDIS_URL` | `redis://redis:6379` | `go-business-api` | Never supplied to `app` or workers |
 | `DEV_POSTGRES_PORT` | `15433` | development overlay | Local only |
 | `DEV_REDIS_PORT` | `6380` | development overlay | Local only |
 
-Production security state is fail-closed. Redis is mandatory for administrator login protection, API-key limiting, OAuth state and status, and ingress replay reservation. Local in-memory maps are development and test only.
+Redis is mandatory for administrator and mailbox login protection, API-key limiting, OAuth state/status, and ingress replay reservation. These paths fail closed in production.
 
 ## Long-lived runtime secrets
 
-These may be blank on the first Docker boot:
+The first temporary initializer accepts blank values for:
 
 ```text
 JWT_SECRET
 ENCRYPTION_KEY
 ```
 
-`business-init` loads or generates them and persists managed values in:
+It loads or generates them and persists:
 
 ```text
 /var/lib/all-mail/runtime-secrets.env
 ```
 
-That file contains only:
+on `runtime_secrets_data`. That file contains only `JWT_SECRET` and `ENCRYPTION_KEY`.
+
+The initializer exports least-privilege copies:
 
 ```text
-JWT_SECRET
-ENCRYPTION_KEY
-```
-
-The initializer exports least-privilege copies into separate volumes:
-
-```text
-worker-forwarding:
-  ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
-
 go-business-api:
   JWT_SECRET_FILE=/var/lib/all-mail-secrets/jwt-secret
   ENCRYPTION_KEY_FILE=/var/lib/all-mail-encryption/encryption-key
+
+worker-forwarding:
+  ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
 ```
+
+The JWT copy is stored on `go_business_runtime_data`. The encryption-key export is stored on `forwarding_runtime_data` and mounted at service-specific read-only paths.
 
 | Variable | Default | Consumer |
 | --- | --- | --- |
-| `JWT_SECRET` | generated when blank | initializer and Fastify only |
-| `JWT_EXPIRES_IN` | `2h` | Fastify and private Go token issuance |
-| `JWT_SECRET_FILE` | internal fixed path | private `go-business-api` issuance and verification |
-| `ENCRYPTION_KEY` | generated when blank | initializer and Fastify only |
-| `ENCRYPTION_KEY_FILE` | internal fixed paths | forwarding worker and private `go-business-api` only |
+| `JWT_SECRET` | generated when blank | Temporary initializer only |
+| `ENCRYPTION_KEY` | generated when blank | Temporary initializer only |
+| `JWT_SECRET_FILE` | fixed internal path | `go-business-api` |
+| `ENCRYPTION_KEY_FILE` | fixed internal paths | `go-business-api`, `worker-forwarding` |
+| `JWT_EXPIRES_IN` | `2h` | `go-business-api` |
 
-`JWT_EXPIRES_IN` has one shared grammar in both private APIs: a positive integer number of seconds, or a positive integer followed by `s`, `m`, `h`, or `d` (for example `7200`, `30m`, `2h`, or `1d`). Composite durations such as `1h30m`, word forms such as `2 hours`, zero, negative, and overflowing values are rejected at startup.
+`JWT_EXPIRES_IN` accepts a positive integer number of seconds or a positive integer followed by `s`, `m`, `h`, or `d`. Composite, word-form, zero, negative, and overflowing values are rejected.
 
-The public `app` receives neither secret. The private Go business service receives a read-only encryption-key copy for persisted provider, OAuth, sending, and ingress secrets. The forwarding worker receives no JWT secret.
-
-Long-running Fastify uses `require-existing` mode and exits instead of generating replacement secrets.
+The public `app` receives no secret file. No long-running process generates replacement keys.
 
 ## One-time administrator bootstrap
 
-The initializer alone accepts:
+The temporary initializer accepts:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `ADMIN_USERNAME` | `admin` | Initial database administrator |
 | `ADMIN_PASSWORD` | generated when blank | Initial temporary password |
-| `BOOTSTRAP_ADMIN_SECRET_FILE` | internal path | One-time credential file |
+| `PUBLIC_BASE_URL` | blank | External first-login URL used by initialization output/contracts |
+| `BOOTSTRAP_ADMIN_SECRET_FILE` | fixed internal path | One-time credential file |
 
-The credential is persisted separately at `/var/lib/all-mail/bootstrap-admin.env`. During the authentication cutover, both private business APIs mount the existing runtime volume so whichever owner handles the first password rotation can remove the file. Neither API receives the bootstrap username or password as environment variables, and the public gateway receives neither the file nor the credential. PR #37 separates this cleanup file from long-lived runtime secrets.
+The credential is persisted separately at `/var/lib/all-mail/bootstrap-admin.env`. `go-business-api` mounts the containing volume only so it can remove the file after forced password rotation. It receives neither username nor password as environment values; `app` receives neither the file nor the values.
 
-After successful first password rotation, `bootstrap-admin.env` is deleted. Re-running the initializer does not recreate it when an administrator already exists.
+The old combined `/var/lib/all-mail/bootstrap-secrets.env` is split into the two current files and removed during an in-place upgrade. This is file-layout compatibility, not an active legacy runtime.
 
-The old combined `/var/lib/all-mail/bootstrap-secrets.env` is automatically split into `runtime-secrets.env` and `bootstrap-admin.env`, then removed.
+There is no environment-backed administrator. Administrator and mailbox 2FA are database-managed.
 
-Removed administrator aliases:
-
-```text
-DOMAIN_BOOTSTRAP_ADMIN_USERNAME
-DOMAIN_BOOTSTRAP_ADMIN_PASSWORD
-ADMIN_2FA_SECRET
-```
-
-There is no environment-backed or virtual administrator. Administrator 2FA is database-managed; `ADMIN_2FA_WINDOW` controls only TOTP tolerance.
-
-## Administrator runtime settings
+## Authentication settings
 
 | Variable | Default | Consumer |
 | --- | --- | --- |
-| `ADMIN_LOGIN_MAX_ATTEMPTS` | `5` | Both private APIs during auth rollback compatibility |
-| `ADMIN_LOGIN_LOCK_MINUTES` | `15` | Both private APIs during auth rollback compatibility |
-| `ADMIN_2FA_WINDOW` | `1` | Both private APIs for database-managed administrator and mailbox-user 2FA |
+| `ADMIN_LOGIN_MAX_ATTEMPTS` | `5` | `go-business-api` |
+| `ADMIN_LOGIN_LOCK_MINUTES` | `15` | `go-business-api` |
+| `ADMIN_2FA_WINDOW` | `1` | `go-business-api` |
+| `JWT_EXPIRES_IN` | `2h` | `go-business-api` |
 
-## Private Go business service
+Retired administrator aliases include `DOMAIN_BOOTSTRAP_ADMIN_USERNAME`, `DOMAIN_BOOTSTRAP_ADMIN_PASSWORD`, and `ADMIN_2FA_SECRET`.
 
-These are Compose-internal inputs, not root `.env.example` ownership switches:
+## Private Go service
+
+These are Compose-internal inputs rather than operator ownership switches:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PORT` | `3200` | Private listener |
-| `DATABASE_URL` | Compose-derived | Migrated business data access |
-| `REDIS_URL` | `redis://redis:6379` | Fail-closed API-key limiting and readiness |
-| `NODE_ENV` | `production` | Forces secure browser-session cookies in the production topology |
-| `JWT_SECRET_FILE` | fixed read-only path | Administrator and mailbox JWT issuance and verification |
-| `ENCRYPTION_KEY_FILE` | fixed read-only path | Decrypt persisted ingress endpoint signing secrets |
-| `JWT_EXPIRES_IN` | `2h` | Administrator and mailbox session lifetime |
-| `ADMIN_LOGIN_MAX_ATTEMPTS` | `5` | Shared fail-closed administrator and mailbox login threshold |
-| `ADMIN_LOGIN_LOCK_MINUTES` | `15` | Shared Redis lock duration |
-| `ADMIN_2FA_WINDOW` | `1` | TOTP tolerance for administrator and mailbox-user 2FA |
-| `BOOTSTRAP_ADMIN_SECRET_FILE` | fixed writable path | Deletes the consumed one-time credential after forced rotation |
-| `INGRESS_ALLOWED_SKEW_SECONDS` | `300` | Signed ingress timestamp window, limited to 1–3600 seconds |
+| `DATABASE_URL` | Compose-derived | Business data access |
+| `REDIS_URL` | `redis://redis:6379` | Fail-closed security state and readiness |
+| `NODE_ENV` | `production` | Selects secure cookie behavior; it does not imply a Node runtime |
+| `JWT_SECRET_FILE` | fixed read-only path | Session issuance and verification |
+| `ENCRYPTION_KEY_FILE` | fixed read-only path | Persisted credential decryption |
+| `BOOTSTRAP_ADMIN_SECRET_FILE` | fixed writable path | Deletes the consumed one-time credential |
+| `INGRESS_ALLOWED_SKEW_SECONDS` | `300` | Signed ingress timestamp window, 1-3600 seconds |
 | `GO_BUSINESS_QUERY_TIMEOUT_SECONDS` | `10` | Per-request database bound |
-| `MAIL_PROVIDER_TIMEOUT_SECONDS` | `300` | Provider API, OAuth refresh, IMAP, SMTP, and Resend bound; separate from database queries |
-| `READY_TIMEOUT_SECONDS` | `5` | Protocol-check bound |
+| `MAIL_PROVIDER_TIMEOUT_SECONDS` | `300` | Provider API, OAuth, IMAP, SMTP, and sending bound |
+| `READY_TIMEOUT_SECONDS` | `5` | PostgreSQL/Redis readiness bound |
 | `SHUTDOWN_TIMEOUT_SECONDS` | `15` | Graceful shutdown bound |
 
-## Durable business configuration import
+## Durable configuration import
 
-The following values are accepted only by `business-init`:
+The temporary initializer accepts these one-shot compatibility values:
 
 ```text
 SEND_ENABLED_DOMAINS
@@ -222,53 +203,19 @@ MICROSOFT_OAUTH_TENANT
 MICROSOFT_OAUTH_SCOPES
 ```
 
-Startup order:
+The importer encrypts OAuth and ingress secrets, creates audited send approvals, accepts repeated identical imports, and rejects conflicting values. Long-running services do not receive these environment values. After one successful startup and database verification, remove populated one-shot values from `.env`.
 
-```text
-Go-owned Prisma-history execution/adoption
-→ numbered Go migrations and catalog fingerprint validation
-→ historical ciphertext verification
-→ idempotent durable configuration import
-→ administrator bootstrap
-→ second ciphertext verification and key-file export
-→ private business APIs and workers
-→ public gateway
-```
+`INGRESS_ALLOWED_SKEW_SECONDS` remains a long-running policy value; it is not a signing secret.
 
-The importer:
-
-- encrypts OAuth client secrets in `provider_oauth_configs`;
-- converts `SEND_ENABLED_DOMAINS` into audited domain send approvals;
-- encrypts the ingress signing secret on the selected endpoint;
-- accepts a repeated import only when database and environment values match;
-- refuses conflicting OAuth or ingress values and unknown send-enabled domains.
-
-Neither long-running business API receives these compatibility values. After one successful deployment, verify database state, then remove populated import values from `.env`.
-
-`INGRESS_ALLOWED_SKEW_SECONDS` remains a long-running replay and clock policy while ingress is Fastify-owned. It is not a signing secret.
-
-## Ingress secret operation
-
-Ingress authentication resolves the active endpoint by `x-ingress-key-id` and decrypts that endpoint's stored signing secret. A hash-only endpoint is treated as unconfigured.
-
-Creating or rotating an ingress endpoint requires both:
-
-```text
-INGRESS_SIGNING_SECRET
-ENCRYPTION_KEY
-```
-
-The Cloudflare Worker keeps its matching secret through Wrangler secret storage.
-
-## Migration controls
+## Historical schema compatibility
 
 | Variable | Default | Consumer | Notes |
 | --- | --- | --- | --- |
-| `ALL_MAIL_MIGRATION_DIR` | `/app/migrations` | `business-init`, `allmail migrate` | Numbered Go SQL path |
-| `ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE` | internal | initializer | Forwarding key export |
-| `ALL_MAIL_EXPORT_JWT_SECRET_FILE` | internal | initializer | Go-business JWT export |
+| `ALL_MAIL_MIGRATION_DIR` | `/app/migrations` | Temporary initializer, `allmail migrate` | Numbered Go SQL path |
+| `ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE` | helper-defined | Temporary initializer | Forwarding key export |
+| `ALL_MAIL_EXPORT_JWT_SECRET_FILE` | helper-defined | Temporary initializer | Private JWT export |
 
-There is no Prisma/P3005 repair switch or `db push` fallback.
+The Go initializer embeds and verifies the immutable former Prisma migration history and can adopt known `_prisma_migrations` state. `allmail_schema_migrations` is authoritative and compatibility tables remain for supported upgrades and rollback. There is no active Prisma package, CLI, schema file, repair switch, or schema-push fallback.
 
 ## Worker settings
 
@@ -300,8 +247,6 @@ FORWARDING_LEASE_SECONDS=180
 RESEND_API_BASE_URL=https://api.resend.com
 ```
 
-Removed worker aliases include `GO_JOBS_HEARTBEAT_SECONDS`, `GO_JOBS_HEARTBEAT_MAX_AGE_SECONDS`, `API_LOG_RETENTION_OWNER`, and `FORWARDING_WORKER_OWNER`.
-
 ## Worker-only Cloudflare values
 
 Worker-local values remain in `.dev.vars.example`:
@@ -317,8 +262,6 @@ WORKER_HEALTH_URL
 INGRESS_SIGNING_SECRET
 ```
 
-The default raw-message parsing limit is 15 MiB.
-
 ## Coverage rule
 
-Every operator-visible production variable must appear in `config/runtime-env.json`. One-time inputs cannot be injected into long-running services. Internal paths, service URLs, and fixed container ports belong in Compose. Retired aliases and silent fallback parsing are rejected.
+Every operator-visible production variable must appear in `config/runtime-env.json`. One-shot inputs cannot be injected into long-running services. Internal paths, service URLs, and fixed container ports belong in Compose. Retired aliases and silent fallback parsing are rejected.

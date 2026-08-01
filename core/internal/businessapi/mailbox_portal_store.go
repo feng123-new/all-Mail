@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -30,6 +32,13 @@ type MailboxPortalStore interface {
 	ListMailboxPortalMailboxes(context.Context, int64) ([]map[string]any, error)
 	ListMailboxPortalMessages(context.Context, MailboxPortalMessageListInput) (MailboxPortalMessageList, error)
 	GetMailboxPortalMessage(context.Context, int64, int64) (map[string]any, error)
+	ListMailboxPortalSentMessages(context.Context, int64, int64, int, int) (map[string]any, error)
+	ListMailboxPortalForwardingJobs(context.Context, int64, *int64, int, int) (map[string]any, error)
+	GetMailboxPortalSentMessage(context.Context, int64, int64) (map[string]any, error)
+	UpdateMailboxPortalForwarding(context.Context, int64, int64, string, *string) (map[string]any, error)
+	loadMailboxPortalSendConfig(context.Context, int64, int64, string) (resendSendConfig, error)
+	createPendingOutboundMessage(context.Context, int64, *int64, *int64, string, []string, string, string, string) (int64, error)
+	completeOutboundMessage(context.Context, int64, string, string, string) (map[string]any, error)
 }
 
 var _ MailboxPortalStore = (*PostgresStore)(nil)
@@ -113,7 +122,7 @@ func (s *PostgresStore) ListMailboxPortalMailboxes(ctx context.Context, mailboxU
 				"id": domainID, "name": domainName,
 				"canSend": domainCanSend, "canReceive": domainCanReceive,
 			},
-			"sendReady": sendReady,
+			"sendReady": domainCanSend && sendReady,
 		}
 		for key, value := range hostedInternalProtocolSummary(provisioningMode, domainCanSend, domainCanReceive) {
 			mailbox[key] = value
@@ -318,6 +327,368 @@ func (s *PostgresStore) GetMailboxPortalMessage(
 	}
 	row.IsRead = true
 	return row.response(), nil
+}
+
+const mailboxPortalOutboundAccess = `
+	EXISTS (
+		SELECT 1
+		FROM mailbox_users AS portal_user
+		WHERE portal_user.id = $1
+		  AND portal_user.status = 'ACTIVE'
+		  AND (
+			mailbox.owner_user_id = portal_user.id
+			OR EXISTS (
+				SELECT 1
+				FROM mailbox_memberships AS membership
+				WHERE membership.mailbox_id = mailbox.id
+				  AND membership.user_id = portal_user.id
+			)
+		  )
+	)
+	AND mailbox.status = 'ACTIVE'
+	AND domain_row.status = 'ACTIVE'
+	AND domain_row.can_receive = TRUE`
+
+func (s *PostgresStore) ListMailboxPortalSentMessages(
+	ctx context.Context,
+	mailboxUserID, mailboxID int64,
+	page, pageSize int,
+) (map[string]any, error) {
+	if err := s.requireMailboxPortalMailboxAccess(ctx, mailboxUserID, mailboxID); err != nil {
+		return nil, err
+	}
+	where := ` WHERE message.mailbox_id = $2 AND ` + mailboxPortalOutboundAccess
+	var total int64
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*)::bigint
+		FROM outbound_messages AS message
+		JOIN domains AS domain_row ON domain_row.id = message.domain_id
+		JOIN domain_mailboxes AS mailbox ON mailbox.id = message.mailbox_id
+	`+where, mailboxUserID, mailboxID).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count mailbox portal sent messages: %w", err)
+	}
+	rows, err := s.pool.Query(ctx, outboundMessageSelect+where+`
+		ORDER BY message.created_at DESC, message.id DESC
+		LIMIT $3 OFFSET $4
+	`, mailboxUserID, mailboxID, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, fmt.Errorf("list mailbox portal sent messages: %w", err)
+	}
+	defer rows.Close()
+	list := make([]map[string]any, 0, pageSize)
+	for rows.Next() {
+		row, err := scanOutboundMessage(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan mailbox portal sent message: %w", err)
+		}
+		list = append(list, mailboxPortalOutboundMessage(row, false))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate mailbox portal sent messages: %w", err)
+	}
+	return map[string]any{"list": list, "total": total, "page": page, "pageSize": pageSize}, nil
+}
+
+func (s *PostgresStore) GetMailboxPortalSentMessage(
+	ctx context.Context,
+	id, mailboxUserID int64,
+) (map[string]any, error) {
+	row, err := scanOutboundMessage(s.pool.QueryRow(ctx, outboundMessageSelect+`
+		WHERE message.id = $2
+		  AND `+mailboxPortalOutboundAccess,
+		mailboxUserID, id,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, errNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load scoped mailbox portal sent message: %w", err)
+	}
+	return mailboxPortalOutboundMessage(row, true), nil
+}
+
+func (s *PostgresStore) ListMailboxPortalForwardingJobs(
+	ctx context.Context,
+	mailboxUserID int64,
+	mailboxID *int64,
+	page, pageSize int,
+) (map[string]any, error) {
+	var mailboxFilter any
+	if mailboxID != nil {
+		if err := s.requireMailboxPortalMailboxAccess(ctx, mailboxUserID, *mailboxID); err != nil {
+			return nil, err
+		}
+		mailboxFilter = *mailboxID
+	}
+	const relations = `
+		FROM mailbox_forward_jobs AS job
+		JOIN inbound_messages AS message ON message.id = job.inbound_message_id
+		JOIN domain_mailboxes AS mailbox ON mailbox.id = job.mailbox_id
+		JOIN domains AS domain ON domain.id = mailbox.domain_id
+		WHERE EXISTS (
+			SELECT 1
+			FROM mailbox_users AS portal_user
+			WHERE portal_user.id = $1
+			  AND portal_user.status = 'ACTIVE'
+			  AND (
+				mailbox.owner_user_id = portal_user.id
+				OR EXISTS (
+					SELECT 1
+					FROM mailbox_memberships AS membership
+					WHERE membership.mailbox_id = mailbox.id
+					  AND membership.user_id = portal_user.id
+				)
+			  )
+		)
+		  AND mailbox.status = 'ACTIVE'
+		  AND domain.status = 'ACTIVE'
+		  AND domain.can_receive = TRUE
+		  AND ($2::bigint IS NULL OR job.mailbox_id = $2)`
+	var total int64
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*)::bigint`+relations, mailboxUserID, mailboxFilter).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count mailbox portal forwarding jobs: %w", err)
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT job.id, job.status::text, job.mode::text, job.forward_to,
+		       job.attempt_count, job.last_error, job.processed_at,
+		       job.created_at, job.next_attempt_at,
+		       message.id, message.subject, message.from_address, message.final_address
+	`+relations+`
+		ORDER BY job.created_at DESC, job.id DESC
+		LIMIT $3 OFFSET $4
+	`, mailboxUserID, mailboxFilter, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, fmt.Errorf("list mailbox portal forwarding jobs: %w", err)
+	}
+	defer rows.Close()
+	list := make([]map[string]any, 0, pageSize)
+	for rows.Next() {
+		var id, inboundMessageID int64
+		var status, mode, forwardTo, fromAddress, finalAddress string
+		var attemptCount int
+		var lastError, subject sql.NullString
+		var processedAt, nextAttemptAt sql.NullTime
+		var createdAt time.Time
+		if err := rows.Scan(
+			&id, &status, &mode, &forwardTo,
+			&attemptCount, &lastError, &processedAt,
+			&createdAt, &nextAttemptAt,
+			&inboundMessageID, &subject, &fromAddress, &finalAddress,
+		); err != nil {
+			return nil, fmt.Errorf("scan mailbox portal forwarding job: %w", err)
+		}
+		list = append(list, map[string]any{
+			"id":            fmt.Sprint(id),
+			"status":        status,
+			"mode":          mode,
+			"forwardTo":     forwardTo,
+			"attemptCount":  attemptCount,
+			"lastError":     nullablePortalString(lastError),
+			"processedAt":   nullableTimeValue(processedAt),
+			"createdAt":     formatAPITime(createdAt),
+			"nextAttemptAt": nullableTimeValue(nextAttemptAt),
+			"inboundMessage": map[string]any{
+				"id": fmt.Sprint(inboundMessageID), "subject": nullablePortalString(subject),
+				"fromAddress": fromAddress, "finalAddress": finalAddress,
+			},
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate mailbox portal forwarding jobs: %w", err)
+	}
+	return map[string]any{"list": list, "total": total, "page": page, "pageSize": pageSize}, nil
+}
+
+func (s *PostgresStore) UpdateMailboxPortalForwarding(
+	ctx context.Context,
+	mailboxUserID, mailboxID int64,
+	mode string,
+	forwardTo *string,
+) (map[string]any, error) {
+	var target any
+	if mode != "DISABLED" && forwardTo != nil {
+		target = strings.TrimSpace(*forwardTo)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin mailbox portal forwarding update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	var id, domainID int64
+	var address, provisioningMode, forwardMode, domainName string
+	var updatedTarget sql.NullString
+	var updatedAt time.Time
+	var domainCanSend, domainCanReceive, sendReady bool
+	err = tx.QueryRow(ctx, `
+		WITH updated AS (
+			UPDATE domain_mailboxes AS mailbox
+			SET forward_mode = $3::"ForwardMode",
+			    forward_to = $4,
+			    updated_at = CURRENT_TIMESTAMP
+			FROM domains AS scope_domain, mailbox_users AS portal_user
+			WHERE mailbox.id = $2
+			  AND scope_domain.id = mailbox.domain_id
+			  AND portal_user.id = $1
+			  AND portal_user.status = 'ACTIVE'
+			  AND (
+				mailbox.owner_user_id = portal_user.id
+				OR EXISTS (
+					SELECT 1
+					FROM mailbox_memberships AS membership
+					WHERE membership.mailbox_id = mailbox.id
+					  AND membership.user_id = portal_user.id
+				)
+			  )
+			  AND mailbox.status = 'ACTIVE'
+			  AND scope_domain.status = 'ACTIVE'
+			  AND scope_domain.can_receive = TRUE
+			RETURNING mailbox.id, mailbox.address, mailbox.provisioning_mode::text,
+			          mailbox.forward_mode::text, mailbox.forward_to, mailbox.updated_at,
+			          mailbox.domain_id
+		)
+		SELECT updated.id, updated.address, updated.provisioning_mode,
+		       updated.forward_mode, updated.forward_to, updated.updated_at,
+		       domain.id, domain.name, domain.can_send, domain.can_receive,
+		       EXISTS (
+				SELECT 1
+				FROM domain_sending_configs AS sending
+				WHERE sending.domain_id = domain.id
+				  AND sending.provider = 'RESEND'
+				  AND sending.status = 'ACTIVE'
+		       )
+		FROM updated
+		JOIN domains AS domain ON domain.id = updated.domain_id
+	`, mailboxUserID, mailboxID, mode, target).Scan(
+		&id, &address, &provisioningMode,
+		&forwardMode, &updatedTarget, &updatedAt,
+		&domainID, &domainName, &domainCanSend, &domainCanReceive, &sendReady,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update scoped mailbox portal forwarding: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit mailbox portal forwarding update: %w", err)
+	}
+	result := map[string]any{
+		"id":               id,
+		"address":          address,
+		"provisioningMode": provisioningMode,
+		"forwardMode":      forwardMode,
+		"forwardTo":        nullablePortalString(updatedTarget),
+		"updatedAt":        formatAPITime(updatedAt),
+		"domain": map[string]any{
+			"id": domainID, "name": domainName,
+			"canSend": domainCanSend, "canReceive": domainCanReceive,
+		},
+		"sendReady": domainCanSend && sendReady,
+	}
+	for key, value := range hostedInternalProtocolSummary(provisioningMode, domainCanSend, domainCanReceive) {
+		result[key] = value
+	}
+	return result, nil
+}
+
+func (s *PostgresStore) loadMailboxPortalSendConfig(
+	ctx context.Context,
+	mailboxUserID, mailboxID int64,
+	encryptionKey string,
+) (resendSendConfig, error) {
+	var result resendSendConfig
+	var encryptedKey, fromName, replyTo sql.NullString
+	var domainCanSend bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT domain.id, domain.name, domain.can_send,
+		       config.api_key_encrypted, config.from_name_default, config.reply_to_default,
+		       mailbox.address
+		FROM domain_mailboxes AS mailbox
+		JOIN domains AS domain ON domain.id = mailbox.domain_id
+		JOIN mailbox_users AS portal_user ON portal_user.id = $1 AND portal_user.status = 'ACTIVE'
+		LEFT JOIN domain_sending_configs AS config
+		  ON config.domain_id = domain.id
+		 AND config.provider = 'RESEND'
+		 AND config.status = 'ACTIVE'
+		WHERE mailbox.id = $2
+		  AND (
+			mailbox.owner_user_id = portal_user.id
+			OR EXISTS (
+				SELECT 1
+				FROM mailbox_memberships AS membership
+				WHERE membership.mailbox_id = mailbox.id
+				  AND membership.user_id = portal_user.id
+			)
+		  )
+		  AND mailbox.status = 'ACTIVE'
+		  AND domain.status = 'ACTIVE'
+		  AND domain.can_receive = TRUE
+	`, mailboxUserID, mailboxID).Scan(
+		&result.DomainID, &result.DomainName, &domainCanSend,
+		&encryptedKey, &fromName, &replyTo, &result.MailboxAddress,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return resendSendConfig{}, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"}
+	}
+	if err != nil {
+		return resendSendConfig{}, fmt.Errorf("load scoped mailbox portal sending configuration: %w", err)
+	}
+	if !domainCanSend {
+		return resendSendConfig{}, &requestError{Status: http.StatusBadRequest, Code: "DOMAIN_SEND_DISABLED"}
+	}
+	if !encryptedKey.Valid || strings.TrimSpace(encryptedKey.String) == "" {
+		return resendSendConfig{}, managementNotFound("SEND_CONFIG_NOT_FOUND")
+	}
+	result, err = withDecryptedResendSendConfig(result, encryptedKey, fromName, replyTo, encryptionKey)
+	if err != nil {
+		return resendSendConfig{}, err
+	}
+	result.MailboxID = &mailboxID
+	return result, nil
+}
+
+func (s *PostgresStore) requireMailboxPortalMailboxAccess(ctx context.Context, mailboxUserID, mailboxID int64) error {
+	var allowed bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM domain_mailboxes AS mailbox
+			JOIN domains AS domain ON domain.id = mailbox.domain_id
+			JOIN mailbox_users AS portal_user ON portal_user.id = $1 AND portal_user.status = 'ACTIVE'
+			WHERE mailbox.id = $2
+			  AND (
+				mailbox.owner_user_id = portal_user.id
+				OR EXISTS (
+					SELECT 1
+					FROM mailbox_memberships AS membership
+					WHERE membership.mailbox_id = mailbox.id
+					  AND membership.user_id = portal_user.id
+				)
+			  )
+			  AND mailbox.status = 'ACTIVE'
+			  AND domain.status = 'ACTIVE'
+			  AND domain.can_receive = TRUE
+		)
+	`, mailboxUserID, mailboxID).Scan(&allowed); err != nil {
+		return fmt.Errorf("authorize mailbox portal mailbox: %w", err)
+	}
+	if !allowed {
+		return &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"}
+	}
+	return nil
+}
+
+func mailboxPortalOutboundMessage(row outboundMessageRow, includeBody bool) map[string]any {
+	result := safeOutboundMessage(row, includeBody)
+	mailbox, ok := result["mailbox"].(map[string]any)
+	if !ok {
+		return result
+	}
+	for key, value := range hostedInternalProtocolSummary(row.ProvisioningMode.String, row.DomainCanSend, row.DomainCanReceive) {
+		mailbox[key] = value
+	}
+	return result
 }
 
 type mailboxPortalMessageListRow struct {

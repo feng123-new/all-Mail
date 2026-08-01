@@ -1,44 +1,63 @@
-# Runtime service-name upgrade
+# Go-only runtime upgrade
 
-This guide applies when upgrading from a revision that used the migration-era names `legacy-init`, `legacy-api`, `LEGACY_API_URL`, and `Dockerfile.legacy`.
+This guide applies when upgrading an existing installation across earlier runtime naming and topology revisions into the current Go-only stack.
 
-## What changes
+## Historical names
 
-| Previous name | Current name |
-| --- | --- |
-| `legacy-init` | `business-init` |
-| `legacy-api` | `business-api` |
-| `LEGACY_API_URL` | `BUSINESS_API_URL` |
-| `ALL_MAIL_LEGACY_IMAGE` | `ALL_MAIL_SERVER_IMAGE` |
-| `Dockerfile.legacy` | `Dockerfile.server` |
-| `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR` | Removed; the Go initializer has no `db push` fallback |
+Earlier migration revisions used these names:
 
-The logical Compose volume is now `runtime_secrets_data`, but its explicit physical name remains:
+| Historical surface | Later migration-era surface | Current status |
+| --- | --- | --- |
+| `legacy-init` | `business-init` | Removed; initialization is a temporary `app init` run |
+| `legacy-api` | `business-api` | Removed; all business routes use `go-business-api` |
+| `LEGACY_API_URL` | `BUSINESS_API_URL` | Removed; only `GO_BUSINESS_API_URL` remains internal |
+| `ALL_MAIL_LEGACY_IMAGE` | `ALL_MAIL_SERVER_IMAGE` | Removed; all Go services share one image |
+| `Dockerfile.legacy` | `Dockerfile.server` | Removed; production uses `Dockerfile` |
+| `ALL_MAIL_ALLOW_LEGACY_DB_PUSH_REPAIR` | no replacement | Removed; schema adoption fails closed |
+
+These names are historical upgrade context, not current commands or configuration.
+
+## Preserved physical volume
+
+The logical Compose volume is `runtime_secrets_data`, but its explicit physical name remains:
 
 ```text
 ${COMPOSE_PROJECT_NAME}_legacy_runtime_data
 ```
 
-This is intentional. Existing `runtime-secrets.env`, `bootstrap-admin.env`, JWT signing state, and the encryption key are reused without copying the volume.
+The physical name is intentionally stable so existing `runtime-secrets.env`, `bootstrap-admin.env`, JWT signing state, and encryption state are reused in place. It does not imply a live legacy service.
+
+Keep the same `COMPOSE_PROJECT_NAME`. Changing it selects a different physical volume.
 
 ## Before upgrading
 
-Back up PostgreSQL and inspect the existing secret volume. Do not delete volumes and do not run initializers from two revisions at the same time.
+Back up PostgreSQL and every secret volume. Do not delete volumes and do not run two revisions at the same time.
 
 ```bash
 docker compose ps -a
 docker volume ls | grep '_legacy_runtime_data$'
+docker compose down
 ```
 
-Keep the same `COMPOSE_PROJECT_NAME` used by the existing installation. Changing the project name selects a different physical volume.
+Preserve:
+
+```text
+postgres_data
+runtime_secrets_data
+forwarding_runtime_data
+go_business_runtime_data
+```
+
+Preserve Redis as well when OAuth, replay, or rate-limit continuity matters.
 
 ## Apply the upgrade
 
-After switching to the new revision, use `--remove-orphans` so containers created under the removed service names do not remain running:
+After switching to the Go-only revision, remove containers created by retired services, then use the canonical helper:
 
 ```bash
-docker compose config --quiet
-docker compose up -d --build --remove-orphans --wait --wait-timeout 300
+git switch <target-tag-or-commit>
+docker compose down --remove-orphans
+./scripts/compose-up.sh
 docker compose ps -a
 ```
 
@@ -46,52 +65,51 @@ Expected long-running services:
 
 ```text
 app
-business-api
+go-business-api
 worker-forwarding
 worker-retention
 postgres
 redis
 ```
 
-Expected one-shot services:
+There is no one-shot Compose service. The helper runs initialization in a temporary `app init` container.
 
-```text
-business-init
-```
-
-Confirm the old service containers are absent:
+Confirm retired containers are absent:
 
 ```bash
-! docker compose ps -a --format '{{.Service}}' | grep -Eq '^(legacy-api|legacy-init)$'
+! docker compose ps -a --format '{{.Service}}' | \
+  grep -Eq '^(legacy-api|legacy-init|business-api|business-init)$'
 ```
 
 ## Verify persisted state
 
 ```bash
-docker compose exec -T business-api sh -lc '
+docker compose exec -T go-business-api sh -lc '
   test -r /var/lib/all-mail/runtime-secrets.env
   sed -n "s/=.*$/=<redacted>/p" /var/lib/all-mail/runtime-secrets.env
 '
 
 docker compose exec -T app allmail doctor api
+docker compose exec -T go-business-api allmail doctor business-api
 docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 ```
 
-The runtime secret file must contain the same long-lived keys used before the rename. Do not regenerate `JWT_SECRET` or `ENCRYPTION_KEY` during this service-name-only cutover.
+Do not regenerate `JWT_SECRET` or `ENCRYPTION_KEY` during the topology upgrade. The database and all secret volumes must come from the same backup set.
 
-## Schema adoption
+## Historical schema adoption
 
-`business-init` is now the Go initializer. It adopts a known checksum-matching Prisma history or a ledgerless database whose complete catalog matches the owned-schema fingerprint. Unknown, unresolved, gapped, or drifted histories stop without a Prisma or `db push` fallback.
+The Go initializer adopts a known checksum-matching former Prisma history or a ledgerless database whose complete catalog matches the owned-schema fingerprint. Unknown, unresolved, gapped, or drifted histories stop without an active Prisma tool or schema-push fallback.
 
 ## Rollback
 
-Stop the complete new revision before starting an older one. The physical secret volume is unchanged, but the older revision expects the previous service and variable names.
+Stop the complete Go-only revision before starting an older one. Use an older revision only if it explicitly supports the current schema and authentication state. Otherwise restore the PostgreSQL and secret-volume backup captured for that revision.
 
 ```bash
 docker compose down
 git switch <previous-known-good-revision>
-docker compose up -d --build --remove-orphans --wait --wait-timeout 300
+# Restore matching PostgreSQL and secret volumes when required.
+# Follow that revision's startup documentation.
 ```
 
-Never use `docker compose down -v` during an upgrade or rollback unless the persisted database and secret state are intentionally being destroyed.
+Never use `docker compose down -v` during upgrade or rollback unless persisted state is intentionally being destroyed.

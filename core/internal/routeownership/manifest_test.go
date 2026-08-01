@@ -23,28 +23,28 @@ func TestCanonicalManifestClassifiesEveryGatewayFamily(t *testing.T) {
 		"dashboard head":            {method: "HEAD", path: "/admin/dashboard/logs", id: "admin-dashboard-logs-read", owner: OwnerGoBusinessAPI},
 		"dashboard log delete":      {method: "DELETE", path: "/admin/dashboard/logs/42", id: "admin-dashboard-log-delete", owner: OwnerGoBusinessAPI},
 		"dashboard batch delete":    {method: "POST", path: "/admin/dashboard/logs/batch-delete", id: "admin-dashboard-log-batch-delete", owner: OwnerGoBusinessAPI},
-		"dashboard catch-all":       {method: "POST", path: "/admin/dashboard/unknown", id: "admin-dashboard-other", owner: OwnerBusinessAPI},
+		"dashboard catch-all":       {method: "POST", path: "/admin/dashboard/unknown", id: "admin-dashboard-other", owner: OwnerGoBusinessAPI},
 		"API key admin":             {method: "POST", path: "/admin/api-keys", id: "admin-api-keys", owner: OwnerGoBusinessAPI},
 		"administrator management":  {method: "GET", path: "/admin/admins", id: "admin-administrators", owner: OwnerGoBusinessAPI},
 		"email group management":    {method: "POST", path: "/admin/email-groups", id: "admin-email-groups", owner: OwnerGoBusinessAPI},
 		"domain mailbox management": {method: "PATCH", path: "/admin/domain-mailboxes/42", id: "admin-domain-mailboxes", owner: OwnerGoBusinessAPI},
 		"mailbox user management":   {method: "DELETE", path: "/admin/mailbox-users/42", id: "admin-mailbox-users", owner: OwnerGoBusinessAPI},
 		"administrator login":       {method: "POST", path: "/admin/auth/login", id: "admin-auth", owner: OwnerGoBusinessAPI},
-		"admin catch-all":           {method: "GET", path: "/admin/unknown", id: "admin-other", owner: OwnerBusinessAPI},
+		"admin catch-all":           {method: "GET", path: "/admin/unknown", id: "admin-other", owner: OwnerGoBusinessAPI},
 		"external email allocate":   {method: "GET", path: "/api/get-email", id: "ext-email-allocate-compat", owner: OwnerGoBusinessAPI},
 		"domain mail":               {method: "POST", path: "/api/domain-mail/messages", id: "domain-email-list", owner: OwnerGoBusinessAPI},
-		"domain regex fallback":     {method: "POST", path: "/api/domain-mail/messages/text", id: "domain-message-text", owner: OwnerBusinessAPI},
-		"external catch-all":        {method: "GET", path: "/api/unknown", id: "external-api", owner: OwnerBusinessAPI},
+		"domain message text":       {method: "POST", path: "/api/domain-mail/messages/text", id: "domain-message-text", owner: OwnerGoBusinessAPI},
+		"external catch-all":        {method: "GET", path: "/api/unknown", id: "external-api", owner: OwnerGoBusinessAPI},
 		"mailbox portal session":    {method: "GET", path: "/mail/api/session", id: "mailbox-portal-session", owner: OwnerGoBusinessAPI},
 		"mailbox portal login":      {method: "POST", path: "/mail/api/login", id: "mailbox-portal-login", owner: OwnerGoBusinessAPI},
 		"mailbox portal two-factor": {method: "POST", path: "/mail/api/2fa/enable", id: "mailbox-portal-two-factor", owner: OwnerGoBusinessAPI},
 		"mailbox portal mailboxes":  {method: "HEAD", path: "/mail/api/mailboxes", id: "mailbox-portal-mailboxes", owner: OwnerGoBusinessAPI},
 		"mailbox portal messages":   {method: "GET", path: "/mail/api/messages/42", id: "mailbox-portal-messages", owner: OwnerGoBusinessAPI},
-		"mailbox portal sending":    {method: "POST", path: "/mail/api/send", id: "mailbox-portal", owner: OwnerBusinessAPI},
-		"mailbox portal sent reads": {method: "GET", path: "/mail/api/sent-messages", id: "mailbox-portal", owner: OwnerBusinessAPI},
-		"mailbox portal forwarding": {method: "POST", path: "/mail/api/forwarding", id: "mailbox-portal", owner: OwnerBusinessAPI},
+		"mailbox portal sending":    {method: "POST", path: "/mail/api/send", id: "mailbox-portal", owner: OwnerGoBusinessAPI},
+		"mailbox portal sent reads": {method: "GET", path: "/mail/api/sent-messages", id: "mailbox-portal", owner: OwnerGoBusinessAPI},
+		"mailbox portal forwarding": {method: "POST", path: "/mail/api/forwarding", id: "mailbox-portal", owner: OwnerGoBusinessAPI},
 		"ingress":                   {method: "POST", path: "/ingress/domain-mail/receive", id: "ingress-domain-mail", owner: OwnerGoBusinessAPI},
-		"ingress catch-all":         {method: "POST", path: "/ingress/unknown", id: "ingress-other", owner: OwnerBusinessAPI},
+		"ingress catch-all":         {method: "POST", path: "/ingress/unknown", id: "ingress-other", owner: OwnerGoBusinessAPI},
 		"spa":                       {method: "GET", path: "/settings/domains", id: "spa", owner: OwnerGo},
 		"prefix boundary":           {method: "GET", path: "/administrator", id: "spa", owner: OwnerGo},
 	}
@@ -68,7 +68,7 @@ func TestCanonicalManifestClassifiesEveryGatewayFamily(t *testing.T) {
 		manifest.Match("PATCH", "/admin/domain-mailboxes/42"),
 		manifest.Match("DELETE", "/admin/mailbox-users/42"),
 	} {
-		if route.MigrationStage != MigrationComplete || route.TargetOwner != "" || route.Owner != OwnerGoBusinessAPI {
+		if route.MigrationStage != MigrationComplete || route.Owner != OwnerGoBusinessAPI {
 			t.Fatalf("completed Go business migration metadata = %#v", route)
 		}
 	}
@@ -79,28 +79,29 @@ func TestCanonicalManifestClassifiesEveryGatewayFamily(t *testing.T) {
 
 func TestManifestRejectsUnsafeOrAmbiguousContracts(t *testing.T) {
 	valid := `{
-		"version":2,
+		"version":3,
 		"description":"test",
 		"routes":[
 			{"id":"admin-read","owner":"go-business-api","match":"prefix","path":"/admin","methods":["GET"],"migrationStage":"complete"},
-			{"id":"admin-write","owner":"business-api","match":"prefix","path":"/admin","methods":["POST"],"migrationStage":"pending","targetOwner":"go-business-api"},
+			{"id":"admin-write","owner":"go-business-api","match":"prefix","path":"/admin","methods":["POST"],"migrationStage":"complete"},
 			{"id":"spa","owner":"go","match":"fallback","path":"/","migrationStage":"complete"}
 		]
 	}`
 
 	cases := map[string]string{
-		"old version":            strings.Replace(valid, `"version":2`, `"version":1`, 1),
-		"unknown field":          strings.Replace(valid, `"description":"test"`, `"description":"test","unexpected":true`, 1),
-		"duplicate id":           strings.Replace(valid, `"id":"spa"`, `"id":"admin-read"`, 1),
-		"overlapping method":     strings.Replace(valid, `"methods":["POST"]`, `"methods":["GET","POST"]`, 1),
-		"all-method ambiguity":   strings.Replace(valid, `"methods":["POST"]`, ``, 1),
-		"unsupported method":     strings.Replace(valid, `"methods":["GET"]`, `"methods":["BREW"]`, 1),
-		"missing fallback":       `{"version":2,"description":"test","routes":[{"id":"admin","owner":"business-api","match":"prefix","path":"/admin","migrationStage":"pending","targetOwner":"go-business-api"}]}`,
-		"unsafe completed owner": strings.Replace(valid, `"owner":"go-business-api","match":"prefix","path":"/admin","methods":["GET"],"migrationStage":"complete"`, `"owner":"business-api","match":"prefix","path":"/admin","methods":["GET"],"migrationStage":"complete"`, 1),
-		"bad pending target":     strings.Replace(valid, `"targetOwner":"go-business-api"`, `"targetOwner":"business-api"`, 1),
-		"bad fallback owner":     strings.Replace(valid, `"id":"spa","owner":"go"`, `"id":"spa","owner":"business-api"`, 1),
-		"fallback methods":       strings.Replace(valid, `"id":"spa","owner":"go","match":"fallback"`, `"id":"spa","owner":"go","match":"fallback","methods":["GET"]`, 1),
-		"multiple values":        valid + `{}`,
+		"old version":          strings.Replace(valid, `"version":3`, `"version":2`, 1),
+		"unknown field":        strings.Replace(valid, `"description":"test"`, `"description":"test","unexpected":true`, 1),
+		"duplicate id":         strings.Replace(valid, `"id":"spa"`, `"id":"admin-read"`, 1),
+		"overlapping method":   strings.Replace(valid, `"methods":["POST"]`, `"methods":["GET","POST"]`, 1),
+		"all-method ambiguity": strings.Replace(valid, `"methods":["POST"]`, ``, 1),
+		"unsupported method":   strings.Replace(valid, `"methods":["GET"]`, `"methods":["BREW"]`, 1),
+		"missing fallback":     `{"version":3,"description":"test","routes":[{"id":"admin","owner":"go-business-api","match":"prefix","path":"/admin","migrationStage":"complete"}]}`,
+		"unsupported owner":    strings.Replace(valid, `"owner":"go-business-api"`, `"owner":"business-api"`, 1),
+		"incomplete stage":     strings.Replace(valid, `"migrationStage":"complete"`, `"migrationStage":"pending"`, 1),
+		"legacy target owner":  strings.Replace(valid, `"migrationStage":"complete"`, `"migrationStage":"complete","targetOwner":"go-business-api"`, 1),
+		"bad fallback owner":   strings.Replace(valid, `"id":"spa","owner":"go"`, `"id":"spa","owner":"business-api"`, 1),
+		"fallback methods":     strings.Replace(valid, `"id":"spa","owner":"go","match":"fallback"`, `"id":"spa","owner":"go","match":"fallback","methods":["GET"]`, 1),
+		"multiple values":      valid + `{}`,
 	}
 
 	for name, content := range cases {
@@ -114,7 +115,7 @@ func TestManifestRejectsUnsafeOrAmbiguousContracts(t *testing.T) {
 
 func TestSnapshotReturnsIndependentRouteAndMethodSlices(t *testing.T) {
 	manifest, err := Parse([]byte(`{
-		"version":2,
+		"version":3,
 		"description":"test",
 		"routes":[
 			{"id":"read","owner":"go-business-api","match":"exact","path":"/read","methods":["get","HEAD","GET"],"migrationStage":"complete"},

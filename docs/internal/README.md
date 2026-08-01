@@ -6,7 +6,7 @@ This subtree is for maintainer-facing design, migration, and operational referen
 
 | Path | Purpose |
 | --- | --- |
-| [`runtime-migration-roadmap.md`](./runtime-migration-roadmap.md) | Current ownership map and deletion gates for completing the Go business-route migration |
+| [`runtime-migration-roadmap.md`](./runtime-migration-roadmap.md) | Completed Go business-route migration and runtime deletion record |
 | [`archive/2026-go-rewrite/`](./archive/2026-go-rewrite/) | Historical PR plans, status reports, and superseded rewrite notes |
 | [`desktop/`](./desktop/) | Desktop-product explorations and solution planning |
 | [`ops/`](./ops/) | OpenCode/OpenClaw integration notes and maintainer-side ops references |

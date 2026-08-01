@@ -2,238 +2,189 @@
 
 ## Status
 
-The Go runtime is the canonical public Docker entrypoint. Migration is complete for public HTTP ownership, SPA delivery, route governance, forwarding, API-log retention, Dashboard reads and log-deletion writes, API-key administration/security, signed domain-mail ingress, and the database-only external mailbox/domain-mail slice. The complete business API is not yet migrated.
+The production runtime and every public route are now Go-owned. The route migration is complete.
 
 ```text
 Browser / automation / Cloudflare Worker
                   |
                   v
              app (Go gateway)
-              /      |       \
-        React SPA    |        remaining business routes
-                     |                 |
-                     v                 v
-            go-business-api       business-api
-            private Go routes     Fastify / Prisma
-                     \                 /
-                      v               v
-                    PostgreSQL + Redis
+             /             \
+      React SPA             go-business-api
+                             private Go routes
+                                  |
+                          PostgreSQL + Redis
+
+worker-forwarding and worker-retention run as independent Go processes
 ```
+
+There is no production Node server, separate legacy API, or alternate route owner.
 
 ## Current ownership
 
-Go owns:
+`app` owns:
 
-- public listener, trusted-proxy normalization, SPA, request IDs, security headers, liveness, readiness, and metrics;
-- method-aware route ownership and bounded migration telemetry;
-- the private `go-business-api` service;
-- Dashboard statistics, trend, operation-log reads, single deletion, and batch deletion;
-- API-key administration, explicit permissions, authentication, Redis limiting, usage accounting, and allocation state;
-- database-backed external mailbox/domain-mail allocation, listing, statistics, reset, and persisted message reads;
-- signed ingress authentication, encrypted endpoint-secret reads, Redis replay protection, mailbox resolution, inbound persistence, and forwarding-job creation;
-- administrator, email-group, domain-mailbox, and mailbox-user management, including batch mailbox transactions and membership synchronization;
-- external mailbox account management, OAuth state/configuration, Gmail/Graph/IMAP/SMTP provider operations, sending configuration/history, and Resend delivery;
-- complete business-schema history, Prisma/runtime-ledger adoption, catalog fingerprint validation, runtime-secret initialization, durable environment import, ciphertext compatibility verification, and first-administrator bootstrap;
-- checksummed additive migrations;
-- forwarding and API-log retention workers.
+- the public listener;
+- trusted-proxy normalization;
+- the React SPA and fallback;
+- request IDs and security headers;
+- `/health`, `/livez`, `/readyz`, and `/metrics`;
+- route-manifest loading and bounded route telemetry;
+- proxying every business route to `go-business-api`.
 
-Fastify/Prisma still owns remaining domain/message/alias and mailbox-portal operations, JavaScript regex text extraction compatibility, and dormant authentication handlers retained for revision rollback.
+`go-business-api` owns:
+
+- administrator and mailbox authentication, password rotation, 2FA, and revocable sessions;
+- Dashboard reads and operation-log deletion;
+- administrator, API-key, email-group, domain, mailbox, alias, mailbox-user, and forwarding-job management;
+- mailbox portal reads and writes;
+- external mailbox allocation and provider operations;
+- OAuth configuration/state and token refresh;
+- signed ingress verification, replay protection, resolution, and persistence;
+- sending configuration, history, and provider delivery;
+- all `/admin`, `/api`, `/mail/api`, `/ingress`, and `/oauth` business families.
+
+Independent Go processes own forwarding and API-log retention. The temporary `app init` run owns schema adoption/migration, secret initialization, durable configuration import, ciphertext verification, and first-administrator bootstrap.
 
 ## Runtime layout
 
 ```text
-business-init       Go secrets + complete schema adoption/migration + ciphertext verification
-                    + durable imports + first administrator + least-privilege exports
-app                 public gateway, SPA, method-aware private-upstream routing
-go-business-api     private migrated business handlers
-business-api        remaining Fastify/Prisma handlers
-worker-forwarding   independent Go forwarding runtime
-worker-retention    independent Go retention runtime
+app                 public gateway, SPA, readiness, metrics, and one private proxy
+go-business-api     complete private business API
+worker-forwarding   forwarding runtime
+worker-retention    retention runtime
 postgres            private database
 redis               private security/cache state
 ```
 
-Only `app` is host-published.
+Only `app` is published. All six services use the shared Go image where applicable; initialization is not a Compose service.
 
 ## Startup ordering
 
+`./scripts/compose-up.sh` is the canonical path:
+
 ```text
-postgres + redis healthy
-        |
-        v
-business-init
-  - split old secret bundle
+postgres healthy
+      |
+      v
+build shared Go image
+      |
+      v
+temporary app init
+  - split old secret bundle when present
   - establish runtime secrets
-  - execute or adopt the immutable Prisma history
-  - apply numbered Go migrations and finalize the canonical ledger
-  - verify every historical ciphertext category
-  - durable configuration import
-  - advisory-locked administrator bootstrap
-  - export forwarding and Go-business key files
-        |
-        +------------------------------+
-        |              |               |
-        v              v               v
-business-api   go-business-api     Go workers
-        \              /
-         +-------------+
-                |
-                v
-               app
+  - execute or adopt immutable schema history
+  - apply numbered Go migrations
+  - verify historical ciphertext
+  - import durable configuration
+  - bootstrap the first administrator
+  - export least-privilege key files
+      |
+      v
+go-business-api + redis + workers
+      |
+      v
+app ready
 ```
 
-Long-running services do not migrate schema or create administrators.
+Long-running services do not mutate schema or create administrators.
 
 ## Secret ownership
 
-Long-lived Fastify state:
+Managed state on `runtime_secrets_data`:
 
 ```text
 /var/lib/all-mail/runtime-secrets.env
   JWT_SECRET
   ENCRYPTION_KEY
-```
 
-One-time administrator state:
-
-```text
 /var/lib/all-mail/bootstrap-admin.env
+  ADMIN_USERNAME
+  ADMIN_PASSWORD
 ```
 
-Least-privilege Go exports:
+Least-privilege exports:
 
 ```text
-worker-forwarding:
-  ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
-
 go-business-api:
   JWT_SECRET_FILE=/var/lib/all-mail-secrets/jwt-secret
   ENCRYPTION_KEY_FILE=/var/lib/all-mail-encryption/encryption-key
+
+worker-forwarding:
+  ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
 ```
 
-The public `app` receives neither file. `go-business-api` receives PostgreSQL, Redis, the read-only JWT file, and a read-only encryption-key copy used to decrypt persisted provider, OAuth, sending, and ingress credentials; raw secrets remain absent from its environment.
+`app` receives no database, Redis, JWT, encryption, OAuth, ingress-signing, or provider credential. `go-business-api` receives no raw secret environment value. The one-time administrator file is removed after successful forced password rotation.
 
-## Public gateway routing
+## Route ownership
 
-The gateway receives only static assets, proxy settings, timeouts, the route manifest, and fixed internal transport URLs:
+`config/route-ownership.json` is the source-controlled authority. Manifest version 3 permits only:
 
 ```text
-BUSINESS_API_URL=http://business-api:3100
+go
+go-business-api
+```
+
+Every entry has `migrationStage: complete`; no entry has `targetOwner`. System endpoints and the SPA fallback are handled by `go`; every business family is proxied to `go-business-api` through:
+
+```text
 GO_BUSINESS_API_URL=http://go-business-api:3200
-```
-
-The manifest, not an environment flag, determines ownership.
-
-Current method split:
-
-```text
-GET    /admin/dashboard/stats              -> go-business-api
-GET    /admin/dashboard/api-trend          -> go-business-api
-GET    /admin/dashboard/logs               -> go-business-api
-DELETE /admin/dashboard/logs/:id           -> go-business-api
-POST   /admin/dashboard/logs/batch-delete  -> go-business-api
-
-/admin/api-keys/**                         -> go-business-api
-/admin/emails/**                           -> go-business-api
-/admin/oauth/**                            -> go-business-api
-/admin/send/**                             -> go-business-api
-/oauth                                     -> go-business-api
-database-only /api mailbox routes          -> go-business-api
-provider /api mail_new/mail_all/process    -> go-business-api
-database-only /api/domain-mail routes      -> go-business-api
-regex compatibility routes                 -> business-api
-```
-
-```text
-POST /ingress/domain-mail/receive              -> go-business-api
-
-/admin/admins/**                                -> go-business-api
-/admin/email-groups/**                         -> go-business-api
-/admin/domain-mailboxes/**                     -> go-business-api
-/admin/mailbox-users/**                        -> go-business-api
-/admin/auth/**                                 -> go-business-api
-POST /mail/api/login|logout|change-password    -> go-business-api
-GET  /mail/api/session|mailboxes               -> go-business-api
-/mail/api/2fa/**                               -> go-business-api
-GET  /mail/api/messages/**                     -> go-business-api
-other /mail/api operations                     -> business-api
-other /ingress compatibility paths             -> business-api
 ```
 
 Every response carries `X-All-Mail-Route-Owner` and `X-All-Mail-Route-Family`. See [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md).
 
-## Private Go authentication
+## Authentication contract
 
 Administrator and mailbox session verification requires:
 
 1. HS256;
 2. issuer `all-mail`;
-3. audience `admin-console` or `mailbox-portal` for the matching identity type;
+3. the matching `admin-console` or `mailbox-portal` audience;
 4. valid expiry and optional not-before;
 5. positive subject and session version;
 6. matching durable PostgreSQL session version;
 7. an existing active database identity;
-8. `mustChangePassword=false` for ordinary business routes, while session inspection and password rotation remain available.
+8. completed mandatory password rotation for ordinary protected routes.
 
-Go issues Fastify-compatible administrator and mailbox JWTs and `HttpOnly`, `SameSite=Lax`, production-`Secure` cookies. Password, role, status, mandatory-rotation, and 2FA changes increment durable session state and revoke older tokens. Redis login protection is fail closed; administrator keys retain their historical byte format and mailbox users use an isolated namespace. Mailbox message authorization reloads current memberships from PostgreSQL and never trusts the JWT mailbox list.
+Password, role, status, mandatory-rotation, and 2FA changes increment durable session state and revoke older tokens. Redis-backed login protection fails closed. Mailbox authorization reloads current memberships from PostgreSQL rather than trusting a token-carried mailbox list.
 
-## Dashboard contract
-
-Dashboard reads preserve the existing success and error envelopes, UTC date behavior, bounded query parameters, deterministic ordering, and request-ID metadata.
-
-Dashboard writes preserve:
-
-```json
-{"success":true,"data":{"deleted":true}}
-{"success":true,"data":{"deleted":2}}
-```
-
-Single and batch deletion run in PostgreSQL transactions. The target deletion and administrator audit row commit together. Batch requests accept 1–1000 positive IDs and normalize duplicates. Audit metadata records the administrator, request ID, client IP, operation details, and response time.
-
-Fastify Dashboard handlers remain temporarily for revision rollback. They are removed only after route metrics show zero Fastify traffic and errors for the agreed observation window.
-
-## API-key and external database contract
-
-Go owns API-key CRUD, explicit fail-closed permissions, aliases and wildcards, SHA-256 lookup, status and expiry checks, Redis-backed per-minute limits, `usageCount` and `lastUsedAt`, resource scopes, allocation state, and API audit logs.
-
-Historical keys with NULL or empty permissions are migrated to explicit `all=true` before either runtime starts. New keys require at least one enabled known permission.
-
-Database and provider-dependent external mailbox routes are exact Go-owned entries. JavaScript regex text extraction remains Fastify-owned.
-
-Redis failure is fail closed and makes `go-business-api` not ready.
-
-## Aggregate readiness and metrics
+## Readiness and metrics
 
 Public `/readyz` requires:
 
-1. a valid method-aware manifest;
-2. built React assets;
-3. Fastify readiness;
-4. private Go-business readiness.
+1. a valid method-aware route manifest;
+2. the built React `index.html`;
+3. private `go-business-api` readiness.
 
-Both private services perform real PostgreSQL and Redis protocol checks for active security state.
+The private readiness probe checks PostgreSQL and Redis. Worker doctors validate their independent heartbeat files and process state.
 
-Public metrics expose bounded owner, method, status-class, inflight, latency, request, and private-upstream error series. Arbitrary methods collapse to `OTHER`; raw paths, identities, addresses, API keys, request IDs, secrets, and error text never become labels.
+Public metrics use bounded route owner, family, method, status-class, inflight, latency, request, and proxy-error labels. Raw paths, identities, addresses, API keys, request IDs, secrets, and error text are not metric labels.
 
-## Migration guarantees
+## Historical schema compatibility
 
-The Go migration runner uses direct `pgx` transactions, an explicit immutable Prisma manifest, lexical numbered Go files, SHA-256 checksums, advisory locks, prefix validation, and atomic canonical/compatibility ledger recording. Empty databases execute the real history. Existing Prisma-ledger databases are adopted only when names, order, checksums, and migration postconditions match. Ledgerless databases are adopted only when the complete owned-catalog fingerprint matches.
+The Go schema runner uses direct `pgx` transactions, embedded immutable history, numbered Go SQL files, SHA-256 checksums, advisory locks, prefix validation, catalog postconditions, and atomic ledger recording.
 
-`allmail_schema_migrations` is authoritative. `_prisma_migrations` and `runtime_migrations` remain compatibility mirrors for revision rollback. The Go image contains no Node, Prisma CLI, or `psql`.
+The embedded history includes migrations originally created under Prisma. Existing `_prisma_migrations` databases are adopted only when names, order, checksums, and postconditions match. Ledgerless databases are adopted only when the complete owned-catalog fingerprint matches.
 
-Repository gates cover Go format/race/vet/build/govulncheck, route ownership, JWT/session parity, Dashboard read/write fixtures, real PostgreSQL/Redis integrations, Fastify, React, Worker, dependency audit, Docker bootstrap, secret isolation, stale-token revocation, route-owner smoke, and all runtime doctors.
+`allmail_schema_migrations` is authoritative. `_prisma_migrations` and `runtime_migrations` remain compatibility mirrors for supported in-place upgrades and declared rollback windows. These names describe immutable database history only; the production image contains no Node runtime, Prisma package or CLI, schema file, engine, or `psql`.
 
-## Next ports
+Applied migrations must never be edited. Unknown, gapped, checksum-mismatched, or structurally drifted state fails closed.
 
-Recommended order:
+## Completed deletion gates
 
-1. remaining domain, message, alias, and portal operations;
-2. zero-traffic observation and final Node/Prisma deletion.
+The final route migration and runtime deletion gates are satisfied:
 
-Every slice must move authorization, validation, transactions, parity, failure injection, method-aware ownership, Docker smoke, and revision rollback together.
+- every public path and method is owned by `go` or `go-business-api`;
+- the manifest contains only completed entries;
+- the public gateway has one private upstream;
+- fresh install, upgrade, restore, and rollback use the Go initializer;
+- the former Node server tree and separate production image are removed;
+- the production image and runtime topology are Go-only.
+
+Historical implementation plans remain under `docs/internal/archive/` and are not current operator guidance.
 
 ## Rollback
 
-Rollback is revision based. Preserve PostgreSQL and all runtime secret volumes, stop the complete revision, and deploy the previous known-good revision. Never run initializers, workers, or business APIs from two revisions against the same persisted state.
+Rollback is revision based. Preserve PostgreSQL and all secret volumes, stop the complete revision, and deploy a previous revision only when it explicitly supports the current schema and authentication state. Otherwise restore the matching database and secret-volume backup before startup.
 
-After any mailbox user enrolls in 2FA, the authentication slice must not roll `business-api` back to a revision older than this compatibility contract because the older login handler does not enforce mailbox 2FA. Roll back the route cut by committing a manifest owner revert while retaining the compatible Fastify handlers, then deploy that complete revision. This preserves source-controlled ownership and keeps password, Redis lockout, OTP, and session-version checks active.
+Compatibility ledger rows may support a declared immediate rollback window; they are not a promise that arbitrary older revisions can consume the current state. Never run initializers, workers, or APIs from two revisions against the same persisted state.

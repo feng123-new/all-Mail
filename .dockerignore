@@ -32,7 +32,6 @@ npm-debug.log*
 .sisyphus
 oauth-temp
 gmail_oauth
-server/.env
 web/.env
 
 # Test

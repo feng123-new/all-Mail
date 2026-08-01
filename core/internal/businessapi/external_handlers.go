@@ -47,6 +47,9 @@ func (s *Server) registerExternalRoutes(mux *http.ServeMux) {
 	for _, path := range []string{"/api/messages/latest", "/api/mail_new"} {
 		mux.HandleFunc(path, s.withAPIKeyProvider(actionExternalReadLatestMessage, s.latestExternalProviderMessage))
 	}
+	for _, path := range []string{"/api/messages/text", "/api/mail_text"} {
+		mux.HandleFunc(path, s.withExternalMessageTextAPIKey(s.readExternalMessageText))
+	}
 	for _, path := range []string{"/api/messages", "/api/mail_all"} {
 		mux.HandleFunc(path, s.withAPIKeyProvider(actionExternalListMessages, s.listExternalProviderMessages))
 	}

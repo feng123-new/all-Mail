@@ -12,9 +12,8 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/config"
 )
 
-func TestReadinessRequiresStaticAssetsAndBothBusinessAPIs(t *testing.T) {
+func TestReadinessRequiresStaticAssetsAndGoBusinessAPI(t *testing.T) {
 	prober := Prober{
-		BusinessAPI:   func(context.Context, string) error { return nil },
 		GoBusinessAPI: func(context.Context, string) error { return nil },
 	}
 	cfg := config.APIConfig{StaticDir: t.TempDir()}
@@ -25,31 +24,23 @@ func TestReadinessRequiresStaticAssetsAndBothBusinessAPIs(t *testing.T) {
 	if report.Checks["staticAssets"] != "index.html unavailable" {
 		t.Fatalf("staticAssets check = %q", report.Checks["staticAssets"])
 	}
-	if report.Checks["businessApi"] != "required-but-not-configured" {
-		t.Fatalf("businessApi check = %q", report.Checks["businessApi"])
-	}
 	if report.Checks["goBusinessApi"] != "required-but-not-configured" {
 		t.Fatalf("goBusinessApi check = %q", report.Checks["goBusinessApi"])
 	}
 }
 
-func TestReadinessRunsBothPrivateProbes(t *testing.T) {
+func TestReadinessRunsGoBusinessProbe(t *testing.T) {
 	directory := t.TempDir()
 	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("ok"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	businessCalls := 0
 	goCalls := 0
 	prober := Prober{
-		BusinessAPI:   func(context.Context, string) error { businessCalls++; return nil },
 		GoBusinessAPI: func(context.Context, string) error { goCalls++; return nil },
 	}
-	report := prober.Check(context.Background(), config.APIConfig{
-		StaticDir:      directory,
-		BusinessAPIURL: "http://business-api:3100",
-	}, "http://go-business-api:3200")
-	if !report.Ready || businessCalls != 1 || goCalls != 1 {
-		t.Fatalf("report = %#v, business calls = %d, Go calls = %d", report, businessCalls, goCalls)
+	report := prober.Check(context.Background(), config.APIConfig{StaticDir: directory}, "http://go-business-api:3200")
+	if !report.Ready || goCalls != 1 {
+		t.Fatalf("report = %#v, Go calls = %d", report, goCalls)
 	}
 }
 

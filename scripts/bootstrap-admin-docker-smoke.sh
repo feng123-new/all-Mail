@@ -12,7 +12,7 @@ PY
 }
 
 # Secret and process isolation.
-docker compose exec -T business-api sh -lc '
+docker compose exec -T go-business-api sh -lc '
   test -r /var/lib/all-mail/runtime-secrets.env
   test -r /var/lib/all-mail/bootstrap-admin.env
   test ! -e /var/lib/all-mail/bootstrap-secrets.env
@@ -23,7 +23,7 @@ docker compose exec -T business-api sh -lc '
   test -z "${ADMIN_2FA_SECRET:-}"
   test -n "${BOOTSTRAP_ADMIN_SECRET_FILE:-}"
 '
-docker compose exec -T business-api sh -lc \
+docker compose exec -T go-business-api sh -lc \
   '! grep -Eq "^(ADMIN_USERNAME|ADMIN_PASSWORD)=" /var/lib/all-mail/runtime-secrets.env'
 docker compose exec -T go-business-api sh -lc '
   test -r /var/lib/all-mail-secrets/jwt-secret
@@ -45,9 +45,9 @@ test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT
 initial_session_version=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT session_version FROM admins LIMIT 1')
 test "$initial_session_version" -ge 1
 
-username=$(docker compose exec -T business-api sh -lc \
+username=$(docker compose exec -T go-business-api sh -lc \
   "grep '^ADMIN_USERNAME=' /var/lib/all-mail/bootstrap-admin.env | cut -d= -f2-")
-password=$(docker compose exec -T business-api sh -lc \
+password=$(docker compose exec -T go-business-api sh -lc \
   "grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-admin.env | cut -d= -f2-")
 test -n "$username"
 test -n "$password"
@@ -100,7 +100,7 @@ test "$new_token" != "$old_token"
 
 current_session_version=$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT session_version FROM admins LIMIT 1')
 test "$current_session_version" -gt "$initial_session_version"
-docker compose exec -T business-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
+docker compose exec -T go-business-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
 test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT must_change_password FROM admins LIMIT 1')" = "f"
 
 stale_headers="$RUNNER_TEMP/stale-session-headers.txt"
@@ -222,7 +222,7 @@ regex_headers="$RUNNER_TEMP/domain-regex-headers.txt"
 curl --globoff --fail --silent --show-error -D "$regex_headers" -o /dev/null \
   -H "X-API-Key: $raw_api_key" \
   "$BASE_URL/api/domain-mail/messages/text?email=pool@ci.example&match=([0-9]{6})"
-grep -qi '^X-All-Mail-Route-Owner: business-api' "$regex_headers"
+grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$regex_headers"
 
 denied_body="$RUNNER_TEMP/denied-key-create.json"
 curl --fail --silent --show-error -o "$denied_body" \
@@ -262,12 +262,12 @@ grep -q 'RATE_LIMIT_EXCEEDED' "$limited_response"
 test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc "SELECT COUNT(*) FROM api_logs WHERE api_key_id = (SELECT id FROM api_keys WHERE name = 'ci-go-key')")" -ge 5
 
 # Initializer reruns remain idempotent after the credential has been retired.
-docker compose run --rm business-init
+./scripts/compose-up.sh
 test "$(docker compose exec -T postgres psql -U allmail -d allmail -Atqc 'SELECT count(*) FROM admins')" = "1"
-docker compose exec -T business-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
-docker compose exec -T business-api sh -lc 'test -r /var/lib/all-mail/runtime-secrets.env'
+docker compose exec -T go-business-api sh -lc 'test ! -e /var/lib/all-mail/bootstrap-admin.env'
+docker compose exec -T go-business-api sh -lc 'test -r /var/lib/all-mail/runtime-secrets.env'
 docker compose exec -T go-business-api sh -lc 'test -r /var/lib/all-mail-secrets/jwt-secret'
-test "$(docker compose exec -T business-api cat /var/lib/all-mail/pre-rename-volume-marker)" = "preserved"
+test "$(docker compose exec -T go-business-api cat /var/lib/all-mail/pre-rename-volume-marker)" = "preserved"
 
 docker compose exec -T app allmail doctor api
 docker compose exec -T go-business-api allmail doctor business-api

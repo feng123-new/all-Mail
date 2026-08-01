@@ -8,10 +8,6 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const read = (relativePath) => readFile(path.join(repoRoot, relativePath), "utf8");
 const supportedMethods = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
 
-function routePrefixValues(source) {
-	return Array.from(source.matchAll(/^\s+[A-Za-z0-9_]+:\s*'([^']+)'/gm), (match) => match[1]);
-}
-
 function methodSet(route) {
 	return new Set((route.methods || []).map((method) => method.toUpperCase()));
 }
@@ -22,16 +18,15 @@ function methodsOverlap(left, right) {
 }
 
 test("the method-aware route ownership manifest covers every runtime namespace", async () => {
-	const [manifest, prefixes, app, gateway, dockerfile, compose] = await Promise.all([
+	const [manifest, businessServer, gateway, dockerfile, compose] = await Promise.all([
 		read("config/route-ownership.json").then(JSON.parse),
-		read("server/src/routes/prefixes.ts"),
-		read("server/src/app.ts"),
+		read("core/internal/businessapi/server.go"),
 		read("core/internal/httpapi/server.go"),
 		read("Dockerfile"),
 		read("docker-compose.yml"),
 	]);
 
-	assert.equal(manifest.version, 2);
+	assert.equal(manifest.version, 3);
 	assert.ok(Array.isArray(manifest.routes));
 	assert.ok(manifest.routes.length >= 45);
 
@@ -39,8 +34,10 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 	const matcherGroups = new Map();
 	for (const route of manifest.routes) {
 		assert.match(route.id, /^[a-z0-9][a-z0-9-]*$/);
-		assert.ok(["go", "go-business-api", "business-api"].includes(route.owner), route.id);
+		assert.ok(["go", "go-business-api"].includes(route.owner), route.id);
 		assert.ok(["exact", "prefix", "fallback"].includes(route.match), route.id);
+		assert.equal(route.migrationStage, "complete", route.id);
+		assert.equal(route.targetOwner, undefined, route.id);
 		assert.ok(!ids.has(route.id), `duplicate route id ${route.id}`);
 		ids.add(route.id);
 
@@ -59,89 +56,44 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 		matcherGroups.set(matcherKey, previous);
 	}
 
-	const declaredPaths = new Set(manifest.routes.map((route) => route.path));
-	for (const prefix of routePrefixValues(prefixes)) {
-		assert.ok(declaredPaths.has(prefix), `Fastify prefix ${prefix} is absent from route ownership`);
-	}
-
-	for (const [routePath, family] of [
-		["/health", "system-health"],
-		["/livez", "system-liveness"],
-		["/readyz", "system-readiness"],
-		["/metrics", "system-metrics"],
+	for (const [routePath, family, owner] of [
+		["/health", "system-health", "go"],
+		["/livez", "system-liveness", "go"],
+		["/readyz", "system-readiness", "go"],
+		["/metrics", "system-metrics", "go"],
+		["/admin", "admin-other", "go-business-api"],
+		["/api", "external-api", "go-business-api"],
+		["/mail/api", "mailbox-portal", "go-business-api"],
+		["/ingress", "ingress-other", "go-business-api"],
+		["/oauth", "oauth-compatibility", "go-business-api"],
 	]) {
 		const route = manifest.routes.find((candidate) => candidate.path === routePath);
-		assert.deepEqual(
-			{ id: route?.id, owner: route?.owner, match: route?.match },
-			{ id: family, owner: "go", match: "exact" },
-		);
+		assert.equal(route?.id, family);
+		assert.equal(route?.owner, owner);
 	}
 
-	for (const id of [
-		"admin-dashboard-stats-read",
-		"admin-dashboard-trend-read",
-		"admin-dashboard-logs-read",
-		"admin-dashboard-log-delete",
-		"admin-dashboard-log-batch-delete",
-		"admin-administrators",
-		"admin-email-groups",
-		"admin-emails",
-		"admin-oauth",
-		"admin-send",
-		"admin-domain-mailboxes",
-		"admin-mailbox-users",
+	for (const registration of [
+		"registerAuthenticationRoutes",
+		"registerMailboxAuthenticationRoutes",
+		"registerMailboxPortalReadRoutes",
+		"registerDashboardWriteRoutes",
+		"registerDomainManagementRoutes",
+		"registerDomainMessageRoutes",
+		"registerDomainMessageTextRoutes",
+		"registerForwardingJobRoutes",
+		"registerAPIKeyRoutes",
+		"registerExternalRoutes",
+		"registerIngressRoutes",
+		"registerAdminManagementRoutes",
+		"registerEmailGroupManagementRoutes",
+		"registerDomainMailboxManagementRoutes",
+		"registerMailboxUserManagementRoutes",
+		"registerMailAccountRoutes",
+		"registerOAuthRoutes",
+		"registerSendRoutes",
 	]) {
-		const route = manifest.routes.find((candidate) => candidate.id === id);
-		assert.equal(route?.owner, "go-business-api", id);
-		assert.equal(route?.migrationStage, "complete", id);
-		assert.equal(route?.targetOwner, undefined, id);
+		assert.match(businessServer, new RegExp(`s\\.${registration}\\(mux\\)`), registration);
 	}
-	for (const id of [
-		"admin-dashboard-stats-read",
-		"admin-dashboard-trend-read",
-		"admin-dashboard-logs-read",
-	]) {
-		const route = manifest.routes.find((candidate) => candidate.id === id);
-		assert.deepEqual(route?.methods, ["GET", "HEAD"]);
-	}
-	const dashboardCatchAll = manifest.routes.find((candidate) => candidate.id === "admin-dashboard-other");
-	assert.equal(dashboardCatchAll?.owner, "business-api");
-	assert.equal(dashboardCatchAll?.targetOwner, "go-business-api");
-
-	const apiKeyAdmin = manifest.routes.find((candidate) => candidate.id === "admin-api-keys");
-	assert.equal(apiKeyAdmin?.owner, "go-business-api");
-	assert.equal(apiKeyAdmin?.migrationStage, "complete");
-
-	for (const id of [
-		"ext-email-allocate", "ext-email-list", "ext-email-stats", "ext-email-reset",
-		"ext-email-latest", "ext-email-latest-compat", "ext-email-messages", "ext-email-messages-compat",
-		"ext-email-clear", "ext-email-clear-compat",
-		"domain-email-allocate", "domain-email-latest", "domain-email-list",
-		"domain-mailbox-list", "domain-mailbox-stats", "domain-mailbox-reset",
-	]) {
-		const route = manifest.routes.find((candidate) => candidate.id === id);
-		assert.equal(route?.owner, "go-business-api", id);
-		assert.equal(route?.migrationStage, "complete", id);
-		assert.equal(route?.match, "exact", id);
-	}
-	for (const id of ["domain-message-text", "domain-message-text-compat"]) {
-		const route = manifest.routes.find((candidate) => candidate.id === id);
-		assert.equal(route?.owner, "business-api", id);
-		assert.equal(route?.targetOwner, "go-business-api", id);
-	}
-
-	const ingress = manifest.routes.find((candidate) => candidate.id === "ingress-domain-mail");
-	assert.equal(ingress?.owner, "go-business-api");
-	assert.equal(ingress?.migrationStage, "complete");
-	assert.equal(ingress?.targetOwner, undefined);
-	const ingressCatchAll = manifest.routes.find((candidate) => candidate.id === "ingress-other");
-	assert.equal(ingressCatchAll?.owner, "business-api");
-	assert.equal(ingressCatchAll?.targetOwner, "go-business-api");
-
-	const oauthCompatibility = manifest.routes.find((candidate) => candidate.id === "oauth-compatibility");
-	assert.equal(oauthCompatibility?.owner, "go-business-api");
-	assert.equal(oauthCompatibility?.migrationStage, "complete");
-	assert.equal(oauthCompatibility?.targetOwner, undefined);
 
 	const fallback = manifest.routes.filter((route) => route.match === "fallback");
 	assert.deepEqual(fallback, [{
@@ -152,19 +104,16 @@ test("the method-aware route ownership manifest covers every runtime namespace",
 		migrationStage: "complete",
 	}]);
 
-	assert.doesNotMatch(prefixes, /legacyOauth/);
-	assert.doesNotMatch(app, /legacyOAuth/);
-	assert.match(prefixes, /oauthCompatibility:\s*'\/oauth'/);
-	assert.match(app, /ROUTE_PREFIXES\.oauthCompatibility/);
 	assert.doesNotMatch(gateway, /X-All-Mail-Migration-Bridge/);
-	assert.doesNotMatch(gateway, /prefixes\s*:=\s*\[\]string\{/);
+	assert.doesNotMatch(gateway, /\bOwnerBusinessAPI\b|(?<!GO_)BUSINESS_API_URL/);
 	assert.match(gateway, /OwnerGoBusinessAPI/);
 	assert.match(gateway, /GO_BUSINESS_API_URL/);
 	assert.match(dockerfile, /COPY config\/route-ownership\.json \/app\/config\/route-ownership\.json/);
 	assert.match(dockerfile, /ALL_MAIL_ROUTE_OWNERSHIP_FILE=\/app\/config\/route-ownership\.json/);
 	assert.match(compose, /go-business-api:/);
+	assert.doesNotMatch(compose, /\n[ ]{2}business-(?:api|init):/);
 	assert.match(compose, /GO_BUSINESS_API_URL: http:\/\/go-business-api:3200/);
-	assert.doesNotMatch(compose.match(/app:[\s\S]*?worker-forwarding:/)?.[0] || "", /DATABASE_URL|JWT_SECRET_FILE/);
+	assert.doesNotMatch(compose.match(/\n[ ]{2}app:[\s\S]*?\n[ ]{2}go-business-api:/)?.[0] || "", /DATABASE_URL|JWT_SECRET_FILE/);
 });
 
 test("active documentation points to route ownership and the private Go service", async () => {

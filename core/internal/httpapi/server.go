@@ -31,7 +31,6 @@ type Server struct {
 	goBusinessAPIURL string
 	logger           *slog.Logger
 	startedAt        time.Time
-	businessProxy    *httputil.ReverseProxy
 	goBusinessProxy  *httputil.ReverseProxy
 	prober           readiness.Prober
 	routes           *routeownership.Manifest
@@ -77,18 +76,6 @@ func newWithProber(
 		routes:           routes,
 		routeMetrics:     newRouteMetrics(routes),
 	}
-	if cfg.BusinessAPIURL != "" {
-		target, err := cfg.BusinessURL()
-		if err != nil {
-			return nil, err
-		}
-		server.businessProxy = newBusinessProxy(
-			target,
-			routeownership.OwnerBusinessAPI,
-			logger,
-			server.routeMetrics,
-		)
-	}
 	if goBusinessAPIURL != "" {
 		target, err := url.Parse(goBusinessAPIURL)
 		if err != nil {
@@ -96,7 +83,6 @@ func newWithProber(
 		}
 		server.goBusinessProxy = newBusinessProxy(
 			target,
-			routeownership.OwnerGoBusinessAPI,
 			logger,
 			server.routeMetrics,
 		)
@@ -129,7 +115,6 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Info(
 			"Go API runtime listening",
 			"address", httpServer.Addr,
-			"business_api", s.cfg.BusinessAPIURL,
 			"go_business_api", s.goBusinessAPIURL,
 			"trusted_proxy_cidrs", len(s.cfg.TrustedProxyCIDRs),
 			"route_manifest_version", s.routes.Snapshot().Version,
@@ -152,7 +137,7 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func gatewayWriteTimeout(cfg config.APIConfig) time.Duration {
-	return cfg.ProviderTimeout + 30*time.Second
+	return cfg.ProviderTimeout + 4*cfg.BusinessQueryTimeout + 10*time.Second
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -162,7 +147,6 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 		"data": map[string]any{
 			"status":                  "ok",
 			"runtime":                 "go-gateway",
-			"businessApiConfigured":   s.businessProxy != nil,
 			"goBusinessApiConfigured": s.goBusinessProxy != nil,
 			"routeManifestVersion":    snapshot.Version,
 			"routeManifestSHA256":     snapshot.SHA256,
@@ -217,8 +201,6 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch route.Owner {
-	case routeownership.OwnerBusinessAPI:
-		s.proxyRoute(w, r, route, s.businessProxy, "BUSINESS_API_NOT_CONFIGURED", "This route family still requires BUSINESS_API_URL.")
 	case routeownership.OwnerGoBusinessAPI:
 		s.proxyRoute(w, r, route, s.goBusinessProxy, "GO_BUSINESS_API_NOT_CONFIGURED", "This route family requires GO_BUSINESS_API_URL.")
 	case routeownership.OwnerGo:
@@ -339,7 +321,6 @@ func (s *Server) resolveProxyMetadata(r *http.Request) proxyMetadata {
 
 func newBusinessProxy(
 	target *url.URL,
-	upstream routeownership.Owner,
 	logger *slog.Logger,
 	metrics *routeMetrics,
 ) *httputil.ReverseProxy {
@@ -368,19 +349,15 @@ func newBusinessProxy(
 			logger.Error(
 				"private business API proxy failed",
 				"request_id", requestID(r),
-				"upstream", upstream,
+				"upstream", routeownership.OwnerGoBusinessAPI,
 				"route_family", route.ID,
 				"path", r.URL.Path,
 				"error", err,
 			)
-			code := "BUSINESS_API_UNAVAILABLE"
-			if upstream == routeownership.OwnerGoBusinessAPI {
-				code = "GO_BUSINESS_API_UNAVAILABLE"
-			}
 			writeJSON(w, http.StatusBadGateway, map[string]any{
 				"success":   false,
 				"requestId": requestID(r),
-				"error":     map[string]string{"code": code},
+				"error":     map[string]string{"code": "GO_BUSINESS_API_UNAVAILABLE"},
 			})
 		},
 	}

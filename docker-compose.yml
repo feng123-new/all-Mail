@@ -1,42 +1,5 @@
 name: ${COMPOSE_PROJECT_NAME:-all-mail}
 
-x-bootstrap-environment: &bootstrap-environment
-  NODE_ENV: production
-  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
-  ALL_MAIL_STATE_DIR: /var/lib/all-mail
-  DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
-  JWT_SECRET: ${JWT_SECRET:-}
-  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
-  ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-  BOOTSTRAP_ADMIN_SECRET_FILE: /var/lib/all-mail/bootstrap-admin.env
-  SEND_ENABLED_DOMAINS: ${SEND_ENABLED_DOMAINS:-}
-  INGRESS_SIGNING_SECRET: ${INGRESS_SIGNING_SECRET:-}
-  INGRESS_IMPORT_KEY_ID: ${INGRESS_IMPORT_KEY_ID:-allmail-edge-main}
-  GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
-  GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
-  GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
-  GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-}
-  MICROSOFT_OAUTH_CLIENT_ID: ${MICROSOFT_OAUTH_CLIENT_ID:-}
-  MICROSOFT_OAUTH_CLIENT_SECRET: ${MICROSOFT_OAUTH_CLIENT_SECRET:-}
-  MICROSOFT_OAUTH_REDIRECT_URI: ${MICROSOFT_OAUTH_REDIRECT_URI:-}
-  MICROSOFT_OAUTH_TENANT: ${MICROSOFT_OAUTH_TENANT:-}
-  MICROSOFT_OAUTH_SCOPES: ${MICROSOFT_OAUTH_SCOPES:-}
-
-x-api-environment: &api-environment
-  NODE_ENV: production
-  ALL_MAIL_STATE_DIR: /var/lib/all-mail
-  BOOTSTRAP_ADMIN_SECRET_FILE: /var/lib/all-mail/bootstrap-admin.env
-  DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
-  REDIS_URL: redis://redis:6379
-  JWT_SECRET: ${JWT_SECRET:-}
-  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-2h}
-  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
-  ADMIN_LOGIN_MAX_ATTEMPTS: ${ADMIN_LOGIN_MAX_ATTEMPTS:-5}
-  ADMIN_LOGIN_LOCK_MINUTES: ${ADMIN_LOGIN_LOCK_MINUTES:-15}
-  ADMIN_2FA_WINDOW: ${ADMIN_2FA_WINDOW:-1}
-  INGRESS_ALLOWED_SKEW_SECONDS: ${INGRESS_ALLOWED_SKEW_SECONDS:-300}
-
 x-allmail-hardening: &allmail-hardening
   init: true
   read_only: true
@@ -46,9 +9,6 @@ x-allmail-hardening: &allmail-hardening
     - no-new-privileges:true
   cap_drop:
     - ALL
-
-x-server-runtime: &server-runtime
-  <<: *allmail-hardening
   user: "10001:10001"
 
 x-go-runtime: &go-runtime
@@ -58,66 +18,34 @@ x-go-runtime: &go-runtime
     context: .
     dockerfile: Dockerfile
 
-x-business-api-runtime: &business-api-runtime
-  <<: *server-runtime
-  image: ${ALL_MAIL_SERVER_IMAGE:-all-mail-server}:${ALL_MAIL_IMAGE_TAG:-local}
-  build:
-    context: .
-    dockerfile: Dockerfile.server
-
-x-business-init-runtime: &business-init-runtime
-  <<: *go-runtime
-  user: "0:0"
-  cap_add:
-    - CHOWN
-    - DAC_OVERRIDE
-    - FOWNER
-
 services:
-  business-init:
-    <<: *business-init-runtime
-    command: ["init"]
-    environment:
-      <<: *bootstrap-environment
-      ALL_MAIL_MIGRATION_DIR: /app/migrations
-      ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE: /var/lib/all-mail-forwarding/encryption-key
-      ALL_MAIL_EXPORT_JWT_SECRET_FILE: /var/lib/all-mail-go-business/jwt-secret
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
-    volumes:
-      - runtime_secrets_data:/var/lib/all-mail
-      - forwarding_runtime_data:/var/lib/all-mail-forwarding
-      - go_business_runtime_data:/var/lib/all-mail-go-business
-    networks:
-      - app-network
-
-  business-api:
-    <<: *business-api-runtime
+  app:
+    <<: *go-runtime
     command: ["api"]
+    ports:
+      - "${APP_PUBLISH_HOST:-127.0.0.1}:${APP_PORT:-3002}:3000"
     environment:
-      <<: *api-environment
-      PORT: 3100
+      PORT: 3000
+      ALL_MAIL_STATIC_DIR: /app/public
+      GO_BUSINESS_API_URL: http://go-business-api:3200
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+      GO_BUSINESS_QUERY_TIMEOUT_SECONDS: 10
+      MAIL_PROVIDER_TIMEOUT_SECONDS: ${MAIL_PROVIDER_TIMEOUT_SECONDS:-300}
+      READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
+      SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
-      business-init:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-      redis:
+      go-business-api:
         condition: service_healthy
     restart: unless-stopped
     stop_grace_period: 30s
-    volumes:
-      - runtime_secrets_data:/var/lib/all-mail
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "/app/scripts/sanitize-runtime-env.sh", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then((r)=>process.exit(r.ok ? 0 : 1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "allmail", "doctor", "api"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 45s
+      start_period: 60s
 
   go-business-api:
     <<: *go-runtime
@@ -140,8 +68,6 @@ services:
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
-      business-init:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -161,38 +87,6 @@ services:
       retries: 5
       start_period: 45s
 
-  app:
-    <<: *go-runtime
-    command: ["api"]
-    ports:
-      - "${APP_PUBLISH_HOST:-127.0.0.1}:${APP_PORT:-3002}:3000"
-    environment:
-      PORT: 3000
-      ALL_MAIL_STATIC_DIR: /app/public
-      BUSINESS_API_URL: http://business-api:3100
-      GO_BUSINESS_API_URL: http://go-business-api:3200
-      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
-      MAIL_PROVIDER_TIMEOUT_SECONDS: ${MAIL_PROVIDER_TIMEOUT_SECONDS:-300}
-      READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
-      SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
-    depends_on:
-      business-init:
-        condition: service_completed_successfully
-      business-api:
-        condition: service_healthy
-      go-business-api:
-        condition: service_healthy
-    restart: unless-stopped
-    stop_grace_period: 30s
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "allmail", "doctor", "api"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-
   worker-forwarding:
     <<: *go-runtime
     command: ["worker", "forwarding"]
@@ -210,8 +104,6 @@ services:
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
-      business-init:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     restart: unless-stopped
@@ -244,8 +136,6 @@ services:
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
       SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-15}
     depends_on:
-      business-init:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     restart: unless-stopped

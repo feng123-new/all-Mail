@@ -133,7 +133,7 @@ func (s *Server) Run(ctx context.Context) error {
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      s.cfg.QueryTimeout + s.cfg.ProviderTimeout,
+		WriteTimeout:      businessWriteTimeout(s.cfg),
 		IdleTimeout:       90 * time.Second,
 	}
 
@@ -156,6 +156,10 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
+func businessWriteTimeout(cfg config.GoBusinessAPIConfig) time.Duration {
+	return cfg.ProviderTimeout + 4*cfg.QueryTimeout + 5*time.Second
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
@@ -167,6 +171,10 @@ func (s *Server) Handler() http.Handler {
 	s.registerMailboxAuthenticationRoutes(mux)
 	s.registerMailboxPortalReadRoutes(mux)
 	s.registerDashboardWriteRoutes(mux)
+	s.registerDomainManagementRoutes(mux)
+	s.registerDomainMessageRoutes(mux)
+	s.registerDomainMessageTextRoutes(mux)
+	s.registerForwardingJobRoutes(mux)
 	s.registerAPIKeyRoutes(mux)
 	s.registerExternalRoutes(mux)
 	s.registerIngressRoutes(mux)

@@ -17,13 +17,11 @@ import (
 	"github.com/feng123-new/all-Mail/core/internal/readiness"
 )
 
-func TestHealthAndDualBusinessProxiesUseCanonicalRouteOwnership(t *testing.T) {
-	fastify := testReadyUpstream(t, `{"business":true}`)
+func TestHealthAndGoBusinessProxyUseCanonicalRouteOwnership(t *testing.T) {
 	goBusiness := testReadyUpstream(t, `{"goBusiness":true}`)
 
 	server := mustGateway(t, config.APIConfig{
 		StaticDir:       writeStaticIndex(t),
-		BusinessAPIURL:  fastify.URL,
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
 	}, goBusiness.URL)
@@ -39,10 +37,10 @@ func TestHealthAndDualBusinessProxiesUseCanonicalRouteOwnership(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/admin/test", nil)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "business") {
-		t.Fatalf("Fastify proxy response = %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "goBusiness") {
+		t.Fatalf("Go business catch-all response = %d %s", response.Code, response.Body.String())
 	}
-	assertRouteHeaders(t, response, "business-api", "admin-other")
+	assertRouteHeaders(t, response, "go-business-api", "admin-other")
 
 	request = httptest.NewRequest(http.MethodGet, "/admin/dashboard/stats", nil)
 	response = httptest.NewRecorder()
@@ -66,7 +64,7 @@ func TestHealthAndDualBusinessProxiesUseCanonicalRouteOwnership(t *testing.T) {
 	metrics := response.Body.String()
 	for _, expected := range []string{
 		`allmail_route_owner_info{family="admin-dashboard-stats-read",owner="go-business-api"`,
-		`allmail_route_requests_total{family="admin-other",owner="business-api",method="GET",status_class="2xx"} 1`,
+		`allmail_route_requests_total{family="admin-other",owner="go-business-api",method="GET",status_class="2xx"} 1`,
 		`allmail_route_requests_total{family="admin-dashboard-stats-read",owner="go-business-api",method="GET",status_class="2xx"} 1`,
 		`allmail_route_requests_total{family="admin-dashboard-log-delete",owner="go-business-api",method="DELETE",status_class="2xx"} 1`,
 	} {
@@ -99,10 +97,10 @@ func TestRouteManifestKeepsMethodAndNamespaceBoundaries(t *testing.T) {
 
 	backend := httptest.NewRecorder()
 	server.Handler().ServeHTTP(backend, httptest.NewRequest(http.MethodGet, "/api/unknown", nil))
-	if backend.Code != http.StatusServiceUnavailable || !strings.Contains(backend.Body.String(), "BUSINESS_API_NOT_CONFIGURED") {
-		t.Fatalf("backend namespace response = %d %s", backend.Code, backend.Body.String())
+	if backend.Code != http.StatusServiceUnavailable || !strings.Contains(backend.Body.String(), "GO_BUSINESS_API_NOT_CONFIGURED") {
+		t.Fatalf("Go business namespace response = %d %s", backend.Code, backend.Body.String())
 	}
-	assertRouteHeaders(t, backend, "business-api", "external-api")
+	assertRouteHeaders(t, backend, "go-business-api", "external-api")
 
 	spa := httptest.NewRecorder()
 	server.Handler().ServeHTTP(spa, httptest.NewRequest(http.MethodGet, "/administrator", nil))
@@ -112,10 +110,9 @@ func TestRouteManifestKeepsMethodAndNamespaceBoundaries(t *testing.T) {
 	assertRouteHeaders(t, spa, "go", "spa")
 }
 
-func TestReadinessRequiresStaticAssetsAndBothBusinessAPIs(t *testing.T) {
+func TestReadinessRequiresStaticAssetsAndGoBusinessAPI(t *testing.T) {
 	cfg := config.APIConfig{StaticDir: t.TempDir(), ReadyTimeout: time.Second}
 	server, err := newWithProber(cfg, "", discardLogger(), readiness.Prober{
-		BusinessAPI:   func(context.Context, string) error { return nil },
 		GoBusinessAPI: func(context.Context, string) error { return nil },
 	})
 	if err != nil {
@@ -134,17 +131,14 @@ func TestReadinessRequiresStaticAssetsAndBothBusinessAPIs(t *testing.T) {
 	}
 }
 
-func TestReadinessUsesBothPrivateProbes(t *testing.T) {
+func TestReadinessUsesGoBusinessProbe(t *testing.T) {
 	cfg := config.APIConfig{
 		StaticDir:       writeStaticIndex(t),
-		BusinessAPIURL:  "http://business-api:3100",
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
 	}
-	fastifyCalls := 0
 	goCalls := 0
 	server, err := newWithProber(cfg, "http://go-business-api:3200", discardLogger(), readiness.Prober{
-		BusinessAPI:   func(context.Context, string) error { fastifyCalls++; return nil },
 		GoBusinessAPI: func(context.Context, string) error { goCalls++; return nil },
 	})
 	if err != nil {
@@ -153,8 +147,8 @@ func TestReadinessUsesBothPrivateProbes(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || fastifyCalls != 1 || goCalls != 1 {
-		t.Fatalf("readiness response = %d %s, Fastify=%d Go=%d", response.Code, response.Body.String(), fastifyCalls, goCalls)
+	if response.Code != http.StatusOK || goCalls != 1 {
+		t.Fatalf("readiness response = %d %s, Go=%d", response.Code, response.Body.String(), goCalls)
 	}
 }
 
@@ -175,20 +169,19 @@ func TestInvalidIncomingRequestIDIsReplaced(t *testing.T) {
 
 func TestProxyRejectsSpoofedForwardingAndOwnershipHeadersFromUntrustedPeer(t *testing.T) {
 	captured := make(chan http.Header, 1)
-	fastify := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	goBusiness := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured <- r.Header.Clone()
 		w.Header().Set(routeOwnerHeader, "forged-upstream-owner")
 		w.Header().Set(routeFamilyHeader, "forged-upstream-family")
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	defer fastify.Close()
+	defer goBusiness.Close()
 
 	server := mustGateway(t, config.APIConfig{
 		StaticDir:       writeStaticIndex(t),
-		BusinessAPIURL:  fastify.URL,
 		ReadyTimeout:    time.Second,
 		ShutdownTimeout: time.Second,
-	}, "")
+	}, goBusiness.URL)
 	request := httptest.NewRequest(http.MethodGet, "http://mail.example/admin/test", nil)
 	request.RemoteAddr = "192.0.2.44:43123"
 	request.Header.Set("X-Forwarded-For", "203.0.113.9")
@@ -221,7 +214,7 @@ func TestProxyRejectsSpoofedForwardingAndOwnershipHeadersFromUntrustedPeer(t *te
 	if got := header.Get(routeFamilyHeader); got != "" {
 		t.Fatalf("route family header leaked downstream: %q", got)
 	}
-	assertRouteHeaders(t, response, "business-api", "admin-other")
+	assertRouteHeaders(t, response, "go-business-api", "admin-other")
 }
 
 func TestProxyAcceptsCanonicalClientIPOnlyFromTrustedPeer(t *testing.T) {
@@ -230,19 +223,18 @@ func TestProxyAcceptsCanonicalClientIPOnlyFromTrustedPeer(t *testing.T) {
 		host   string
 	}
 	captured := make(chan capturedRequest, 1)
-	fastify := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	goBusiness := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured <- capturedRequest{header: r.Header.Clone(), host: r.Host}
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	defer fastify.Close()
+	defer goBusiness.Close()
 
 	server := mustGateway(t, config.APIConfig{
 		StaticDir:         writeStaticIndex(t),
-		BusinessAPIURL:    fastify.URL,
 		TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 		ReadyTimeout:      time.Second,
 		ShutdownTimeout:   time.Second,
-	}, "")
+	}, goBusiness.URL)
 	request := httptest.NewRequest(http.MethodGet, "http://mail.example/admin/test", nil)
 	request.RemoteAddr = "10.10.0.5:43123"
 	request.Header.Set("CF-Connecting-IP", "198.51.100.22")
@@ -285,7 +277,6 @@ func testReadyUpstream(t *testing.T, body string) *httptest.Server {
 func mustGateway(t *testing.T, cfg config.APIConfig, goBusinessAPIURL string) *Server {
 	t.Helper()
 	server, err := newWithProber(cfg, goBusinessAPIURL, discardLogger(), readiness.Prober{
-		BusinessAPI:   func(context.Context, string) error { return nil },
 		GoBusinessAPI: func(context.Context, string) error { return nil },
 	})
 	if err != nil {
