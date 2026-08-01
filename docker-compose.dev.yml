@@ -1,9 +1,18 @@
 # Local-development-only host port publishing.
 # Production uses docker-compose.yml by itself and keeps PostgreSQL/Redis private.
+# The development Redis override is intentionally unauthenticated and loopback-only;
+# it is not a production topology or security model.
 services:
   postgres:
     ports:
       - "127.0.0.1:${DEV_POSTGRES_PORT:-15433}:5432"
   redis:
+    entrypoint: []
+    command: ["redis-server", "--appendonly", "yes", "--port", "6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     ports:
       - "127.0.0.1:${DEV_REDIS_PORT:-6380}:6379"
