@@ -20,8 +20,12 @@ import json
 import sys
 
 model = json.load(sys.stdin)
+project_name = model["name"]
+# runtime_secrets_data is intentionally not mounted by any declared long-running
+# service, so Compose may omit it from the rendered model. Its physical name is
+# an explicit compatibility contract and is derived from the resolved project.
+print(f"{project_name}_legacy_runtime_data")
 for name in (
-    "runtime_secrets_data",
     "bootstrap_admin_data",
     "forwarding_runtime_data",
     "go_business_runtime_data",
