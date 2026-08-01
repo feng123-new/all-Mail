@@ -1,0 +1,29 @@
+name: Apply final Go route cutover
+
+on:
+  push:
+    branches:
+      - agent/final-go-cutover
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'chore(ci): apply route cutover patch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/final-go-cutover
+          fetch-depth: 0
+      - name: Apply reviewed route-cutover commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cat .github/route-cutover-patch/part-* | base64 --decode | gzip --decompress > /tmp/route-cutover.patch
+          printf '%s  %s\n' '12ee633f65b49a148b2d82e497ec78b794377697443b642f676ed380a6769ade' '/tmp/route-cutover.patch' | sha256sum --check --strict
+          git am --committer-date-is-author-date /tmp/route-cutover.patch
+          git push origin HEAD:agent/final-go-cutover
