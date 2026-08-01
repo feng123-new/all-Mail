@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - agent/final-go-cutover
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   snapshot:
-    if: github.event.head_commit.message == 'chore(ci): capture source snapshot'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
