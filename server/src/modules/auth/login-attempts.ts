@@ -23,21 +23,30 @@ interface LoginAttemptControllerOptions {
     localStore?: Map<string, LocalLoginAttemptState>;
     maxAttempts?: number;
     lockSeconds?: number;
+    namespace?: 'admin' | 'mailbox';
     now?: () => number;
 }
 
-function redisAttemptKey(cacheKey: string): string {
-    return `auth:admin:login:attempt:${cacheKey}`;
+function redisAttemptKey(namespace: 'admin' | 'mailbox', cacheKey: string): string {
+    return `auth:${namespace}:login:attempt:${cacheKey}`;
 }
 
-function redisLockKey(cacheKey: string): string {
-    return `auth:admin:login:lock:${cacheKey}`;
+function redisLockKey(namespace: 'admin' | 'mailbox', cacheKey: string): string {
+    return `auth:${namespace}:login:lock:${cacheKey}`;
+}
+
+function buildLoginAttemptCacheKeyWithPrefix(prefix: string, username: string, ip?: string): string {
+    const normalizedUsername = username.trim().toLowerCase();
+    const normalizedIp = ip?.trim() || 'unknown';
+    return `${prefix}:${normalizedUsername}:${normalizedIp}`;
 }
 
 export function buildLoginAttemptCacheKey(username: string, ip?: string): string {
-    const normalizedUsername = username.trim().toLowerCase();
-    const normalizedIp = ip?.trim() || 'unknown';
-    return `admin-login:${normalizedUsername}:${normalizedIp}`;
+    return buildLoginAttemptCacheKeyWithPrefix('admin-login', username, ip);
+}
+
+export function buildMailboxLoginAttemptCacheKey(identifier: string, ip?: string): string {
+    return buildLoginAttemptCacheKeyWithPrefix('mailbox-login', identifier, ip);
 }
 
 export function createLoginAttemptController(options: LoginAttemptControllerOptions = {}) {
@@ -46,6 +55,7 @@ export function createLoginAttemptController(options: LoginAttemptControllerOpti
     const localStore = options.localStore ?? new Map<string, LocalLoginAttemptState>();
     const maxAttempts = options.maxAttempts ?? env.ADMIN_LOGIN_MAX_ATTEMPTS;
     const lockSeconds = options.lockSeconds ?? env.ADMIN_LOGIN_LOCK_MINUTES * 60;
+    const namespace = options.namespace ?? 'admin';
     const nowSource = options.now ?? Date.now;
 
     function requireFallback(operation: string, cause?: unknown): void {
@@ -64,7 +74,7 @@ export function createLoginAttemptController(options: LoginAttemptControllerOpti
             const redis = getRedisClient();
             if (redis) {
                 try {
-                    const ttl = await redis.ttl(redisLockKey(cacheKey));
+                    const ttl = await redis.ttl(redisLockKey(namespace, cacheKey));
                     if (ttl > 0) {
                         return ttl;
                     }
@@ -96,7 +106,7 @@ export function createLoginAttemptController(options: LoginAttemptControllerOpti
             const redis = getRedisClient();
             if (redis) {
                 try {
-                    await redis.del(redisAttemptKey(cacheKey), redisLockKey(cacheKey));
+                    await redis.del(redisAttemptKey(namespace, cacheKey), redisLockKey(namespace, cacheKey));
                     localStore.delete(cacheKey);
                     return;
                 } catch (error) {
@@ -112,8 +122,8 @@ export function createLoginAttemptController(options: LoginAttemptControllerOpti
             const redis = getRedisClient();
             if (redis) {
                 try {
-                    const attemptKey = redisAttemptKey(cacheKey);
-                    const lockKey = redisLockKey(cacheKey);
+                    const attemptKey = redisAttemptKey(namespace, cacheKey);
+                    const lockKey = redisLockKey(namespace, cacheKey);
                     const count = await redis.incr(attemptKey);
                     if (count === 1) {
                         await redis.expire(attemptKey, lockSeconds);
@@ -157,3 +167,4 @@ export function createLoginAttemptController(options: LoginAttemptControllerOpti
 }
 
 export const adminLoginAttempts = createLoginAttemptController();
+export const mailboxLoginAttempts = createLoginAttemptController({ namespace: 'mailbox' });

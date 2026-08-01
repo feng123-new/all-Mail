@@ -8,6 +8,20 @@ import {
 	requestPut,
 } from "./core";
 
+export interface MailboxPortalTwoFactorStatus {
+	enabled: boolean;
+	pending: boolean;
+}
+
+export interface MailboxPortalTwoFactorSetup {
+	secret: string;
+	otpauthUrl: string;
+}
+
+export interface MailboxPortalTwoFactorResult {
+	enabled: boolean;
+}
+
 export const authApi = {
 	login: (username: string, password: string, otp?: string) =>
 		requestPost<
@@ -183,13 +197,14 @@ export const oauthApi = {
 };
 
 export const mailboxPortalApi = {
-	login: (username: string, password: string) =>
+	login: (username: string, password: string, otp?: string) =>
 		requestPost<
 			{ mailboxUser: MailboxUser },
-			{ username: string; password: string }
+			{ username: string; password: string; otp?: string }
 		>(`${MAILBOX_PORTAL_PREFIX}/login`, {
 			username,
 			password,
+			otp,
 		}),
 
 	logout: () =>
@@ -261,6 +276,28 @@ export const mailboxPortalApi = {
 			oldPassword,
 			newPassword,
 		}),
+
+	getTwoFactorStatus: () =>
+		requestGet<MailboxPortalTwoFactorStatus>(
+			`${MAILBOX_PORTAL_PREFIX}/2fa/status`,
+		),
+
+	setupTwoFactor: () =>
+		requestPost<MailboxPortalTwoFactorSetup>(
+			`${MAILBOX_PORTAL_PREFIX}/2fa/setup`,
+		),
+
+	enableTwoFactor: (otp: string) =>
+		requestPost<MailboxPortalTwoFactorResult, { otp: string }>(
+			`${MAILBOX_PORTAL_PREFIX}/2fa/enable`,
+			{ otp },
+		),
+
+	disableTwoFactor: (password: string, otp: string) =>
+		requestPost<MailboxPortalTwoFactorResult, { password: string; otp: string }>(
+			`${MAILBOX_PORTAL_PREFIX}/2fa/disable`,
+			{ password, otp },
+		),
 
 	updateForwarding: (data: {
 		mailboxId: number;

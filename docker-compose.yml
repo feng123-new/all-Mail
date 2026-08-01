@@ -141,12 +141,17 @@ services:
     <<: *go-runtime
     command: ["business-api"]
     environment:
+      NODE_ENV: production
       PORT: 3200
       DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
       REDIS_URL: redis://redis:6379
       JWT_SECRET_FILE: /var/lib/all-mail-secrets/jwt-secret
       ENCRYPTION_KEY_FILE: /var/lib/all-mail-encryption/encryption-key
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-2h}
+      ADMIN_LOGIN_MAX_ATTEMPTS: ${ADMIN_LOGIN_MAX_ATTEMPTS:-5}
+      ADMIN_LOGIN_LOCK_MINUTES: ${ADMIN_LOGIN_LOCK_MINUTES:-15}
       ADMIN_2FA_WINDOW: ${ADMIN_2FA_WINDOW:-1}
+      BOOTSTRAP_ADMIN_SECRET_FILE: /var/lib/all-mail/bootstrap-admin.env
       INGRESS_ALLOWED_SKEW_SECONDS: ${INGRESS_ALLOWED_SKEW_SECONDS:-300}
       GO_BUSINESS_QUERY_TIMEOUT_SECONDS: 10
       MAIL_PROVIDER_TIMEOUT_SECONDS: ${MAIL_PROVIDER_TIMEOUT_SECONDS:-300}
@@ -162,6 +167,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     volumes:
+      - runtime_secrets_data:/var/lib/all-mail
       - go_business_runtime_data:/var/lib/all-mail-secrets:ro
       - forwarding_runtime_data:/var/lib/all-mail-encryption:ro
     networks:

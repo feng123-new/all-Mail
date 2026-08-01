@@ -37,9 +37,24 @@ type jwtPayload struct {
 	Subject        string          `json:"sub"`
 	Audience       json.RawMessage `json:"aud"`
 	ExpiresAt      float64         `json:"exp"`
+	IssuedAt       float64         `json:"iat,omitempty"`
 	NotBefore      *float64        `json:"nbf,omitempty"`
 	SessionVersion int64           `json:"sessionVersion"`
+	Username       string          `json:"username,omitempty"`
+	Role           string          `json:"role,omitempty"`
+	MailboxUserID  int64           `json:"mailboxUserId,omitempty"`
+	MailboxIDs     []int64         `json:"mailboxIds,omitempty"`
 	Purpose        string          `json:"purpose,omitempty"`
+}
+
+type sessionJWTClaims struct {
+	Subject        int64
+	Audience       string
+	SessionVersion int64
+	Username       string
+	Role           string
+	MailboxUserID  int64
+	MailboxIDs     []int64
 }
 
 type verifiedAdminJWT struct {
@@ -48,6 +63,23 @@ type verifiedAdminJWT struct {
 }
 
 func authenticateAdmin(
+	ctx context.Context,
+	request *http.Request,
+	store Store,
+	secret string,
+	now time.Time,
+) (Admin, error) {
+	admin, err := authenticateAdminIdentity(ctx, request, store, secret, now)
+	if err != nil {
+		return Admin{}, err
+	}
+	if admin.MustChangePassword {
+		return Admin{}, &requestError{Status: http.StatusForbidden, Code: "PASSWORD_CHANGE_REQUIRED"}
+	}
+	return admin, nil
+}
+
+func authenticateAdminIdentity(
 	ctx context.Context,
 	request *http.Request,
 	store Store,
@@ -80,9 +112,6 @@ func authenticateAdmin(
 	}
 	if admin.Status != "ACTIVE" {
 		return Admin{}, &requestError{Status: http.StatusForbidden, Code: "ACCOUNT_DISABLED"}
-	}
-	if admin.MustChangePassword {
-		return Admin{}, &requestError{Status: http.StatusForbidden, Code: "PASSWORD_CHANGE_REQUIRED"}
 	}
 	return admin, nil
 }
@@ -159,6 +188,41 @@ func verifyJWT(token, secret string, now time.Time, audience string) (jwtPayload
 		return jwtPayload{}, errors.New("JWT signature is invalid")
 	}
 	return payload, nil
+}
+
+func signSessionJWT(claims sessionJWTClaims, secret string, now time.Time, lifetime time.Duration) (string, error) {
+	if claims.Subject <= 0 || claims.SessionVersion <= 0 || strings.TrimSpace(claims.Audience) == "" || lifetime <= 0 {
+		return "", errors.New("session JWT claims are invalid")
+	}
+	audience, err := json.Marshal(claims.Audience)
+	if err != nil {
+		return "", err
+	}
+	headerBytes, err := json.Marshal(jwtHeader{Algorithm: "HS256", Type: "JWT"})
+	if err != nil {
+		return "", err
+	}
+	payloadBytes, err := json.Marshal(jwtPayload{
+		Issuer:         allMailJWTIssuer,
+		Subject:        strconv.FormatInt(claims.Subject, 10),
+		Audience:       audience,
+		ExpiresAt:      float64(now.Add(lifetime).Unix()),
+		IssuedAt:       float64(now.Unix()),
+		SessionVersion: claims.SessionVersion,
+		Username:       claims.Username,
+		Role:           claims.Role,
+		MailboxUserID:  claims.MailboxUserID,
+		MailboxIDs:     claims.MailboxIDs,
+	})
+	if err != nil {
+		return "", err
+	}
+	header := base64.RawURLEncoding.EncodeToString(headerBytes)
+	payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
+	unsigned := header + "." + payload
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(unsigned))
+	return unsigned + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
 func signAdminRevealGrant(admin Admin, secret string, now time.Time) (string, time.Time, error) {

@@ -36,7 +36,7 @@ Go owns:
 - checksummed additive migrations;
 - forwarding and API-log retention workers.
 
-Fastify/Prisma still owns administrator and mailbox-portal authentication, remaining domain/message/alias routes, JavaScript regex text extraction compatibility, durable business configuration import, initial administrator bootstrap, and complete business-schema migrations.
+Fastify/Prisma still owns remaining domain/message/alias and mailbox-portal operations, JavaScript regex text extraction compatibility, durable business configuration import, initial administrator bootstrap, complete business-schema migrations, and dormant authentication handlers retained for revision rollback.
 
 ## Runtime layout
 
@@ -152,6 +152,12 @@ POST /ingress/domain-mail/receive              -> go-business-api
 /admin/email-groups/**                         -> go-business-api
 /admin/domain-mailboxes/**                     -> go-business-api
 /admin/mailbox-users/**                        -> go-business-api
+/admin/auth/**                                 -> go-business-api
+POST /mail/api/login|logout|change-password    -> go-business-api
+GET  /mail/api/session|mailboxes               -> go-business-api
+/mail/api/2fa/**                               -> go-business-api
+GET  /mail/api/messages/**                     -> go-business-api
+other /mail/api operations                     -> business-api
 other /ingress compatibility paths             -> business-api
 ```
 
@@ -159,18 +165,18 @@ Every response carries `X-All-Mail-Route-Owner` and `X-All-Mail-Route-Family`. S
 
 ## Private Go authentication
 
-Administrator JWT verification requires:
+Administrator and mailbox session verification requires:
 
 1. HS256;
 2. issuer `all-mail`;
-3. audience `admin-console`;
+3. audience `admin-console` or `mailbox-portal` for the matching identity type;
 4. valid expiry and optional not-before;
 5. positive subject and session version;
 6. matching durable PostgreSQL session version;
-7. an existing active administrator;
-8. `mustChangePassword=false` for ordinary business routes.
+7. an existing active database identity;
+8. `mustChangePassword=false` for ordinary business routes, while session inspection and password rotation remain available.
 
-Password, role, status, mandatory-rotation, and 2FA changes increment durable session state and revoke older tokens.
+Go issues Fastify-compatible administrator and mailbox JWTs and `HttpOnly`, `SameSite=Lax`, production-`Secure` cookies. Password, role, status, mandatory-rotation, and 2FA changes increment durable session state and revoke older tokens. Redis login protection is fail closed; administrator keys retain their historical byte format and mailbox users use an isolated namespace. Mailbox message authorization reloads current memberships from PostgreSQL and never trusts the JWT mailbox list.
 
 ## Dashboard contract
 
@@ -222,13 +228,14 @@ Repository gates cover Go format/race/vet/build/govulncheck, route ownership, JW
 
 Recommended order:
 
-1. remaining domain, message, alias, and portal routes;
-2. mailbox-portal and administrator authentication;
-3. complete business-schema authority and encrypted-data cutover;
-4. zero-traffic observation and final Node/Prisma deletion.
+1. remaining domain, message, alias, and portal operations;
+2. complete business-schema authority and encrypted-data cutover;
+3. zero-traffic observation and final Node/Prisma deletion.
 
 Every slice must move authorization, validation, transactions, parity, failure injection, method-aware ownership, Docker smoke, and revision rollback together.
 
 ## Rollback
 
 Rollback is revision based. Preserve PostgreSQL and all runtime secret volumes, stop the complete revision, and deploy the previous known-good revision. Never run initializers, workers, or business APIs from two revisions against the same persisted state.
+
+After any mailbox user enrolls in 2FA, the authentication slice must not roll `business-api` back to a revision older than this compatibility contract because the older login handler does not enforce mailbox 2FA. Roll back the route cut by committing a manifest owner revert while retaining the compatible Fastify handlers, then deploy that complete revision. This preserves source-controlled ownership and keeps password, Redis lockout, OTP, and session-version checks active.

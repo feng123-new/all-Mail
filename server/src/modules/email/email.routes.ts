@@ -89,8 +89,8 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 		};
 
 		try {
-			await authService.verifyStepUpTwoFactor(adminId, { otp: input.otp });
-			const grant = await authService.createExternalSecretRevealGrant(adminId);
+			await authService.verifyStepUpTwoFactor(adminId, admin.sessionVersion, { otp: input.otp });
+			const grant = await authService.createExternalSecretRevealGrant(adminId, admin.sessionVersion);
 			await mailService.logAdminAction(
 				ADMIN_REVEAL_EXTERNAL_SECRET_UNLOCK_ACTION,
 				undefined,
@@ -145,6 +145,7 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 			if (input.grantToken) {
 				await authService.verifyExternalSecretRevealGrant(
 					adminId,
+					admin.sessionVersion,
 					input.grantToken,
 				);
 			} else {
@@ -155,7 +156,7 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 						400,
 					);
 				}
-				await authService.verifyStepUpTwoFactor(adminId, { otp: input.otp });
+				await authService.verifyStepUpTwoFactor(adminId, admin.sessionVersion, { otp: input.otp });
 			}
 			const result = await emailService.revealSecrets(emailId, input.fields);
 			await mailService.logAdminAction(
@@ -216,6 +217,7 @@ const emailRoutes: FastifyPluginAsync = async (fastify) => {
 			}
 			await authService.verifyExternalSecretRevealGrant(
 				admin.id,
+				admin.sessionVersion,
 				input.accountPasswordGrantToken,
 			);
 		}

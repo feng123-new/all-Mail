@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -12,17 +13,22 @@ import (
 const goBusinessAPIURLEnvironment = "GO_BUSINESS_API_URL"
 
 type GoBusinessAPIConfig struct {
-	Port               int
-	DatabaseURL        string
-	RedisURL           string
-	JWTSecret          string
-	EncryptionKey      string
-	Admin2FAWindow     int
-	IngressAllowedSkew time.Duration
-	ReadyTimeout       time.Duration
-	QueryTimeout       time.Duration
-	ProviderTimeout    time.Duration
-	ShutdownTimeout    time.Duration
+	Port                   int
+	DatabaseURL            string
+	RedisURL               string
+	JWTSecret              string
+	EncryptionKey          string
+	Admin2FAWindow         int
+	JWTLifetime            time.Duration
+	AdminLoginMaxAttempts  int
+	AdminLoginLockDuration time.Duration
+	BootstrapAdminFile     string
+	SecureCookies          bool
+	IngressAllowedSkew     time.Duration
+	ReadyTimeout           time.Duration
+	QueryTimeout           time.Duration
+	ProviderTimeout        time.Duration
+	ShutdownTimeout        time.Duration
 }
 
 func LoadGoBusinessAPIURL() (string, error) {
@@ -65,6 +71,22 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	if err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
+	jwtLifetime, err := parseJWTLifetime(env("JWT_EXPIRES_IN", "2h"))
+	if err != nil {
+		return GoBusinessAPIConfig{}, err
+	}
+	adminLoginMaxAttempts, err := envInt("ADMIN_LOGIN_MAX_ATTEMPTS", 5)
+	if err != nil {
+		return GoBusinessAPIConfig{}, err
+	}
+	adminLoginLockMinutes, err := envInt("ADMIN_LOGIN_LOCK_MINUTES", 15)
+	if err != nil {
+		return GoBusinessAPIConfig{}, err
+	}
+	runtimeEnvironment := env("NODE_ENV", "development")
+	if runtimeEnvironment != "development" && runtimeEnvironment != "test" && runtimeEnvironment != "production" {
+		return GoBusinessAPIConfig{}, errors.New("NODE_ENV must be development, test, or production")
+	}
 	jwtSecret, err := loadJWTSecretFile()
 	if err != nil {
 		return GoBusinessAPIConfig{}, err
@@ -75,17 +97,22 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	}
 
 	cfg := GoBusinessAPIConfig{
-		Port:               port,
-		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		RedisURL:           strings.TrimSpace(os.Getenv("REDIS_URL")),
-		JWTSecret:          jwtSecret,
-		EncryptionKey:      encryptionKey,
-		Admin2FAWindow:     admin2FAWindow,
-		IngressAllowedSkew: time.Duration(ingressSkewSeconds) * time.Second,
-		ReadyTimeout:       time.Duration(readySeconds) * time.Second,
-		QueryTimeout:       time.Duration(querySeconds) * time.Second,
-		ProviderTimeout:    time.Duration(providerSeconds) * time.Second,
-		ShutdownTimeout:    time.Duration(shutdownSeconds) * time.Second,
+		Port:                   port,
+		DatabaseURL:            strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		RedisURL:               strings.TrimSpace(os.Getenv("REDIS_URL")),
+		JWTSecret:              jwtSecret,
+		EncryptionKey:          encryptionKey,
+		Admin2FAWindow:         admin2FAWindow,
+		JWTLifetime:            jwtLifetime,
+		AdminLoginMaxAttempts:  adminLoginMaxAttempts,
+		AdminLoginLockDuration: time.Duration(adminLoginLockMinutes) * time.Minute,
+		BootstrapAdminFile:     env("BOOTSTRAP_ADMIN_SECRET_FILE", "/var/lib/all-mail/bootstrap-admin.env"),
+		SecureCookies:          runtimeEnvironment == "production",
+		IngressAllowedSkew:     time.Duration(ingressSkewSeconds) * time.Second,
+		ReadyTimeout:           time.Duration(readySeconds) * time.Second,
+		QueryTimeout:           time.Duration(querySeconds) * time.Second,
+		ProviderTimeout:        time.Duration(providerSeconds) * time.Second,
+		ShutdownTimeout:        time.Duration(shutdownSeconds) * time.Second,
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return GoBusinessAPIConfig{}, errors.New("PORT must be between 1 and 65535")
@@ -105,6 +132,15 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	if cfg.Admin2FAWindow < 0 || cfg.Admin2FAWindow > 5 {
 		return GoBusinessAPIConfig{}, errors.New("ADMIN_2FA_WINDOW must be between 0 and 5")
 	}
+	if cfg.JWTLifetime <= 0 {
+		return GoBusinessAPIConfig{}, errors.New("JWT_EXPIRES_IN must be positive")
+	}
+	if cfg.AdminLoginMaxAttempts < 1 {
+		return GoBusinessAPIConfig{}, errors.New("ADMIN_LOGIN_MAX_ATTEMPTS must be at least 1")
+	}
+	if cfg.AdminLoginLockDuration < time.Minute {
+		return GoBusinessAPIConfig{}, errors.New("ADMIN_LOGIN_LOCK_MINUTES must be at least 1")
+	}
 	if err := validateAbsoluteURL("DATABASE_URL", cfg.DatabaseURL, "postgres", "postgresql"); err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
@@ -112,6 +148,47 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 		return GoBusinessAPIConfig{}, err
 	}
 	return cfg, nil
+}
+
+func parseJWTLifetime(raw string) (time.Duration, error) {
+	const maxDuration = time.Duration(1<<63 - 1)
+
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, errors.New("JWT_EXPIRES_IN must not be empty")
+	}
+	multiplier := uint64(1)
+	digits := value
+	switch value[len(value)-1] {
+	case 's':
+		digits = value[:len(value)-1]
+	case 'm':
+		digits = value[:len(value)-1]
+		multiplier = 60
+	case 'h':
+		digits = value[:len(value)-1]
+		multiplier = 60 * 60
+	case 'd':
+		digits = value[:len(value)-1]
+		multiplier = 24 * 60 * 60
+	}
+	if digits == "" || digits[0] == '0' {
+		return 0, errors.New("JWT_EXPIRES_IN must be a positive integer with an optional s, m, h, or d suffix")
+	}
+	for _, digit := range digits {
+		if digit < '0' || digit > '9' {
+			return 0, errors.New("JWT_EXPIRES_IN must be a positive integer with an optional s, m, h, or d suffix")
+		}
+	}
+	amount, err := strconv.ParseUint(digits, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse JWT_EXPIRES_IN: %w", err)
+	}
+	maxSeconds := uint64(maxDuration / time.Second)
+	if amount > maxSeconds/multiplier {
+		return 0, errors.New("JWT_EXPIRES_IN is too large")
+	}
+	return time.Duration(amount*multiplier) * time.Second, nil
 }
 
 func (c GoBusinessAPIConfig) Address() string {

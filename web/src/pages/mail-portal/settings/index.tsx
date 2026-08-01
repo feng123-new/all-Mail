@@ -1,18 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
-import { Alert, Button, Col, Empty, Form, Input, Row, Select, Space, Tag, Typography } from 'antd';
 import { ArrowRightOutlined, LockOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { Alert, Button, Col, Divider, Empty, Form, Input, message, QRCode, Row, Select, Space, Spin, Tag, Typography } from 'antd';
+import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PageHeader, StatCard, SurfaceCard } from '../../../components';
-import { portalAccountContract } from '../../../contracts/portal/account';
+import {
+    type MailboxPortalTwoFactorResult,
+    type MailboxPortalTwoFactorSetup,
+    type MailboxPortalTwoFactorStatus,
+    portalAccountContract,
+} from '../../../contracts/portal/account';
 import { useI18n } from '../../../i18n';
 import { defineMessage, type TranslationInput } from '../../../i18n/messages';
 import { useMailboxAuthStore } from '../../../stores/mailboxAuthStore';
-import { requestData } from '../../../utils/request';
 import {
     fontSize12Style,
     fullWidthStyle,
     noMarginStyle,
 } from '../../../styles/common';
-import { shellPalette } from '../../../theme';
+import { shellMetrics, shellPalette } from '../../../theme';
+import { requestData } from '../../../utils/request';
 
 const { Title, Text } = Typography;
 
@@ -105,6 +110,15 @@ interface ForwardingJobItem {
     };
 }
 
+interface EnableTwoFactorFormValues {
+    otp: string;
+}
+
+interface DisableTwoFactorFormValues {
+    password: string;
+    otp: string;
+}
+
 const portalSettingsStyles = {
     fullWidth: fullWidthStyle,
     titleNoMargin: noMarginStyle,
@@ -152,6 +166,29 @@ const portalSettingsI18n = {
     fetchSessionFailed: defineMessage('portalSettings.fetchSessionFailed', '获取会话信息失败', 'Failed to load the session'),
     changePasswordFailed: defineMessage('portalSettings.changePasswordFailed', '修改密码失败', 'Failed to change the password'),
     saveForwardingFailed: defineMessage('portalSettings.saveForwardingFailed', '保存转发失败', 'Failed to save forwarding settings'),
+    twoFactorTitle: defineMessage('portalSettings.twoFactorTitle', '二次验证', 'Two-factor verification'),
+    twoFactorSubtitle: defineMessage('portalSettings.twoFactorSubtitle', '使用验证器动态码保护门户登录。', 'Protect mailbox portal sign-in with authenticator codes.'),
+    fetchTwoFactorStatusFailed: defineMessage('portalSettings.fetchTwoFactorStatusFailed', '获取二次验证状态失败', 'Failed to load two-factor status'),
+    twoFactorLoading: defineMessage('portalSettings.twoFactorLoading', '正在加载二次验证状态...', 'Loading two-factor status...'),
+    currentTwoFactorStatus: defineMessage('portalSettings.currentTwoFactorStatus', '当前状态：', 'Current status: '),
+    twoFactorEnabled: defineMessage('portalSettings.twoFactorEnabled', '已启用', 'Enabled'),
+    twoFactorDisabled: defineMessage('portalSettings.twoFactorDisabled', '未启用', 'Disabled'),
+    twoFactorPending: defineMessage('portalSettings.twoFactorPending', '待验证', 'Pending verification'),
+    generateTwoFactorSecret: defineMessage('portalSettings.generateTwoFactorSecret', '生成绑定密钥', 'Generate binding secret'),
+    generateTwoFactorSecretFailed: defineMessage('portalSettings.generateTwoFactorSecretFailed', '生成二次验证密钥失败', 'Failed to generate the two-factor secret'),
+    scanThenEnterOtp: defineMessage('portalSettings.scanThenEnterOtp', '请在验证器中添加密钥后输入 6 位验证码完成启用', 'Add the secret to your authenticator app, then enter the 6-digit code to finish enabling 2FA.'),
+    scanToBind: defineMessage('portalSettings.scanToBind', '扫码绑定（推荐）', 'Scan to bind (recommended)'),
+    manualSecret: defineMessage('portalSettings.manualSecret', '手动密钥（可复制）', 'Manual secret (copyable)'),
+    otpauthLink: defineMessage('portalSettings.otpauthLink', 'otpauth 链接（可复制）', 'otpauth link (copyable)'),
+    enableOtpLabel: defineMessage('portalSettings.enableOtpLabel', '输入验证器中的 6 位验证码', 'Enter the 6-digit code from your authenticator app'),
+    sixDigitOtpRequired: defineMessage('portalSettings.sixDigitOtpRequired', '请输入 6 位验证码', 'Enter a 6-digit verification code'),
+    enableTwoFactor: defineMessage('portalSettings.enableTwoFactor', '启用双重验证', 'Enable two-factor authentication'),
+    enableTwoFactorFailed: defineMessage('portalSettings.enableTwoFactorFailed', '启用二次验证失败', 'Failed to enable two-factor authentication'),
+    twoFactorEnabledSuccess: defineMessage('portalSettings.twoFactorEnabledSuccess', '双重验证已启用', 'Two-factor authentication enabled'),
+    disableTwoFactor: defineMessage('portalSettings.disableTwoFactor', '禁用双重验证', 'Disable two-factor authentication'),
+    disableTwoFactorFailed: defineMessage('portalSettings.disableTwoFactorFailed', '禁用二次验证失败', 'Failed to disable two-factor authentication'),
+    twoFactorDisabledSuccess: defineMessage('portalSettings.twoFactorDisabledSuccess', '双重验证已禁用', 'Two-factor authentication disabled'),
+    verificationCode: defineMessage('portalSettings.verificationCode', '验证码', 'Verification code'),
     updatePassword: defineMessage('portalSettings.updatePassword', '更新密码', 'Update password'),
     selectMailbox: defineMessage('portalSettings.selectMailbox', '选择邮箱', 'Select mailbox'),
     selectMailboxRequired: defineMessage('portalSettings.selectMailboxRequired', '请选择邮箱', 'Select a mailbox'),
@@ -198,6 +235,10 @@ const MailPortalSettingsPage: FC = () => {
     const mountedRef = useRef(true);
     const [passwordLoading, setPasswordLoading] = useState(false);
     const [forwardLoading, setForwardLoading] = useState(false);
+    const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+    const [twoFactorStatusLoading, setTwoFactorStatusLoading] = useState(false);
+    const [twoFactorStatus, setTwoFactorStatus] = useState<MailboxPortalTwoFactorStatus>({ enabled: false, pending: false });
+    const [setupData, setSetupData] = useState<MailboxPortalTwoFactorSetup | null>(null);
     const [mailboxes, setMailboxes] = useState<MailboxItem[]>([]);
     const [forwardingJobs, setForwardingJobs] = useState<ForwardingJobItem[]>([]);
     const [session, setSession] = useState<SessionPayload | null>(null);
@@ -257,6 +298,29 @@ const MailPortalSettingsPage: FC = () => {
     }, [t]);
 
     const mustChangePassword = Boolean(session?.mailboxUser.mustChangePassword ?? portalMailboxUser?.mustChangePassword);
+    const canManageTwoFactor = session !== null && !mustChangePassword;
+
+    const loadTwoFactorStatus = useCallback(async () => {
+        if (!canManageTwoFactor) {
+            return;
+        }
+
+        setTwoFactorStatusLoading(true);
+        const result = await requestData<MailboxPortalTwoFactorStatus>(
+            () => portalAccountContract.getTwoFactorStatus(),
+            t(portalSettingsI18n.fetchTwoFactorStatusFailed),
+        );
+        if (!mountedRef.current) {
+            return;
+        }
+        if (result) {
+            setTwoFactorStatus(result);
+            if (!result.pending) {
+                setSetupData(null);
+            }
+        }
+        setTwoFactorStatusLoading(false);
+    }, [canManageTwoFactor, t]);
 
     useEffect(() => {
         mountedRef.current = true;
@@ -273,6 +337,19 @@ const MailPortalSettingsPage: FC = () => {
             clearTimeout(timer);
         };
     }, [loadSession]);
+
+    useEffect(() => {
+        if (!canManageTwoFactor) {
+            return;
+        }
+
+        const timer = setTimeout(() => {
+            void loadTwoFactorStatus();
+        }, 0);
+        return () => {
+            clearTimeout(timer);
+        };
+    }, [canManageTwoFactor, loadTwoFactorStatus]);
 
     useEffect(() => {
         if (mustChangePassword) {
@@ -338,6 +415,59 @@ const MailPortalSettingsPage: FC = () => {
         }
     };
 
+    const handleSetupTwoFactor = async () => {
+        setTwoFactorLoading(true);
+        const result = await requestData<MailboxPortalTwoFactorSetup>(
+            () => portalAccountContract.setupTwoFactor(),
+            t(portalSettingsI18n.generateTwoFactorSecretFailed),
+        );
+        if (result && mountedRef.current) {
+            setSetupData(result);
+            setTwoFactorStatus({ enabled: false, pending: true });
+            message.info(t(portalSettingsI18n.scanThenEnterOtp));
+        }
+        if (mountedRef.current) {
+            setTwoFactorLoading(false);
+        }
+    };
+
+    const handleEnableTwoFactor = async (values: EnableTwoFactorFormValues) => {
+        const otp = values.otp.trim();
+        if (!/^\d{6}$/.test(otp)) {
+            message.error(t(portalSettingsI18n.sixDigitOtpRequired));
+            return;
+        }
+
+        setTwoFactorLoading(true);
+        const result = await requestData<MailboxPortalTwoFactorResult>(
+            () => portalAccountContract.enableTwoFactor(otp),
+            t(portalSettingsI18n.enableTwoFactorFailed),
+        );
+        if (result && mountedRef.current) {
+            message.success(t(portalSettingsI18n.twoFactorEnabledSuccess));
+            setSetupData(null);
+            await loadTwoFactorStatus();
+        }
+        if (mountedRef.current) {
+            setTwoFactorLoading(false);
+        }
+    };
+
+    const handleDisableTwoFactor = async (values: DisableTwoFactorFormValues) => {
+        setTwoFactorLoading(true);
+        const result = await requestData<MailboxPortalTwoFactorResult>(
+            () => portalAccountContract.disableTwoFactor(values.password, values.otp),
+            t(portalSettingsI18n.disableTwoFactorFailed),
+        );
+        if (result && mountedRef.current) {
+            message.success(t(portalSettingsI18n.twoFactorDisabledSuccess));
+            await loadTwoFactorStatus();
+        }
+        if (mountedRef.current) {
+            setTwoFactorLoading(false);
+        }
+    };
+
     const forwardingEnabledCount = useMemo(() => mailboxes.filter((item) => item.forwardMode && item.forwardMode !== 'DISABLED').length, [mailboxes]);
     const sendEnabledCount = useMemo(() => mailboxes.filter((item) => item.sendReady).length, [mailboxes]);
     const selectedMailbox = useMemo(() => mailboxes.find((item) => item.id === selectedMailboxId), [mailboxes, selectedMailboxId]);
@@ -380,43 +510,163 @@ const MailPortalSettingsPage: FC = () => {
 
             <Row gutter={[16, 16]}>
                 <Col xs={24} xl={11}>
-                    <SurfaceCard>
-                        <Space orientation="vertical" size={18} style={portalSettingsStyles.fullWidth}>
-                            <div>
-                                <Title level={4} style={portalSettingsStyles.titleNoMargin}>{t(portalSettingsI18n.passwordSecurityTitle)}</Title>
-                                <Text type="secondary">{t(portalSettingsI18n.passwordSecuritySubtitle)}</Text>
-                            </div>
-                            <div style={portalSettingsStyles.accountPanel}>
-                                <Space orientation="vertical" size={6}>
-                                    <Text type="secondary">{t(portalSettingsI18n.currentAccountLabel)}</Text>
-                                    <Text strong>{session?.mailboxUser.username || '-'}</Text>
-                                    <Text type="secondary">{t(portalSettingsI18n.latestLogin, { lastLogin: session?.mailboxUser.lastLoginAt ? new Date(session.mailboxUser.lastLoginAt).toLocaleString() : t(portalSettingsI18n.noRecord) })}</Text>
+                    <Space orientation="vertical" size="middle" style={portalSettingsStyles.fullWidth}>
+                        <SurfaceCard>
+                            <Space orientation="vertical" size={18} style={portalSettingsStyles.fullWidth}>
+                                <div>
+                                    <Title level={4} style={portalSettingsStyles.titleNoMargin}>{t(portalSettingsI18n.passwordSecurityTitle)}</Title>
+                                    <Text type="secondary">{t(portalSettingsI18n.passwordSecuritySubtitle)}</Text>
+                                </div>
+                                <div style={portalSettingsStyles.accountPanel}>
+                                    <Space orientation="vertical" size={6}>
+                                        <Text type="secondary">{t(portalSettingsI18n.currentAccountLabel)}</Text>
+                                        <Text strong>{session?.mailboxUser.username || '-'}</Text>
+                                        <Text type="secondary">{t(portalSettingsI18n.latestLogin, { lastLogin: session?.mailboxUser.lastLoginAt ? new Date(session.mailboxUser.lastLoginAt).toLocaleString() : t(portalSettingsI18n.noRecord) })}</Text>
+                                    </Space>
+                                </div>
+                                <Form layout="vertical" form={passwordForm} onFinish={handlePasswordSubmit}>
+                                    <Form.Item name="oldPassword" label={t(portalSettingsI18n.currentPassword)} rules={[{ required: true, message: t(portalSettingsI18n.currentPasswordRequired) }]}>
+                                        <Input.Password />
+                                    </Form.Item>
+                                    <Form.Item name="newPassword" label={t(portalSettingsI18n.newPassword)} rules={[{ required: true, message: t(portalSettingsI18n.newPasswordRequired) }, { min: 8, message: t(portalSettingsI18n.passwordMinLength) }]}>
+                                        <Input.Password />
+                                    </Form.Item>
+                                    <Form.Item name="confirmPassword" label={t(portalSettingsI18n.confirmNewPassword)} dependencies={['newPassword']} rules={[
+                                        { required: true, message: t(portalSettingsI18n.confirmNewPasswordRequired) },
+                                        ({ getFieldValue }) => ({
+                                            validator(_, value) {
+                                                if (!value || getFieldValue('newPassword') === value) {
+                                                    return Promise.resolve();
+                                                }
+                                                return Promise.reject(new Error(t(portalSettingsI18n.passwordMismatch)));
+                                            },
+                                        }),
+                                    ]}>
+                                        <Input.Password />
+                                    </Form.Item>
+                                    <Button type="primary" htmlType="submit" loading={passwordLoading}>{t(portalSettingsI18n.updatePassword)}</Button>
+                                </Form>
+                            </Space>
+                        </SurfaceCard>
+
+                        {canManageTwoFactor ? (
+                            <SurfaceCard>
+                                <Space orientation="vertical" size="middle" style={portalSettingsStyles.fullWidth}>
+                                    <div>
+                                        <Title level={4} style={portalSettingsStyles.titleNoMargin}>{t(portalSettingsI18n.twoFactorTitle)}</Title>
+                                        <Text type="secondary">{t(portalSettingsI18n.twoFactorSubtitle)}</Text>
+                                    </div>
+
+                                    {twoFactorStatusLoading ? (
+                                        <Space>
+                                            <Spin size="small" />
+                                            <Text type="secondary">{t(portalSettingsI18n.twoFactorLoading)}</Text>
+                                        </Space>
+                                    ) : (
+                                        <>
+                                            <Space wrap>
+                                                <Text type="secondary">{t(portalSettingsI18n.currentTwoFactorStatus)}</Text>
+                                                {twoFactorStatus.enabled
+                                                    ? <Tag color="success">{t(portalSettingsI18n.twoFactorEnabled)}</Tag>
+                                                    : <Tag>{t(portalSettingsI18n.twoFactorDisabled)}</Tag>}
+                                                {twoFactorStatus.pending && !twoFactorStatus.enabled
+                                                    ? <Tag color="processing">{t(portalSettingsI18n.twoFactorPending)}</Tag>
+                                                    : null}
+                                            </Space>
+
+                                            {!twoFactorStatus.enabled ? (
+                                                <>
+                                                    <Button
+                                                        type="primary"
+                                                        icon={<SafetyCertificateOutlined aria-hidden />}
+                                                        loading={twoFactorLoading}
+                                                        onClick={() => void handleSetupTwoFactor()}
+                                                    >
+                                                        {t(portalSettingsI18n.generateTwoFactorSecret)}
+                                                    </Button>
+
+                                                    {setupData ? (
+                                                        <>
+                                                            <Divider />
+                                                            <Space orientation="vertical" size="middle" style={portalSettingsStyles.fullWidth}>
+                                                                <div>
+                                                                    <Text type="secondary">{t(portalSettingsI18n.scanToBind)}</Text>
+                                                                    <div><QRCode value={setupData.otpauthUrl} size={shellMetrics.twoFactorQrSize} /></div>
+                                                                </div>
+                                                                <div>
+                                                                    <Text type="secondary">{t(portalSettingsI18n.manualSecret)}</Text>
+                                                                    <div><Text copyable>{setupData.secret}</Text></div>
+                                                                </div>
+                                                                <div>
+                                                                    <Text type="secondary">{t(portalSettingsI18n.otpauthLink)}</Text>
+                                                                    <div><Text copyable>{setupData.otpauthUrl}</Text></div>
+                                                                </div>
+                                                                <Form<EnableTwoFactorFormValues> key={setupData.otpauthUrl} layout="vertical" onFinish={handleEnableTwoFactor}>
+                                                                    <Form.Item
+                                                                        name="otp"
+                                                                        label={t(portalSettingsI18n.enableOtpLabel)}
+                                                                        normalize={(value: string | undefined) => value?.replace(/\D/g, '').slice(0, 6)}
+                                                                        rules={[
+                                                                            { required: true, message: t(portalSettingsI18n.sixDigitOtpRequired) },
+                                                                            { pattern: /^\d{6}$/, message: t(portalSettingsI18n.sixDigitOtpRequired) },
+                                                                        ]}
+                                                                    >
+                                                                        <Input
+                                                                            aria-label={t(portalSettingsI18n.enableOtpLabel)}
+                                                                            autoComplete="one-time-code"
+                                                                            inputMode="numeric"
+                                                                            maxLength={6}
+                                                                            prefix={<SafetyCertificateOutlined />}
+                                                                        />
+                                                                    </Form.Item>
+                                                                    <Button type="primary" htmlType="submit" loading={twoFactorLoading}>
+                                                                        {t(portalSettingsI18n.enableTwoFactor)}
+                                                                    </Button>
+                                                                </Form>
+                                                            </Space>
+                                                        </>
+                                                    ) : null}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Divider />
+                                                    <Form<DisableTwoFactorFormValues> layout="vertical" onFinish={handleDisableTwoFactor}>
+                                                        <Form.Item
+                                                            name="password"
+                                                            label={t(portalSettingsI18n.currentPassword)}
+                                                            rules={[{ required: true, message: t(portalSettingsI18n.currentPasswordRequired) }]}
+                                                        >
+                                                            <Input.Password prefix={<LockOutlined />} autoComplete="current-password" />
+                                                        </Form.Item>
+                                                        <Form.Item
+                                                            name="otp"
+                                                            label={t(portalSettingsI18n.verificationCode)}
+                                                            normalize={(value: string | undefined) => value?.replace(/\D/g, '').slice(0, 6)}
+                                                            rules={[
+                                                                { required: true, message: t(portalSettingsI18n.sixDigitOtpRequired) },
+                                                                { pattern: /^\d{6}$/, message: t(portalSettingsI18n.sixDigitOtpRequired) },
+                                                            ]}
+                                                        >
+                                                            <Input
+                                                                aria-label={t(portalSettingsI18n.verificationCode)}
+                                                                autoComplete="one-time-code"
+                                                                inputMode="numeric"
+                                                                maxLength={6}
+                                                                prefix={<SafetyCertificateOutlined />}
+                                                            />
+                                                        </Form.Item>
+                                                        <Button danger htmlType="submit" loading={twoFactorLoading} icon={<LockOutlined aria-hidden />}>
+                                                            {t(portalSettingsI18n.disableTwoFactor)}
+                                                        </Button>
+                                                    </Form>
+                                                </>
+                                            )}
+                                        </>
+                                    )}
                                 </Space>
-                            </div>
-                            <Form layout="vertical" form={passwordForm} onFinish={handlePasswordSubmit}>
-                                <Form.Item name="oldPassword" label={t(portalSettingsI18n.currentPassword)} rules={[{ required: true, message: t(portalSettingsI18n.currentPasswordRequired) }]}>
-                                    <Input.Password />
-                                </Form.Item>
-                                <Form.Item name="newPassword" label={t(portalSettingsI18n.newPassword)} rules={[{ required: true, message: t(portalSettingsI18n.newPasswordRequired) }, { min: 8, message: t(portalSettingsI18n.passwordMinLength) }]}>
-                                    <Input.Password />
-                                </Form.Item>
-                                <Form.Item name="confirmPassword" label={t(portalSettingsI18n.confirmNewPassword)} dependencies={['newPassword']} rules={[
-                                    { required: true, message: t(portalSettingsI18n.confirmNewPasswordRequired) },
-                                    ({ getFieldValue }) => ({
-                                        validator(_, value) {
-                                            if (!value || getFieldValue('newPassword') === value) {
-                                                return Promise.resolve();
-                                            }
-                                            return Promise.reject(new Error(t(portalSettingsI18n.passwordMismatch)));
-                                        },
-                                    }),
-                                ]}>
-                                    <Input.Password />
-                                </Form.Item>
-                                <Button type="primary" htmlType="submit" loading={passwordLoading}>{t(portalSettingsI18n.updatePassword)}</Button>
-                            </Form>
-                        </Space>
-                    </SurfaceCard>
+                            </SurfaceCard>
+                        ) : null}
+                    </Space>
                 </Col>
 
                 {!mustChangePassword ? (

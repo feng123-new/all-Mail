@@ -1,8 +1,9 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { signToken } from '../../lib/jwt.js';
 import { ADMIN_JWT_AUDIENCE } from '../../lib/session-version.js';
+import { AppError } from '../../plugins/error.js';
+import { changePasswordSchema, disable2FaSchema, loginSchema, verify2FaSchema } from './auth.schema.js';
 import { authService } from './auth.service.js';
-import { loginSchema, changePasswordSchema, verify2FaSchema, disable2FaSchema } from './auth.schema.js';
 
 const isSecureCookie = process.env.NODE_ENV === 'production';
 const adminSessionCookieOptions = {
@@ -20,16 +21,25 @@ const adminClearCookieOptions = {
     path: '/',
 };
 
-async function rotateAdminSession(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+function getAdminAuthContext(request: FastifyRequest) {
     const admin = request.user;
     if (!admin) {
-        return;
+        throw new AppError('UNAUTHORIZED', 'Authentication required', 401);
     }
+    return admin;
+}
+
+async function rotateAdminSession(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    sessionVersion: number,
+): Promise<void> {
+    const admin = getAdminAuthContext(request);
     const token = await signToken({
         sub: String(admin.id),
         username: admin.username,
         role: admin.role,
-    }, { audience: ADMIN_JWT_AUDIENCE });
+    }, { audience: ADMIN_JWT_AUDIENCE, sessionVersion });
     reply.cookie('token', token, adminSessionCookieOptions);
 }
 
@@ -49,48 +59,69 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.get('/me', {
         preHandler: [fastify.authenticateJwt],
     }, async (request) => {
-        const admin = await authService.getMe(request.user!.id);
+        const context = getAdminAuthContext(request);
+        const admin = await authService.getMe(context.id, context.sessionVersion);
         return { success: true, data: admin };
     });
 
     fastify.post('/change-password', {
         preHandler: [fastify.authenticateJwt],
     }, async (request, reply) => {
+        const admin = getAdminAuthContext(request);
         const input = changePasswordSchema.parse(request.body);
-        await authService.changePassword(request.user!.id, input);
-        await rotateAdminSession(request, reply);
+        const result = await authService.changePassword(admin.id, admin.sessionVersion, input);
+        await rotateAdminSession(request, reply, result.sessionVersion);
         return { success: true, data: { code: 'AUTH_PASSWORD_CHANGED' } };
     });
 
     fastify.get('/2fa/status', {
         preHandler: [fastify.authenticateJwt],
     }, async (request) => {
-        const result = await authService.getTwoFactorStatus(request.user!.id);
+        const admin = getAdminAuthContext(request);
+        const result = await authService.getTwoFactorStatus(admin.id, admin.sessionVersion);
         return { success: true, data: result };
     });
 
     fastify.post('/2fa/setup', {
         preHandler: [fastify.authenticateJwt],
     }, async (request) => {
-        const result = await authService.setupTwoFactor(request.user!.id);
+        const admin = getAdminAuthContext(request);
+        const { sessionVersion: _sessionVersion, ...result } = await authService.setupTwoFactor(
+            admin.id,
+            admin.sessionVersion,
+        );
         return { success: true, data: result };
     });
 
     fastify.post('/2fa/enable', {
         preHandler: [fastify.authenticateJwt],
     }, async (request, reply) => {
+        const admin = getAdminAuthContext(request);
         const input = verify2FaSchema.parse(request.body);
-        const result = await authService.enableTwoFactor(request.user!.id, input);
-        await rotateAdminSession(request, reply);
+        const { sessionVersion, ...result } = await authService.enableTwoFactor(
+            admin.id,
+            admin.sessionVersion,
+            input,
+        );
+        if (sessionVersion !== admin.sessionVersion) {
+            await rotateAdminSession(request, reply, sessionVersion);
+        }
         return { success: true, data: result };
     });
 
     fastify.post('/2fa/disable', {
         preHandler: [fastify.authenticateJwt],
     }, async (request, reply) => {
+        const admin = getAdminAuthContext(request);
         const input = disable2FaSchema.parse(request.body);
-        const result = await authService.disableTwoFactor(request.user!.id, input);
-        await rotateAdminSession(request, reply);
+        const { sessionVersion, ...result } = await authService.disableTwoFactor(
+            admin.id,
+            admin.sessionVersion,
+            input,
+        );
+        if (sessionVersion !== admin.sessionVersion) {
+            await rotateAdminSession(request, reply, sessionVersion);
+        }
         return { success: true, data: result };
     });
 };

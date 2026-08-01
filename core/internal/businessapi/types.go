@@ -4,6 +4,7 @@ import "time"
 
 const (
 	adminJWTAudience       = "admin-console"
+	mailboxJWTAudience     = "mailbox-portal"
 	adminRevealJWTAudience = "admin-email-secret-reveal"
 	adminRevealJWTPurpose  = "external_password_reveal"
 	adminRevealGrantTTL    = 10 * time.Minute

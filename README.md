@@ -76,10 +76,10 @@ The initial database administrator is created only by `business-init` after Pris
 | Service | Responsibility |
 | --- | --- |
 | `app` | Go public gateway, React SPA, trusted-proxy boundary, readiness, metrics and business API proxy |
-| `go-business-api` | Private Go API-key administration/authentication, mailbox/OAuth/sending administration, provider operations, Redis limiting, and external APIs |
+| `go-business-api` | Private Go administrator/mailbox authentication, portal mailbox and inbound-message reads, API-key administration, provider operations, Redis limiting, and external APIs |
 | `worker-forwarding` | Go forwarding claim, send, retry, lease and terminal state transitions |
 | `worker-retention` | Go API-log retention |
-| `business-api` | Internal Fastify/Prisma API for remaining authentication, domain-message, portal, and compatibility routes |
+| `business-api` | Internal Fastify/Prisma API for remaining domain-message, portal operations, rollback-compatible authentication, and compatibility routes |
 | `postgres` | Application and runtime state; private to the Compose network |
 | `redis` | OAuth state, rate-limit, replay and cache support; private to the Compose network |
 
@@ -226,7 +226,7 @@ The overlay defaults to PostgreSQL `127.0.0.1:15433` and Redis `127.0.0.1:6380`.
 
 ## Rollback policy
 
-Rollback means deploying the previous known-good Git revision or image together with matching database and secret state:
+Rollback means deploying a known-good Git revision or image together with matching database and secret state:
 
 ```bash
 docker compose down
@@ -234,7 +234,9 @@ git switch <known-good-tag-or-commit>
 docker compose up -d --build --wait --wait-timeout 300
 ```
 
-Before upgrading, back up PostgreSQL and the legacy runtime volume. This revision changes secret layout, so preserve `runtime-secrets.env`, `bootstrap-admin.env`, and a pre-upgrade backup of any old `bootstrap-secrets.env`. Do not run initializers or workers from two revisions concurrently.
+The administrator/mailbox authentication cutover is also the Fastify compatibility floor. After a mailbox user enables 2FA on this revision, do not reuse the current PostgreSQL state with the PR #35 `business-api` image or any earlier revision: those handlers do not enforce mailbox TOTP or the cutover's revocable session version. Rolling back below the floor requires restoring a PostgreSQL backup from before the first mailbox 2FA mutation, together with matching secret volumes; an image-only rollback is unsafe.
+
+Before upgrading, back up PostgreSQL and the legacy runtime volume. This revision changes secret layout, so preserve `runtime-secrets.env`, `bootstrap-admin.env`, and a pre-upgrade backup of any old `bootstrap-secrets.env`. Do not run initializers or workers from two revisions concurrently. The authoritative procedure is in [`docs/DEPLOY.md`](docs/DEPLOY.md#rollback).
 
 ## Development and verification entrypoints
 
@@ -282,7 +284,7 @@ Production startup remains Docker Compose. The repository CLI does not expose a 
 
 ## Remaining migration boundary
 
-Fastify/Prisma still owns administrator and mailbox-portal authentication, remaining domain/message routes, JavaScript regex text extraction compatibility, durable initialization, and the existing business-schema migration history. The private Go business service owns API-key administration/authentication, external mailbox accounts, OAuth, provider mailbox operations, sending administration/history, and migrated external routes.
+Fastify/Prisma still owns remaining domain/message and mailbox-portal operations, JavaScript regex text extraction compatibility, durable initialization, the existing business-schema migration history, and dormant authentication handlers for revision rollback. The private Go business service owns administrator and mailbox authentication, portal mailbox/inbound-message reads, API-key administration, external mailbox accounts, OAuth, provider operations, sending administration/history, and migrated external routes.
 
 The removed environment administrator is not a fallback. Remaining capabilities must move to Go as vertical slices with authorization, validation, transaction, parity and failure-injection tests.
 

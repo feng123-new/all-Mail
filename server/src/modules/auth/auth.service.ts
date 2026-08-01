@@ -1,13 +1,13 @@
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile, rm } from 'node:fs/promises';
 
-import prisma from '../../lib/prisma.js';
-import { signToken, verifyToken } from '../../lib/jwt.js';
-import { decrypt, encrypt, hashPassword, verifyPassword } from '../../lib/crypto.js';
 import { env } from '../../config/env.js';
+import { decrypt, encrypt, hashPassword, verifyPassword } from '../../lib/crypto.js';
+import { signToken, verifyToken } from '../../lib/jwt.js';
 import { logger } from '../../lib/logger.js';
+import prisma from '../../lib/prisma.js';
 import { AppError } from '../../plugins/error.js';
-import type { LoginInput, ChangePasswordInput, Verify2FaInput, Disable2FaInput } from './auth.schema.js';
+import type { ChangePasswordInput, Disable2FaInput, LoginInput, Verify2FaInput } from './auth.schema.js';
 import { adminLoginAttempts, buildLoginAttemptCacheKey } from './login-attempts.js';
 import { buildTotpUri, generateBase32Secret, verifyTotpCode } from './totp.js';
 
@@ -31,6 +31,10 @@ function decryptAdmin2FaSecret(encryptedSecret: string | null | undefined): stri
     } catch {
         throw new AppError('TWO_FACTOR_SECRET_INVALID', 'Invalid two-factor configuration', 500);
     }
+}
+
+function invalidAdminSession(): AppError {
+    return new AppError('INVALID_TOKEN', 'Admin session is no longer valid', 401);
 }
 
 function parseBootstrapAdminUsername(content: string): string | null {
@@ -90,6 +94,7 @@ export const authService = {
                 mustChangePassword: true,
                 twoFactorEnabled: true,
                 twoFactorSecret: true,
+                sessionVersion: true,
             },
         });
 
@@ -115,6 +120,9 @@ export const authService = {
         }
 
         if (admin.twoFactorEnabled) {
+            if (otp === undefined) {
+                throw new AppError('OTP_REQUIRED', 'Two-factor code is required', 401);
+            }
             const adminTwoFactorSecret = decryptAdmin2FaSecret(admin.twoFactorSecret);
             if (!adminTwoFactorSecret) {
                 throw new AppError(
@@ -133,13 +141,20 @@ export const authService = {
         }
 
         await adminLoginAttempts.clear(loginAttemptCacheKey);
-        await prisma.admin.update({
-            where: { id: admin.id },
+        const loginUpdate = await prisma.admin.updateMany({
+            where: {
+                id: admin.id,
+                sessionVersion: admin.sessionVersion,
+                status: 'ACTIVE',
+            },
             data: {
                 lastLoginAt: new Date(),
                 lastLoginIp: ip,
             },
         });
+        if (loginUpdate.count !== 1) {
+            throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password', 401);
+        }
 
         const token = await signToken({
             sub: admin.id.toString(),
@@ -147,6 +162,7 @@ export const authService = {
             role: admin.role,
         }, {
             audience: ADMIN_JWT_AUDIENCE,
+            sessionVersion: admin.sessionVersion,
         });
 
         return {
@@ -161,10 +177,10 @@ export const authService = {
         };
     },
 
-    async changePassword(adminId: number, input: ChangePasswordInput) {
+    async changePassword(adminId: number, authenticatedVersion: number, input: ChangePasswordInput) {
         const { oldPassword, newPassword } = input;
-        const admin = await prisma.admin.findUnique({
-            where: { id: adminId },
+        const admin = await prisma.admin.findFirst({
+            where: { id: adminId, sessionVersion: authenticatedVersion },
             select: {
                 username: true,
                 passwordHash: true,
@@ -173,7 +189,7 @@ export const authService = {
         });
 
         if (!admin) {
-            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+            throw invalidAdminSession();
         }
 
         const isValid = await verifyPassword(oldPassword, admin.passwordHash);
@@ -182,13 +198,21 @@ export const authService = {
         }
 
         const newHash = await hashPassword(newPassword);
-        await prisma.admin.update({
-            where: { id: adminId },
+        const result = await prisma.admin.updateMany({
+            where: {
+                id: adminId,
+                sessionVersion: authenticatedVersion,
+                passwordHash: admin.passwordHash,
+                status: 'ACTIVE',
+            },
             data: {
                 passwordHash: newHash,
                 mustChangePassword: false,
             },
         });
+        if (result.count !== 1) {
+            throw invalidAdminSession();
+        }
 
         if (admin.mustChangePassword) {
             await removeBootstrapAdminSecret(admin.username);
@@ -197,12 +221,13 @@ export const authService = {
         return {
             success: true,
             mustChangePassword: false,
+            sessionVersion: authenticatedVersion + 1,
         };
     },
 
-    async getMe(adminId: number) {
-        const admin = await prisma.admin.findUnique({
-            where: { id: adminId },
+    async getMe(adminId: number, authenticatedVersion: number) {
+        const admin = await prisma.admin.findFirst({
+            where: { id: adminId, sessionVersion: authenticatedVersion },
             select: {
                 id: true,
                 username: true,
@@ -216,15 +241,15 @@ export const authService = {
         });
 
         if (!admin) {
-            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+            throw invalidAdminSession();
         }
 
         return admin;
     },
 
-    async getTwoFactorStatus(adminId: number) {
-        const admin = await prisma.admin.findUnique({
-            where: { id: adminId },
+    async getTwoFactorStatus(adminId: number, authenticatedVersion: number) {
+        const admin = await prisma.admin.findFirst({
+            where: { id: adminId, sessionVersion: authenticatedVersion },
             select: {
                 id: true,
                 twoFactorEnabled: true,
@@ -233,7 +258,7 @@ export const authService = {
         });
 
         if (!admin) {
-            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+            throw invalidAdminSession();
         }
 
         return {
@@ -242,38 +267,49 @@ export const authService = {
         };
     },
 
-    async setupTwoFactor(adminId: number) {
-        const admin = await prisma.admin.findUnique({
-            where: { id: adminId },
+    async setupTwoFactor(adminId: number, authenticatedVersion: number) {
+        const admin = await prisma.admin.findFirst({
+            where: { id: adminId, sessionVersion: authenticatedVersion },
             select: {
                 id: true,
                 username: true,
                 twoFactorEnabled: true,
+                twoFactorTempSecret: true,
             },
         });
 
         if (!admin) {
-            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+            throw invalidAdminSession();
         }
         if (admin.twoFactorEnabled) {
             throw new AppError('TWO_FACTOR_ENABLED', 'Two-factor already enabled', 400);
         }
 
         const secret = generateBase32Secret();
-        await prisma.admin.update({
-            where: { id: admin.id },
+        const result = await prisma.admin.updateMany({
+            where: {
+                id: admin.id,
+                sessionVersion: authenticatedVersion,
+                twoFactorEnabled: false,
+                twoFactorTempSecret: admin.twoFactorTempSecret,
+                status: 'ACTIVE',
+            },
             data: { twoFactorTempSecret: encrypt(secret) },
         });
+        if (result.count !== 1) {
+            throw invalidAdminSession();
+        }
 
         return {
             secret,
             otpauthUrl: buildTotpUri(secret, admin.username, 'all-Mail'),
+            sessionVersion: authenticatedVersion,
         };
     },
 
-    async enableTwoFactor(adminId: number, input: Verify2FaInput) {
-        const admin = await prisma.admin.findUnique({
-            where: { id: adminId },
+    async enableTwoFactor(adminId: number, authenticatedVersion: number, input: Verify2FaInput) {
+        const admin = await prisma.admin.findFirst({
+            where: { id: adminId, sessionVersion: authenticatedVersion },
             select: {
                 id: true,
                 twoFactorEnabled: true,
@@ -282,10 +318,10 @@ export const authService = {
         });
 
         if (!admin) {
-            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+            throw invalidAdminSession();
         }
         if (admin.twoFactorEnabled) {
-            return { enabled: true };
+            return { enabled: true, sessionVersion: authenticatedVersion };
         }
 
         const tempSecret = decryptAdmin2FaSecret(admin.twoFactorTempSecret);
@@ -296,21 +332,30 @@ export const authService = {
             throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
         }
 
-        await prisma.admin.update({
-            where: { id: admin.id },
+        const result = await prisma.admin.updateMany({
+            where: {
+                id: admin.id,
+                sessionVersion: authenticatedVersion,
+                twoFactorEnabled: false,
+                twoFactorTempSecret: admin.twoFactorTempSecret,
+                status: 'ACTIVE',
+            },
             data: {
                 twoFactorEnabled: true,
                 twoFactorSecret: admin.twoFactorTempSecret,
                 twoFactorTempSecret: null,
             },
         });
+        if (result.count !== 1) {
+            throw invalidAdminSession();
+        }
 
-        return { enabled: true };
+        return { enabled: true, sessionVersion: authenticatedVersion + 1 };
     },
 
-    async disableTwoFactor(adminId: number, input: Disable2FaInput) {
-        const admin = await prisma.admin.findUnique({
-            where: { id: adminId },
+    async disableTwoFactor(adminId: number, authenticatedVersion: number, input: Disable2FaInput) {
+        const admin = await prisma.admin.findFirst({
+            where: { id: adminId, sessionVersion: authenticatedVersion },
             select: {
                 id: true,
                 passwordHash: true,
@@ -320,10 +365,10 @@ export const authService = {
         });
 
         if (!admin) {
-            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+            throw invalidAdminSession();
         }
         if (!admin.twoFactorEnabled) {
-            return { enabled: false };
+            return { enabled: false, sessionVersion: authenticatedVersion };
         }
 
         const isPasswordValid = await verifyPassword(input.password, admin.passwordHash);
@@ -336,21 +381,31 @@ export const authService = {
             throw new AppError('INVALID_OTP', 'Invalid two-factor code', 401);
         }
 
-        await prisma.admin.update({
-            where: { id: admin.id },
+        const result = await prisma.admin.updateMany({
+            where: {
+                id: admin.id,
+                sessionVersion: authenticatedVersion,
+                passwordHash: admin.passwordHash,
+                twoFactorEnabled: true,
+                twoFactorSecret: admin.twoFactorSecret,
+                status: 'ACTIVE',
+            },
             data: {
                 twoFactorEnabled: false,
                 twoFactorSecret: null,
                 twoFactorTempSecret: null,
             },
         });
+        if (result.count !== 1) {
+            throw invalidAdminSession();
+        }
 
-        return { enabled: false };
+        return { enabled: false, sessionVersion: authenticatedVersion + 1 };
     },
 
-    async verifyStepUpTwoFactor(adminId: number, input: Verify2FaInput) {
-        const admin = await prisma.admin.findUnique({
-            where: { id: adminId },
+    async verifyStepUpTwoFactor(adminId: number, authenticatedVersion: number, input: Verify2FaInput) {
+        const admin = await prisma.admin.findFirst({
+            where: { id: adminId, sessionVersion: authenticatedVersion },
             select: {
                 id: true,
                 twoFactorEnabled: true,
@@ -359,7 +414,7 @@ export const authService = {
         });
 
         if (!admin) {
-            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+            throw invalidAdminSession();
         }
         if (!admin.twoFactorEnabled) {
             throw new AppError(
@@ -377,9 +432,9 @@ export const authService = {
         return { verified: true };
     },
 
-    async createExternalSecretRevealGrant(adminId: number) {
-        const admin = await prisma.admin.findUnique({
-            where: { id: adminId },
+    async createExternalSecretRevealGrant(adminId: number, authenticatedVersion: number) {
+        const admin = await prisma.admin.findFirst({
+            where: { id: adminId, sessionVersion: authenticatedVersion },
             select: {
                 id: true,
                 username: true,
@@ -389,7 +444,7 @@ export const authService = {
         });
 
         if (!admin) {
-            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+            throw invalidAdminSession();
         }
         if (!admin.twoFactorEnabled) {
             throw new AppError(
@@ -410,6 +465,7 @@ export const authService = {
             {
                 audience: EXTERNAL_SECRET_REVEAL_GRANT_AUDIENCE,
                 expiresIn: `${EXTERNAL_SECRET_REVEAL_GRANT_TTL_MINUTES}m`,
+                sessionVersion: authenticatedVersion,
             },
         );
 
@@ -419,9 +475,9 @@ export const authService = {
         };
     },
 
-    async verifyExternalSecretRevealGrant(adminId: number, grantToken: string) {
-        const admin = await prisma.admin.findUnique({
-            where: { id: adminId },
+    async verifyExternalSecretRevealGrant(adminId: number, authenticatedVersion: number, grantToken: string) {
+        const admin = await prisma.admin.findFirst({
+            where: { id: adminId, sessionVersion: authenticatedVersion },
             select: {
                 id: true,
                 twoFactorEnabled: true,
@@ -429,7 +485,7 @@ export const authService = {
         });
 
         if (!admin) {
-            throw new AppError('NOT_FOUND', 'Admin not found', 404);
+            throw invalidAdminSession();
         }
         if (!admin.twoFactorEnabled) {
             throw new AppError(

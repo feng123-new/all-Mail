@@ -2,13 +2,53 @@ package businessapi
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base32"
 	"encoding/binary"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
+
+func generateTOTPSecret() (string, error) {
+	secret := make([]byte, 20)
+	if _, err := rand.Read(secret); err != nil {
+		return "", fmt.Errorf("generate TOTP secret: %w", err)
+	}
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secret), nil
+}
+
+func buildTOTPURI(secret, account, issuer string) string {
+	issuer = strings.TrimSpace(issuer)
+	if issuer == "" {
+		issuer = "all-Mail"
+	}
+	account = strings.TrimSpace(account)
+	if account == "" {
+		account = "admin"
+	}
+	label := encodeURIComponent(issuer + ":" + account)
+	return fmt.Sprintf(
+		"otpauth://totp/%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30",
+		label,
+		encodeURIComponent(secret),
+		encodeURIComponent(issuer),
+	)
+}
+
+func encodeURIComponent(value string) string {
+	encoded := strings.ReplaceAll(url.QueryEscape(value), "+", "%20")
+	replacements := []string{
+		"%21", "!",
+		"%27", "'",
+		"%28", "(",
+		"%29", ")",
+		"%2A", "*",
+	}
+	return strings.NewReplacer(replacements...).Replace(encoded)
+}
 
 func verifyTOTP(secret, token string, window int, now time.Time) bool {
 	if len(token) != 6 {

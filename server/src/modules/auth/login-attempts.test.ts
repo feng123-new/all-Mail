@@ -40,3 +40,66 @@ void test('login protection local fallback remains deterministic for tests', asy
     await controller.clear(key);
     assert.equal(await controller.getLockRemainingSeconds(key), 0);
 });
+
+void test('mailbox login protection uses an independent namespace without changing admin keys', async () => {
+    const {
+        buildLoginAttemptCacheKey,
+        buildMailboxLoginAttemptCacheKey,
+        createLoginAttemptController,
+    } = await import('./login-attempts.js');
+    const calls: string[] = [];
+    const redis = {
+        async ttl(key: string) {
+            calls.push(`ttl:${key}`);
+            return 0;
+        },
+        async del(...keys: string[]) {
+            calls.push(`del:${keys.join(',')}`);
+            return keys.length;
+        },
+        async incr(key: string) {
+            calls.push(`incr:${key}`);
+            return 1;
+        },
+        async expire(key: string, seconds: number) {
+            calls.push(`expire:${key}:${seconds}`);
+            return 1;
+        },
+        async set(key: string, _value: string, _mode: 'EX', seconds: number) {
+            calls.push(`set:${key}:${seconds}`);
+            return 'OK';
+        },
+    };
+
+    const adminController = createLoginAttemptController({
+        getRedisClient: () => redis,
+        maxAttempts: 5,
+        lockSeconds: 900,
+    });
+    const adminCacheKey = buildLoginAttemptCacheKey(' Admin ', '127.0.0.1');
+    await adminController.recordFailure(adminCacheKey);
+    await adminController.clear(adminCacheKey);
+
+    const mailboxController = createLoginAttemptController({
+        namespace: 'mailbox',
+        getRedisClient: () => redis,
+        maxAttempts: 5,
+        lockSeconds: 900,
+    });
+    const mailboxCacheKey = buildMailboxLoginAttemptCacheKey(' User@Example.com ', '198.51.100.7');
+    await mailboxController.getLockRemainingSeconds(mailboxCacheKey);
+    await mailboxController.recordFailure(mailboxCacheKey);
+    await mailboxController.clear(mailboxCacheKey);
+
+    assert.equal(adminCacheKey, 'admin-login:admin:127.0.0.1');
+    assert.equal(mailboxCacheKey, 'mailbox-login:user@example.com:198.51.100.7');
+    assert.deepEqual(calls, [
+        'incr:auth:admin:login:attempt:admin-login:admin:127.0.0.1',
+        'expire:auth:admin:login:attempt:admin-login:admin:127.0.0.1:900',
+        'del:auth:admin:login:attempt:admin-login:admin:127.0.0.1,auth:admin:login:lock:admin-login:admin:127.0.0.1',
+        'ttl:auth:mailbox:login:lock:mailbox-login:user@example.com:198.51.100.7',
+        'incr:auth:mailbox:login:attempt:mailbox-login:user@example.com:198.51.100.7',
+        'expire:auth:mailbox:login:attempt:mailbox-login:user@example.com:198.51.100.7:900',
+        'del:auth:mailbox:login:attempt:mailbox-login:user@example.com:198.51.100.7,auth:mailbox:login:lock:mailbox-login:user@example.com:198.51.100.7',
+    ]);
+});

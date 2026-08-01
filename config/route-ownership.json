@@ -32,11 +32,10 @@
     },
     {
       "id": "admin-auth",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/auth",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-administrators",
@@ -400,6 +399,81 @@
       "path": "/api",
       "migrationStage": "pending",
       "targetOwner": "go-business-api"
+    },
+    {
+      "id": "mailbox-portal-login",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/mail/api/login",
+      "methods": [
+        "POST"
+      ],
+      "migrationStage": "complete"
+    },
+    {
+      "id": "mailbox-portal-logout",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/mail/api/logout",
+      "methods": [
+        "POST"
+      ],
+      "migrationStage": "complete"
+    },
+    {
+      "id": "mailbox-portal-session",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/mail/api/session",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "migrationStage": "complete"
+    },
+    {
+      "id": "mailbox-portal-change-password",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/mail/api/change-password",
+      "methods": [
+        "POST"
+      ],
+      "migrationStage": "complete"
+    },
+    {
+      "id": "mailbox-portal-two-factor",
+      "owner": "go-business-api",
+      "match": "prefix",
+      "path": "/mail/api/2fa",
+      "methods": [
+        "GET",
+        "HEAD",
+        "POST"
+      ],
+      "migrationStage": "complete"
+    },
+    {
+      "id": "mailbox-portal-mailboxes",
+      "owner": "go-business-api",
+      "match": "exact",
+      "path": "/mail/api/mailboxes",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "migrationStage": "complete"
+    },
+    {
+      "id": "mailbox-portal-messages",
+      "owner": "go-business-api",
+      "match": "prefix",
+      "path": "/mail/api/messages",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "migrationStage": "complete"
     },
     {
       "id": "mailbox-portal",

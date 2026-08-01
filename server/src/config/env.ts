@@ -1,6 +1,39 @@
 import { z } from 'zod';
 import 'dotenv/config';
 
+const MAX_JWT_DURATION_SECONDS = 9_223_372_036;
+const JWT_DURATION_MULTIPLIERS = {
+    '': 1,
+    s: 1,
+    m: 60,
+    h: 60 * 60,
+    d: 24 * 60 * 60,
+} as const;
+
+export function parseJWTDurationSeconds(raw: string): number {
+    const value = raw.trim();
+    const match = /^([1-9][0-9]*)([smhd]?)$/.exec(value);
+    if (!match) {
+        throw new Error('JWT_EXPIRES_IN must be a positive integer with an optional s, m, h, or d suffix');
+    }
+    const amount = Number(match[1]);
+    const multiplier = JWT_DURATION_MULTIPLIERS[match[2] as keyof typeof JWT_DURATION_MULTIPLIERS];
+    const seconds = amount * multiplier;
+    if (!Number.isSafeInteger(seconds) || seconds > MAX_JWT_DURATION_SECONDS) {
+        throw new Error('JWT_EXPIRES_IN is too large');
+    }
+    return seconds;
+}
+
+const jwtDurationSchema = z.string().trim().refine((value) => {
+    try {
+        parseJWTDurationSeconds(value);
+        return true;
+    } catch {
+        return false;
+    }
+}, 'JWT_EXPIRES_IN must be a positive integer with an optional s, m, h, or d suffix');
+
 const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     PORT: z.coerce.number().default(3000),
@@ -14,7 +47,7 @@ const envSchema = z.object({
 
     // JWT and encrypted business secrets
     JWT_SECRET: z.string().min(32),
-    JWT_EXPIRES_IN: z.string().default('2h'),
+    JWT_EXPIRES_IN: jwtDurationSchema.default('2h'),
     ENCRYPTION_KEY: z.string().length(32),
 
     // One-time bootstrap credential cleanup path. The API never receives the

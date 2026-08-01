@@ -1,0 +1,26 @@
+{
+  "valid": [
+    { "value": "1", "seconds": 1 },
+    { "value": "60s", "seconds": 60 },
+    { "value": "15m", "seconds": 900 },
+    { "value": "2h", "seconds": 7200 },
+    { "value": "1d", "seconds": 86400 },
+    { "value": "7200", "seconds": 7200 },
+    { "value": " 2h ", "seconds": 7200 },
+    { "value": "9223372036s", "seconds": 9223372036 }
+  ],
+  "invalid": [
+    "",
+    "0",
+    "00",
+    "-1",
+    "+1",
+    "1.5h",
+    "1h30m",
+    "2 hours",
+    "1w",
+    "1H",
+    "9223372037s",
+    "106752d"
+  ]
+}

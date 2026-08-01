@@ -8,6 +8,28 @@ interface MessageVisibilityOptions {
     portalVisibleOnly?: boolean;
 }
 
+function mailboxUserMessageScope(mailboxUserId: number): Prisma.InboundMessageWhereInput {
+    return {
+        mailbox: {
+            is: {
+                status: 'ACTIVE',
+                domain: { is: { status: 'ACTIVE', canReceive: true } },
+                OR: [
+                    { ownerUser: { is: { id: mailboxUserId, status: 'ACTIVE' } } },
+                    {
+                        memberships: {
+                            some: {
+                                userId: mailboxUserId,
+                                user: { is: { status: 'ACTIVE' } },
+                            },
+                        },
+                    },
+                ],
+            },
+        },
+    };
+}
+
 function parseInboundMessageIds(ids: DeleteDomainMessageInput['ids']): bigint[] {
     return Array.from(new Set(ids.map((id) => {
         try {
@@ -105,6 +127,54 @@ export const messageService = {
         };
     },
 
+    async listForMailboxUser(mailboxUserId: number, input: ListDomainMessageInput) {
+        const skip = (input.page - 1) * input.pageSize;
+        const where: Prisma.InboundMessageWhereInput = {
+            ...(input.mailboxId ? { mailboxId: input.mailboxId } : {}),
+            ...(input.unreadOnly ? { isRead: false } : {}),
+            portalState: 'VISIBLE',
+            isDeleted: false,
+            ...mailboxUserMessageScope(mailboxUserId),
+        };
+        const [list, total] = await Promise.all([
+            prisma.inboundMessage.findMany({
+                where,
+                select: {
+                    id: true,
+                    matchedAddress: true,
+                    finalAddress: true,
+                    fromAddress: true,
+                    toAddress: true,
+                    subject: true,
+                    textPreview: true,
+                    htmlPreview: true,
+                    verificationCode: true,
+                    routeKind: true,
+                    receivedAt: true,
+                    storageStatus: true,
+                    isRead: true,
+                    domain: { select: { id: true, name: true, canSend: true, canReceive: true } },
+                    mailbox: { select: { id: true, address: true, provisioningMode: true } },
+                },
+                skip,
+                take: input.pageSize,
+                orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+            }),
+            prisma.inboundMessage.count({ where }),
+        ]);
+
+        return {
+            list: list.map((item) => ({
+                ...item,
+                id: item.id.toString(),
+                mailbox: enrichInboundMailbox(item.mailbox, item.domain),
+            })),
+            total,
+            page: input.page,
+            pageSize: input.pageSize,
+        };
+    },
+
     async getById(id: string, options?: MessageVisibilityOptions) {
         let messageId: bigint;
         try {
@@ -152,6 +222,72 @@ export const messageService = {
             id: message.id.toString(),
             mailbox: enrichInboundMailbox(message.mailbox, message.domain),
         };
+    },
+
+    async getForMailboxUser(mailboxUserId: number, id: string) {
+        let messageId: bigint;
+        try {
+            messageId = BigInt(id);
+        } catch {
+            throw new AppError('INBOUND_MESSAGE_INVALID_ID', 'Inbound message id is invalid', 400);
+        }
+        const where: Prisma.InboundMessageWhereInput = {
+            id: messageId,
+            portalState: 'VISIBLE',
+            isDeleted: false,
+            ...mailboxUserMessageScope(mailboxUserId),
+        };
+
+        return prisma.$transaction(async (tx) => {
+            const message = await tx.inboundMessage.findFirst({
+                where,
+                select: {
+                    id: true,
+                    domainId: true,
+                    mailboxId: true,
+                    matchedAddress: true,
+                    finalAddress: true,
+                    messageIdHeader: true,
+                    fromAddress: true,
+                    toAddress: true,
+                    subject: true,
+                    textPreview: true,
+                    htmlPreview: true,
+                    verificationCode: true,
+                    routeKind: true,
+                    receivedAt: true,
+                    storageStatus: true,
+                    rawObjectKey: true,
+                    attachmentsMeta: true,
+                    headersJson: true,
+                    isRead: true,
+                    isDeleted: true,
+                    portalState: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    domain: { select: { id: true, name: true, canSend: true, canReceive: true } },
+                    mailbox: { select: { id: true, address: true, provisioningMode: true } },
+                },
+            });
+            if (!message) {
+                throw new AppError('INBOUND_MESSAGE_NOT_FOUND', 'Inbound message not found', 404);
+            }
+
+            const updated = await tx.inboundMessage.updateMany({
+                where,
+                data: { isRead: true },
+            });
+            if (updated.count !== 1) {
+                throw new AppError('INBOUND_MESSAGE_NOT_FOUND', 'Inbound message not found', 404);
+            }
+
+            return {
+                ...message,
+                id: message.id.toString(),
+                isRead: true,
+                mailbox: enrichInboundMailbox(message.mailbox, message.domain),
+            };
+        });
     },
 
     async markRead(id: string, allowedMailboxIds?: number[]) {

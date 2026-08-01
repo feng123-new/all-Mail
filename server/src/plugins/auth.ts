@@ -1,16 +1,16 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
-import { verifyToken } from '../lib/jwt.js';
-import { decrypt, hashApiKey } from '../lib/crypto.js';
 import { env } from '../config/env.js';
-import prisma from '../lib/prisma.js';
+import { decrypt, hashApiKey } from '../lib/crypto.js';
+import { verifyToken } from '../lib/jwt.js';
 import { logger } from '../lib/logger.js';
+import prisma from '../lib/prisma.js';
 import { getRedis } from '../lib/redis.js';
 import { allowLocalSecurityState, securityStateUnavailable } from '../lib/security-state.js';
 import { ADMIN_PASSWORD_CHANGE_ALLOWED_PATHS, MAILBOX_PASSWORD_CHANGE_ALLOWED_PATHS } from '../routes/prefixes.js';
+import { type ApiPermissions, isApiPermissionAllowed, parseApiPermissions } from './api-permissions.js';
 import { AppError } from './error.js';
-import { isApiPermissionAllowed, parseApiPermissions, type ApiPermissions } from './api-permissions.js';
 
 declare module 'fastify' {
     interface FastifyRequest {
@@ -19,6 +19,7 @@ declare module 'fastify' {
             username: string;
             role: string;
             mustChangePassword: boolean;
+            sessionVersion: number;
         };
         apiKey?: {
             id: number;
@@ -32,6 +33,7 @@ declare module 'fastify' {
             role: string;
             mailboxIds: number[];
             mustChangePassword: boolean;
+            sessionVersion: number;
         };
         ingressEndpoint?: {
             id: number;
@@ -320,7 +322,13 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
         }
 
         const adminId = Number.parseInt(payload.sub, 10);
-        if (!Number.isInteger(adminId) || adminId <= 0) {
+        const sessionVersion = Number(payload.sessionVersion);
+        if (
+            !Number.isInteger(adminId)
+            || adminId <= 0
+            || !Number.isInteger(sessionVersion)
+            || sessionVersion <= 0
+        ) {
             throw new AppError('INVALID_TOKEN', 'Invalid or expired token', 401);
         }
 
@@ -348,6 +356,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
             username: admin.username,
             role: admin.role,
             mustChangePassword: admin.mustChangePassword,
+            sessionVersion,
         };
 
         if (admin.mustChangePassword && !isAdminPasswordChangeAllowedPath(request)) {
@@ -433,7 +442,13 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
 
         const rawId = payload.mailboxUserId ?? payload.sub;
         const id = Number.parseInt(String(rawId), 10);
-        if (!Number.isFinite(id) || id <= 0) {
+        const sessionVersion = Number(payload.sessionVersion);
+        if (
+            !Number.isFinite(id)
+            || id <= 0
+            || !Number.isInteger(sessionVersion)
+            || sessionVersion <= 0
+        ) {
             throw new AppError('INVALID_MAILBOX_TOKEN', 'Mailbox token is missing a valid subject', 401);
         }
 
@@ -484,6 +499,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
             role: payload.role,
             mailboxIds,
             mustChangePassword: mailboxUser.mustChangePassword,
+            sessionVersion,
         };
 
         if (mailboxUser.mustChangePassword && !isMailboxPasswordChangeAllowedPath(request)) {
@@ -526,7 +542,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
             },
         });
 
-        if (!endpoint || endpoint.status !== 'ACTIVE') {
+        if (endpoint?.status !== 'ACTIVE') {
             throw new AppError('INGRESS_ENDPOINT_DISABLED', 'Ingress endpoint is invalid or disabled', 403);
         }
 

@@ -103,6 +103,12 @@ Database-only external routes are also exact Go-owned entries:
 
 Provider-dependent Gmail, Graph, IMAP, SMTP, OAuth, and Resend operations are Go-owned with a provider timeout separate from the database query timeout. JavaScript regular-expression text extraction remains on `business-api`; exact entries for `/api/domain-mail/messages/text` and `/api/domain-mail/mail_text` prevent broader Go message routes from taking those compatibility endpoints.
 
+## Authentication and mailbox portal reads
+
+`go-business-api` owns `/admin/auth/**` and the exact mailbox login, logout, session, password, 2FA, mailbox-list, and inbound-message read methods. The broader `/mail/api` prefix remains Fastify-owned for sending, sent history, forwarding, and other portal operations.
+
+Both private runtimes retain compatible authentication handlers during the observation window. They share PostgreSQL session versions, Redis lock keys, bcrypt cost 10, encrypted TOTP secrets, JWT issuer/audience claims, and cookie attributes. This allows a manifest rollback without disabling mailbox-user 2FA or accepting a stale session. Message reads use current database memberships and scope detail selection before returning or marking a row read.
+
 ## Runtime loading and inspection
 
 The Go image contains the reviewed manifest at:
@@ -203,6 +209,8 @@ A route migration must include:
 10. a later observation window before deleting the Fastify handler.
 
 Rollback is revision-based. Never introduce a mutable dual writer or environment-controlled owner switch.
+
+For the authentication slice, the rollback revision reverts the affected manifest owners but retains the compatibility Fastify handlers added with the Go cut. Do not deploy a pre-cut Fastify image after mailbox-user 2FA enrollment because that historical handler did not enforce the mailbox 2FA fields.
 
 ## Final deletion gate
 

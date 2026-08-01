@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
-import type { Prisma } from "@prisma/client";
 
 process.env.NODE_ENV ??= "test";
 process.env.DATABASE_URL ??=
@@ -10,8 +9,12 @@ process.env.JWT_SECRET ??= "test-jwt-secret-1234567890abcdef";
 process.env.ENCRYPTION_KEY ??= "test-encryption-key-1234567890ab";
 process.env.ADMIN_PASSWORD ??= "test-admin-password";
 
-function toPrismaPromise<T>(value: T): Prisma.PrismaPromise<T> {
-	return Promise.resolve(value) as Prisma.PrismaPromise<T>;
+function overrideMethod(target: object, key: PropertyKey, replacement: unknown) {
+	const original = Reflect.get(target, key);
+	Reflect.set(target, key, replacement);
+	return () => {
+		Reflect.set(target, key, original);
+	};
 }
 
 async function createAdminToken(adminId: number) {
@@ -25,21 +28,13 @@ async function createAdminToken(adminId: number) {
 
 async function mockAdminAuthContext() {
 	const { default: prisma } = await import("../../lib/prisma.js");
-	const originalFindUnique = prisma.admin.findUnique.bind(prisma.admin);
-	const findUniqueMock: typeof prisma.admin.findUnique = () =>
-		toPrismaPromise({
+	return overrideMethod(prisma.admin, "findUnique", async () => ({
 			id: 1,
 			username: "admin-user",
 			role: "ADMIN",
 			status: "ACTIVE",
 			mustChangePassword: false,
-		});
-
-	prisma.admin.findUnique = findUniqueMock;
-
-	return () => {
-		prisma.admin.findUnique = originalFindUnique;
-	};
+		}));
 }
 
 void test("email export route forwards rawSecrets and ids query params to emailService.export", async () => {
@@ -196,7 +191,7 @@ void test("email reveal route verifies 2FA and returns requested secrets", async
 		});
 
 		assert.equal(response.statusCode, 200);
-		assert.deepEqual(authArgs, [1, { otp: "123456" }]);
+		assert.deepEqual(authArgs, [1, 1, { otp: "123456" }]);
 		assert.deepEqual(revealArgs, [12, ["password"]]);
 		assert.equal(logArgs?.[0], "admin_reveal_external_secret");
 		assert.equal(logArgs?.[1], 12);
@@ -261,8 +256,8 @@ void test("email reveal unlock route verifies OTP and returns a short-lived gran
 		});
 
 		assert.equal(response.statusCode, 200);
-		assert.deepEqual(authArgs, [1, { otp: "123456" }]);
-		assert.deepEqual(grantArgs, [1]);
+		assert.deepEqual(authArgs, [1, 1, { otp: "123456" }]);
+		assert.deepEqual(grantArgs, [1, 1]);
 		assert.equal(logCalls[0]?.[0], "admin_reveal_external_secret_unlock");
 		assert.equal(logCalls[0]?.[3], 200);
 		assert.deepEqual(JSON.parse(response.payload), {
@@ -319,7 +314,6 @@ void test("email reveal unlock route returns INVALID_OTP when step-up verificati
 			requestId: "req-1",
 			error: {
 				code: "INVALID_OTP",
-				message: "Invalid two-factor code",
 			},
 		});
 	} finally {
@@ -379,7 +373,7 @@ void test("email reveal route accepts a valid short-lived grant token", async ()
 		});
 
 		assert.equal(response.statusCode, 200);
-		assert.deepEqual(verifyGrantArgs, [1, "grant-token-123"]);
+		assert.deepEqual(verifyGrantArgs, [1, 1, "grant-token-123"]);
 		assert.deepEqual(revealArgs, [12, ["password"]]);
 		assert.equal(logArgs?.[0], "admin_reveal_external_secret");
 		assert.equal(logArgs?.[3], 200);
@@ -444,7 +438,6 @@ void test("email reveal route returns REVEAL_UNLOCK_EXPIRED when grant verificat
 			requestId: "req-1",
 			error: {
 				code: "REVEAL_UNLOCK_EXPIRED",
-				message: "Reveal unlock expired or invalid",
 			},
 		});
 	} finally {
@@ -497,7 +490,7 @@ void test("email reveal route accepts accountLoginPassword as a revealable field
 		});
 
 		assert.equal(response.statusCode, 200);
-		assert.deepEqual(authArgs, [1, { otp: "123456" }]);
+		assert.deepEqual(authArgs, [1, 1, { otp: "123456" }]);
 		assert.deepEqual(revealArgs, [12, ["accountLoginPassword"]]);
 	} finally {
 		restoreAdminFindUnique();
@@ -531,8 +524,6 @@ void test("email update route requires a grant token before updating account log
 			requestId: "req-1",
 			error: {
 				code: "ACCOUNT_LOGIN_PASSWORD_GRANT_REQUIRED",
-				message:
-					"Two-factor verification is required before updating the stored account login password",
 			},
 		});
 	} finally {
@@ -583,7 +574,7 @@ void test("email update route verifies grant token before updating account login
 		});
 
 		assert.equal(response.statusCode, 200);
-		assert.deepEqual(verifyGrantArgs, [1, "grant-token-123"]);
+		assert.deepEqual(verifyGrantArgs, [1, 1, "grant-token-123"]);
 		assert.deepEqual(updateArgs, [12, { accountLoginPassword: "portal-login-password" }]);
 	} finally {
 		restoreAdminFindUnique();

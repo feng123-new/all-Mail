@@ -91,10 +91,9 @@ The Cloudflare Email Worker now stores raw messages under deterministic SHA-256 
 ## Remaining vertical migrations
 
 1. Move remaining domain, message, alias, and portal operations.
-2. Move mailbox-portal and administrator authentication, including login lockout, 2FA, password rotation, and JWT issuance.
-3. Transfer complete business-schema migration authority from Prisma to Go.
-4. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.
-5. Observe zero Fastify proxy traffic, then remove the Node/Prisma runtime in a separate revision.
+2. Transfer complete business-schema migration authority from Prisma to Go.
+3. Rewrap or formally preserve every encrypted historical field before removing the compatibility crypto reader.
+4. Observe zero Fastify proxy traffic, then remove the Node/Prisma runtime in a separate revision.
 
 Each route cutover must include its Go handler, authorization, validation, transaction behavior, response parity, failure injection, method-aware manifest change, public-gateway Docker smoke, readiness checks, and revision rollback path.
 
