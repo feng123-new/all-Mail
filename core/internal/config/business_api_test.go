@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -74,6 +75,7 @@ func TestLoadGoBusinessAPIRequiresDatabaseAndSecretFiles(t *testing.T) {
 		"PORT",
 		"DATABASE_URL",
 		"REDIS_URL",
+		"REDIS_PASSWORD_FILE",
 		"JWT_SECRET_FILE",
 		"ENCRYPTION_KEY_FILE",
 		"INGRESS_ALLOWED_SKEW_SECONDS",
@@ -145,9 +147,26 @@ func TestLoadGoBusinessAPIRequiresDatabaseAndSecretFiles(t *testing.T) {
 	}
 	t.Setenv("JWT_EXPIRES_IN", "2h")
 	t.Setenv("NODE_ENV", "production")
+	if _, err := LoadGoBusinessAPI(); err == nil {
+		t.Fatal("production Go business API accepted a missing Redis password file")
+	}
+	redisPasswordFile := filepath.Join(t.TempDir(), "redis-password")
+	redisPassword := "0123456789abcdef0123456789abcdef"
+	if err := os.WriteFile(redisPasswordFile, []byte(redisPassword+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("REDIS_PASSWORD_FILE", redisPasswordFile)
 	cfg, err = LoadGoBusinessAPI()
 	if err != nil || !cfg.SecureCookies {
 		t.Fatalf("production cookie config = %#v, %v", cfg, err)
+	}
+	parsedRedis, err := url.Parse(cfg.RedisURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	password, present := parsedRedis.User.Password()
+	if !present || password != redisPassword {
+		t.Fatalf("Redis password was not injected from file: %q", cfg.RedisURL)
 	}
 }
 
