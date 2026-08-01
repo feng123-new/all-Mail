@@ -28,6 +28,7 @@ type State struct {
 	LegacySecretsFile  string
 	JWTSecret          string
 	EncryptionKey      string
+	RedisPassword      string
 	CreatedKeys        []string
 }
 
@@ -105,8 +106,11 @@ func Resolve(stateDir string, environment map[string]string, allowGenerate bool)
 			persisted[key] = legacyValue
 		}
 	}
+	if value := strings.TrimSpace(existingRuntime["REDIS_PASSWORD"]); !isMissing(value) {
+		persisted["REDIS_PASSWORD"] = value
+	}
 
-	resolve := func(key string, generate func() (string, error)) (string, error) {
+	resolve := func(key string, canGenerate bool, generate func() (string, error)) (string, error) {
 		environmentValue := strings.TrimSpace(environment[key])
 		persistedValue := strings.TrimSpace(persisted[key])
 		if !isMissing(environmentValue) {
@@ -118,7 +122,7 @@ func Resolve(stateDir string, environment map[string]string, allowGenerate bool)
 		if !isMissing(persistedValue) {
 			return persistedValue, nil
 		}
-		if !allowGenerate {
+		if !canGenerate {
 			return "", fmt.Errorf("%s is required for an existing database", key)
 		}
 		value, err := generate()
@@ -129,15 +133,28 @@ func Resolve(stateDir string, environment map[string]string, allowGenerate bool)
 		state.CreatedKeys = append(state.CreatedKeys, key)
 		return value, nil
 	}
-	state.JWTSecret, err = resolve("JWT_SECRET", func() (string, error) { return randomHex(32) })
+	state.JWTSecret, err = resolve("JWT_SECRET", allowGenerate, func() (string, error) { return randomHex(32) })
 	if err != nil {
 		return State{}, err
 	}
-	state.EncryptionKey, err = resolve("ENCRYPTION_KEY", func() (string, error) { return randomHex(16) })
+	state.EncryptionKey, err = resolve("ENCRYPTION_KEY", allowGenerate, func() (string, error) { return randomHex(16) })
 	if err != nil {
 		return State{}, err
 	}
-	if err := validateRuntimeSecrets(state.JWTSecret, state.EncryptionKey); err != nil {
+	// Redis authentication was introduced after existing installations had
+	// already created their database. Generate an independent persisted value
+	// even when JWT/encryption generation is closed; never accept it from the
+	// one-shot environment surface.
+	state.RedisPassword = strings.TrimSpace(persisted["REDIS_PASSWORD"])
+	if isMissing(state.RedisPassword) {
+		state.RedisPassword, err = randomHex(32)
+		if err != nil {
+			return State{}, err
+		}
+		persisted["REDIS_PASSWORD"] = state.RedisPassword
+		state.CreatedKeys = append(state.CreatedKeys, "REDIS_PASSWORD")
+	}
+	if err := validateRuntimeSecrets(state.JWTSecret, state.EncryptionKey, state.RedisPassword); err != nil {
 		return State{}, err
 	}
 	if err := WriteEnvFile(state.RuntimeSecretsFile, "Auto-generated all-Mail runtime secrets", persisted); err != nil {
@@ -164,7 +181,7 @@ func Resolve(stateDir string, environment map[string]string, allowGenerate bool)
 	return state, nil
 }
 
-func Finalize(state State, encryptionExport, jwtExport string) error {
+func Finalize(state State, encryptionExport, jwtExport, redisPasswordExport string) error {
 	if encryptionExport != "" {
 		if err := WriteSecretFile(encryptionExport, state.EncryptionKey); err != nil {
 			return err
@@ -172,6 +189,11 @@ func Finalize(state State, encryptionExport, jwtExport string) error {
 	}
 	if jwtExport != "" {
 		if err := WriteSecretFile(jwtExport, state.JWTSecret); err != nil {
+			return err
+		}
+	}
+	if redisPasswordExport != "" {
+		if err := WriteSecretFile(redisPasswordExport, state.RedisPassword); err != nil {
 			return err
 		}
 	}
@@ -221,7 +243,7 @@ func ParseEnvText(content string) map[string]string {
 }
 
 func WriteEnvFile(path, title string, entries map[string]string) error {
-	keys := []string{"JWT_SECRET", "ENCRYPTION_KEY", "ADMIN_USERNAME", "ADMIN_PASSWORD"}
+	keys := []string{"JWT_SECRET", "ENCRYPTION_KEY", "REDIS_PASSWORD", "ADMIN_USERNAME", "ADMIN_PASSWORD"}
 	var content strings.Builder
 	fmt.Fprintf(&content, "# %s\n", title)
 	content.WriteString("# Keep this file private and preserve it with the matching database backup.\n")
@@ -315,12 +337,15 @@ func syncDirectory(path string) error {
 	return nil
 }
 
-func validateRuntimeSecrets(jwtSecret, encryptionKey string) error {
+func validateRuntimeSecrets(jwtSecret, encryptionKey, redisPassword string) error {
 	if len(strings.TrimSpace(jwtSecret)) < 32 || isMissing(jwtSecret) {
 		return errors.New("JWT_SECRET must contain at least 32 non-placeholder characters")
 	}
 	if len(strings.TrimSpace(encryptionKey)) != 32 || isMissing(encryptionKey) {
 		return errors.New("ENCRYPTION_KEY must contain exactly 32 non-placeholder characters")
+	}
+	if len(strings.TrimSpace(redisPassword)) < 32 || isMissing(redisPassword) {
+		return errors.New("REDIS_PASSWORD must contain at least 32 non-placeholder characters")
 	}
 	return nil
 }
