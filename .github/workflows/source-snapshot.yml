@@ -22,9 +22,9 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: core/go.sum
-      - name: Download Go modules
+      - name: Resolve final Go module graph
         working-directory: core
-        run: go mod download
+        run: go mod tidy
       - name: Archive source and Go module cache
         shell: bash
         run: |
@@ -33,6 +33,7 @@ jobs:
           gomodcache="$(go env GOMODCACHE)"
           mkdir -p export
           tar -C "$(dirname "$gomodcache")" -czf export/go-mod-cache.tar.gz "$(basename "$gomodcache")"
+          cp core/go.mod core/go.sum export/
           go version > export/go-version.txt
           go env GOMODCACHE >> export/go-version.txt
       - name: Upload source snapshot
