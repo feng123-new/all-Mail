@@ -1,0 +1,7 @@
+# Temporary initializer-only overlay.
+# This file is used exclusively by scripts/compose-up.sh for `app init`.
+# It must never be included when starting the long-running production stack.
+services:
+  app:
+    networks:
+      - database-network

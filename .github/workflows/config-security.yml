@@ -65,6 +65,7 @@ jobs:
         run: |
           docker compose config --quiet
           docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.init.yml config --quiet
       - name: Inspect ownership and exposure model
         shell: bash
         run: |
@@ -81,8 +82,29 @@ jobs:
               'worker-retention', 'postgres', 'redis',
           }, f'unexpected production services: {sorted(services)}'
 
+          def network_names(service):
+              networks = services[service].get('networks', {})
+              return set(networks if isinstance(networks, dict) else networks)
+
+          expected_networks = {
+              'app': {'public-network', 'app-network'},
+              'go-business-api': {'app-network', 'provider-network', 'database-network', 'cache-network'},
+              'worker-forwarding': {'provider-network', 'database-network'},
+              'worker-retention': {'database-network'},
+              'postgres': {'database-network'},
+              'redis': {'cache-network'},
+          }
+          for service, expected in expected_networks.items():
+              assert network_names(service) == expected, (service, network_names(service), expected)
+
+          for name in ('app-network', 'database-network', 'cache-network'):
+              assert model['networks'][name].get('internal') is True, f'{name} is not internal'
+
           app_env = services['app'].get('environment', {})
-          for forbidden in ('DATABASE_URL', 'REDIS_URL', 'BUSINESS_API_URL', 'GO_API_MODE', 'ALL_MAIL_ENV'):
+          for forbidden in (
+              'DATABASE_URL', 'REDIS_URL', 'REDIS_PASSWORD_FILE', 'JWT_SECRET_FILE',
+              'ENCRYPTION_KEY_FILE', 'BUSINESS_API_URL', 'GO_API_MODE', 'ALL_MAIL_ENV',
+          ):
               assert forbidden not in app_env, f'app still receives {forbidden}'
 
           forwarding_env = services['worker-forwarding'].get('environment', {})
@@ -92,14 +114,28 @@ jobs:
           go_business_env = services['go-business-api'].get('environment', {})
           assert go_business_env.get('NODE_ENV') == 'production'
           assert go_business_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail-encryption/encryption-key'
+          assert go_business_env.get('JWT_SECRET_FILE') == '/var/lib/all-mail-secrets/jwt-secret'
+          assert go_business_env.get('REDIS_PASSWORD_FILE') == '/var/lib/all-mail-redis/redis-password'
           assert go_business_env.get('JWT_EXPIRES_IN') == '2h'
           assert go_business_env.get('ADMIN_LOGIN_MAX_ATTEMPTS') == '5'
           assert go_business_env.get('ADMIN_LOGIN_LOCK_MINUTES') == '15'
           assert go_business_env.get('BOOTSTRAP_ADMIN_SECRET_FILE') == '/var/lib/all-mail/bootstrap-admin.env'
           assert go_business_env.get('INGRESS_ALLOWED_SKEW_SECONDS') == '300'
           assert 'ENCRYPTION_KEY' not in go_business_env
+
           go_business_mounts = services['go-business-api'].get('volumes', [])
-          assert any(mount.get('target') == '/var/lib/all-mail' and not mount.get('read_only', False) for mount in go_business_mounts), 'Go auth cannot remove the consumed bootstrap credential'
+          mounts = {mount.get('target'): mount for mount in go_business_mounts}
+          assert mounts['/var/lib/all-mail'].get('read_only', False) is False, 'Go auth cannot remove the consumed bootstrap credential'
+          for target in (
+              '/var/lib/all-mail-secrets',
+              '/var/lib/all-mail-encryption',
+              '/var/lib/all-mail-redis',
+          ):
+              assert target in mounts and mounts[target].get('read_only') is True, f'{target} is not read-only'
+          assert not any(
+              mount.get('source', '').endswith('_legacy_runtime_data')
+              for mount in go_business_mounts
+          ), 'private API still mounts initializer-only master state'
 
           assert services['worker-retention'].get('volumes') in (None, []), 'retention heartbeat must stay ephemeral'
 
@@ -107,5 +143,8 @@ jobs:
               assert not services[name].get('ports'), f'{name} is published by production Compose'
 
           assert services['app'].get('ports'), 'public Go app has no published port'
-          assert model['volumes']['runtime_secrets_data']['name'] == 'all-mail_legacy_runtime_data'
+          assert 'runtime_secrets_data' not in model.get('volumes', {}), 'initializer-only volume leaked into service graph'
           PY
+
+          grep -Fq '${COMPOSE_PROJECT_NAME:-all-mail}_legacy_runtime_data' docker-compose.yml
+          grep -Fq 'project_name}_legacy_runtime_data' scripts/compose-up.sh

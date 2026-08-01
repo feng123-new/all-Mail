@@ -73,4 +73,23 @@ describe('MailPortalLoginPage two-factor challenge', () => {
     expect(portalAccountContract.login).toHaveBeenNthCalledWith(3, 'portal-user', 'correct-horse', '123456');
     expect(screen.queryByRole('dialog', { name: '二次验证' })).not.toBeInTheDocument();
   });
+
+  it('purges legacy portal credentials and prefills only the username', async () => {
+    window.localStorage.setItem(
+      'all-mail:portal-login:42',
+      JSON.stringify({ username: 'legacy-user', password: 'persisted-password' }),
+    );
+    window.localStorage.setItem('all-mail:unrelated-setting', 'keep-me');
+
+    render(
+      <MemoryRouter initialEntries={['/mail/login?username=query-user']}>
+        <MailPortalLoginPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByLabelText('门户用户名')).toHaveValue('query-user');
+    expect(screen.getByLabelText('密码')).toHaveValue('');
+    expect(window.localStorage.getItem('all-mail:portal-login:42')).toBeNull();
+    expect(window.localStorage.getItem('all-mail:unrelated-setting')).toBe('keep-me');
+  });
 });
