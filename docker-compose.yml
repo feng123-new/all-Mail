@@ -39,6 +39,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     networks:
+      - public-network
       - app-network
     healthcheck:
       test: ["CMD", "allmail", "doctor", "api"]
@@ -55,6 +56,7 @@ services:
       PORT: 3200
       DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
       REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD_FILE: /var/lib/all-mail-redis/redis-password
       JWT_SECRET_FILE: /var/lib/all-mail-secrets/jwt-secret
       ENCRYPTION_KEY_FILE: /var/lib/all-mail-encryption/encryption-key
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-2h}
@@ -75,11 +77,15 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     volumes:
-      - runtime_secrets_data:/var/lib/all-mail
+      - bootstrap_admin_data:/var/lib/all-mail
       - go_business_runtime_data:/var/lib/all-mail-secrets:ro
       - forwarding_runtime_data:/var/lib/all-mail-encryption:ro
+      - redis_runtime_data:/var/lib/all-mail-redis:ro
     networks:
       - app-network
+      - provider-network
+      - database-network
+      - cache-network
     healthcheck:
       test: ["CMD", "allmail", "doctor", "business-api"]
       interval: 30s
@@ -111,7 +117,8 @@ services:
     volumes:
       - forwarding_runtime_data:/var/lib/all-mail-secrets:ro
     networks:
-      - app-network
+      - provider-network
+      - database-network
     healthcheck:
       test: ["CMD", "allmail", "doctor", "worker", "forwarding"]
       interval: 30s
@@ -141,7 +148,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     networks:
-      - app-network
+      - database-network
     healthcheck:
       test: ["CMD", "allmail", "doctor", "worker", "retention"]
       interval: 30s
@@ -151,17 +158,31 @@ services:
 
   redis:
     image: redis:7-alpine
+    entrypoint: ["/bin/sh", "-lc"]
+    command:
+      - |
+        password="$$(cat /run/all-mail-secrets/redis-password)"
+        mkdir -p /tmp/all-mail-redis
+        cat > /tmp/all-mail-redis/redis.conf <<CONFIG
+        appendonly yes
+        port 6379
+        dir /data
+        requirepass $${password}
+        CONFIG
+        chown -R redis:redis /data /tmp/all-mail-redis
+        chmod 0600 /tmp/all-mail-redis/redis.conf
+        exec su-exec redis redis-server /tmp/all-mail-redis/redis.conf
     restart: unless-stopped
     networks:
-      - app-network
+      - cache-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/all-mail-secrets/redis-password)\" redis-cli -p 6379 ping | grep -qx PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
     volumes:
       - redis_data:/data
-    command: ["redis-server", "--appendonly", "yes", "--port", "6379"]
+      - redis_runtime_data:/run/all-mail-secrets:ro
 
   postgres:
     image: postgres:16-alpine
@@ -171,7 +192,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-allmail}
     restart: unless-stopped
     networks:
-      - app-network
+      - database-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-allmail} -p 5432"]
       interval: 10s
@@ -183,13 +204,26 @@ services:
     command: ["postgres", "-p", "5432"]
 
 networks:
+  public-network:
+    driver: bridge
   app-network:
     driver: bridge
+    internal: true
+  provider-network:
+    driver: bridge
+  database-network:
+    driver: bridge
+    internal: true
+  cache-network:
+    driver: bridge
+    internal: true
 
 volumes:
   runtime_secrets_data:
     name: "${COMPOSE_PROJECT_NAME:-all-mail}_legacy_runtime_data"
+  bootstrap_admin_data:
   forwarding_runtime_data:
   go_business_runtime_data:
+  redis_runtime_data:
   redis_data:
   postgres_data:
