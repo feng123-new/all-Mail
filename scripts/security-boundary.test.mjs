@@ -85,6 +85,8 @@ test('Redis requires the initializer-managed password file', async () => {
   assert.match(redis, /redis_runtime_data:\/run\/all-mail-secrets:ro/);
   assert.match(redis, /cat \/run\/all-mail-secrets\/redis-password/);
   assert.match(redis, /requirepass/);
+  assert.match(redis, /exec su-exec redis redis-server/);
+  assert.doesNotMatch(redis, /\bgosu\b/);
   assert.match(redis, /REDISCLI_AUTH/);
   assert.doesNotMatch(redis, /--protected-mode no/);
 });
