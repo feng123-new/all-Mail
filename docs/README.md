@@ -15,6 +15,7 @@ The production runtime is Go-only: `app` serves the React SPA and system endpoin
 | Upgrade an existing installation to the Go-only topology | [`UPGRADE-RUNTIME-NAMES.md`](./UPGRADE-RUNTIME-NAMES.md) |
 | Day-2 troubleshooting and recovery | [`RUNBOOK.md`](./RUNBOOK.md) |
 | Environment variables and secret ownership | [`ENVIRONMENT.md`](./ENVIRONMENT.md) |
+| Enforced browser, network, cache, and secret trust boundaries | [`SECURITY-BOUNDARIES.md`](./SECURITY-BOUNDARIES.md) |
 | Completed Go migration and schema compatibility guarantees | [`GO-MIGRATION.md`](./GO-MIGRATION.md) |
 | Method-aware route ownership and private-upstream metrics | [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md) |
 | Local API and frontend development | [`advanced-runtime.md`](./advanced-runtime.md) |
