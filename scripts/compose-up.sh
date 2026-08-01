@@ -10,6 +10,11 @@ if [[ ! -f "$env_file" ]]; then
 fi
 
 compose=(docker compose --env-file "$env_file")
+initializer_compose=(
+  docker compose --env-file "$env_file"
+  -f docker-compose.yml
+  -f docker-compose.init.yml
+)
 
 "${compose[@]}" up -d --wait --wait-timeout "$wait_timeout" postgres
 "${compose[@]}" build app
@@ -53,7 +58,7 @@ for name in \
   fi
 done
 
-"${compose[@]}" run --rm --no-deps --user 0:0 \
+"${initializer_compose[@]}" run --rm --no-deps --user 0:0 \
   --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
   "${initializer_env[@]}" \
   -e DATABASE_URL= \
