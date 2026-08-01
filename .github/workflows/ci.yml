@@ -434,7 +434,7 @@ jobs:
           '
 
       - name: Generate final image SBOM
-        uses: anchore/sbom-action@v0.20.6
+        uses: anchore/sbom-action@v0.24.0
         with:
           image: all-mail-go:local
           format: cyclonedx-json
