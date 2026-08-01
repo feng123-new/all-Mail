@@ -1,10 +1,32 @@
 package initialize
 
 import (
+	"net/url"
 	"testing"
 
 	"github.com/feng123-new/all-Mail/core/internal/config"
 )
+
+func TestLoadInitializerMigrationConfigBuildsComposeDatabaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("POSTGRES_USER", "mail user")
+	t.Setenv("POSTGRES_PASSWORD", "url-safe-password-1234567890")
+	t.Setenv("POSTGRES_DB", "mail db")
+	t.Setenv("ALL_MAIL_MIGRATION_DIR", "/app/migrations")
+
+	cfg, err := loadInitializerMigrationConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(cfg.DatabaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	password, _ := parsed.User.Password()
+	if parsed.User.Username() != "mail user" || password != "url-safe-password-1234567890" || parsed.Host != "postgres:5432" || parsed.Path != "/mail db" {
+		t.Fatalf("initializer database URL = %q", cfg.DatabaseURL)
+	}
+}
 
 func TestNormalizeScopesTrimsAndDeduplicatesInOrder(t *testing.T) {
 	value := normalizeScopes(" scope.one  scope.two scope.one ")

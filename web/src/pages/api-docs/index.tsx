@@ -846,8 +846,8 @@ const ApiDocsPage = () => {
 			),
 			description: m(
 				"routeFamilies.adminAuth.description",
-				"对应 `server/src/modules/auth/auth.routes.ts`，覆盖登录、登出、当前用户、改密、2FA 状态、启用与禁用。",
-				"Backed by `server/src/modules/auth/auth.routes.ts`, covering login, logout, current-user reads, password changes, 2FA status, setup, enable, and disable flows.",
+				"由 `core/internal/businessapi/auth_handlers.go` 提供，覆盖登录、登出、当前用户、改密、2FA 状态、启用与禁用。",
+				"Backed by `core/internal/businessapi/auth_handlers.go`, covering login, logout, current-user reads, password changes, 2FA status, setup, enable, and disable flows.",
 			),
 			operations: [
 				{
@@ -950,8 +950,8 @@ const ApiDocsPage = () => {
 			),
 			description: m(
 				"routeFamilies.adminApiKeys.description",
-				"对应 `server/src/modules/api-key/apiKey.routes.ts`，覆盖 API Key CRUD、邮箱池 usage/reset、已分配邮箱列表与手工分配。",
-				"Backed by `server/src/modules/api-key/apiKey.routes.ts`, covering API-key CRUD, mailbox-pool usage/reset flows, assigned-mailbox lists, and manual assignment.",
+				"由 `core/internal/businessapi/api_key_handlers.go` 提供，覆盖 API Key CRUD、邮箱池 usage/reset、已分配邮箱列表与手工分配。",
+				"Backed by `core/internal/businessapi/api_key_handlers.go`, covering API-key CRUD, mailbox-pool usage/reset flows, assigned-mailbox lists, and manual assignment.",
 			),
 			operations: [
 				{

@@ -62,7 +62,7 @@ func TestPostgresAPIKeyAndExternalRouteIntegrationProviderMailRoutes(t *testing.
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256([]byte(apiKey))
-	permissions := `{"external_read_latest_message":true,"external_list_messages":true,"external_clear_mailbox":true}`
+	permissions := `{"external_read_latest_message":true,"external_read_message_text":true,"external_list_messages":true,"external_clear_mailbox":true}`
 	if err := store.pool.QueryRow(ctx, `
 		INSERT INTO api_keys (
 			name, key_prefix, key_hash, permissions, allowed_email_ids, rate_limit, status,
@@ -117,6 +117,13 @@ func TestPostgresAPIKeyAndExternalRouteIntegrationProviderMailRoutes(t *testing.
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"success":true`) || !strings.Contains(response.Body.String(), email) {
 			t.Fatalf("%s response = %d %s", path, response.Code, response.Body.String())
 		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/mail_text?email="+email+"&match=(external)%20body", nil)
+	request.Header.Set("X-API-Key", apiKey)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "external" || response.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
+		t.Fatalf("external text response = %d %q (%s)", response.Code, response.Body.String(), response.Header().Get("Content-Type"))
 	}
 	requestMutex.Lock()
 	requests := strings.Join(remoteRequests, "\n")

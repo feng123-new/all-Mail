@@ -24,7 +24,6 @@ type Owner string
 const (
 	OwnerGo            Owner = "go"
 	OwnerGoBusinessAPI Owner = "go-business-api"
-	OwnerBusinessAPI   Owner = "business-api"
 )
 
 type MatchKind string
@@ -38,9 +37,7 @@ const (
 type MigrationStage string
 
 const (
-	MigrationComplete  MigrationStage = "complete"
-	MigrationObserving MigrationStage = "observing"
-	MigrationPending   MigrationStage = "pending"
+	MigrationComplete MigrationStage = "complete"
 )
 
 type Route struct {
@@ -50,7 +47,6 @@ type Route struct {
 	Path           string         `json:"path"`
 	Methods        []string       `json:"methods,omitempty"`
 	MigrationStage MigrationStage `json:"migrationStage"`
-	TargetOwner    Owner          `json:"targetOwner,omitempty"`
 }
 
 type Manifest struct {
@@ -147,7 +143,7 @@ func ensureJSONEOF(decoder *json.Decoder) error {
 }
 
 func (m *Manifest) prepare() error {
-	if m.Version != 2 {
+	if m.Version != 3 {
 		return fmt.Errorf("unsupported route ownership manifest version %d", m.Version)
 	}
 	if strings.TrimSpace(m.Description) == "" {
@@ -225,7 +221,7 @@ func normalizeRoute(route *Route) error {
 	if !routeIDPattern.MatchString(route.ID) {
 		return fmt.Errorf("invalid route id %q", route.ID)
 	}
-	if route.Owner != OwnerGo && route.Owner != OwnerGoBusinessAPI && route.Owner != OwnerBusinessAPI {
+	if route.Owner != OwnerGo && route.Owner != OwnerGoBusinessAPI {
 		return fmt.Errorf("route %q has unsupported owner %q", route.ID, route.Owner)
 	}
 	if route.Match != MatchExact && route.Match != MatchPrefix && route.Match != MatchFallback {
@@ -256,19 +252,7 @@ func normalizeRoute(route *Route) error {
 		return fmt.Errorf("fallback route %q must not restrict methods", route.ID)
 	}
 
-	switch route.MigrationStage {
-	case MigrationComplete:
-		if route.Owner == OwnerBusinessAPI || route.TargetOwner != "" {
-			return fmt.Errorf("completed route %q must be Go-owned without a target owner", route.ID)
-		}
-	case MigrationObserving, MigrationPending:
-		if route.Owner != OwnerBusinessAPI {
-			return fmt.Errorf("incomplete route %q must remain business-api owned", route.ID)
-		}
-		if route.TargetOwner != OwnerGo && route.TargetOwner != OwnerGoBusinessAPI {
-			return fmt.Errorf("incomplete route %q must target a Go owner", route.ID)
-		}
-	default:
+	if route.MigrationStage != MigrationComplete {
 		return fmt.Errorf("route %q has unsupported migration stage %q", route.ID, route.MigrationStage)
 	}
 	return nil

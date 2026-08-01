@@ -15,25 +15,19 @@ func clearEnv(t *testing.T, names ...string) {
 	}
 }
 
-func TestLoadAPIRequiresCompatibilityAPIAndStaticAssets(t *testing.T) {
-	clearEnv(t, "PORT", "BUSINESS_API_URL", "ALL_MAIL_STATIC_DIR", "TRUSTED_PROXY_CIDRS", "MAIL_PROVIDER_TIMEOUT_SECONDS")
-	if _, err := LoadAPI(); err == nil {
-		t.Fatal("LoadAPI() expected missing business API error")
-	}
-
-	t.Setenv("BUSINESS_API_URL", "http://business-api:3100")
+func TestLoadAPIDoesNotRequireCompatibilityAPI(t *testing.T) {
+	clearEnv(t, "PORT", "BUSINESS_API_URL", "ALL_MAIL_STATIC_DIR", "TRUSTED_PROXY_CIDRS", "MAIL_PROVIDER_TIMEOUT_SECONDS", "GO_BUSINESS_QUERY_TIMEOUT_SECONDS")
 	t.Setenv("ALL_MAIL_STATIC_DIR", t.TempDir())
 	cfg, err := LoadAPI()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Port != 3000 || cfg.BusinessAPIURL != "http://business-api:3100" || cfg.ProviderTimeout != 5*time.Minute {
+	if cfg.Port != 3000 || cfg.BusinessQueryTimeout != 10*time.Second || cfg.ProviderTimeout != 5*time.Minute {
 		t.Fatalf("API config = %#v", cfg)
 	}
 }
 
 func TestLoadAPIParsesTrustedProxyCIDRs(t *testing.T) {
-	t.Setenv("BUSINESS_API_URL", "http://business-api:3100")
 	t.Setenv("ALL_MAIL_STATIC_DIR", t.TempDir())
 	t.Setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32, 10.0.0.0/8,10.0.0.0/8")
 	cfg, err := LoadAPI()
@@ -57,14 +51,6 @@ func TestLoadAPIParsesTrustedProxyCIDRs(t *testing.T) {
 		if _, err := LoadAPI(); err == nil {
 			t.Fatalf("LoadAPI() accepted blanket trusted proxy CIDR %q", blanket)
 		}
-	}
-}
-
-func TestLoadAPIRejectsInvalidURL(t *testing.T) {
-	t.Setenv("BUSINESS_API_URL", "not-a-url")
-	t.Setenv("ALL_MAIL_STATIC_DIR", t.TempDir())
-	if _, err := LoadAPI(); err == nil {
-		t.Fatal("LoadAPI() expected invalid legacy URL error")
 	}
 }
 

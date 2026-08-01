@@ -5,10 +5,10 @@
 This document covers the Cloudflare-specific ingress path for `cloudflare/workers/allmail-edge`.
 
 - Use [`docs/DEPLOY.md`](docs/DEPLOY.md) for the main stack.
-- Use [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for shared backend recovery.
+- Use [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for backend recovery.
 - Use [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) for variable ownership.
 
-The Worker receives Cloudflare Email Routing traffic and forwards a signed payload to the **Go public gateway**. Go normalizes trusted client identity, then proxies the unported ingress business route to the internal Fastify API.
+The Worker receives Cloudflare Email Routing traffic and forwards a signed payload through the public Go gateway to the private Go business API.
 
 ```text
 Cloudflare Email Routing
@@ -24,15 +24,15 @@ trusted tunnel / reverse proxy
 app: Go public gateway
           |
           v
-business-api: /ingress/domain-mail/receive
+go-business-api: POST /ingress/domain-mail/receive
           |
           v
-PostgreSQL
+PostgreSQL + Redis
 ```
 
 ## Backend preparation
 
-There is one backend production template:
+Create the production environment file:
 
 ```bash
 cp .env.example .env
@@ -42,26 +42,39 @@ Set at least:
 
 ```env
 INGRESS_SIGNING_SECRET=<strong-random-secret>
+INGRESS_IMPORT_KEY_ID=allmail-edge-main
 INGRESS_ALLOWED_SKEW_SECONDS=300
 PUBLIC_BASE_URL=https://mail.example.com
 TRUSTED_PROXY_CIDRS=<cidrs-of-the-tunnel-or-proxy-directly-connected-to-app>
 ```
 
-`TRUSTED_PROXY_CIDRS` must contain the direct peer of the Go listener, not arbitrary public client networks. The Go gateway rejects externally supplied forwarded-IP headers from any other peer and writes one canonical client address downstream.
+`INGRESS_SIGNING_SECRET` and `INGRESS_IMPORT_KEY_ID` are one-shot initializer inputs. The temporary initializer encrypts the secret into the endpoint selected by the key ID. `go-business-api` receives neither value in its environment and decrypts the stored endpoint secret through its read-only encryption-key file.
 
-Do not use `0.0.0.0/0` or `::/0`, and do not expose `business-api` directly.
+`TRUSTED_PROXY_CIDRS` must contain the direct peer of `app`, not arbitrary public client networks. Never use `0.0.0.0/0` or `::/0`, and do not expose `go-business-api`.
 
-Start and validate:
+Start with the canonical helper:
 
 ```bash
-docker compose up -d --build --wait --wait-timeout 240
+./scripts/compose-up.sh
 curl --fail http://127.0.0.1:3002/readyz
 docker compose exec -T app allmail doctor api
+docker compose exec -T go-business-api allmail doctor business-api
 docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 ```
 
-The Go gateway no longer carries PostgreSQL or Redis credentials. Its readiness validates the SPA and Fastify `/readyz`; Fastify performs PostgreSQL and Redis protocol checks.
+Public readiness requires the SPA and `go-business-api`; private readiness checks PostgreSQL and Redis.
+
+Confirm the imported endpoint without exposing secret material:
+
+```bash
+docker compose exec postgres psql \
+  -U "${POSTGRES_USER:-allmail}" \
+  -d "${POSTGRES_DB:-allmail}" \
+  -c "SELECT key_id, status, signing_secret_encrypted IS NOT NULL AS configured FROM ingress_endpoints WHERE key_id = 'allmail-edge-main'"
+```
+
+After verification, remove populated one-shot import values from the production `.env` backup policy as described in [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md). Keep the Worker secret in Cloudflare secret storage.
 
 ## Worker configuration
 
@@ -69,6 +82,8 @@ The Go gateway no longer carries PostgreSQL or Redis credentials. Its readiness 
 cd cloudflare/workers/allmail-edge
 cp .dev.vars.example .dev.vars
 ```
+
+Use `.dev.vars` for local Worker execution. Set the corresponding non-secret production values in `wrangler.jsonc` before deployment; `npm run deploy` reads `wrangler.jsonc`.
 
 Fill:
 
@@ -79,40 +94,22 @@ INGRESS_PROVIDER=CLOUDFLARE_EMAIL_ROUTING
 RAW_EMAIL_OBJECT_PREFIX=allmail-edge/raw
 RAW_EMAIL_BUCKET_NAME=mail-eml
 MAX_RAW_EMAIL_BYTES=15728640
-# Optional: custom HTTPS route used for post-deploy health checks.
 WORKER_HEALTH_URL=https://edge.example.com/health
-INGRESS_SIGNING_SECRET=<same-secret-as-backend>
+INGRESS_SIGNING_SECRET=<same-secret-imported-by-the-backend>
 ```
 
 | Variable | Meaning |
 | --- | --- |
-| `INGRESS_URL` | Public Go gateway URL for the ingress route |
-| `INGRESS_KEY_ID` | Identifier shared with the backend endpoint record |
+| `INGRESS_URL` | Public `app` URL for the ingress route |
+| `INGRESS_KEY_ID` | Identifier matching the encrypted backend endpoint |
 | `INGRESS_PROVIDER` | Provider label stored with ingress records |
 | `RAW_EMAIL_OBJECT_PREFIX` | R2 prefix for raw `.eml` files |
 | `RAW_EMAIL_BUCKET_NAME` | R2 bucket used by the Worker |
-| `MAX_RAW_EMAIL_BYTES` | Maximum message size parsed in-memory; default 15 MiB, hard ceiling 25 MiB |
-| `WORKER_HEALTH_URL` | Optional custom HTTPS Worker route used by deploy/doctor checks; `workers.dev` is disabled |
-| `INGRESS_SIGNING_SECRET` | HMAC secret uploaded as a Worker secret |
+| `MAX_RAW_EMAIL_BYTES` | In-memory parsing limit; default 15 MiB, hard ceiling 25 MiB |
+| `WORKER_HEALTH_URL` | Optional custom HTTPS route for post-deploy checks |
+| `INGRESS_SIGNING_SECRET` | HMAC secret uploaded through Wrangler secret storage |
 
-Do not keep `replace-with-*` placeholders or commit `.dev.vars`.
-
-## Ensure the backend endpoint
-
-From the repository root, with the active backend environment:
-
-```bash
-./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:ensure
-./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:check
-```
-
-The check should report:
-
-- an active endpoint;
-- the expected `INGRESS_KEY_ID`;
-- `signingKeyHashMatchesEnv: true`.
-
-These scripts administer the current Fastify business schema. Normal inbound traffic still enters through Go.
+Do not commit `.dev.vars` or leave `replace-with-*` placeholders.
 
 ## Validate and deploy
 
@@ -121,17 +118,18 @@ cd cloudflare/workers/allmail-edge
 npm ci
 npm run check
 npm run types
-npm run doctor
-npm run deploy:prod
+export CLOUDFLARE_API_TOKEN=<scoped-token>
+npx wrangler secret put INGRESS_SIGNING_SECRET
+npm run deploy
 ```
 
-The committed Worker configuration uses the current compatibility date, enables `nodejs_compat`, disables the public `workers.dev` endpoint, and exposes only a minimal health response. `deploy:prod` and `doctor --postdeploy` use `WORKER_HEALTH_URL` when a custom HTTPS route is configured and otherwise skip the HTTP probe. Oversized messages are rejected before MIME parsing so raw data and decoded attachments cannot consume the isolate memory budget together.
+The secret entered into Wrangler must match the value imported into the backend endpoint. The committed Worker configuration enables `nodejs_compat`, disables the public `workers.dev` endpoint, and exposes only a minimal health response.
 
-Cloudflare Dashboard work remains manual where account/domain decisions are required:
+Cloudflare Dashboard work remains manual where account or domain decisions are required:
 
 1. enable Email Routing;
 2. create or verify the Worker route/subdomain;
-3. create or verify the Tunnel/public hostname that reaches `app`;
+3. create or verify the tunnel/public hostname that reaches `app`;
 4. bind an address or catch-all rule to `allmail-edge`.
 
 ## End-to-end validation
@@ -148,7 +146,7 @@ curl --fail https://mail.example.com/readyz
 
 ```bash
 docker compose logs app --tail=200
-docker compose logs business-api --tail=200
+docker compose logs go-business-api --tail=200
 docker compose logs worker-forwarding --tail=200
 ```
 
@@ -160,9 +158,9 @@ A newly created empty R2 bucket is normal; objects are written only when real em
 
 ## Client-IP validation
 
-After the tunnel is configured, perform an admin login or a controlled request and confirm the Fastify audit/login IP is the real client address supplied by the trusted tunnel.
+After configuring the tunnel, perform a controlled request and confirm login/audit state records the real client address supplied by the trusted direct peer.
 
-Also send a direct request with forged headers from an untrusted peer:
+Send a direct request with forged headers from an untrusted peer:
 
 ```bash
 curl -H 'X-Forwarded-For: 203.0.113.99' \
@@ -174,58 +172,52 @@ Those values must not be accepted as client identity.
 
 ## Troubleshooting
 
-### Backend returns 401/403
+### Backend returns 401 or 403
 
 Check:
 
-- backend and Worker HMAC secrets match;
-- `INGRESS_KEY_ID` maps to an active endpoint;
-- request body is not modified after signing;
+- the Worker secret matches the encrypted endpoint secret;
+- `INGRESS_KEY_ID` maps to an active configured endpoint;
+- the request body is unchanged after signing;
 - clocks fit `INGRESS_ALLOWED_SKEW_SECONDS`;
-- `INGRESS_URL` reaches `app`, not `business-api`.
+- `INGRESS_URL` reaches `app`, not the private service.
 
 ```bash
 docker compose logs app --tail=200
-docker compose logs business-api --tail=300
-./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:check
+docker compose logs go-business-api --tail=300
 ```
 
-### Backend returns 502/503
+### Backend returns 502 or 503
 
 ```bash
 curl -i https://mail.example.com/readyz
 docker compose exec -T app allmail doctor api
+docker compose exec -T go-business-api allmail doctor business-api
 docker compose logs app --tail=200
-docker compose logs business-api --tail=200
+docker compose logs go-business-api --tail=200
 ```
 
-A 502 usually means the business API is unavailable. The Go readiness response reports SPA or business API failure; database/Redis detail remains inside Fastify readiness.
+A 502 usually means the private API is unavailable. A 503 from readiness can indicate unavailable SPA assets, PostgreSQL, or Redis; inspect the corresponding readiness payload and private logs.
 
 ### Real client IP is missing
 
-- confirm the tunnel/proxy is the socket peer directly connected to `app`;
-- add only that peer CIDR to `TRUSTED_PROXY_CIDRS`;
-- confirm the proxy emits `CF-Connecting-IP`, `X-Real-IP`, or `X-Forwarded-For`;
-- recreate `app` after changing `.env`;
-- never compensate by enabling blanket proxy trust in Fastify.
+- Confirm the tunnel/proxy is the socket peer directly connected to `app`.
+- Add only that peer CIDR to `TRUSTED_PROXY_CIDRS`.
+- Confirm the proxy emits `CF-Connecting-IP`, `X-Real-IP`, or `X-Forwarded-For`.
+- Rerun `./scripts/compose-up.sh` after changing `.env`.
+- Never compensate with blanket proxy trust.
 
-### Signature mismatch after rotation
+### Signature mismatch after secret change
 
-1. update the backend `.env`;
-2. recreate `business-api` as needed;
-3. upload the same secret to the Worker;
-4. redeploy;
-5. run `ingress:check` and a real delivery test.
-
-The current global-secret model does not provide overlapping key versions; avoid a long mismatch window.
+The initializer accepts repeated imports only when the encrypted database value matches. It is not a secret-rotation interface and conflicting values fail closed. Restore the matching Worker secret or follow a reviewed backend endpoint-rotation procedure, then update Wrangler secret storage and deploy the Worker without a long mismatch window.
 
 ### R2 write failure
 
-Check the bucket binding, API token permissions, Wrangler environment, object prefix, and Worker logs. An R2 error is separate from a forwarding worker error; diagnose the owning component.
+Check the bucket binding, API token permissions, Wrangler environment, object prefix, and Worker logs. An R2 error is separate from a forwarding worker error.
 
 ## Rollback
 
-- Worker: deploy the previous known-good Worker version and restore matching vars/secrets.
-- Backend: deploy the previous repository revision/image with its matching `.env` contract.
+- Worker: deploy the previous known-good Worker version and restore its matching secret and variables.
+- Backend: stop the stack, restore the matching database and secret volumes when required, select the compatible repository revision, and run `./scripts/compose-up.sh`.
 
-Never expose or commit Worker secrets, Tunnel tokens, or account credentials.
+Never expose or commit Worker secrets, tunnel tokens, or account credentials.

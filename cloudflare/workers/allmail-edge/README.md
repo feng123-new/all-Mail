@@ -12,7 +12,7 @@ Thin Cloudflare Email Worker for the all-Mail domain-mail ingress.
 - normalize the envelope/body into the backend ingress payload
 - sign and `POST` it to `/ingress/domain-mail/receive`
 
-The Worker does **not** own mailbox business logic. Domain resolution, alias handling, catch-all behavior, portal visibility, and storage all stay in the Fastify backend.
+The Worker does **not** own mailbox business logic. Domain resolution, alias handling, catch-all behavior, portal visibility, and storage are handled by `go-business-api` behind the public Go gateway.
 
 ## Files
 
@@ -25,9 +25,9 @@ The Worker does **not** own mailbox business logic. Domain resolution, alias han
 
 Before deploying the Worker:
 
-1. make sure the backend has `INGRESS_SIGNING_SECRET`
-2. run `./scripts/sanitize-runtime-env.sh npm --prefix server run ingress:ensure`
-3. confirm the backend can receive `POST /ingress/domain-mail/receive`
+1. set matching `INGRESS_SIGNING_SECRET` and `INGRESS_IMPORT_KEY_ID` values in the production `.env` before initialization;
+2. run `./scripts/compose-up.sh` from the repository root;
+3. confirm `app` is ready and can receive `POST /ingress/domain-mail/receive`.
 
 ## Secrets and vars
 
@@ -70,7 +70,7 @@ node scripts/post-signed-fixture.mjs
 ```bash
 ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install
 ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run doctor
-./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run deploy:prod
+./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run deploy
 ```
 
 After deploy, finish the Email Routing address/worker binding in the Cloudflare Dashboard and run:

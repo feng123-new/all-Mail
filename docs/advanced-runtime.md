@@ -2,11 +2,17 @@
 
 ## Boundary
 
-Production uses `docker-compose.yml`. This guide covers local Fastify/React/Go development with PostgreSQL and Redis published by `docker-compose.dev.yml`.
+Production uses `docker-compose.yml` through `./scripts/compose-up.sh`. This guide covers Go and React source development with PostgreSQL and Redis published by `docker-compose.dev.yml`.
 
-There is no Node production jobs runtime, Node SPA server, environment administrator, or source command that reproduces the full production topology.
+Local source processes are intentionally explicit and do not reproduce the complete production topology.
 
 ## Start dependencies
+
+```bash
+./bin/all-mail deps up
+```
+
+Equivalent Compose command:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
@@ -19,79 +25,89 @@ PostgreSQL 127.0.0.1:15433
 Redis      127.0.0.1:6380
 ```
 
-Equivalent:
+Stop them with:
 
 ```bash
-./bin/all-mail deps up
 ./bin/all-mail deps down
 ```
 
-## Fastify business-API development
+## Initialize local state
 
-```bash
-cp server/.env.example server/.env
-npm --prefix server install
-```
-
-A fresh database needs the same Go initializer used by production:
+Choose an isolated local state directory and export least-privilege secret files while initializing:
 
 ```bash
 (cd core && \
-  DATABASE_URL='<local-postgresql-url>' \
+  DATABASE_URL='postgresql://allmail:<password>@127.0.0.1:15433/allmail' \
   ALL_MAIL_MIGRATION_DIR="$PWD/migrations" \
   ALL_MAIL_STATE_DIR="$PWD/../.all-mail-runtime" \
+  ALL_MAIL_EXPORT_JWT_SECRET_FILE="$PWD/../.all-mail-runtime/jwt-secret" \
+  ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE="$PWD/../.all-mail-runtime/encryption-key" \
   ADMIN_USERNAME=admin \
   ADMIN_PASSWORD=change-me-now \
   go run ./cmd/allmail init)
 ```
 
-Then start the API:
+This creates or adopts the schema, writes managed secrets under `.all-mail-runtime/`, imports any supplied one-shot configuration, and creates the first administrator idempotently.
 
-```bash
-npm run dev:api
-```
-
-The long-running API:
-
-- serves JSON business routes only;
-- does not serve React;
-- does not run workers or migrations;
-- does not create administrators;
-- does not receive administrator credentials;
-- authenticates database administrators only;
-- may remove `BOOTSTRAP_ADMIN_SECRET_FILE` after successful initial rotation.
-
-Do not add `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `DOMAIN_BOOTSTRAP_ADMIN_*`, or `ADMIN_2FA_SECRET` to `server/.env`.
-
-## Initializer development scenarios
+Do not commit `.all-mail-runtime/`, copy its values into source-controlled files, or reuse it across unrelated databases.
 
 ### Generated password
 
-```bash
-DATABASE_URL='<local-postgresql-url>' \
-ALL_MAIL_MIGRATION_DIR="$PWD/core/migrations" \
-ALL_MAIL_STATE_DIR="$PWD/.all-mail-runtime" \
-ADMIN_USERNAME=admin \
-ADMIN_PASSWORD= \
-./core/allmail init
-```
-
-Read the protected file, log in, and change the password. A successful first rotation removes it.
+Set `ADMIN_PASSWORD=` to generate a temporary credential. Read `.all-mail-runtime/bootstrap-admin.env`, log in, and change the password. Successful rotation removes the file.
 
 ### Idempotency
 
-Running the command again when an administrator exists must not create a second row or modify the existing hash.
+Running `allmail init` again against the same database and state directory must not create a second administrator or change persisted secret values.
 
 ### Old combined-file migration
 
-Docker `business-init` and `allmail init` automatically migrate `bootstrap-secrets.env`. For local testing, point `ALL_MAIL_STATE_DIR` at an isolated directory and verify:
+`allmail init` migrates a historical `bootstrap-secrets.env` in the selected state directory into:
 
 ```text
 runtime-secrets.env
 bootstrap-admin.env
 ```
 
-exist and the old combined file is gone.
+and removes the combined file after successful export. This is upgrade compatibility only.
+
+## Run the private Go API
+
+```bash
+(cd core && \
+  NODE_ENV=development \
+  PORT=3200 \
+  DATABASE_URL='postgresql://allmail:<password>@127.0.0.1:15433/allmail' \
+  REDIS_URL='redis://127.0.0.1:6380' \
+  JWT_SECRET_FILE="$PWD/../.all-mail-runtime/jwt-secret" \
+  ENCRYPTION_KEY_FILE="$PWD/../.all-mail-runtime/encryption-key" \
+  BOOTSTRAP_ADMIN_SECRET_FILE="$PWD/../.all-mail-runtime/bootstrap-admin.env" \
+  go run ./cmd/allmail business-api)
+```
+
+`npm run dev:api` runs the same Go command but expects these environment variables to already be exported.
+
+The process serves JSON business routes only. It does not serve React, run workers, migrate schema, generate secrets, or create administrators.
+
+## Run the public app locally
+
+Build the SPA first:
+
+```bash
+npm run build:web
+```
+
+With the private API running on port 3200:
+
+```bash
+(cd core && \
+  PORT=3000 \
+  ALL_MAIL_STATIC_DIR="$PWD/../web/dist" \
+  ALL_MAIL_ROUTE_OWNERSHIP_FILE="$PWD/../config/route-ownership.json" \
+  GO_BUSINESS_API_URL='http://127.0.0.1:3200' \
+  go run ./cmd/allmail api)
+```
+
+Then use `http://127.0.0.1:3000`.
 
 ## React development
 
@@ -100,9 +116,30 @@ npm --prefix web install
 npm run dev:web
 ```
 
-Configure `web/.env` so Vite targets local Fastify or the Go gateway under test.
+Configure `web/.env` so Vite targets the local public Go app. Browser traffic should use the public gateway rather than the private API directly.
 
-## Go development
+## Workers
+
+Run workers in separate shells with the local database and exported encryption key:
+
+```bash
+(cd core && \
+  DATABASE_URL='postgresql://allmail:<password>@127.0.0.1:15433/allmail' \
+  ENCRYPTION_KEY_FILE="$PWD/../.all-mail-runtime/encryption-key" \
+  ALL_MAIL_STATE_DIR="$PWD/../.all-mail-worker" \
+  go run ./cmd/allmail worker forwarding)
+```
+
+```bash
+(cd core && \
+  DATABASE_URL='postgresql://allmail:<password>@127.0.0.1:15433/allmail' \
+  ALL_MAIL_STATE_DIR="$PWD/../.all-mail-worker" \
+  go run ./cmd/allmail worker retention)
+```
+
+Forwarding accepts only `ENCRYPTION_KEY_FILE`; direct raw-key and combined-file fallbacks are unsupported.
+
+## Go verification
 
 ```bash
 cd core
@@ -112,57 +149,47 @@ go vet ./...
 go build -trimpath ./cmd/allmail
 ```
 
-Components:
+Go runtime commands:
 
-```bash
+```text
 allmail api
 allmail business-api
+allmail routes
 allmail worker forwarding
 allmail worker retention
 allmail init
 allmail migrate
+allmail doctor api
+allmail doctor business-api
+allmail doctor worker forwarding
+allmail doctor worker retention
 ```
-
-Forwarding requires `ENCRYPTION_KEY_FILE`. Direct key environment and legacy bootstrap-bundle fallback are unsupported.
 
 ## Repository CLI
 
-```bash
+```text
 all-mail install
 all-mail build
-all-mail doctor --env-file /path/to/.env
-all-mail deps up
-all-mail deps down
+all-mail doctor [--env-file <path>]
+all-mail deps up|down
 all-mail check
 all-mail setup
 ```
 
-There is intentionally no source production `start`, `up`, `deploy`, or rollback worker command.
+The repository CLI manages development dependencies and verification. Production startup remains `./scripts/compose-up.sh`.
 
-## Verification
-
-```bash
-npm run test:runtime
-npm run test:server
-npm run test:web
-npm run lint
-npm run build
-./bin/all-mail check
-```
-
-Production-equivalent smoke:
+## Production smoke
 
 ```bash
 cp .env.example .env
 docker compose config --quiet
 docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
-docker compose up -d --build --wait --wait-timeout 300
-docker compose exec -T business-api sh -lc \
-  'test -z "${ADMIN_USERNAME:-}" && test -z "${ADMIN_PASSWORD:-}"'
+./scripts/compose-up.sh
 docker compose exec -T app allmail doctor api
+docker compose exec -T go-business-api allmail doctor business-api
 docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 docker compose down
 ```
 
-CI additionally exercises real PostgreSQL bootstrap idempotency and the full Docker login/password-rotation/plaintext-deletion flow.
+Use disposable credentials and volumes for local smoke work. Do not use `docker compose down -v` against a deployment whose state must be retained.

@@ -11,7 +11,7 @@ import (
 
 func TestRouteMetricsExposeBoundedOwnershipTelemetry(t *testing.T) {
 	manifest, err := routeownership.Parse([]byte(`{
-		"version":2,
+		"version":3,
 		"description":"test",
 		"routes":[
 			{"id":"admin-dashboard-read","owner":"go-business-api","match":"prefix","path":"/admin/dashboard","methods":["GET"],"migrationStage":"complete"},
@@ -37,8 +37,8 @@ func TestRouteMetricsExposeBoundedOwnershipTelemetry(t *testing.T) {
 	metrics.writePrometheus(&output)
 	text := output.String()
 	for _, expected := range []string{
-		`allmail_route_manifest_info{version="2",sha256="`,
-		`allmail_route_owner_info{family="admin-dashboard-read",owner="go-business-api",match="prefix",path="/admin/dashboard",methods="GET",migration_stage="complete",target_owner=""} 1`,
+		`allmail_route_manifest_info{version="3",sha256="`,
+		`allmail_route_owner_info{family="admin-dashboard-read",owner="go-business-api",match="prefix",path="/admin/dashboard",methods="GET",migration_stage="complete"} 1`,
 		`allmail_route_requests_total{family="admin-dashboard-read",owner="go-business-api",method="GET",status_class="2xx"} 1`,
 		`allmail_route_requests_total{family="admin-dashboard-read",owner="go-business-api",method="OTHER",status_class="2xx"} 1`,
 		`allmail_route_requests_total{family="spa",owner="go",method="GET",status_class="4xx"} 1`,

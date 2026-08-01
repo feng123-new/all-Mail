@@ -5,6 +5,7 @@ go 1.26.0
 toolchain go1.26.5
 
 require (
+	github.com/dlclark/regexp2/v2 v2.5.2
 	github.com/emersion/go-imap v1.2.1
 	github.com/emersion/go-message v0.18.2
 	github.com/emersion/go-sasl v0.0.0-20200509203442-7bfe0ed36a21

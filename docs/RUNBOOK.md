@@ -4,36 +4,32 @@
 
 This is the authoritative day-2 troubleshooting and recovery guide for `all-Mail`.
 
-- Use [`DEPLOY.md`](./DEPLOY.md) for startup, updates, and rollback.
+- Use [`DEPLOY.md`](./DEPLOY.md) for startup, updates, restore, and rollback.
 - Use [`ENVIRONMENT.md`](./ENVIRONMENT.md) for variable and secret ownership.
-- Use [`GO-MIGRATION.md`](./GO-MIGRATION.md) for route and runtime ownership.
+- Use [`GO-MIGRATION.md`](./GO-MIGRATION.md) for completed route migration and schema compatibility.
 - Use [`../CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) for Worker and tunnel operations.
 
 ## Healthy baseline
 
-Long-running services:
+The long-running stack is:
 
 ```text
 app
 go-business-api
-business-api
 worker-forwarding
 worker-retention
 postgres
 redis
 ```
 
-Completed one-shot services:
+Initialization is a temporary `app init` container launched by `./scripts/compose-up.sh`; no initializer service remains after startup.
 
-```text
-business-init
-```
-
-Baseline commands:
+Baseline checks:
 
 ```bash
 docker compose ps -a
 curl http://127.0.0.1:3002/health
+curl http://127.0.0.1:3002/livez
 curl --fail http://127.0.0.1:3002/readyz
 
 docker compose exec -T app allmail doctor api
@@ -41,10 +37,7 @@ docker compose exec -T go-business-api allmail doctor business-api
 docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 
-test "$(docker compose exec -T business-api id -u)" = "10001"
-test "$(docker compose exec -T go-business-api id -u)" = "10001"
 ! docker compose port go-business-api 3200
-! docker compose port business-api 3100
 ! docker compose port postgres 5432
 ! docker compose port redis 6379
 ```
@@ -52,25 +45,27 @@ test "$(docker compose exec -T go-business-api id -u)" = "10001"
 Logs:
 
 ```bash
-docker compose logs business-init --tail=300
+docker compose logs postgres --tail=300
+docker compose logs redis --tail=300
 docker compose logs go-business-api --tail=300
-docker compose logs business-api --tail=300
 docker compose logs app --tail=300
 docker compose logs worker-forwarding --tail=300
 docker compose logs worker-retention --tail=300
 ```
 
-## Startup order and first failure
+## Startup failure order
 
 Investigate the earliest failed stage:
 
-1. PostgreSQL and Redis;
-2. `business-init`;
-3. `business-api` and `go-business-api`;
-4. `app`;
-5. independent workers.
+1. the selected `.env` exists and Compose renders;
+2. `postgres` becomes healthy;
+3. the shared Go image builds;
+4. the temporary `app init` run succeeds;
+5. `redis` and `go-business-api` become healthy;
+6. `app` becomes ready;
+7. both workers publish healthy heartbeats.
 
-Do not repeatedly restart downstream services while an earlier one-shot stage is failed.
+Rerun `./scripts/compose-up.sh` after fixing the earliest cause. Initialization is transactional and idempotent. Do not improvise a partial initializer command without the helper's three secret-volume mounts and export paths.
 
 ### PostgreSQL or Redis
 
@@ -79,35 +74,36 @@ docker compose exec postgres pg_isready -U "${POSTGRES_USER:-allmail}" -p 5432
 docker compose exec redis redis-cli -p 6379 ping
 ```
 
-Production does not publish either service. Local host access requires `docker-compose.dev.yml`.
+Production does not publish either service. Local host access requires `docker-compose.dev.yml` or `./bin/all-mail deps up`.
 
-## `business-init` failed
+## Temporary initializer failed
 
-The initializer owns:
+The temporary `app init` run owns:
 
-- old combined-secret migration;
-- long-lived JWT and encryption-secret persistence;
-- forwarding encryption-key export;
-- Go-business JWT export;
-- immutable Prisma-history execution/adoption and canonical ledger ownership;
-- numbered Go migrations and owned-catalog fingerprint validation;
-- historical ciphertext authentication and in-memory rewrite checks;
+- migration of the old combined secret bundle;
+- persistence of JWT and encryption secrets;
+- least-privilege key exports;
+- execution or adoption of immutable schema history;
+- numbered Go migrations and catalog validation;
+- historical ciphertext verification;
 - durable environment import;
-- idempotent first administrator creation.
+- idempotent first-administrator creation.
+
+Because the container is removed after each run, inspect the helper's terminal output. After correcting the cause, rerun:
 
 ```bash
-docker compose logs business-init --tail=400
+./scripts/compose-up.sh
 ```
 
 ### Schema adoption failure
 
-The Go initializer rejects unknown/newer migrations, unresolved Prisma rows, history gaps, checksum mismatches, malformed same-name objects, and ledgerless catalogs that do not match the complete owned-schema fingerprint. It never falls back to Prisma or `db push`.
+The Go initializer rejects unknown/newer migrations, unresolved former-ledger rows, history gaps, checksum mismatches, malformed objects, and ledgerless catalogs that do not match the complete owned-schema fingerprint.
 
-Inspect `allmail_schema_migrations`, `_prisma_migrations`, and `runtime_migrations` without deleting or editing rows. Restore a matching backup or repair the proven catalog defect under a reviewed maintenance procedure, then rerun `business-init`. Use `docker compose down -v` only for disposable data.
+Inspect `allmail_schema_migrations`, `_prisma_migrations`, and `runtime_migrations` without deleting or editing rows. Restore a matching backup or repair a proven catalog defect under a reviewed maintenance procedure, then rerun the helper. Compatibility table names are historical database state, not active runtime dependencies.
 
 ### Administrator 2FA integrity migration
 
-The migration intentionally stops if an administrator is enabled for 2FA without a persisted encrypted secret:
+The migration stops if an administrator is enabled for 2FA without a persisted encrypted secret:
 
 ```bash
 docker compose exec postgres psql \
@@ -118,104 +114,63 @@ docker compose exec postgres psql \
 
 Restore the valid encrypted secret from a matching backup or disable 2FA through a controlled recovery. Do not bypass the constraint.
 
-### Administrator advisory lock
+### Initializer lock
 
-The initializer holds advisory lock `(421337, 240730)` while inspecting or creating the first administrator. Stop duplicate initializers rather than removing the lock.
-
-```bash
-docker compose exec postgres psql \
-  -U "${POSTGRES_USER:-allmail}" \
-  -d "${POSTGRES_DB:-allmail}" \
-  -c 'SELECT id, username, status, must_change_password FROM admins ORDER BY id'
-```
-
-The initializer must never overwrite an existing administrator password.
+The initializer uses filesystem and PostgreSQL advisory locks. Stop duplicate helper runs rather than removing locks or terminating an unknown backend transaction.
 
 ## Secret layout
 
-Expected long-lived Fastify file:
-
-```text
-/var/lib/all-mail/runtime-secrets.env
-```
-
-Expected one-time administrator file while rotation is pending:
-
-```text
-/var/lib/all-mail/bootstrap-admin.env
-```
-
-Expected private Go JWT file:
-
-```text
-/var/lib/all-mail-secrets/jwt-secret
-```
-
-Expected forwarding file:
-
-```text
-/var/lib/all-mail-secrets/encryption-key
-```
-
-Removed legacy file:
-
-```text
-/var/lib/all-mail/bootstrap-secrets.env
-```
+| Purpose | Location | Volume |
+| --- | --- | --- |
+| Managed JWT and encryption values | `/var/lib/all-mail/runtime-secrets.env` | `runtime_secrets_data` |
+| One-time administrator credential | `/var/lib/all-mail/bootstrap-admin.env` | `runtime_secrets_data` |
+| Private JWT copy | `/var/lib/all-mail-secrets/jwt-secret` | `go_business_runtime_data` |
+| Private encryption-key copy | `/var/lib/all-mail-encryption/encryption-key` | `forwarding_runtime_data` mounted read-only into `go-business-api` |
+| Forwarding encryption-key copy | `/var/lib/all-mail-secrets/encryption-key` | `forwarding_runtime_data` |
 
 Inspect names without printing values:
 
 ```bash
-docker compose exec business-api sh -lc '
+docker compose exec go-business-api sh -lc '
   ls -l /var/lib/all-mail
   sed -n "s/=.*$/=<redacted>/p" /var/lib/all-mail/runtime-secrets.env
   test ! -e /var/lib/all-mail/bootstrap-secrets.env
 '
 ```
 
-`runtime-secrets.env` must contain no `ADMIN_USERNAME` or `ADMIN_PASSWORD`.
+`runtime-secrets.env` must contain no administrator username or password.
 
 ### Initial password is still required
 
 ```bash
-docker compose exec business-api sh -lc \
+docker compose exec go-business-api sh -lc \
   "grep '^ADMIN_USERNAME=' /var/lib/all-mail/bootstrap-admin.env && \
    grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-admin.env"
 ```
 
-After a successful first password rotation:
+After successful first password rotation:
 
 ```bash
-docker compose exec business-api sh -lc \
+docker compose exec go-business-api sh -lc \
   'test ! -e /var/lib/all-mail/bootstrap-admin.env'
 ```
 
-If the database administrator still has `must_change_password=true` but the file is missing, reset that existing row through a controlled recovery. Do not create a second administrator.
+If the database row still has `must_change_password=true` but the file is missing, recover the existing administrator under a reviewed procedure. Do not create a second account.
 
-## Long-running service contains unexpected credentials
+## Unexpected credentials
 
-Fastify must not receive bootstrap values:
-
-```bash
-docker compose exec business-api sh -lc '
-  test -z "${ADMIN_USERNAME:-}"
-  test -z "${ADMIN_PASSWORD:-}"
-  test -z "${DOMAIN_BOOTSTRAP_ADMIN_USERNAME:-}"
-  test -z "${DOMAIN_BOOTSTRAP_ADMIN_PASSWORD:-}"
-  test -z "${ADMIN_2FA_SECRET:-}"
-'
-```
-
-`go-business-api` must receive only its active database, Redis, and read-only JWT inputs:
+The private API receives active database, Redis, and secret-file inputs, not raw secret values:
 
 ```bash
 docker compose exec go-business-api sh -lc '
   test -n "${DATABASE_URL:-}"
   test "${REDIS_URL:-}" = "redis://redis:6379"
   test -r /var/lib/all-mail-secrets/jwt-secret
+  test -r /var/lib/all-mail-encryption/encryption-key
   test -z "${JWT_SECRET:-}"
   test -z "${ENCRYPTION_KEY:-}"
-  test -z "${INGRESS_SIGNING_SECRET:-}"
+  test -z "${ADMIN_USERNAME:-}"
+  test -z "${ADMIN_PASSWORD:-}"
 '
 ```
 
@@ -232,7 +187,7 @@ docker compose exec app sh -lc '
 
 ## Login fails after upgrade
 
-There is no environment-backed administrator and no virtual `adminId=0` account.
+There is no environment-backed administrator.
 
 ```bash
 docker compose exec postgres psql \
@@ -243,25 +198,17 @@ docker compose exec postgres psql \
 
 Common causes:
 
-- an old environment-only credential was never represented in PostgreSQL;
 - username mismatch;
 - disabled administrator;
 - initial password already rotated;
+- mandatory password change still pending;
 - database-managed 2FA is enabled;
-- Redis login-lock state is unavailable and production correctly fails closed.
+- Redis login protection is unavailable and correctly fails closed;
+- restored database and secret volumes do not belong to the same backup set.
 
-Do not reintroduce `ADMIN_2FA_SECRET` or login-time account creation.
+Do not reintroduce environment-backed authentication.
 
-## Go schema initialization failed
-
-```bash
-docker compose logs business-init --tail=300
-docker compose run --rm business-init
-```
-
-Never edit applied history or delete `allmail_schema_migrations`, `_prisma_migrations`, or `runtime_migrations` to bypass validation.
-
-## Public Go gateway unhealthy
+## Public gateway unhealthy
 
 ```bash
 docker compose logs app --tail=300
@@ -270,42 +217,24 @@ docker compose exec -T app allmail doctor api
 docker compose exec -T app allmail routes
 ```
 
-Public readiness requires:
+Public readiness requires the route manifest, the built React `index.html`, and `go-business-api` readiness. The public process itself has no PostgreSQL or Redis credential.
 
-- a valid route-ownership manifest;
-- the built React `index.html`;
-- Fastify `business-api` readiness;
-- private `go-business-api` readiness.
-
-The public process itself has no PostgreSQL or Redis credential.
-
-## Private Go business service unhealthy
+## Private Go service unhealthy
 
 ```bash
 docker compose logs go-business-api --tail=300
 docker compose exec -T go-business-api allmail doctor business-api
 docker compose exec go-business-api sh -lc '
   test -r /var/lib/all-mail-secrets/jwt-secret
+  test -r /var/lib/all-mail-encryption/encryption-key
   test -n "${DATABASE_URL:-}"
   test -n "${REDIS_URL:-}"
 '
 ```
 
-Its `/readyz` performs real PostgreSQL and Redis protocol checks. Redis failure is intentionally not treated as degraded-ready because API-key limits fail closed.
-
-## Fastify business service unhealthy
-
-```bash
-docker compose logs business-api --tail=300
-docker compose exec -T business-api node -e \
-  "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(console.error)"
-```
-
-Confirm Go schema initialization completed, PostgreSQL and Redis are healthy, UID is `10001`, and runtime secrets validate.
+Its `/readyz` performs real PostgreSQL and Redis protocol checks. Redis failure is not degraded-ready because login, API-key, OAuth, and ingress security state fails closed.
 
 ## Wrong route owner or unexpected 404
-
-Inspect the active manifest and response headers:
 
 ```bash
 docker compose exec -T app allmail routes
@@ -313,17 +242,14 @@ curl -si http://127.0.0.1:3002/admin/dashboard/stats | \
   grep -Ei '^(HTTP/|X-All-Mail-Route-Owner:|X-All-Mail-Route-Family:)'
 ```
 
-Ownership is source-controlled in `config/route-ownership.json`; there is no runtime owner switch. Roll back the complete revision rather than mutating an environment variable.
+Every business route must report `go-business-api`; system endpoints and the SPA report `go`. Ownership is source-controlled in `config/route-ownership.json`; there is no runtime owner switch.
 
 ## Client IP or lockout behavior is wrong
 
-Rules:
-
-- leave `TRUSTED_PROXY_CIDRS` blank for direct access;
-- list only direct tunnel or reverse-proxy peers;
-- never trust public client networks or blanket CIDRs;
-- Fastify remains `trustProxy: 1`;
-- Go strips and rewrites forwarding headers before proxying.
+- Leave `TRUSTED_PROXY_CIDRS` blank for direct access.
+- List only direct tunnel or reverse-proxy peers.
+- Never trust public client networks or blanket CIDRs.
+- Go strips untrusted forwarding headers and writes one canonical identity before proxying.
 
 Test forged direct headers and inspect the resulting login or audit IP.
 
@@ -339,7 +265,7 @@ docker compose exec -T worker-forwarding sh -lc '
 '
 ```
 
-Do not bypass the advisory owner lock.
+Do not bypass the advisory owner lock or shorten the lease below the run timeout plus shutdown and safety margin.
 
 ## Retention worker
 
@@ -352,36 +278,15 @@ docker compose exec -T worker-retention sh -lc \
 
 ## Redis degraded
 
-Production security state fails closed. Redis loss affects:
-
-- administrator login protection;
-- API-key limiting in both business implementations;
-- OAuth state and completion status;
-- ingress replay reservation.
-
-Recover Redis, then recheck both business APIs and public readiness. Do not add a production in-memory fallback.
-
-## CI failure
-
-The main CI workflow verifies:
-
-- runtime and environment contracts;
-- Go formatting, race tests, vet, build, and vulnerability checks;
-- real PostgreSQL and Redis integration paths;
-- Fastify, React, and Worker checks;
-- production dependency audit;
-- full Docker bootstrap and route-owner smoke;
-- all four Go doctors: public API, private business API, forwarding, and retention.
-
-Use the uploaded diagnostics from the failed job instead of weakening a gate.
+Redis loss affects administrator and mailbox login protection, API-key limiting, OAuth state, and ingress replay reservation. Recover Redis, then recheck `go-business-api` and public readiness. Do not add a production in-memory fallback.
 
 ## Cloudflare or tunnel failure
 
 Prove local health first, then inspect tunnel replicas, routes, transport, and tokens. Update `TRUSTED_PROXY_CIDRS` narrowly when the direct peer changes. Never commit tunnel tokens.
 
-## Rollback and backup
+## Backup, restore, and rollback
 
-Persisted volumes currently include:
+Persisted volumes are:
 
 ```text
 postgres_data
@@ -391,14 +296,19 @@ forwarding_runtime_data
 go_business_runtime_data
 ```
 
-Before risky upgrades preserve:
+Before risky upgrades preserve PostgreSQL, `.env`, all three secret volumes, the exact Git revision, and Redis when operational-state continuity matters. Preserve `bootstrap-admin.env` or an old `bootstrap-secrets.env` when present in the source backup.
 
-- PostgreSQL;
-- `runtime-secrets.env`;
-- `bootstrap-admin.env` when present;
-- a pre-upgrade backup of any `bootstrap-secrets.env`;
-- the forwarding encryption-key volume;
-- the private Go JWT volume;
-- the exact Git revision and `.env` contract.
+Treat PostgreSQL and secret volumes as one restore unit:
 
-Treat the PostgreSQL backup and all secret volumes as one restore unit. Roll back with the target revision's deployment guide and restore the secret layout it expects. Never run initializers, workers, or business APIs from two revisions against the same persisted state.
+```bash
+docker compose down
+git switch <matching-tag-or-commit>
+# Restore PostgreSQL and all matching named volumes.
+./scripts/compose-up.sh
+```
+
+For rollback, use a revision explicitly compatible with the current schema or restore the backup captured for the target revision. Never run initializers, workers, or APIs from two revisions against the same persisted state, and never use `docker compose down -v` unless destruction is intentional.
+
+## CI failure
+
+The main verification gate covers runtime contracts, Go format/race/vet/build checks, real PostgreSQL and Redis integration, React and Worker checks, dependency audit, Docker bootstrap, secret isolation, route ownership, and all four Go doctors. Use the failed job's diagnostics instead of weakening a gate.

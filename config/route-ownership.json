@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "description": "Canonical method-aware public route ownership for the all-Mail gateway. Ownership changes are reviewed source changes, never environment toggles.",
+  "version": 3,
+  "description": "Canonical method-aware public route ownership for the Go-only all-Mail gateway and private business API.",
   "routes": [
     {
       "id": "system-health",
@@ -127,19 +127,17 @@
     },
     {
       "id": "admin-dashboard-other",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/dashboard",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-domains",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/domains",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-domain-mailboxes",
@@ -150,19 +148,17 @@
     },
     {
       "id": "admin-domain-messages",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/domain-messages",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-forwarding-jobs",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin/forwarding-jobs",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "admin-mailbox-users",
@@ -180,11 +176,10 @@
     },
     {
       "id": "admin-other",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/admin",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "ext-email-allocate",
@@ -370,35 +365,31 @@
     },
     {
       "id": "domain-message-text",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "exact",
       "path": "/api/domain-mail/messages/text",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "domain-message-text-compat",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "exact",
       "path": "/api/domain-mail/mail_text",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "external-domain-mail",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/api/domain-mail",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "external-api",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/api",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "mailbox-portal-login",
@@ -477,11 +468,10 @@
     },
     {
       "id": "mailbox-portal",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/mail/api",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "ingress-domain-mail",
@@ -492,11 +482,10 @@
     },
     {
       "id": "ingress-other",
-      "owner": "business-api",
+      "owner": "go-business-api",
       "match": "prefix",
       "path": "/ingress",
-      "migrationStage": "pending",
-      "targetOwner": "go-business-api"
+      "migrationStage": "complete"
     },
     {
       "id": "oauth-compatibility",

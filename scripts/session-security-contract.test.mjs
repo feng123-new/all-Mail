@@ -8,10 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const read = (relativePath) => readFile(path.join(repoRoot, relativePath), "utf8");
 
 test("administrator and mailbox sessions have durable revocation state", async () => {
-	const [migration, schema] = await Promise.all([
-		read("server/prisma/migrations/20260731_revocable_sessions/migration.sql"),
-		read("server/prisma/schema.prisma"),
-	]);
+	const migration = await read("core/internal/schema/migrations/20260731_revocable_sessions.sql");
 	for (const table of ["admins", "mailbox_users"]) {
 		assert.match(migration, new RegExp(`ALTER TABLE ${table}[\\s\\S]*session_version`, "i"));
 	}
@@ -19,39 +16,37 @@ test("administrator and mailbox sessions have durable revocation state", async (
 	assert.match(migration, /mailbox_users_bump_session_version/);
 	assert.match(migration, /NEW\.password_hash IS DISTINCT FROM OLD\.password_hash/);
 	assert.match(migration, /NEW\.two_factor_secret IS DISTINCT FROM OLD\.two_factor_secret/);
-	assert.equal((schema.match(/sessionVersion/g) ?? []).length, 2);
 });
 
-test("Fastify and private Go JWT verification share issuer and session-version checks", async () => {
-	const [jwt, sessionVersion, goAuth, goStore] = await Promise.all([
-		read("server/src/lib/jwt.ts"),
-		read("server/src/lib/session-version.ts"),
+test("Go JWT verification enforces algorithm, issuer, audience, and session version", async () => {
+	const [goAuth, types, mailboxAuth, goStore] = await Promise.all([
 		read("core/internal/businessapi/auth.go"),
+		read("core/internal/businessapi/types.go"),
+		read("core/internal/businessapi/mailbox_auth.go"),
 		read("core/internal/businessapi/store.go"),
 	]);
-	assert.match(jwt, /algorithms: \['HS256'\]/);
-	assert.match(jwt, /issuer: JWT_ISSUER/);
-	assert.match(jwt, /payload\.sessionVersion !== currentVersion/);
-	assert.match(sessionVersion, /JWT_ISSUER = 'all-mail'/);
+	assert.match(goAuth, /header\.Algorithm != "HS256"/);
 	assert.match(goAuth, /payload\.Issuer != allMailJWTIssuer/);
 	assert.match(goAuth, /claims\.SessionVersion != storedVersion/);
+	assert.match(types, /allMailJWTIssuer\s*= "all-mail"/);
+	assert.match(mailboxAuth, /claims\.SessionVersion != identity\.SessionVersion/);
 	assert.match(goStore, /must_change_password, session_version/);
 });
 
 test("security mutations rotate browser sessions", async () => {
 	const [adminRoutes, mailboxRoutes] = await Promise.all([
-		read("server/src/modules/auth/auth.routes.ts"),
-		read("server/src/modules/mailbox-user/mailboxPortal.routes.ts"),
+		read("core/internal/businessapi/auth_handlers.go"),
+		read("core/internal/businessapi/mailbox_auth_handlers.go"),
 	]);
-	assert.match(adminRoutes, /change-password[\s\S]*rotateAdminSession/);
-	assert.match(adminRoutes, /2fa\/enable[\s\S]*rotateAdminSession/);
-	assert.match(adminRoutes, /2fa\/disable[\s\S]*rotateAdminSession/);
-	assert.match(mailboxRoutes, /change-password[\s\S]*rotateMailboxSession/);
+	assert.match(adminRoutes, /adminChangePassword[\s\S]*signAdminSession\(admin\)[\s\S]*setAdminSessionCookie/);
+	assert.match(adminRoutes, /writeTwoFactorRotation[\s\S]*signAdminSession\(admin\)[\s\S]*setAdminSessionCookie/);
+	assert.match(mailboxRoutes, /mailboxChangePassword[\s\S]*rotateMailboxSession/);
+	assert.match(mailboxRoutes, /writeMailboxTwoFactorRotation[\s\S]*rotateMailboxSession/);
 });
 
 test("Microsoft OAuth defaults stay limited to identity and mail capabilities", async () => {
 	const [oauthService, helperConfig] = await Promise.all([
-		read("server/src/modules/email/email.oauth.service.ts"),
+		read("core/internal/businessapi/mail_oauth_handlers.go"),
 		read("oauth-temp/config.example.env"),
 	]);
 	for (const content of [oauthService, helperConfig]) {

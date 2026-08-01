@@ -22,6 +22,21 @@ type resendSendConfig struct {
 	MailboxAddress string
 }
 
+func withDecryptedResendSendConfig(
+	result resendSendConfig,
+	encryptedKey, fromName, replyTo sql.NullString,
+	encryptionKey string,
+) (resendSendConfig, error) {
+	apiKey, err := legacycrypto.Decrypt(encryptionKey, encryptedKey.String)
+	if err != nil {
+		return resendSendConfig{}, &requestError{Status: http.StatusInternalServerError, Code: "SEND_CONFIG_INVALID", Cause: err}
+	}
+	result.APIKey = apiKey
+	result.FromName = fromName.String
+	result.ReplyTo = replyTo.String
+	return result, nil
+}
+
 type outboundMessageRow struct {
 	ID                int64
 	DomainID          int64
@@ -216,13 +231,10 @@ func (s *PostgresStore) loadResendSendConfig(ctx context.Context, domainID int64
 	if len(fromParts) != 2 || strings.ToLower(strings.TrimSpace(fromParts[1])) != strings.ToLower(result.DomainName) {
 		return resendSendConfig{}, validationError("from address does not belong to selected domain")
 	}
-	apiKey, err := legacycrypto.Decrypt(encryptionKey, encryptedKey.String)
+	result, err = withDecryptedResendSendConfig(result, encryptedKey, fromName, replyTo, encryptionKey)
 	if err != nil {
-		return resendSendConfig{}, &requestError{Status: http.StatusInternalServerError, Code: "SEND_CONFIG_INVALID", Cause: err}
+		return resendSendConfig{}, err
 	}
-	result.APIKey = apiKey
-	result.FromName = fromName.String
-	result.ReplyTo = replyTo.String
 	result.MailboxID = mailboxID
 	if mailboxID != nil {
 		var mailboxDomainID int64
@@ -242,20 +254,75 @@ func (s *PostgresStore) loadResendSendConfig(ctx context.Context, domainID int64
 	return result, nil
 }
 
-func (s *PostgresStore) createPendingOutboundMessage(ctx context.Context, domainID int64, mailboxID *int64, from string, to []string, subject, html, text string) (int64, error) {
+func (s *PostgresStore) createPendingOutboundMessage(
+	ctx context.Context,
+	domainID int64,
+	mailboxID, mailboxUserID *int64,
+	from string,
+	to []string,
+	subject, html, text string,
+) (int64, error) {
 	recipients, err := json.Marshal(to)
 	if err != nil {
 		return 0, validationError("to must be a JSON array")
 	}
 	var id int64
+	if mailboxUserID == nil {
+		err = s.pool.QueryRow(ctx, `
+			INSERT INTO outbound_messages (
+				domain_id, mailbox_id, from_address, to_addresses, subject, html_body, text_body,
+				status, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, $4::jsonb, $5, NULLIF($6, ''), NULLIF($7, ''), 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			RETURNING id
+		`, domainID, mailboxID, from, string(recipients), subject, html, text).Scan(&id)
+		if err != nil {
+			return 0, fmt.Errorf("create pending outbound message: %w", err)
+		}
+		return id, nil
+	}
 	err = s.pool.QueryRow(ctx, `
 		INSERT INTO outbound_messages (
 			domain_id, mailbox_id, from_address, to_addresses, subject, html_body, text_body,
 			status, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4::jsonb, $5, NULLIF($6, ''), NULLIF($7, ''), 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		SELECT $1::integer, $2::integer, $3::varchar(255), $4::jsonb, $5::varchar(500),
+		       NULLIF($6::text, ''), NULLIF($7::text, ''),
+		       'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+		WHERE EXISTS (
+			SELECT 1
+			FROM domain_mailboxes AS mailbox
+			JOIN domains AS domain ON domain.id = mailbox.domain_id
+			JOIN mailbox_users AS portal_user ON portal_user.id = $8::integer AND portal_user.status = 'ACTIVE'
+			WHERE mailbox.id = $2::integer
+			  AND mailbox.domain_id = $1::integer
+			  AND mailbox.address = $3::varchar(255)
+			  AND mailbox.status = 'ACTIVE'
+			  AND domain.status = 'ACTIVE'
+			  AND domain.can_receive = TRUE
+			  AND domain.can_send = TRUE
+			  AND (
+				mailbox.owner_user_id = portal_user.id
+				OR EXISTS (
+					SELECT 1
+					FROM mailbox_memberships AS membership
+					WHERE membership.mailbox_id = mailbox.id
+					  AND membership.user_id = portal_user.id
+				)
+			  )
+			  AND EXISTS (
+				SELECT 1
+				FROM domain_sending_configs AS sending
+				WHERE sending.domain_id = domain.id
+				  AND sending.provider = 'RESEND'
+				  AND sending.status = 'ACTIVE'
+			  )
+		   )
 		RETURNING id
-	`, domainID, mailboxID, from, string(recipients), subject, html, text).Scan(&id)
+	`, domainID, mailboxID, from, string(recipients), subject, html, text, *mailboxUserID).Scan(&id)
+	if errorsIsNoRows(err) {
+		return 0, &requestError{Status: http.StatusForbidden, Code: "FORBIDDEN_MAILBOX"}
+	}
 	if err != nil {
 		return 0, fmt.Errorf("create pending outbound message: %w", err)
 	}

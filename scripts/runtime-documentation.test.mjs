@@ -10,14 +10,11 @@ const read = (relativePath) => readFile(path.join(repoRoot, relativePath), "utf8
 const expectedLongRunning = [
 	"app",
 	"go-business-api",
-	"business-api",
 	"worker-forwarding",
 	"worker-retention",
 	"postgres",
 	"redis",
 ];
-
-const expectedOneShot = ["business-init"];
 
 function composeServices(compose) {
 	const servicesStart = compose.indexOf("\nservices:\n");
@@ -26,7 +23,7 @@ function composeServices(compose) {
 	return compose
 		.slice(servicesStart, networksStart)
 		.split(/\r?\n/)
-		.map((line) => /^  ([a-z0-9-]+):\s*$/.exec(line)?.[1])
+		.map((line) => /^[ ]{2}([a-z0-9-]+):\s*$/.exec(line)?.[1])
 		.filter(Boolean);
 }
 
@@ -46,13 +43,15 @@ test("operator documentation matches the canonical Compose topology", async () =
 	]);
 
 	const services = composeServices(compose);
-	for (const service of [...expectedLongRunning, ...expectedOneShot]) {
+	assert.deepEqual(services.sort(), expectedLongRunning.toSorted());
+	for (const service of expectedLongRunning) {
 		assert.ok(services.includes(service), `Compose omits ${service}`);
 	}
 	for (const document of [deploy, runbook, release]) {
 		assertMentionsEvery(document, expectedLongRunning, "operator documentation");
-		assertMentionsEvery(document, expectedOneShot, "operator documentation");
 	}
+	assert.match(`${deploy}\n${runbook}`, /compose-up\.sh/);
+	assert.doesNotMatch(`${deploy}\n${runbook}`, /\bbusiness-init\b/);
 
 	assert.match(environment, /GO_BUSINESS_API_URL=http:\/\/go-business-api:3200/);
 	assert.match(environment, /JWT_SECRET_FILE=\/var\/lib\/all-mail-secrets\/jwt-secret/);
@@ -76,7 +75,6 @@ test("all runtime doctors and private network checks are documented", async () =
 	}
 	for (const privatePort of [
 		"! docker compose port go-business-api 3200",
-		"! docker compose port business-api 3100",
 		"! docker compose port postgres 5432",
 		"! docker compose port redis 6379",
 	]) {
@@ -92,7 +90,17 @@ test("documentation describes aggregate readiness and source-available licensing
 		read("LICENSE"),
 	]);
 	const operatorDocs = `${deploy}\n${runbook}`;
-	assert.match(operatorDocs, /requires[\s\S]*(?:go-business-api|private Go business)[\s\S]*business-api/i);
+	assert.match(operatorDocs, /requires[\s\S]*(?:go-business-api|private Go business)/i);
+	assert.doesNotMatch(operatorDocs, /(?:^|\n)[ ]*business-(?:api|init)[ ]*(?:\n|$)/i);
+	for (const retiredCommand of [
+		"docker compose exec -T business-api",
+		"docker compose exec business-api",
+		"docker compose logs business-api",
+		"docker compose run --rm business-init",
+	]) {
+		assert.equal(operatorDocs.includes(retiredCommand), false, retiredCommand);
+	}
+	assert.doesNotMatch(operatorDocs, /server\/\.env|node -e/i);
 	assert.doesNotMatch(operatorDocs, /checks the built SPA and Fastify readiness/i);
 	assert.match(release, /source-available/i);
 	assert.match(release, /not distributed under an OSI-approved open-source license/i);

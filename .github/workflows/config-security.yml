@@ -76,9 +76,13 @@ jobs:
           with open(sys.argv[1], encoding='utf-8') as handle:
               model = json.load(handle)
           services = model['services']
+          assert set(services) == {
+              'app', 'go-business-api', 'worker-forwarding',
+              'worker-retention', 'postgres', 'redis',
+          }, f'unexpected production services: {sorted(services)}'
 
           app_env = services['app'].get('environment', {})
-          for forbidden in ('DATABASE_URL', 'REDIS_URL', 'GO_API_MODE', 'ALL_MAIL_ENV'):
+          for forbidden in ('DATABASE_URL', 'REDIS_URL', 'BUSINESS_API_URL', 'GO_API_MODE', 'ALL_MAIL_ENV'):
               assert forbidden not in app_env, f'app still receives {forbidden}'
 
           forwarding_env = services['worker-forwarding'].get('environment', {})
@@ -98,11 +102,6 @@ jobs:
           assert any(mount.get('target') == '/var/lib/all-mail' and not mount.get('read_only', False) for mount in go_business_mounts), 'Go auth cannot remove the consumed bootstrap credential'
 
           assert services['worker-retention'].get('volumes') in (None, []), 'retention heartbeat must stay ephemeral'
-
-          init_deps = services['business-init'].get('depends_on', {})
-          assert 'redis' not in init_deps, 'business-init still waits for Redis'
-          assert services['business-init'].get('command') == ['init'], 'business-init is not the Go initializer'
-          assert 'go-migrate' not in services, 'retired go-migrate one-shot remains in Compose'
 
           for name in ('postgres', 'redis'):
               assert not services[name].get('ports'), f'{name} is published by production Compose'

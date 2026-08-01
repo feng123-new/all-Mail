@@ -67,9 +67,9 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
 - Do not add a copied provider-specific backend template.
 - Internal file paths and container ports belong in Compose, not the operator template.
 - Do not add hidden aliases or silently ignore malformed canonical values.
-- Public `app` must not receive database/Redis credentials until a native Go business route requires them.
+- Public `app` must not receive database, Redis, JWT, encryption, ingress, OAuth, or provider credentials.
 - Forwarding receives `ENCRYPTION_KEY_FILE`, not the raw key environment variable.
-- PostgreSQL, Redis, and `business-api` remain unpublished in production.
+- `go-business-api`, PostgreSQL, and Redis remain unpublished in production.
 - Proxy trust must be an explicit direct-peer CIDR, never blanket trust.
 
 Changes that add, rename, or remove a variable must update:

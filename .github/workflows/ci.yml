@@ -87,13 +87,6 @@ jobs:
             core/go.mod
             core/go.sum
 
-      - name: Setup Node.js for Prisma integration
-        uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: server/package-lock.json
-
       - name: Install PostgreSQL client for test scaffolding
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
 
@@ -243,9 +236,6 @@ jobs:
           fi
           test "$(psql "$DATABASE_URL" -Atqc "SELECT data_type FROM information_schema.columns WHERE table_name = 'mailbox_forward_jobs' AND column_name = 'lease_expires_at'")" = "text"
 
-      - name: Install Prisma integration dependencies
-        run: ../scripts/sanitize-runtime-env.sh npm --prefix ../server ci
-
       - name: Verify Go schema initialization matrix
         env:
           ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
@@ -266,9 +256,8 @@ jobs:
           ALLMAIL_GO_BUSINESS_TEST_REDIS_URL: redis://127.0.0.1:6379/11
         run: |
           createdb -h 127.0.0.1 -U postgres allmail_go_business_integration
-          ../scripts/sanitize-runtime-env.sh npm --prefix ../server run db:migrate
           ./allmail migrate
-          go test -run TestPostgresAPIKeyAndExternalRouteIntegration -count=1 ./internal/businessapi
+          go test -run '^TestPostgres' -count=1 ./internal/businessapi
 
       - name: Verify PostgreSQL forwarding state machine
         env:
@@ -277,7 +266,6 @@ jobs:
           ALLMAIL_FORWARDING_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_forwarding_integration?sslmode=disable
         run: |
           createdb -h 127.0.0.1 -U postgres allmail_forwarding_integration
-          ../scripts/sanitize-runtime-env.sh npm --prefix ../server run db:migrate
           ./allmail migrate
           go test -run TestPostgresForwardingIntegration -count=1 ./internal/jobs
 
@@ -309,61 +297,6 @@ jobs:
 
       - name: Build
         run: ../scripts/sanitize-runtime-env.sh npm run build
-
-  server:
-    name: server-lint-build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: server/package-lock.json
-
-      - name: Install deps
-        run: ../scripts/sanitize-runtime-env.sh npm ci
-
-      - name: Lint
-        shell: bash
-        run: |
-          set +e
-          ../scripts/sanitize-runtime-env.sh npm run lint 2>&1 | tee "$RUNNER_TEMP/server-lint.log"
-          status=${PIPESTATUS[0]}
-          exit "$status"
-
-      - name: Upload server lint log
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: server-lint-log
-          path: ${{ runner.temp }}/server-lint.log
-          if-no-files-found: error
-
-      - name: Test
-        shell: bash
-        run: |
-          set +e
-          ../scripts/sanitize-runtime-env.sh npm run test 2>&1 | tee "$RUNNER_TEMP/server-test.log"
-          status=${PIPESTATUS[0]}
-          exit "$status"
-
-      - name: Upload server test log
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: server-test-log
-          path: ${{ runner.temp }}/server-test.log
-          if-no-files-found: error
-
-      - name: Build
-        run: ../scripts/sanitize-runtime-env.sh npm run db:generate && ../scripts/sanitize-runtime-env.sh npm run build
 
   worker:
     name: worker-check
@@ -419,7 +352,7 @@ jobs:
   docker-smoke:
     name: docker-smoke
     runs-on: ubuntu-latest
-    needs: [runtime, go, web, server, worker]
+    needs: [runtime, go, web, worker]
     env:
       POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
     steps:
@@ -436,7 +369,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          docker compose up -d --build --wait --wait-timeout 240 2>&1 | tee "$RUNNER_TEMP/docker-start.log"
+          ./scripts/compose-up.sh 2>&1 | tee "$RUNNER_TEMP/docker-start.log"
           status=${PIPESTATUS[0]}
           docker compose ps -a --no-trunc > "$RUNNER_TEMP/docker-ps.txt" 2>&1 || true
           docker compose logs --no-color --timestamps > "$RUNNER_TEMP/docker-compose.log" 2>&1 || true
@@ -453,20 +386,20 @@ jobs:
             ${{ runner.temp }}/docker-compose.log
           if-no-files-found: warn
 
-      - name: Verify retired legacy runtimes
+      - name: Verify Go-only runtime topology
         shell: bash
         run: |
           docker compose ps -a
-          test "$(docker compose exec -T business-api id -u)" = "10001"
-          for retired in go-jobs legacy-jobs jobs; do
+          test "$(docker compose exec -T app id -u)" = "10001"
+          test "$(docker compose exec -T go-business-api id -u)" = "10001"
+          for retired in business-api business-init go-migrate go-jobs legacy-jobs jobs; do
             if docker compose config --services | grep -qx "$retired"; then
               echo "retired service remains in Compose: $retired"
               exit 1
             fi
           done
-          docker compose exec -T business-api sh -lc '
+          docker compose exec -T go-business-api sh -lc '
             test -r /var/lib/all-mail/runtime-secrets.env
-            test -r /var/lib/all-mail/bootstrap-admin.env
             test ! -e /var/lib/all-mail/bootstrap-secrets.env
           '
           docker compose exec -T worker-forwarding sh -lc "test -r /var/lib/all-mail-secrets/encryption-key"
@@ -475,29 +408,86 @@ jobs:
             exit 1
           fi
 
-      - name: Verify Go and business API readiness
+      - name: Verify Go readiness
         run: |
           curl --fail --silent --show-error http://127.0.0.1:3002/health
           curl --fail --silent --show-error http://127.0.0.1:3002/readyz
-          docker compose exec -T business-api node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3100) + '/readyz').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1); }).catch(() => process.exit(1))"
           docker compose exec -T go-business-api allmail doctor business-api
 
-      - name: Verify migrated mail route ownership
+      - name: Verify final image contains no Node or Prisma runtime
+        shell: bash
+        run: |
+          image=$(docker compose images -q app)
+          test -n "$image"
+          docker run --rm --entrypoint /bin/sh "$image" -c '
+            for command in node nodejs npm npx pnpm prisma; do
+              if command -v "$command" >/dev/null 2>&1; then
+                echo "forbidden runtime command found: $command"
+                exit 1
+              fi
+            done
+            if find / -iname "*prisma*" -print -quit 2>/dev/null | grep -q .; then
+              echo "Prisma artifact found in final image"
+              exit 1
+            fi
+            test ! -e /app/server
+          '
+
+      - name: Generate final image SBOM
+        uses: anchore/sbom-action@v0.20.6
+        with:
+          image: all-mail-go:local
+          format: cyclonedx-json
+          output-file: ${{ runner.temp }}/all-mail-go.cdx.json
+
+      - name: Verify SBOM contains no Node or Prisma packages
+        run: |
+          python3 - "$RUNNER_TEMP/all-mail-go.cdx.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding='utf-8') as handle:
+              sbom = json.load(handle)
+          forbidden = []
+          for component in sbom.get('components', []):
+              name = str(component.get('name', '')).lower()
+              purl = str(component.get('purl', '')).lower()
+              if name in {'node', 'nodejs', 'npm', 'prisma', '@prisma/client'} or 'pkg:npm/@prisma/' in purl or 'pkg:npm/prisma@' in purl:
+                  forbidden.append({'name': name, 'purl': purl})
+          if forbidden:
+              raise SystemExit(f'forbidden SBOM components: {forbidden}')
+          PY
+
+      - name: Upload final image SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: all-mail-go-cyclonedx
+          path: ${{ runner.temp }}/all-mail-go.cdx.json
+          if-no-files-found: error
+
+      - name: Verify Go-only route ownership
         shell: bash
         run: |
           probe_route() {
-            local path="$1"
-            local expected_status="$2"
+            local method="$1"
+            local path="$2"
+            local expected_status="$3"
             local headers="$RUNNER_TEMP/route-$(printf '%s' "$path" | tr '/?' '--').headers"
             local status
-            status=$(curl --silent --show-error --output /dev/null --dump-header "$headers" --write-out '%{http_code}' "http://127.0.0.1:3002$path")
+            status=$(curl --request "$method" --silent --show-error --output /dev/null --dump-header "$headers" --write-out '%{http_code}' "http://127.0.0.1:3002$path")
             test "$status" = "$expected_status"
             grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$headers"
           }
-          probe_route /admin/emails 401
-          probe_route /admin/oauth/configs 401
-          probe_route /admin/send/configs 401
-          probe_route /oauth 302
+          probe_route GET /admin/emails 401
+          probe_route GET /admin/domains 401
+          probe_route GET /admin/domain-messages 401
+          probe_route GET /admin/forwarding-jobs 401
+          probe_route GET /admin/oauth/configs 401
+          probe_route GET /admin/send/configs 401
+          probe_route POST /mail/api/send 401
+          probe_route GET '/api/messages/text?email=probe@example.test' 401
+          probe_route POST /api/domain-mail/messages/text 401
+          probe_route GET /oauth 302
 
       - name: Check independent worker doctors
         run: |

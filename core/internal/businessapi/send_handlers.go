@@ -13,17 +13,23 @@ import (
 )
 
 type outboundSendRequest struct {
-	DomainID  int64    `json:"domainId"`
-	MailboxID *int64   `json:"mailboxId"`
-	From      string   `json:"from"`
-	To        []string `json:"to"`
-	Subject   string   `json:"subject"`
-	HTML      string   `json:"html"`
-	Text      string   `json:"text"`
+	DomainID      int64    `json:"domainId"`
+	MailboxID     *int64   `json:"mailboxId"`
+	MailboxUserID *int64   `json:"-"`
+	From          string   `json:"from"`
+	To            []string `json:"to"`
+	Subject       string   `json:"subject"`
+	HTML          string   `json:"html"`
+	Text          string   `json:"text"`
 }
 
 type outboundDeleteRequest struct {
 	IDs []json.RawMessage `json:"ids"`
+}
+
+type outboundSendStore interface {
+	createPendingOutboundMessage(context.Context, int64, *int64, *int64, string, []string, string, string, string) (int64, error)
+	completeOutboundMessage(context.Context, int64, string, string, string) (map[string]any, error)
 }
 
 func (s *Server) registerSendRoutes(mux *http.ServeMux) {
@@ -201,39 +207,51 @@ func (s *Server) sendOutboundMessage(w http.ResponseWriter, r *http.Request, _ A
 	}
 	databaseCtx, cancelDatabase := s.databaseContext(r.Context())
 	sendConfig, err := store.loadResendSendConfig(databaseCtx, body.DomainID, body.MailboxID, body.From, s.cfg.EncryptionKey)
-	if err == nil {
-		var outboundID int64
-		outboundID, err = store.createPendingOutboundMessage(databaseCtx, body.DomainID, body.MailboxID, body.From, body.To, body.Subject, body.HTML, body.Text)
-		cancelDatabase()
-		if err != nil {
-			s.writeStoreError(w, r, "create outbound message", err)
-			return
-		}
-		sendResult, sendErr := mailprovider.NewResendClient("https://api.resend.com", s.providerClient()).Send(r.Context(), sendConfig.APIKey, mailprovider.SendRequest{
-			From: formatOutboundFrom(body.From, sendConfig.FromName), To: body.To, Subject: body.Subject,
-			HTML: body.HTML, Text: body.Text, ReplyTo: sendConfig.ReplyTo, IdempotencyKey: fmt.Sprintf("outbound-message-%d", outboundID),
-		})
-		databaseCtx, cancelDatabase = s.databaseContext(context.WithoutCancel(r.Context()))
-		defer cancelDatabase()
-		if sendErr != nil {
-			message := boundedProviderError(sendErr)
-			if _, updateErr := store.completeOutboundMessage(databaseCtx, outboundID, "", "FAILED", message); updateErr != nil {
-				s.writeStoreError(w, r, "mark outbound message failed", updateErr)
-				return
-			}
-			s.writeRequestError(w, r, &requestError{Status: http.StatusBadGateway, Code: "SEND_FAILED", Cause: sendErr})
-			return
-		}
-		result, updateErr := store.completeOutboundMessage(databaseCtx, outboundID, sendResult.ID, "SENT", "")
-		if updateErr != nil {
-			s.writeStoreError(w, r, "mark outbound message sent", updateErr)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
+	cancelDatabase()
+	if err != nil {
+		s.writeStoreError(w, r, "load sending configuration", err)
 		return
 	}
+	result, err := s.deliverOutboundMessage(r.Context(), store, sendConfig, body)
+	if err != nil {
+		s.writeStoreError(w, r, "send outbound message", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
+}
+
+func (s *Server) deliverOutboundMessage(
+	ctx context.Context,
+	store outboundSendStore,
+	sendConfig resendSendConfig,
+	body outboundSendRequest,
+) (map[string]any, error) {
+	databaseCtx, cancelDatabase := s.databaseContext(ctx)
+	outboundID, err := store.createPendingOutboundMessage(
+		databaseCtx, body.DomainID, body.MailboxID, body.MailboxUserID, body.From, body.To, body.Subject, body.HTML, body.Text,
+	)
 	cancelDatabase()
-	s.writeStoreError(w, r, "load sending configuration", err)
+	if err != nil {
+		return nil, fmt.Errorf("create outbound message: %w", err)
+	}
+	sendResult, sendErr := mailprovider.NewResendClient("https://api.resend.com", s.providerClient()).Send(ctx, sendConfig.APIKey, mailprovider.SendRequest{
+		From: formatOutboundFrom(body.From, sendConfig.FromName), To: body.To, Subject: body.Subject,
+		HTML: body.HTML, Text: body.Text, ReplyTo: sendConfig.ReplyTo, IdempotencyKey: fmt.Sprintf("outbound-message-%d", outboundID),
+	})
+	databaseCtx, cancelDatabase = s.databaseContext(context.WithoutCancel(ctx))
+	defer cancelDatabase()
+	if sendErr != nil {
+		message := boundedProviderError(sendErr)
+		if _, updateErr := store.completeOutboundMessage(databaseCtx, outboundID, "", "FAILED", message); updateErr != nil {
+			return nil, fmt.Errorf("mark outbound message failed: %w", updateErr)
+		}
+		return nil, &requestError{Status: http.StatusBadGateway, Code: "SEND_FAILED", Cause: sendErr}
+	}
+	result, err := store.completeOutboundMessage(databaseCtx, outboundID, sendResult.ID, "SENT", "")
+	if err != nil {
+		return nil, fmt.Errorf("mark outbound message sent: %w", err)
+	}
+	return result, nil
 }
 
 func formatOutboundFrom(address, name string) string {

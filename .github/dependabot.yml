@@ -1,27 +1,6 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: /server
-    schedule:
-      interval: weekly
-    groups:
-      server-dependencies:
-        patterns: ["*"]
-    ignore:
-      - dependency-name: "@eslint/js"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@prisma/client"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "eslint"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "prisma"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "zod"
-        update-types: ["version-update:semver-major"]
-    open-pull-requests-limit: 5
-  - package-ecosystem: npm
     directory: /web
     schedule:
       interval: weekly

@@ -11,7 +11,6 @@ import { sanitizeNodeRuntimeEnv } from '../scripts/runtime-env.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
-const serverDir = path.join(repoRoot, 'server');
 const webDir = path.join(repoRoot, 'web');
 const workerDir = path.join(repoRoot, 'cloudflare', 'workers', 'allmail-edge');
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -29,8 +28,8 @@ Usage:
   all-mail setup
 
 Commands:
-  install   Install server, web, and Cloudflare Worker dependencies
-  build     Build the business API and React frontend
+  install   Install web and Cloudflare Worker dependencies
+  build     Build the React frontend
   doctor    Check env resolution, infrastructure reachability, and build artifacts
   deps      Start or stop PostgreSQL + Redis with docker-compose.dev.yml
   check     Run the full repository release gate
@@ -89,7 +88,6 @@ async function pathExists(targetPath) {
 async function resolveEnvFile(explicitEnvFile) {
   const candidates = [
     explicitEnvFile ? path.resolve(explicitEnvFile) : null,
-    path.join(serverDir, '.env'),
     path.join(repoRoot, '.env'),
   ].filter(Boolean);
 
@@ -168,7 +166,6 @@ async function run(command, args, options = {}) {
 
 async function installAll(force = false) {
   const installs = [
-    [serverDir, path.join(serverDir, 'node_modules')],
     [webDir, path.join(webDir, 'node_modules')],
     [workerDir, path.join(workerDir, 'node_modules')],
   ];
@@ -217,7 +214,7 @@ async function runDoctor(options) {
   try {
     const envFile = await resolveEnvFile(options.envFile);
     if (!envFile) {
-      throw new Error('No env file found. Use --env-file, copy .env.example to .env, or create server/.env for API development.');
+      throw new Error('No env file found. Use --env-file or copy .env.example to .env.');
     }
     results.push({ level: 'ok', message: `Using env file: ${envFile}` });
     const fileEnv = normalizeEnv(parseEnvText(await readFile(envFile, 'utf8')));
@@ -244,7 +241,6 @@ async function runDoctor(options) {
     }
 
     const artifacts = [
-      [path.join(serverDir, 'dist', 'index.js'), 'Business API build artifacts'],
       [path.join(webDir, 'dist', 'index.html'), 'React frontend build artifacts'],
     ];
     for (const [artifact, label] of artifacts) {
@@ -254,7 +250,7 @@ async function runDoctor(options) {
         message: exists ? `${label} exist.` : `${label} are missing. Run all-mail setup or npm run build.`,
       });
     }
-    results.push({ level: 'ok', message: 'Production startup remains docker compose up -d --build --wait.' });
+    results.push({ level: 'ok', message: 'Production startup uses scripts/compose-up.sh.' });
   } catch (error) {
     results.push({ level: 'error', message: error instanceof Error ? error.message : String(error) });
   }

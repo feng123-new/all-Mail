@@ -136,14 +136,13 @@ func (m *routeMetrics) writePrometheus(writer io.Writer) {
 	for _, route := range routes {
 		fmt.Fprintf(
 			writer,
-			"allmail_route_owner_info{family=%s,owner=%s,match=%s,path=%s,methods=%s,migration_stage=%s,target_owner=%s} 1\n",
+			"allmail_route_owner_info{family=%s,owner=%s,match=%s,path=%s,methods=%s,migration_stage=%s} 1\n",
 			metricLabel(route.ID),
 			metricLabel(string(route.Owner)),
 			metricLabel(string(route.Match)),
 			metricLabel(route.Path),
 			metricLabel(strings.Join(route.Methods, ",")),
 			metricLabel(string(route.MigrationStage)),
-			metricLabel(string(route.TargetOwner)),
 		)
 	}
 

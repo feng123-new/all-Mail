@@ -18,7 +18,6 @@ import (
 type Probe func(context.Context, string) error
 
 type Prober struct {
-	BusinessAPI   Probe
 	GoBusinessAPI Probe
 }
 
@@ -29,7 +28,6 @@ type Report struct {
 
 func Default() Prober {
 	return Prober{
-		BusinessAPI:   checkServiceReadiness,
 		GoBusinessAPI: checkServiceReadiness,
 	}
 }
@@ -43,7 +41,6 @@ func (p Prober) Check(ctx context.Context, cfg config.APIConfig, goBusinessAPIUR
 	} else {
 		report.Checks["staticAssets"] = "ok"
 	}
-	p.runRequired(ctx, &report, "businessApi", cfg.BusinessAPIURL, p.BusinessAPI)
 	p.runRequired(ctx, &report, "goBusinessApi", goBusinessAPIURL, p.GoBusinessAPI)
 	return report
 }

@@ -8,7 +8,6 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 
 export const productionAuditSteps = [
-  { name: 'server', command: 'npm', args: ['--prefix', 'server', 'audit', '--omit=dev', '--json'] },
   { name: 'web', command: 'npm', args: ['--prefix', 'web', 'audit', '--omit=dev', '--json'] },
   { name: 'worker', command: 'npm', args: ['--prefix', 'cloudflare/workers/allmail-edge', 'audit', '--omit=dev', '--json'] },
 ];

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -26,7 +27,7 @@ type Config struct {
 }
 
 func LoadConfig() (Config, error) {
-	migrationConfig, err := config.LoadMigration()
+	migrationConfig, err := loadInitializerMigrationConfig()
 	if err != nil {
 		return Config{}, err
 	}
@@ -46,6 +47,35 @@ func LoadConfig() (Config, error) {
 		JWTSecretExportFile:     strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_JWT_SECRET_FILE")),
 		Environment:             currentEnvironment(),
 	}, nil
+}
+
+func loadInitializerMigrationConfig() (config.MigrationConfig, error) {
+	if strings.TrimSpace(os.Getenv("DATABASE_URL")) != "" {
+		return config.LoadMigration()
+	}
+	password := strings.TrimSpace(os.Getenv("POSTGRES_PASSWORD"))
+	if password == "" {
+		return config.MigrationConfig{}, errors.New("DATABASE_URL or POSTGRES_PASSWORD is required for initialization")
+	}
+	user := strings.TrimSpace(os.Getenv("POSTGRES_USER"))
+	if user == "" {
+		user = "allmail"
+	}
+	database := strings.TrimSpace(os.Getenv("POSTGRES_DB"))
+	if database == "" {
+		database = "allmail"
+	}
+	directory := strings.TrimSpace(os.Getenv("ALL_MAIL_MIGRATION_DIR"))
+	if directory == "" {
+		directory = "/app/migrations"
+	}
+	databaseURL := (&url.URL{
+		Scheme: "postgresql",
+		User:   url.UserPassword(user, password),
+		Host:   "postgres:5432",
+		Path:   "/" + database,
+	}).String()
+	return config.MigrationConfig{DatabaseURL: databaseURL, Directory: directory}, nil
 }
 
 func SchemaOnly(ctx context.Context, cfg config.MigrationConfig, logger *slog.Logger) error {
