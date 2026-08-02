@@ -16,6 +16,30 @@ const (
 	databaseRetentionRole  = "allmail_retention"
 )
 
+// Keep this list explicit and fail closed. New application tables must be
+// reviewed and added here before the long-running API can access them. Schema
+// and compatibility ledgers are intentionally absent.
+var apiBusinessTables = []string{
+	"admins",
+	"api_keys",
+	"provider_oauth_configs",
+	"email_groups",
+	"email_accounts",
+	"email_usage",
+	"api_logs",
+	"domains",
+	"domain_sending_configs",
+	"mailbox_users",
+	"domain_mailboxes",
+	"domain_mailbox_usage",
+	"mailbox_memberships",
+	"mailbox_aliases",
+	"ingress_endpoints",
+	"inbound_messages",
+	"mailbox_forward_jobs",
+	"outbound_messages",
+}
+
 type RuntimeDatabaseExports struct {
 	API        string
 	Forwarding string
@@ -60,9 +84,9 @@ func ProvisionRuntimeDatabaseRoles(ctx context.Context, ownerDatabaseURL string,
 	}
 	defer tx.Rollback(context.Background())
 
-	var owner, database string
-	if err := tx.QueryRow(ctx, `SELECT current_user, current_database()`).Scan(&owner, &database); err != nil {
-		return fmt.Errorf("resolve database owner identity: %w", err)
+	var database string
+	if err := tx.QueryRow(ctx, `SELECT current_database()`).Scan(&database); err != nil {
+		return fmt.Errorf("resolve database identity: %w", err)
 	}
 	for _, role := range roles {
 		if err := ensureRuntimeDatabaseRole(ctx, tx, role); err != nil {
@@ -71,7 +95,6 @@ func ProvisionRuntimeDatabaseRoles(ctx context.Context, ownerDatabaseURL string,
 	}
 
 	databaseIdentifier := pgx.Identifier{database}.Sanitize()
-	ownerIdentifier := pgx.Identifier{owner}.Sanitize()
 	apiIdentifier := pgx.Identifier{databaseAPIRole}.Sanitize()
 	forwardingIdentifier := pgx.Identifier{databaseForwardingRole}.Sanitize()
 	retentionIdentifier := pgx.Identifier{databaseRetentionRole}.Sanitize()
@@ -90,10 +113,8 @@ func ProvisionRuntimeDatabaseRoles(ctx context.Context, ownerDatabaseURL string,
 		)
 	}
 	statements = append(statements,
-		fmt.Sprintf(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %s`, apiIdentifier),
+		fmt.Sprintf(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %s TO %s`, sanitizedTableList(apiBusinessTables), apiIdentifier),
 		fmt.Sprintf(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO %s`, apiIdentifier),
-		fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s`, ownerIdentifier, apiIdentifier),
-		fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %s`, ownerIdentifier, apiIdentifier),
 		fmt.Sprintf(`GRANT SELECT, UPDATE ON TABLE mailbox_forward_jobs, inbound_messages TO %s`, forwardingIdentifier),
 		fmt.Sprintf(`GRANT SELECT ON TABLE domain_mailboxes, domains, domain_sending_configs TO %s`, forwardingIdentifier),
 		fmt.Sprintf(`GRANT SELECT, DELETE ON TABLE api_logs TO %s`, retentionIdentifier),
@@ -141,6 +162,14 @@ func ensureRuntimeDatabaseRole(ctx context.Context, tx pgx.Tx, role runtimeDatab
 		return fmt.Errorf("set runtime database search path for %s: %w", role.Name, err)
 	}
 	return nil
+}
+
+func sanitizedTableList(tables []string) string {
+	identifiers := make([]string, 0, len(tables))
+	for _, table := range tables {
+		identifiers = append(identifiers, pgx.Identifier{table}.Sanitize())
+	}
+	return strings.Join(identifiers, ", ")
 }
 
 func runtimeDatabaseURL(owner *url.URL, role runtimeDatabaseRole) string {
