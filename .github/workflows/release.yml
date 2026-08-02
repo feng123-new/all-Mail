@@ -1,0 +1,388 @@
+name: Stable release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: write
+  packages: write
+  pull-requests: read
+
+concurrency:
+  group: stable-release-v2.0.0
+  cancel-in-progress: false
+
+env:
+  RELEASE_MARKER: "[release:v2.0.0]"
+  RELEASE_IMAGE: ghcr.io/feng123-new/all-mail
+
+jobs:
+  gate:
+    name: verify-release-gate
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+      build_date: ${{ steps.release.outputs.build_date }}
+      ci_run_id: ${{ steps.release.outputs.ci_run_id }}
+    steps:
+      - name: Checkout the exact CI commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Require the release marker and every release check
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+
+          echo "publish=false" >> "$GITHUB_OUTPUT"
+          commit_message="$(git log -1 --format=%B "$RELEASE_SHA")"
+          if ! grep -Fq "$RELEASE_MARKER" <<<"$commit_message"; then
+            echo "CI succeeded without the stable-release marker; publication is intentionally skipped."
+            exit 0
+          fi
+
+          version="$(tr -d '[:space:]' < VERSION)"
+          test "$version" = "2.0.0"
+          grep -Fq "## [2.0.0] - 2026-08-02" CHANGELOG.md
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+
+          required=(
+            "Configuration and proxy security"
+            "Bootstrap administrator security"
+            "Security boundaries"
+          )
+          deadline=$((SECONDS + 1200))
+          while true; do
+            runs="$(gh api --paginate \
+              -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_SHA}&per_page=100")"
+            pending=0
+            for workflow in "${required[@]}"; do
+              state="$(jq -r --arg name "$workflow" --arg sha "$RELEASE_SHA" '
+                [
+                  .workflow_runs[]
+                  | select(
+                      .name == $name
+                      and .head_sha == $sha
+                      and .event == "push"
+                      and .head_branch == "main"
+                    )
+                ]
+                | sort_by(.run_number)
+                | reverse
+                | .[0]
+                | if . == null then "missing:" else (.status + ":" + (.conclusion // "")) end
+              ' <<<"$runs")"
+              echo "$workflow => $state"
+              case "$state" in
+                completed:success) ;;
+                completed:*)
+                  echo "required workflow failed: $workflow ($state)" >&2
+                  exit 1
+                  ;;
+                *) pending=1 ;;
+              esac
+            done
+            if [[ "$pending" -eq 0 ]]; then
+              break
+            fi
+            if (( SECONDS >= deadline )); then
+              echo "timed out waiting for release workflows on $RELEASE_SHA" >&2
+              exit 1
+            fi
+            sleep 15
+          done
+
+          build_date="$(git show -s --format=%cI "$RELEASE_SHA")"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "build_date=$build_date" >> "$GITHUB_OUTPUT"
+          echo "ci_run_id=$CI_RUN_ID" >> "$GITHUB_OUTPUT"
+
+  packages:
+    name: package-${{ matrix.goos }}-${{ matrix.goarch }}
+    needs: gate
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive: tar
+          - goos: linux
+            goarch: arm64
+            archive: tar
+          - goos: darwin
+            goarch: amd64
+            archive: tar
+          - goos: darwin
+            goarch: arm64
+            archive: tar
+          - goos: windows
+            goarch: amd64
+            archive: zip
+          - goos: windows
+            goarch: arm64
+            archive: zip
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+
+      - name: Build reproducible release archive
+        shell: bash
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+          RELEASE_SHA: ${{ needs.gate.outputs.sha }}
+          BUILD_DATE: ${{ needs.gate.outputs.build_date }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          ARCHIVE: ${{ matrix.archive }}
+        run: |
+          set -euo pipefail
+          base="all-Mail-v${VERSION}-${GOOS}-${GOARCH}"
+          stage="$RUNNER_TEMP/$base"
+          mkdir -p "$stage" dist
+          binary="allmail"
+          if [[ "$GOOS" == "windows" ]]; then
+            binary="allmail.exe"
+          fi
+          (
+            cd core
+            CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build -trimpath \
+              -ldflags="-s -w -X github.com/feng123-new/all-Mail/core/internal/buildinfo.Version=${VERSION} -X github.com/feng123-new/all-Mail/core/internal/buildinfo.Commit=${RELEASE_SHA} -X github.com/feng123-new/all-Mail/core/internal/buildinfo.BuildDate=${BUILD_DATE}" \
+              -o "$stage/$binary" ./cmd/allmail
+          )
+          cp LICENSE README.md "$stage/"
+
+          if [[ "$GOOS" == "linux" && "$GOARCH" == "amd64" ]]; then
+            "$stage/$binary" version --json | jq -e \
+              --arg version "$VERSION" --arg sha "$RELEASE_SHA" --arg date "$BUILD_DATE" \
+              '.version == $version and .commit == $sha and .buildDate == $date'
+          fi
+
+          if [[ "$ARCHIVE" == "zip" ]]; then
+            (cd "$RUNNER_TEMP" && zip -q -r "$GITHUB_WORKSPACE/dist/${base}.zip" "$base")
+          else
+            tar -C "$RUNNER_TEMP" -czf "dist/${base}.tar.gz" "$base"
+          fi
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  image:
+    name: publish-multiarch-image
+    needs: gate
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push versioned images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.RELEASE_IMAGE }}:${{ needs.gate.outputs.version }}
+            ${{ env.RELEASE_IMAGE }}:2.0
+            ${{ env.RELEASE_IMAGE }}:2
+            ${{ env.RELEASE_IMAGE }}:latest
+          build-args: |
+            ALL_MAIL_VERSION=${{ needs.gate.outputs.version }}
+            ALL_MAIL_COMMIT=${{ needs.gate.outputs.sha }}
+            ALL_MAIL_BUILD_DATE=${{ needs.gate.outputs.build_date }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.gate.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.gate.outputs.sha }}
+            org.opencontainers.image.created=${{ needs.gate.outputs.build_date }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=LicenseRef-all-Mail-Non-Commercial
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=all-mail-v2-release
+          cache-to: type=gha,mode=max,scope=all-mail-v2-release
+
+      - name: Verify the multi-architecture manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$(docker buildx imagetools inspect "$RELEASE_IMAGE:${{ needs.gate.outputs.version }}")"
+          grep -Fq 'linux/amd64' <<<"$manifest"
+          grep -Fq 'linux/arm64' <<<"$manifest"
+
+  release:
+    name: create-github-release
+    needs: [gate, packages, image]
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Download compiled archives
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download the verified image SBOM from CI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ needs.gate.outputs.ci_run_id }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/ci-sbom
+          gh run download "$CI_RUN_ID" \
+            --name all-mail-go-cyclonedx \
+            --dir dist/ci-sbom
+          mv dist/ci-sbom/all-mail-go.cdx.json "dist/all-Mail-v${VERSION}.cdx.json"
+          rmdir dist/ci-sbom
+
+      - name: Create checksums and release notes
+        shell: bash
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          awk -v version="$VERSION" '
+            $0 == "## [" version "] - 2026-08-02" {copy=1}
+            copy && /^\[Unreleased\]:/ {exit}
+            copy {print}
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          test -s "$RUNNER_TEMP/release-notes.md"
+          (
+            cd dist
+            find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' \
+              | LC_ALL=C sort \
+              | xargs sha256sum > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
+
+      - name: Create immutable tag and GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.gate.outputs.version }}
+          RELEASE_SHA: ${{ needs.gate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          git fetch origin --tags --force
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            tagged_sha="$(git rev-list -n 1 "$tag")"
+            test "$tagged_sha" = "$RELEASE_SHA"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" "$RELEASE_SHA" -m "all-Mail $tag"
+            git push origin "refs/tags/$tag"
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --title "all-Mail $tag" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" \
+              --latest
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* \
+              --verify-tag \
+              --title "all-Mail $tag" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" \
+              --latest
+          fi
+
+          gh release view "$tag" --json tagName,isDraft,isPrerelease,url \
+            --jq 'select(.tagName == "v2.0.0" and .isDraft == false and .isPrerelease == false)'
+
+  cleanup:
+    name: delete-merged-maintenance-branches
+    needs: [gate, release]
+    if: needs.gate.outputs.publish == 'true' && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete only merged same-repository maintenance branches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t branches < <(
+            gh pr list --state merged --limit 1000 \
+              --json headRefName,isCrossRepository \
+              --jq '.[] | select(.isCrossRepository == false) | .headRefName' \
+              | LC_ALL=C sort -u
+          )
+          for branch in "${branches[@]}"; do
+            case "$branch" in
+              agent/*|fix/*)
+                if gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}" >/dev/null 2>&1; then
+                  echo "Deleting merged maintenance branch: $branch"
+                  gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+                fi
+                ;;
+              *) ;;
+            esac
+          done
