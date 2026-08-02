@@ -39,7 +39,7 @@ test("operator documentation matches the canonical Compose topology", async () =
 		read("docs/DEPLOY.md"),
 		read("docs/RUNBOOK.md"),
 		read("docs/ENVIRONMENT.md"),
-		read("docs/open-source-release-checklist.md"),
+		read("docs/source-available-release-checklist.md"),
 	]);
 
 	const services = composeServices(compose);
@@ -62,7 +62,7 @@ test("all runtime doctors and private network checks are documented", async () =
 	const [deploy, runbook, release] = await Promise.all([
 		read("docs/DEPLOY.md"),
 		read("docs/RUNBOOK.md"),
-		read("docs/open-source-release-checklist.md"),
+		read("docs/source-available-release-checklist.md"),
 	]);
 	const combined = [deploy, runbook, release].join("\n");
 	for (const command of [
@@ -86,7 +86,7 @@ test("documentation describes aggregate readiness and source-available licensing
 	const [deploy, runbook, release, license] = await Promise.all([
 		read("docs/DEPLOY.md"),
 		read("docs/RUNBOOK.md"),
-		read("docs/open-source-release-checklist.md"),
+		read("docs/source-available-release-checklist.md"),
 		read("LICENSE"),
 	]);
 	const operatorDocs = `${deploy}\n${runbook}`;

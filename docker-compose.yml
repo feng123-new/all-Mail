@@ -17,6 +17,10 @@ x-go-runtime: &go-runtime
   build:
     context: .
     dockerfile: Dockerfile
+    args:
+      ALL_MAIL_VERSION: ${ALL_MAIL_VERSION:-dev}
+      ALL_MAIL_COMMIT: ${ALL_MAIL_COMMIT:-unknown}
+      ALL_MAIL_BUILD_DATE: ${ALL_MAIL_BUILD_DATE:-unknown}
 
 services:
   app:

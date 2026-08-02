@@ -1,20 +1,53 @@
 # Support
 
-## How to get help
+`all-Mail` is source-available under the custom non-commercial license in [`LICENSE`](./LICENSE). Community support is best effort and does not create a service-level agreement or grant commercial-use rights.
 
-- **Bug reports**: open a GitHub issue and include reproduction steps, expected behavior, and actual behavior.
-- **Feature requests**: open a GitHub issue describing the use case and why it matters.
-- **Security issues**: do **not** file a public issue with sensitive details; follow `SECURITY.md` instead.
+## Supported target
 
-## What to include
+Support requests should reproduce on the latest stable `2.0.x` release or on the exact current `main` commit when the issue is about unreleased development. Pre-2.0 Node/Fastify/Prisma deployments and retired migration branches are unsupported except as inputs to a documented upgrade or restore investigation.
 
-When asking for help, try to provide:
+## Where to ask
 
-- the area involved (`web`, `server`, `cloudflare/workers/allmail-edge`, `gmail_oauth`, `oauth-temp`)
-- the command you ran
-- relevant logs or error output with secrets redacted
-- the environment shape (Node version, browser, Docker usage, Cloudflare usage, etc.)
+- **Bug or regression:** open a GitHub issue with a minimal reproduction.
+- **Feature request:** open a GitHub issue describing the operator use case and expected outcome.
+- **Security vulnerability:** follow [`SECURITY.md`](./SECURITY.md); never post sensitive details publicly.
+- **Commercial deployment or paid service:** obtain prior written permission from the repository owner as required by the license. Public issue support is not a commercial license.
+
+## Required diagnostics
+
+Include the smallest useful, redacted set:
+
+```bash
+docker compose ps -a
+docker compose logs --no-color --timestamps \
+  app go-business-api worker-forwarding worker-retention postgres redis
+
+docker compose exec -T app allmail version --json
+docker compose exec -T app allmail doctor api
+docker compose exec -T go-business-api allmail doctor business-api
+docker compose exec -T worker-forwarding allmail doctor worker forwarding
+docker compose exec -T worker-retention allmail doctor worker retention
+```
+
+Also include:
+
+- the exact Git tag, commit SHA, or image digest;
+- host OS, CPU architecture, Docker Engine, and Docker Compose versions;
+- whether the deployment builds locally or uses the published GHCR image;
+- the failing command, expected result, and actual result;
+- relevant Cloudflare Worker, OAuth provider, SMTP/IMAP, PostgreSQL, or Redis context;
+- whether the problem began after an upgrade, restore, secret rotation, or configuration change.
+
+Never include `.env`, database URL files, JWT/encryption/Redis secrets, OAuth client secrets, refresh tokens, API keys, bootstrap passwords, raw messages, or unredacted mailbox addresses.
 
 ## Support boundaries
 
-This repository is maintained as an open-source project. Best-effort help is welcome, but response time is not guaranteed.
+The maintainer may ask you to:
+
+- reproduce on `v2.0.0` or a later stable patch;
+- validate `docker compose config --quiet`;
+- run the four runtime doctors;
+- follow the canonical upgrade, rollback, backup, or restore procedure;
+- provide a synthetic reproduction instead of production data.
+
+Requests may be closed when they rely on modified security boundaries, unsupported revisions, unlicensed commercial use, incomplete diagnostics, or secrets posted publicly.

@@ -1,3 +1,7 @@
+ARG ALL_MAIL_VERSION=dev
+ARG ALL_MAIL_COMMIT=unknown
+ARG ALL_MAIL_BUILD_DATE=unknown
+
 FROM node:24-bookworm-slim AS web-builder
 WORKDIR /src/web
 COPY web/package*.json ./
@@ -6,6 +10,9 @@ COPY web ./
 RUN npm run build
 
 FROM golang:1.26.5-bookworm AS go-builder
+ARG ALL_MAIL_VERSION
+ARG ALL_MAIL_COMMIT
+ARG ALL_MAIL_BUILD_DATE
 WORKDIR /src/core
 COPY core/go.mod core/go.sum ./
 RUN go mod download
@@ -15,9 +22,21 @@ COPY core ./
 RUN test -z "$(gofmt -l .)" \
     && go test ./... \
     && go vet ./... \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/allmail ./cmd/allmail
+    && CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w -X github.com/feng123-new/all-Mail/core/internal/buildinfo.Version=${ALL_MAIL_VERSION} -X github.com/feng123-new/all-Mail/core/internal/buildinfo.Commit=${ALL_MAIL_COMMIT} -X github.com/feng123-new/all-Mail/core/internal/buildinfo.BuildDate=${ALL_MAIL_BUILD_DATE}" \
+      -o /out/allmail ./cmd/allmail
 
 FROM debian:bookworm-slim AS runtime
+ARG ALL_MAIL_VERSION
+ARG ALL_MAIL_COMMIT
+ARG ALL_MAIL_BUILD_DATE
+LABEL org.opencontainers.image.title="all-Mail" \
+      org.opencontainers.image.description="Docker-first Go email control plane" \
+      org.opencontainers.image.source="https://github.com/feng123-new/all-Mail" \
+      org.opencontainers.image.version="${ALL_MAIL_VERSION}" \
+      org.opencontainers.image.revision="${ALL_MAIL_COMMIT}" \
+      org.opencontainers.image.created="${ALL_MAIL_BUILD_DATE}" \
+      org.opencontainers.image.licenses="LicenseRef-all-Mail-Non-Commercial"
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \

@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/feng123-new/all-Mail/core/internal/buildinfo"
 	"github.com/feng123-new/all-Mail/core/internal/businessapi"
 	"github.com/feng123-new/all-Mail/core/internal/config"
 	"github.com/feng123-new/all-Mail/core/internal/doctor"
@@ -23,6 +25,8 @@ const usageText = `Usage:
   allmail api
   allmail business-api
   allmail routes
+  allmail version
+  allmail version --json
   allmail worker forwarding
   allmail worker retention
   allmail init
@@ -64,6 +68,8 @@ func main() {
 		content, err := json.MarshalIndent(manifest.Snapshot(), "", "  ")
 		fatalIf(logger, err)
 		fmt.Fprintf(os.Stdout, "%s\n", content)
+	case "version":
+		fatalIf(logger, writeVersion(os.Stdout, os.Args))
 	case "worker":
 		if len(os.Args) < 3 {
 			fatal(logger, fmt.Errorf("usage: allmail worker forwarding|retention"))
@@ -123,7 +129,22 @@ func main() {
 			fatal(logger, fmt.Errorf("unknown doctor target %q", os.Args[2]))
 		}
 	default:
-		fatal(logger, fmt.Errorf("unknown command %q; use api, business-api, routes, worker, init, migrate or doctor", command))
+		fatal(logger, fmt.Errorf("unknown command %q; use api, business-api, routes, version, worker, init, migrate or doctor", command))
+	}
+}
+
+func writeVersion(output io.Writer, args []string) error {
+	info := buildinfo.Current()
+	switch {
+	case len(args) == 2:
+		_, err := fmt.Fprintf(output, "allmail %s\ncommit: %s\nbuilt: %s\ngo: %s\n", info.Version, info.Commit, info.BuildDate, info.GoVersion)
+		return err
+	case len(args) == 3 && args[2] == "--json":
+		encoder := json.NewEncoder(output)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(info)
+	default:
+		return fmt.Errorf("usage: allmail version [--json]")
 	}
 }
 

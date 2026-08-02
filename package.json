@@ -2,7 +2,7 @@
   "name": "all-mail",
   "private": true,
   "version": "2.0.0",
-  "description": "all-Mail Docker-first Go runtime",
+  "description": "all-Mail v2 source-available Docker-first Go email control plane",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
@@ -13,7 +13,8 @@
     "email",
     "self-hosted",
     "go",
-    "react"
+    "react",
+    "source-available"
   ],
   "bin": {
     "all-mail": "bin/all-mail"
@@ -45,6 +46,7 @@
     "audit:prod": "./scripts/sanitize-runtime-env.sh node scripts/run-audit-prod.mjs",
     "check:go": "cd core && test -z \"$(gofmt -l .)\" && go test -race ./... && go vet ./... && output=\"${TMPDIR:-/tmp}/allmail-release-check-$$\" && go build -trimpath -o \"$output\" ./cmd/allmail && rm -f \"$output\"",
     "check:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check",
+    "check:release-contract": "./scripts/sanitize-runtime-env.sh node --test scripts/release-contract.test.mjs",
     "verify:release": "./scripts/sanitize-runtime-env.sh npm run check:go && ./scripts/sanitize-runtime-env.sh npm --prefix web run lint && ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs && ./scripts/sanitize-runtime-env.sh npm --prefix web run test && ./scripts/sanitize-runtime-env.sh npm --prefix web run build && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check && ./scripts/sanitize-runtime-env.sh npm run audit:prod",
     "check": "./scripts/sanitize-runtime-env.sh npm run verify:release"
   }

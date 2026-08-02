@@ -1,0 +1,387 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, tag, or branch to publish after all required checks pass
+        required: true
+        default: main
+
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  packages: write
+  pull-requests: read
+
+concurrency:
+  group: all-mail-stable-release
+  cancel-in-progress: false
+
+jobs:
+  publish-v2:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       contains(github.event.workflow_run.head_commit.message, '[release:v2.0.0]')) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref }}
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            cloudflare/workers/allmail-edge/package-lock.json
+
+      - name: Resolve and verify release identity
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          package_version="$(node -p "require('./package.json').version")"
+          sha="$(git rev-parse HEAD)"
+          build_date="$(git show -s --format=%cI HEAD)"
+          tag="v${version}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+
+          test "$version" = "2.0.0"
+          test "$package_version" = "$version"
+          grep -Fqx "## [${version}] - 2026-08-02" CHANGELOG.md
+          git fetch origin main --tags --force
+          git merge-base --is-ancestor "$sha" origin/main
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_run" ]]; then
+            test "$sha" = "${{ github.event.workflow_run.head_sha }}"
+          fi
+
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+          printf 'build_date=%s\n' "$build_date" >> "$GITHUB_OUTPUT"
+          printf 'image=%s\n' "$image" >> "$GITHUB_OUTPUT"
+
+      - name: Install frontend and Worker dependencies
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+          ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge ci
+
+      - name: Run repository release verification
+        run: ./scripts/sanitize-runtime-env.sh npm run verify:release
+
+      - name: Require every release check on the commit
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.metadata.outputs.sha }}
+        run: |
+          set -euo pipefail
+          required=(
+            runtime-tests go-core web-lint-build worker-check production-dependency-audit docker-smoke release-gate
+            environment-contract go-gateway-security compose-boundary
+            security-boundary-contracts security-boundary-docker-smoke
+            runtime-contract web-contract go-contract docker-bootstrap-flow
+          )
+
+          for attempt in $(seq 1 180); do
+            report="$(gh api -H 'Accept: application/vnd.github+json' \
+              "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_SHA}/check-runs?per_page=100")"
+            pending=()
+            failed=()
+            for name in "${required[@]}"; do
+              status="$(jq -r --arg name "$name" \
+                '[.check_runs[] | select(.name == $name)] | sort_by(.started_at) | last | .status // "missing"' \
+                <<<"$report")"
+              conclusion="$(jq -r --arg name "$name" \
+                '[.check_runs[] | select(.name == $name)] | sort_by(.started_at) | last | .conclusion // ""' \
+                <<<"$report")"
+              if [[ "$status" != "completed" ]]; then
+                pending+=("$name:$status")
+              elif [[ "$conclusion" != "success" ]]; then
+                failed+=("$name:$conclusion")
+              fi
+            done
+            if ((${#failed[@]})); then
+              printf 'release checks failed: %s\n' "${failed[*]}" >&2
+              exit 1
+            fi
+            if ((${#pending[@]} == 0)); then
+              printf 'all required release checks succeeded\n'
+              break
+            fi
+            if [[ "$attempt" == "180" ]]; then
+              printf 'timed out waiting for required release checks: %s\n' "${pending[*]}" >&2
+              exit 1
+            fi
+            printf 'waiting for release checks (%s/180): %s\n' "$attempt" "${pending[*]}"
+            sleep 10
+          done
+
+      - name: Build checksummed Go release archives
+        shell: bash
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+          COMMIT: ${{ steps.metadata.outputs.sha }}
+          BUILD_DATE: ${{ steps.metadata.outputs.build_date }}
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist/work
+          ldflags="-s -w -X github.com/feng123-new/all-Mail/core/internal/buildinfo.Version=${VERSION} -X github.com/feng123-new/all-Mail/core/internal/buildinfo.Commit=${COMMIT} -X github.com/feng123-new/all-Mail/core/internal/buildinfo.BuildDate=${BUILD_DATE}"
+
+          build_tar() {
+            local goos="$1" goarch="$2"
+            local name="allmail_${VERSION}_${goos}_${goarch}"
+            local directory="dist/work/${name}"
+            mkdir -p "$directory"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go -C core build -buildvcs=false -trimpath -ldflags="$ldflags" \
+              -o "../${directory}/allmail" ./cmd/allmail
+            cp LICENSE README.md VERSION "$directory/"
+            tar -C dist/work -czf "dist/${name}.tar.gz" "$name"
+          }
+
+          build_windows_zip() {
+            local goarch="$1"
+            local name="allmail_${VERSION}_windows_${goarch}"
+            local directory="dist/work/${name}"
+            mkdir -p "$directory"
+            CGO_ENABLED=0 GOOS=windows GOARCH="$goarch" \
+              go -C core build -buildvcs=false -trimpath -ldflags="$ldflags" \
+              -o "../${directory}/allmail.exe" ./cmd/allmail
+            cp LICENSE README.md VERSION "$directory/"
+            (cd dist/work && zip -qr "../${name}.zip" "$name")
+          }
+
+          build_tar linux amd64
+          build_tar linux arm64
+          build_tar darwin amd64
+          build_tar darwin arm64
+          build_windows_zip amd64
+          build_windows_zip arm64
+
+          ./dist/work/allmail_${VERSION}_linux_amd64/allmail version --json \
+            | tee dist/version.json
+          jq -e --arg version "$VERSION" --arg commit "$COMMIT" \
+            '.version == $version and .commit == $commit and .buildDate != "unknown" and (.goVersion | startswith("go"))' \
+            dist/version.json >/dev/null
+
+      - name: Extract release notes
+        shell: bash
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          awk -v version="$VERSION" '
+            $0 == "## [" version "] - 2026-08-02" { found = 1 }
+            found && /^## \[/ && $0 != "## [" version "] - 2026-08-02" { exit }
+            found { print }
+          ' CHANGELOG.md > dist/release-notes.md
+          test -s dist/release-notes.md
+
+      - name: Download the verified CI SBOM
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.metadata.outputs.sha }}
+          CI_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || '' }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          ci_run_id="$CI_RUN_ID"
+          if [[ -z "$ci_run_id" ]]; then
+            report="$(gh api -H 'Accept: application/vnd.github+json' \
+              "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_SHA}&event=push&status=completed&per_page=100")"
+            ci_run_id="$(jq -r '
+              [.workflow_runs[] | select(.name == "CI" and .conclusion == "success")]
+              | sort_by(.run_number) | last | .id // empty
+            ' <<<"$report")"
+          fi
+          test -n "$ci_run_id"
+          mkdir -p dist/ci-sbom
+          gh run download "$ci_run_id" \
+            --name all-mail-go-cyclonedx \
+            --dir dist/ci-sbom
+          mv dist/ci-sbom/all-mail-go.cdx.json "dist/allmail_${VERSION}.cdx.json"
+          rmdir dist/ci-sbom
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish multi-architecture OCI image
+        shell: bash
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+          COMMIT: ${{ steps.metadata.outputs.sha }}
+          BUILD_DATE: ${{ steps.metadata.outputs.build_date }}
+          IMAGE: ${{ steps.metadata.outputs.image }}
+        run: |
+          set -euo pipefail
+          major="${VERSION%%.*}"
+          remainder="${VERSION#*.}"
+          minor="${remainder%%.*}"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg "ALL_MAIL_VERSION=${VERSION}" \
+            --build-arg "ALL_MAIL_COMMIT=${COMMIT}" \
+            --build-arg "ALL_MAIL_BUILD_DATE=${BUILD_DATE}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            --label "org.opencontainers.image.revision=${COMMIT}" \
+            --label "org.opencontainers.image.created=${BUILD_DATE}" \
+            --tag "${IMAGE}:${VERSION}" \
+            --tag "${IMAGE}:${major}.${minor}" \
+            --tag "${IMAGE}:${major}" \
+            --tag "${IMAGE}:latest" \
+            --provenance=true \
+            --sbom=true \
+            --metadata-file dist/buildx-metadata.json \
+            --push .
+          jq -r '."containerimage.digest"' dist/buildx-metadata.json \
+            | tee dist/image-digest.txt
+          grep -Eq '^sha256:[0-9a-f]{64}$' dist/image-digest.txt
+
+      - name: Generate and verify release checksums
+        run: |
+          (
+            cd dist
+            sha256sum ./*.tar.gz ./*.zip ./*.cdx.json version.json image-digest.txt > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
+
+      - name: Create annotated tag and GitHub Release
+        shell: bash
+        env:
+          TAG: ${{ steps.metadata.outputs.tag }}
+          SHA: ${{ steps.metadata.outputs.sha }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git rev-parse --verify --quiet "refs/tags/${TAG}" >/dev/null; then
+            existing_commit="$(git rev-parse "${TAG}^{commit}")"
+            if [[ "$existing_commit" != "$SHA" ]]; then
+              printf 'tag %s already points to %s, expected %s\n' "$TAG" "$existing_commit" "$SHA" >&2
+              exit 1
+            fi
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" "$SHA" -m "all-Mail v${VERSION}"
+            git push origin "refs/tags/${TAG}"
+          fi
+
+          assets=(dist/*.tar.gz dist/*.zip dist/*.cdx.json dist/SHA256SUMS dist/version.json dist/image-digest.txt)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release view "$TAG" --json tagName,isDraft,isPrerelease \
+              --jq 'select(.tagName == "v2.0.0" and .isDraft == false and .isPrerelease == false)'
+            printf 'release %s already exists on the verified tag; continuing to branch cleanup\n' "$TAG"
+          else
+            gh release create "$TAG" \
+              --verify-tag \
+              --title "all-Mail v${VERSION}" \
+              --notes-file dist/release-notes.md \
+              --latest \
+              "${assets[@]}"
+          fi
+
+      - name: Delete merged maintenance branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          default_branch="$(gh repo view "$repo" --json defaultBranchRef --jq '.defaultBranchRef.name')"
+          deleted=0
+          preserved=0
+          failures=0
+
+          while IFS= read -r branch; do
+            [[ -n "$branch" ]] || continue
+            [[ "$branch" != "$default_branch" ]] || continue
+            case "$branch" in
+              agent/*|fix/*) ;;
+              *) continue ;;
+            esac
+
+            open_count="$(gh pr list --repo "$repo" --state open --head "$branch" --limit 1 --json number --jq 'length')"
+            merged_count="$(gh pr list --repo "$repo" --state merged --head "$branch" --limit 1 --json number --jq 'length')"
+            if [[ "$open_count" != "0" ]]; then
+              printf 'preserving branch with open PR: %s\n' "$branch"
+              preserved=$((preserved + 1))
+              continue
+            fi
+            if [[ "$merged_count" == "0" ]]; then
+              printf 'preserving branch without merged PR: %s\n' "$branch"
+              preserved=$((preserved + 1))
+              continue
+            fi
+
+            encoded_branch="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$branch")"
+            if ! protected="$(gh api "repos/${repo}/branches/${encoded_branch}" --jq '.protected // false' 2>/dev/null)"; then
+              printf 'preserving branch whose protection state could not be inspected: %s\n' "$branch"
+              preserved=$((preserved + 1))
+              continue
+            fi
+            if [[ "$protected" == "true" ]]; then
+              printf 'preserving protected branch: %s\n' "$branch"
+              preserved=$((preserved + 1))
+              continue
+            fi
+
+            if gh api --method DELETE "repos/${repo}/git/refs/heads/${encoded_branch}"; then
+              printf 'deleted merged branch: %s\n' "$branch"
+              deleted=$((deleted + 1))
+            else
+              printf 'failed to delete merged branch: %s\n' "$branch" >&2
+              failures=$((failures + 1))
+            fi
+          done < <(gh api --paginate "repos/${repo}/branches?per_page=100" --jq '.[].name')
+
+          printf 'branch cleanup summary: deleted=%d preserved=%d failures=%d\n' \
+            "$deleted" "$preserved" "$failures"
+          test "$failures" = "0"
+
+      - name: Publish release summary
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+          TAG: ${{ steps.metadata.outputs.tag }}
+          SHA: ${{ steps.metadata.outputs.sha }}
+          IMAGE: ${{ steps.metadata.outputs.image }}
+        run: |
+          digest="$(cat dist/image-digest.txt)"
+          cat >> "$GITHUB_STEP_SUMMARY" <<SUMMARY
+          # all-Mail v${VERSION} published
+
+          - Tag: \`${TAG}\`
+          - Commit: \`${SHA}\`
+          - Image: \`${IMAGE}:${VERSION}\` (\`${digest}\`)
+          - Assets: four Unix archives, two Windows archives, CycloneDX SBOM, \`SHA256SUMS\`, \`version.json\`, and \`image-digest.txt\`
+          - Merged \`agent/*\` and \`fix/*\` branches: cleaned after publication
+
+          GitHub Container Registry package visibility is controlled in the package settings. The image is linked to this repository through the OCI source label.
+          SUMMARY
