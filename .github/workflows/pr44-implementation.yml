@@ -43,13 +43,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find scripts -maxdepth 1 -name 'pr44-payload.part*' | wc -l)" = "5"
-          cat scripts/pr44-payload.part* | base64 --decode > "$RUNNER_TEMP/pr44-payload.tar.xz"
+          test -s scripts/pr44-payload.b64
+          base64 --decode scripts/pr44-payload.b64 > "$RUNNER_TEMP/pr44-payload.tar.xz"
+          xz -t "$RUNNER_TEMP/pr44-payload.tar.xz"
           tar -xJf "$RUNNER_TEMP/pr44-payload.tar.xz" -C .
           rm -f scripts/pr44-payload.b64 scripts/pr44-payload.part* scripts/run-pr44.txt
           rm -f docs/open-source-release-checklist.md
           gofmt -w core/cmd/allmail core/internal/buildinfo
           chmod +x scripts/compose-up.sh
+
+      - name: Preserve generated workflow definitions
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/pr44-generated-workflows"
+          cp -a .github/workflows/. "$RUNNER_TEMP/pr44-generated-workflows/"
+          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/pr44-generated-workflows.tar.gz" pr44-generated-workflows
+          git checkout HEAD -- .github/workflows
+
+      - name: Upload generated workflow definitions
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr44-generated-workflows
+          path: ${{ runner.temp }}/pr44-generated-workflows.tar.gz
+          if-no-files-found: error
 
       - name: Verify Go release identity
         working-directory: core
@@ -84,6 +100,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          rm -f core/allmail
           git config user.name "feng123-new"
           git config user.email "203426027+feng123-new@users.noreply.github.com"
           git add -A
