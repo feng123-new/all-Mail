@@ -56,7 +56,7 @@ services:
     <<: *go-runtime
     command: ["business-api"]
     environment:
-      NODE_ENV: production
+      ALL_MAIL_RUNTIME_ENV: production
       PORT: 3200
       DATABASE_URL_FILE: /var/lib/all-mail-database/api-url
       REDIS_URL: redis://redis:6379
