@@ -1,6 +1,8 @@
 name: PR44 implementation
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [agent/go-2-release-pr44]
 
@@ -13,7 +15,7 @@ concurrency:
 
 jobs:
   generate-and-verify:
-    if: ${{ contains(github.event.head_commit.message, '[run-pr44]') }}
+    if: ${{ github.head_ref == 'agent/go-2-release-pr44' || contains(github.event.head_commit.message, '[run-pr44]') }}
     runs-on: ubuntu-latest
     env:
       POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
@@ -24,7 +26,18 @@ jobs:
           ref: agent/go-2-release-pr44
           fetch-depth: 0
 
+      - name: Detect one-shot payload
+        id: detect
+        shell: bash
+        run: |
+          if [[ -f scripts/pr44-payload.part00 ]]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Go
+        if: steps.detect.outputs.run == 'true'
         uses: actions/setup-go@v7
         with:
           go-version-file: .go-version
@@ -33,6 +46,7 @@ jobs:
             core/go.sum
 
       - name: Setup Node.js
+        if: steps.detect.outputs.run == 'true'
         uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
@@ -41,6 +55,7 @@ jobs:
 
       - name: Apply PR44 payload
         id: apply
+        if: steps.detect.outputs.run == 'true'
         continue-on-error: true
         shell: bash
         run: |
@@ -117,7 +132,7 @@ jobs:
           ./scripts/sanitize-runtime-env.sh npm --prefix web run build
 
       - name: Persist generated implementation and status
-        if: always()
+        if: always() && steps.detect.outputs.run == 'true'
         shell: bash
         run: |
           set -euo pipefail
