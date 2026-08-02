@@ -24,6 +24,7 @@ No unreleased changes.
 - Durable forwarding leases, claim recovery, retry state, retention cleanup, and real PostgreSQL integration coverage.
 - Canonical OAuth permission profiles (`minimal`, `send`, `manage`, and `full`) with least-privilege defaults for Google and Microsoft.
 - `allmail version` and `allmail version --json`, populated through Go linker flags and OCI build metadata.
+- Platform-specific runtime-secret file locking so the published Linux, macOS, and Windows archives all cross-compile from the verified release source.
 - A stable release workflow that verifies all required checks, creates `v2.0.0`, publishes checksummed Go binaries and a multi-architecture GHCR image, creates the GitHub Release, and removes merged maintenance branches.
 - Dedicated upgrade, rollback, backup, and restore documentation.
 

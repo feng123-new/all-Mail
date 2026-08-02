@@ -1,0 +1,56 @@
+name: Cross-platform release builds
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-compile:
+    name: cross-platform-release-builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+
+      - name: Verify native secret-state behavior
+        working-directory: core
+        run: go test ./internal/secretstate ./cmd/allmail
+
+      - name: Build every v2 release archive target
+        working-directory: core
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in \
+            linux/amd64 linux/arm64 \
+            darwin/amd64 darwin/arm64 \
+            windows/amd64 windows/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            suffix=""
+            if [[ "$goos" == "windows" ]]; then
+              suffix=".exe"
+            fi
+            output="$RUNNER_TEMP/allmail-${goos}-${goarch}${suffix}"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -buildvcs=false -trimpath -o "$output" ./cmd/allmail
+            test -s "$output"
+          done
