@@ -1,0 +1,90 @@
+name: PR44 implementation
+
+on:
+  push:
+    branches: [agent/go-2-release-pr44]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr44-implementation
+  cancel-in-progress: true
+
+jobs:
+  generate-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[pr44 generated]') }}
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/go-2-release-pr44
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Apply PR44 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s scripts/pr44-payload.b64
+          base64 --decode scripts/pr44-payload.b64 > "$RUNNER_TEMP/pr44-payload.tar.xz"
+          tar -xJf "$RUNNER_TEMP/pr44-payload.tar.xz" -C .
+          rm -f scripts/pr44-payload.b64 docs/open-source-release-checklist.md
+          gofmt -w core/cmd/allmail core/internal/buildinfo
+          chmod +x scripts/compose-up.sh
+
+      - name: Verify Go release identity
+        working-directory: core
+        run: |
+          test -z "$(gofmt -l ./cmd ./internal/buildinfo)"
+          go test ./cmd/allmail ./internal/buildinfo
+          output="$RUNNER_TEMP/allmail"
+          go build -trimpath \
+            -ldflags="-X github.com/feng123-new/all-Mail/core/internal/buildinfo.Version=2.0.0 -X github.com/feng123-new/all-Mail/core/internal/buildinfo.Commit=${GITHUB_SHA} -X github.com/feng123-new/all-Mail/core/internal/buildinfo.BuildDate=2026-08-02T00:00:00Z" \
+            -o "$output" ./cmd/allmail
+          "$output" version --json | tee "$RUNNER_TEMP/version.json"
+          jq -e '.version == "2.0.0" and .commit != "unknown" and .buildDate != "unknown"' "$RUNNER_TEMP/version.json"
+
+      - name: Verify release and runtime documentation contracts
+        run: |
+          bash -n scripts/compose-up.sh
+          node --test scripts/release-contract.test.mjs scripts/runtime-documentation.test.mjs
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.init.yml config --quiet
+
+      - name: Verify frontend metadata remains installable
+        run: |
+          node -e 'const fs=require("node:fs"); const v=fs.readFileSync("VERSION","utf8").trim(); const p=require("./package.json"); if(v!=="2.0.0"||p.version!==v) process.exit(1)'
+          ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+          ./scripts/sanitize-runtime-env.sh npm --prefix web run lint
+          ./scripts/sanitize-runtime-env.sh npm --prefix web run test
+          ./scripts/sanitize-runtime-env.sh npm --prefix web run build
+
+      - name: Commit generated implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "feng123-new"
+          git config user.email "203426027+feng123-new@users.noreply.github.com"
+          git add -A
+          git commit -m "release: prepare all-Mail v2.0.0 [pr44 generated]"
+          git push origin HEAD:agent/go-2-release-pr44
