@@ -83,7 +83,7 @@ func TestPostgresAPIKeyAndExternalRouteIntegrationOAuthStateMachine(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manualCredentials.ProviderConfig.OAuthTenant != "consumers" || !strings.Contains(manualCredentials.ProviderConfig.OAuthScopes, "Mail.Send") {
+	if manualCredentials.ProviderConfig.OAuthTenant != "consumers" || manualCredentials.ProviderConfig.OAuthScopes != microsoftDefaultScopes {
 		t.Fatalf("manual OAuth authority = %#v", manualCredentials.ProviderConfig)
 	}
 
