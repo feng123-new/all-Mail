@@ -117,7 +117,9 @@ func ProvisionRuntimeDatabaseRoles(ctx context.Context, ownerDatabaseURL string,
 		fmt.Sprintf(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO %s`, apiIdentifier),
 		fmt.Sprintf(`GRANT SELECT, UPDATE ON TABLE mailbox_forward_jobs, inbound_messages TO %s`, forwardingIdentifier),
 		fmt.Sprintf(`GRANT SELECT ON TABLE domain_mailboxes, domains, domain_sending_configs TO %s`, forwardingIdentifier),
-		fmt.Sprintf(`GRANT SELECT, DELETE ON TABLE api_logs TO %s`, retentionIdentifier),
+		// SELECT FOR UPDATE SKIP LOCKED requires UPDATE even though the
+		// retention worker never changes a row outside its DELETE statement.
+		fmt.Sprintf(`GRANT SELECT, UPDATE, DELETE ON TABLE api_logs TO %s`, retentionIdentifier),
 	)
 	for _, statement := range statements {
 		if _, err := tx.Exec(ctx, statement); err != nil {
