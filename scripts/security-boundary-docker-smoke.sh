@@ -104,12 +104,12 @@ for name in ("app-network", "database-network", "cache-network"):
         raise AssertionError(f"{name} is not internal")
 PY
 
-
 # Database identities are login-only, non-owner roles with narrowly bounded grants.
 "${compose[@]}" exec -T postgres psql -U "${POSTGRES_USER:-allmail}" -d "${POSTGRES_DB:-allmail}" -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
 DECLARE
   role_name text;
+  ledger_name text;
 BEGIN
   FOREACH role_name IN ARRAY ARRAY['allmail_api', 'allmail_forwarding', 'allmail_retention'] LOOP
     IF NOT EXISTS (
@@ -118,6 +118,19 @@ BEGIN
         AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls
     ) THEN
       RAISE EXCEPTION 'unsafe or missing runtime role: %', role_name;
+    END IF;
+  END LOOP;
+
+  FOREACH ledger_name IN ARRAY ARRAY['allmail_schema_migrations', '_prisma_migrations', 'runtime_migrations'] LOOP
+    IF to_regclass('public.' || ledger_name) IS NULL THEN
+      RAISE EXCEPTION 'missing expected migration ledger: %', ledger_name;
+    END IF;
+    IF has_table_privilege(
+      'allmail_api',
+      'public.' || ledger_name,
+      'SELECT,INSERT,UPDATE,DELETE'
+    ) THEN
+      RAISE EXCEPTION 'allmail_api can access migration ledger: %', ledger_name;
     END IF;
   END LOOP;
 END $$;
