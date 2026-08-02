@@ -1,0 +1,179 @@
+name: PR44 release observer
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: pr44-release-observer
+  cancel-in-progress: true
+
+jobs:
+  observe:
+    if: ${{ github.head_ref == 'agent/go-2-release-pr44' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout observer branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/go-2-release-pr44
+          fetch-depth: 0
+
+      - name: Detect existing result
+        id: detect
+        shell: bash
+        run: |
+          if [[ -f scripts/release-observer.json ]]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read publication state
+        if: steps.detect.outputs.run == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: bf3b240897295c6c6a7d1033eb4a4ed59ae80944
+        run: |
+          set -euo pipefail
+          mkdir -p scripts
+
+          runs="$(gh api --paginate \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=100")"
+
+          release_run_id="$(jq -r --arg sha "$TARGET_SHA" '
+            [
+              .workflow_runs[]
+              | select(.name == "Release" and .head_sha == $sha)
+            ]
+            | sort_by(.run_number)
+            | reverse
+            | .[0].id // empty
+          ' <<<"$runs")"
+
+          if [[ -n "$release_run_id" ]]; then
+            jobs="$(gh api --paginate \
+              -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${release_run_id}/jobs?per_page=100")"
+          else
+            jobs='{"jobs":[]}'
+          fi
+
+          if tag="$(gh api -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/git/ref/tags/v2.0.0" 2>/dev/null)"; then
+            tag_exists=true
+          else
+            tag_exists=false
+            tag='null'
+          fi
+
+          if release="$(gh api -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/releases/tags/v2.0.0" 2>/dev/null)"; then
+            release_exists=true
+          else
+            release_exists=false
+            release='null'
+          fi
+
+          branches="$(gh api --paginate \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/branches?per_page=100")"
+
+          jq -n \
+            --arg observedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg targetSha "$TARGET_SHA" \
+            --argjson runs "$runs" \
+            --argjson jobs "$jobs" \
+            --argjson tagExists "$tag_exists" \
+            --argjson tag "$tag" \
+            --argjson releaseExists "$release_exists" \
+            --argjson release "$release" \
+            --argjson branches "$branches" \
+            '{
+              observedAt: $observedAt,
+              targetSha: $targetSha,
+              workflowRuns: [
+                $runs.workflow_runs[]
+                | select(.head_sha == $targetSha)
+                | {
+                    id,
+                    name,
+                    event,
+                    status,
+                    conclusion,
+                    run_number,
+                    head_branch,
+                    head_sha,
+                    created_at,
+                    updated_at,
+                    html_url
+                  }
+              ],
+              releaseJobs: [
+                $jobs.jobs[]
+                | {
+                    id,
+                    name,
+                    status,
+                    conclusion,
+                    started_at,
+                    completed_at,
+                    html_url,
+                    steps: [
+                      .steps[]?
+                      | {name, status, conclusion, number}
+                    ]
+                  }
+              ],
+              tag: {
+                exists: $tagExists,
+                object: (
+                  if $tagExists then
+                    {
+                      ref: $tag.ref,
+                      object: $tag.object
+                    }
+                  else null end
+                )
+              },
+              release: {
+                exists: $releaseExists,
+                object: (
+                  if $releaseExists then
+                    {
+                      id: $release.id,
+                      tag_name: $release.tag_name,
+                      target_commitish: $release.target_commitish,
+                      name: $release.name,
+                      draft: $release.draft,
+                      prerelease: $release.prerelease,
+                      created_at: $release.created_at,
+                      published_at: $release.published_at,
+                      html_url: $release.html_url,
+                      assets: [
+                        $release.assets[]
+                        | {name, size, state, download_count, browser_download_url}
+                      ]
+                    }
+                  else null end
+                )
+              },
+              branches: [$branches[] | .name]
+            }' > scripts/release-observer.json
+
+      - name: Commit observation
+        if: steps.detect.outputs.run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "feng123-new"
+          git config user.email "203426027+feng123-new@users.noreply.github.com"
+          git add scripts/release-observer.json
+          git commit -m "chore(release): record publication state [observer result]"
+          git push origin HEAD:agent/go-2-release-pr44
