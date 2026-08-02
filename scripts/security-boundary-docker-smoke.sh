@@ -135,11 +135,30 @@ BEGIN
   END LOOP;
 END $$;
 
-SELECT 1 / CASE WHEN has_table_privilege('allmail_api', 'admins', 'SELECT,INSERT,UPDATE,DELETE') THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN
+  has_table_privilege('allmail_api', 'admins', 'SELECT')
+  AND has_table_privilege('allmail_api', 'admins', 'INSERT')
+  AND has_table_privilege('allmail_api', 'admins', 'UPDATE')
+  AND has_table_privilege('allmail_api', 'admins', 'DELETE')
+THEN 1 ELSE 0 END;
 SELECT 1 / CASE WHEN NOT has_schema_privilege('allmail_api', 'public', 'CREATE') THEN 1 ELSE 0 END;
-SELECT 1 / CASE WHEN has_table_privilege('allmail_forwarding', 'mailbox_forward_jobs', 'SELECT,UPDATE') THEN 1 ELSE 0 END;
-SELECT 1 / CASE WHEN has_table_privilege('allmail_forwarding', 'inbound_messages', 'SELECT,UPDATE') THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN
+  has_table_privilege('allmail_forwarding', 'mailbox_forward_jobs', 'SELECT')
+  AND has_table_privilege('allmail_forwarding', 'mailbox_forward_jobs', 'UPDATE')
+THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN
+  has_table_privilege('allmail_forwarding', 'inbound_messages', 'SELECT')
+  AND has_table_privilege('allmail_forwarding', 'inbound_messages', 'UPDATE')
+THEN 1 ELSE 0 END;
 SELECT 1 / CASE WHEN NOT has_table_privilege('allmail_forwarding', 'admins', 'SELECT') THEN 1 ELSE 0 END;
-SELECT 1 / CASE WHEN has_table_privilege('allmail_retention', 'api_logs', 'SELECT,UPDATE,DELETE') THEN 1 ELSE 0 END;
-SELECT 1 / CASE WHEN NOT has_table_privilege('allmail_retention', 'admins', 'SELECT,UPDATE,DELETE') THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN
+  has_table_privilege('allmail_retention', 'api_logs', 'SELECT')
+  AND has_table_privilege('allmail_retention', 'api_logs', 'UPDATE')
+  AND has_table_privilege('allmail_retention', 'api_logs', 'DELETE')
+THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN
+  NOT has_table_privilege('allmail_retention', 'admins', 'SELECT')
+  AND NOT has_table_privilege('allmail_retention', 'admins', 'UPDATE')
+  AND NOT has_table_privilege('allmail_retention', 'admins', 'DELETE')
+THEN 1 ELSE 0 END;
 SQL
