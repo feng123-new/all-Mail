@@ -140,6 +140,6 @@ SELECT 1 / CASE WHEN NOT has_schema_privilege('allmail_api', 'public', 'CREATE')
 SELECT 1 / CASE WHEN has_table_privilege('allmail_forwarding', 'mailbox_forward_jobs', 'SELECT,UPDATE') THEN 1 ELSE 0 END;
 SELECT 1 / CASE WHEN has_table_privilege('allmail_forwarding', 'inbound_messages', 'SELECT,UPDATE') THEN 1 ELSE 0 END;
 SELECT 1 / CASE WHEN NOT has_table_privilege('allmail_forwarding', 'admins', 'SELECT') THEN 1 ELSE 0 END;
-SELECT 1 / CASE WHEN has_table_privilege('allmail_retention', 'api_logs', 'SELECT,DELETE') THEN 1 ELSE 0 END;
-SELECT 1 / CASE WHEN NOT has_table_privilege('allmail_retention', 'admins', 'SELECT') THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN has_table_privilege('allmail_retention', 'api_logs', 'SELECT,UPDATE,DELETE') THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN NOT has_table_privilege('allmail_retention', 'admins', 'SELECT,UPDATE,DELETE') THEN 1 ELSE 0 END;
 SQL
