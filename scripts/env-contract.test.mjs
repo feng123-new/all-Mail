@@ -47,6 +47,8 @@ test('production Compose contains only Go runtimes and private state services', 
   assert.match(app, /GO_BUSINESS_API_URL: http:\/\/go-business-api:3200/);
 
   const business = serviceSection(compose, 'go-business-api', 'worker-forwarding');
+  assert.match(business, /ALL_MAIL_RUNTIME_ENV: production/);
+  assert.doesNotMatch(business, /NODE_ENV/);
   assert.match(business, /DATABASE_URL_FILE: \/var\/lib\/all-mail-database\/api-url[\s\S]*REDIS_URL: redis:\/\/redis:6379/);
   assert.doesNotMatch(business, /\n\s+DATABASE_URL:/);
   assert.match(business, /JWT_SECRET_FILE: \/var\/lib\/all-mail-secrets\/jwt-secret/);
@@ -65,6 +67,8 @@ test('temporary initialization is outside the declared Compose service graph', a
   assert.match(script, /--cap-add CHOWN[\s\S]*--cap-add DAC_OVERRIDE[\s\S]*--cap-add FOWNER/);
   assert.match(script, /--env-from-file "\$env_file"/);
   assert.match(script, /--env-from-file "\$env_file"[\s\S]*-e DATABASE_URL=/);
+  assert.match(script, /ALL_MAIL_RUNTIME_ENV=production/);
+  assert.doesNotMatch(script, /NODE_ENV/);
   assert.match(script, /app init/);
   assert.match(script, /ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE/);
   assert.match(script, /ALL_MAIL_EXPORT_JWT_SECRET_FILE/);
