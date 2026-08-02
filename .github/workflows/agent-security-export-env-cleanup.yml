@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/security-export-env-cleanup
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
