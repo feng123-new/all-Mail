@@ -3,6 +3,8 @@ name: PR42-43 implementation
 on:
   push:
     branches: [agent/auth-oauth-config-pr42-43]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -13,7 +15,7 @@ concurrency:
 
 jobs:
   generate-and-verify:
-    if: ${{ !contains(github.event.head_commit.message, '[pr42-43 generated]') }}
+    if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[pr42-43 generated]') }}
     runs-on: ubuntu-latest
     env:
       POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
