@@ -143,7 +143,7 @@ func TestGoSchemaInitializationMatrix(t *testing.T) {
 			"MICROSOFT_OAUTH_CLIENT_SECRET": "authority-secret",
 			"MICROSOFT_OAUTH_REDIRECT_URI":  "https://example.test/oauth",
 			"MICROSOFT_OAUTH_TENANT":        "organizations",
-			"MICROSOFT_OAUTH_SCOPES":        "openid offline_access",
+			"MICROSOFT_OAUTH_SCOPES":        "offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.Read",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -151,7 +151,7 @@ func TestGoSchemaInitializationMatrix(t *testing.T) {
 		assertScalar(t, databaseURL, `
 			SELECT concat(provider_config->>'oauthTenant', '|', provider_config->>'oauthScopes')
 			FROM email_accounts WHERE email = 'authority@example.test'
-		`, "organizations|openid offline_access")
+		`, "organizations|offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.Read")
 	})
 }
 
