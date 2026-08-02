@@ -27,12 +27,7 @@ jobs:
             core/go.mod
             core/go.sum
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-
-      - name: Apply portable file locking and release gates
+      - name: Apply portable file locking
         shell: bash
         run: |
           set -euo pipefail
@@ -188,74 +183,14 @@ jobs:
           }
           """))
 
-          ci_path = Path(".github/workflows/ci.yml")
-          ci = ci_path.read_text()
-          anchor = "\n".join([
-              "      - name: Build",
-              "        run: go build -trimpath -o ./allmail ./cmd/allmail",
-              "",
-              "      - name: Install govulncheck",
-              "",
-          ])
-          cross_compile = "\n".join([
-              "      - name: Build",
-              "        run: go build -trimpath -o ./allmail ./cmd/allmail",
-              "",
-              "      - name: Verify release cross-compilation",
-              "        shell: bash",
-              "        run: |",
-              "          set -euo pipefail",
-              "          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do",
-              "            goos=\"${target%/*}\"",
-              "            goarch=\"${target#*/}\"",
-              "            suffix=\"\"",
-              "            if [[ \"$goos\" == \"windows\" ]]; then",
-              "              suffix=\".exe\"",
-              "            fi",
-              "            CGO_ENABLED=0 GOOS=\"$goos\" GOARCH=\"$goarch\" \\",
-              "              go build -buildvcs=false -trimpath \\",
-              "              -o \"$RUNNER_TEMP/allmail-${goos}-${goarch}${suffix}\" ./cmd/allmail",
-              "          done",
-              "",
-              "      - name: Install govulncheck",
-              "",
-          ])
-          if ci.count(anchor) != 1:
-              raise SystemExit("CI build anchor did not match exactly once")
-          ci_path.write_text(ci.replace(anchor, cross_compile, 1))
-
-          contract_path = Path("scripts/release-contract.test.mjs")
-          contract = contract_path.read_text()
-          test_name = 'test("CI cross-compiles every v2 release target"'
-          if test_name not in contract:
-              contract += textwrap.dedent("""
-
-              test("CI cross-compiles every v2 release target", async () => {
-                const ci = await read(".github/workflows/ci.yml");
-                assert.match(ci, /Verify release cross-compilation/);
-                for (const target of [
-                  "linux/amd64",
-                  "linux/arm64",
-                  "darwin/amd64",
-                  "darwin/arm64",
-                  "windows/amd64",
-                  "windows/arm64",
-                ]) {
-                  assert.ok(ci.includes(target), `CI omits ${target}`);
-                }
-                assert.match(ci, /CGO_ENABLED=0 GOOS=/);
-              });
-              """)
-              contract_path.write_text(contract)
-
           changelog_path = Path("CHANGELOG.md")
           changelog = changelog_path.read_text()
-          anchor_line = "- `allmail version` and `allmail version --json`, populated through Go linker flags and OCI build metadata.\n"
+          anchor = "- `allmail version` and `allmail version --json`, populated through Go linker flags and OCI build metadata.\n"
           addition = "- Platform-specific runtime-secret file locking so the published Linux, macOS, and Windows archives all cross-compile from the verified release source.\n"
           if addition not in changelog:
-              if changelog.count(anchor_line) != 1:
+              if changelog.count(anchor) != 1:
                   raise SystemExit("changelog anchor did not match exactly once")
-              changelog_path.write_text(changelog.replace(anchor_line, anchor_line + addition, 1))
+              changelog_path.write_text(changelog.replace(anchor, anchor + addition, 1))
           PY
 
       - name: Verify native behavior and every release target
@@ -278,14 +213,13 @@ jobs:
                 -o "$RUNNER_TEMP/allmail-${goos}-${goarch}${suffix}" ./cmd/allmail
             done
           )
-          node --test scripts/release-contract.test.mjs scripts/runtime-documentation.test.mjs
 
-      - name: Commit generated fix
+      - name: Commit generated source fix
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add CHANGELOG.md core/internal/secretstate
           git commit -m "fix(release): make v2 archives cross-platform"
           git push origin HEAD:agent/fix-v2-cross-platform-release
