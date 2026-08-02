@@ -102,17 +102,22 @@ jobs:
 
           app_env = services['app'].get('environment', {})
           for forbidden in (
-              'DATABASE_URL', 'REDIS_URL', 'REDIS_PASSWORD_FILE', 'JWT_SECRET_FILE',
-              'ENCRYPTION_KEY_FILE', 'BUSINESS_API_URL', 'GO_API_MODE', 'ALL_MAIL_ENV',
+              'DATABASE_URL', 'DATABASE_URL_FILE', 'REDIS_URL', 'REDIS_PASSWORD_FILE',
+              'JWT_SECRET_FILE', 'ENCRYPTION_KEY_FILE', 'BUSINESS_API_URL',
+              'GO_API_MODE', 'ALL_MAIL_ENV',
           ):
               assert forbidden not in app_env, f'app still receives {forbidden}'
 
           forwarding_env = services['worker-forwarding'].get('environment', {})
           assert forwarding_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail-secrets/encryption-key'
+          assert forwarding_env.get('DATABASE_URL_FILE') == '/var/lib/all-mail-database/forwarding-url'
+          assert 'DATABASE_URL' not in forwarding_env
           assert 'ENCRYPTION_KEY' not in forwarding_env
 
           go_business_env = services['go-business-api'].get('environment', {})
           assert go_business_env.get('NODE_ENV') == 'production'
+          assert go_business_env.get('DATABASE_URL_FILE') == '/var/lib/all-mail-database/api-url'
+          assert 'DATABASE_URL' not in go_business_env
           assert go_business_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail-encryption/encryption-key'
           assert go_business_env.get('JWT_SECRET_FILE') == '/var/lib/all-mail-secrets/jwt-secret'
           assert go_business_env.get('REDIS_PASSWORD_FILE') == '/var/lib/all-mail-redis/redis-password'
@@ -130,6 +135,7 @@ jobs:
               '/var/lib/all-mail-secrets',
               '/var/lib/all-mail-encryption',
               '/var/lib/all-mail-redis',
+              '/var/lib/all-mail-database',
           ):
               assert target in mounts and mounts[target].get('read_only') is True, f'{target} is not read-only'
           assert not any(
@@ -137,7 +143,13 @@ jobs:
               for mount in go_business_mounts
           ), 'private API still mounts initializer-only master state'
 
-          assert services['worker-retention'].get('volumes') in (None, []), 'retention heartbeat must stay ephemeral'
+          retention_env = services['worker-retention'].get('environment', {})
+          assert retention_env.get('DATABASE_URL_FILE') == '/var/lib/all-mail-database/retention-url'
+          assert 'DATABASE_URL' not in retention_env
+          retention_mounts = services['worker-retention'].get('volumes', [])
+          assert len(retention_mounts) == 1
+          assert retention_mounts[0].get('target') == '/var/lib/all-mail-database'
+          assert retention_mounts[0].get('read_only') is True
 
           for name in ('postgres', 'redis'):
               assert not services[name].get('ports'), f'{name} is published by production Compose'
