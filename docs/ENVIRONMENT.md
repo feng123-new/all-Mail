@@ -78,7 +78,7 @@ Long-running processes never generate keys or migrate schema.
 
 - `allmail_api`: application-table CRUD and sequence use, without schema creation;
 - `allmail_forwarding`: forwarding queue and inbound-message state plus the mailbox/domain configuration reads required for delivery;
-- `allmail_retention`: read/delete access to `api_logs` only.
+- `allmail_retention`: select/delete plus the `UPDATE` privilege PostgreSQL requires for `FOR UPDATE SKIP LOCKED`, all on `api_logs` only.
 
 Stale runtime grants are revoked before the canonical policy is reapplied. Long-running services receive a read-only `DATABASE_URL_FILE`; they never receive the owner URL or `POSTGRES_PASSWORD`.
 
