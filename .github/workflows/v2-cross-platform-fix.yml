@@ -32,247 +32,233 @@ jobs:
         with:
           node-version-file: .node-version
 
-      - name: Apply portable file-lock implementation
+      - name: Apply portable file locking and release gates
         shell: bash
         run: |
           set -euo pipefail
           python3 <<'PY'
           from pathlib import Path
+          import textwrap
 
-          path = Path('core/internal/secretstate/secretstate.go')
-          content = path.read_text()
-          old_import = '\t"syscall"\n'
-          if content.count(old_import) != 1:
-              raise SystemExit('unexpected syscall import count')
-          content = content.replace(old_import, '', 1)
+          secret_path = Path("core/internal/secretstate/secretstate.go")
+          secret = secret_path.read_text()
+          syscall_import = '\t"syscall"\n'
+          if secret.count(syscall_import) != 1:
+              raise SystemExit("unexpected syscall import count")
+          secret = secret.replace(syscall_import, "", 1)
+          start_marker = "\tdeadline := time.Now().Add(timeout)\n"
+          end_marker = "\treturn run()\n"
+          start = secret.index(start_marker)
+          end = secret.index(end_marker, start) + len(end_marker)
+          replacement = "\n".join([
+              "\tdeadline := time.Now().Add(timeout)",
+              "\tfor {",
+              "\t\terr = tryExclusiveFileLock(lockFile)",
+              "\t\tif err == nil {",
+              "\t\t\tbreak",
+              "\t\t}",
+              "\t\tif !isFileLockContention(err) {",
+              "\t\t\treturn fmt.Errorf(\"lock runtime secret state: %w\", err)",
+              "\t\t}",
+              "\t\tif time.Now().After(deadline) {",
+              "\t\t\treturn fmt.Errorf(\"timed out after %s waiting for runtime secret lock\", timeout)",
+              "\t\t}",
+              "\t\ttime.Sleep(100 * time.Millisecond)",
+              "\t}",
+              "\tdefer func() { _ = releaseFileLock(lockFile) }()",
+              "\treturn run()",
+              "",
+          ])
+          secret_path.write_text(secret[:start] + replacement + secret[end:])
 
-          old = '''\tdeadline := time.Now().Add(timeout)
-\tfor {
-\t\terr = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-\t\tif err == nil {
-\t\t\tbreak
-\t\t}
-\t\tif !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
-\t\t\treturn fmt.Errorf("lock runtime secret state: %w", err)
-\t\t}
-\t\tif time.Now().After(deadline) {
-\t\t\treturn fmt.Errorf("timed out after %s waiting for runtime secret lock", timeout)
-\t\t}
-\t\ttime.Sleep(100 * time.Millisecond)
-\t}
-\tdefer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
-\treturn run()
-'''
-          new = '''\tdeadline := time.Now().Add(timeout)
-\tfor {
-\t\terr = tryExclusiveFileLock(lockFile)
-\t\tif err == nil {
-\t\t\tbreak
-\t\t}
-\t\tif !isFileLockContention(err) {
-\t\t\treturn fmt.Errorf("lock runtime secret state: %w", err)
-\t\t}
-\t\tif time.Now().After(deadline) {
-\t\t\treturn fmt.Errorf("timed out after %s waiting for runtime secret lock", timeout)
-\t\t}
-\t\ttime.Sleep(100 * time.Millisecond)
-\t}
-\tdefer func() { _ = releaseFileLock(lockFile) }()
-\treturn run()
-'''
-          if content.count(old) != 1:
-              raise SystemExit('runtime lock block did not match exactly once')
-          path.write_text(content.replace(old, new, 1))
-          PY
-
-          cat > core/internal/secretstate/filelock_unix.go <<'EOF'
+          Path("core/internal/secretstate/filelock_unix.go").write_text(textwrap.dedent("""\
           //go:build unix
 
           package secretstate
 
           import (
-          	"errors"
-          	"os"
-          	"syscall"
+          \t"errors"
+          \t"os"
+          \t"syscall"
           )
 
           func tryExclusiveFileLock(file *os.File) error {
-          	return syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+          \treturn syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
           }
 
           func releaseFileLock(file *os.File) error {
-          	return syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+          \treturn syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
           }
 
           func isFileLockContention(err error) bool {
-          	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
+          \treturn errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
           }
-          EOF
+          """))
 
-          cat > core/internal/secretstate/filelock_windows.go <<'EOF'
+          Path("core/internal/secretstate/filelock_windows.go").write_text(textwrap.dedent("""\
           //go:build windows
 
           package secretstate
 
           import (
-          	"errors"
-          	"os"
-          	"syscall"
-          	"unsafe"
+          \t"errors"
+          \t"os"
+          \t"syscall"
+          \t"unsafe"
           )
 
           const (
-          	lockFileFailImmediately = 0x00000001
-          	lockFileExclusiveLock   = 0x00000002
+          \tlockFileFailImmediately = 0x00000001
+          \tlockFileExclusiveLock   = 0x00000002
 
-          	errorSharingViolation syscall.Errno = 32
-          	errorLockViolation    syscall.Errno = 33
+          \terrorSharingViolation syscall.Errno = 32
+          \terrorLockViolation    syscall.Errno = 33
           )
 
           var (
-          	kernel32DLL     = syscall.NewLazyDLL("kernel32.dll")
-          	lockFileExProc   = kernel32DLL.NewProc("LockFileEx")
-          	unlockFileExProc = kernel32DLL.NewProc("UnlockFileEx")
+          \tkernel32DLL      = syscall.NewLazyDLL("kernel32.dll")
+          \tlockFileExProc   = kernel32DLL.NewProc("LockFileEx")
+          \tunlockFileExProc = kernel32DLL.NewProc("UnlockFileEx")
           )
 
           func tryExclusiveFileLock(file *os.File) error {
-          	var overlapped syscall.Overlapped
-          	result, _, callErr := lockFileExProc.Call(
-          		file.Fd(),
-          		uintptr(lockFileExclusiveLock|lockFileFailImmediately),
-          		0,
-          		1,
-          		0,
-          		uintptr(unsafe.Pointer(&overlapped)),
-          	)
-          	if result != 0 {
-          		return nil
-          	}
-          	if callErr != syscall.Errno(0) {
-          		return callErr
-          	}
-          	return syscall.EINVAL
+          \tvar overlapped syscall.Overlapped
+          \tresult, _, callErr := lockFileExProc.Call(
+          \t\tfile.Fd(),
+          \t\tuintptr(lockFileExclusiveLock|lockFileFailImmediately),
+          \t\t0,
+          \t\t1,
+          \t\t0,
+          \t\tuintptr(unsafe.Pointer(&overlapped)),
+          \t)
+          \tif result != 0 {
+          \t\treturn nil
+          \t}
+          \tif callErr != syscall.Errno(0) {
+          \t\treturn callErr
+          \t}
+          \treturn syscall.EINVAL
           }
 
           func releaseFileLock(file *os.File) error {
-          	var overlapped syscall.Overlapped
-          	result, _, callErr := unlockFileExProc.Call(
-          		file.Fd(),
-          		0,
-          		1,
-          		0,
-          		uintptr(unsafe.Pointer(&overlapped)),
-          	)
-          	if result != 0 {
-          		return nil
-          	}
-          	if callErr != syscall.Errno(0) {
-          		return callErr
-          	}
-          	return syscall.EINVAL
+          \tvar overlapped syscall.Overlapped
+          \tresult, _, callErr := unlockFileExProc.Call(
+          \t\tfile.Fd(),
+          \t\t0,
+          \t\t1,
+          \t\t0,
+          \t\tuintptr(unsafe.Pointer(&overlapped)),
+          \t)
+          \tif result != 0 {
+          \t\treturn nil
+          \t}
+          \tif callErr != syscall.Errno(0) {
+          \t\treturn callErr
+          \t}
+          \treturn syscall.EINVAL
           }
 
           func isFileLockContention(err error) bool {
-          	return errors.Is(err, errorLockViolation) || errors.Is(err, errorSharingViolation)
+          \treturn errors.Is(err, errorLockViolation) || errors.Is(err, errorSharingViolation)
           }
-          EOF
+          """))
 
-          cat > core/internal/secretstate/filelock_other.go <<'EOF'
+          Path("core/internal/secretstate/filelock_other.go").write_text(textwrap.dedent("""\
           //go:build !unix && !windows
 
           package secretstate
 
           import (
-          	"errors"
-          	"os"
+          \t"errors"
+          \t"os"
           )
 
           var errFileLockUnsupported = errors.New("runtime secret file locking is unsupported on this platform")
 
           func tryExclusiveFileLock(_ *os.File) error {
-          	return errFileLockUnsupported
+          \treturn errFileLockUnsupported
           }
 
           func releaseFileLock(_ *os.File) error {
-          	return nil
+          \treturn nil
           }
 
           func isFileLockContention(error) bool {
-          	return false
+          \treturn false
           }
-          EOF
+          """))
 
-      - name: Add the cross-platform release gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 <<'PY'
-          from pathlib import Path
+          ci_path = Path(".github/workflows/ci.yml")
+          ci = ci_path.read_text()
+          anchor = "\n".join([
+              "      - name: Build",
+              "        run: go build -trimpath -o ./allmail ./cmd/allmail",
+              "",
+              "      - name: Install govulncheck",
+              "",
+          ])
+          cross_compile = "\n".join([
+              "      - name: Build",
+              "        run: go build -trimpath -o ./allmail ./cmd/allmail",
+              "",
+              "      - name: Verify release cross-compilation",
+              "        shell: bash",
+              "        run: |",
+              "          set -euo pipefail",
+              "          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do",
+              "            goos=\"${target%/*}\"",
+              "            goarch=\"${target#*/}\"",
+              "            suffix=\"\"",
+              "            if [[ \"$goos\" == \"windows\" ]]; then",
+              "              suffix=\".exe\"",
+              "            fi",
+              "            CGO_ENABLED=0 GOOS=\"$goos\" GOARCH=\"$goarch\" \\",
+              "              go build -buildvcs=false -trimpath \\",
+              "              -o \"$RUNNER_TEMP/allmail-${goos}-${goarch}${suffix}\" ./cmd/allmail",
+              "          done",
+              "",
+              "      - name: Install govulncheck",
+              "",
+          ])
+          if ci.count(anchor) != 1:
+              raise SystemExit("CI build anchor did not match exactly once")
+          ci_path.write_text(ci.replace(anchor, cross_compile, 1))
 
-          path = Path('.github/workflows/ci.yml')
-          content = path.read_text()
-          anchor = '''      - name: Build
-        run: go build -trimpath -o ./allmail ./cmd/allmail
+          contract_path = Path("scripts/release-contract.test.mjs")
+          contract = contract_path.read_text()
+          test_name = 'test("CI cross-compiles every v2 release target"'
+          if test_name not in contract:
+              contract += textwrap.dedent("""
 
-      - name: Install govulncheck
-'''
-          replacement = '''      - name: Build
-        run: go build -trimpath -o ./allmail ./cmd/allmail
+              test("CI cross-compiles every v2 release target", async () => {
+                const ci = await read(".github/workflows/ci.yml");
+                assert.match(ci, /Verify release cross-compilation/);
+                for (const target of [
+                  "linux/amd64",
+                  "linux/arm64",
+                  "darwin/amd64",
+                  "darwin/arm64",
+                  "windows/amd64",
+                  "windows/arm64",
+                ]) {
+                  assert.ok(ci.includes(target), `CI omits ${target}`);
+                }
+                assert.match(ci, /CGO_ENABLED=0 GOOS=/);
+              });
+              """)
+              contract_path.write_text(contract)
 
-      - name: Verify release cross-compilation
-        shell: bash
-        run: |
-          set -euo pipefail
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
-            goos="${target%/*}"
-            goarch="${target#*/}"
-            suffix=""
-            if [[ "$goos" == "windows" ]]; then
-              suffix=".exe"
-            fi
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \\
-              go build -buildvcs=false -trimpath \\
-              -o "$RUNNER_TEMP/allmail-${goos}-${goarch}${suffix}" ./cmd/allmail
-          done
-
-      - name: Install govulncheck
-'''
-          if content.count(anchor) != 1:
-              raise SystemExit('CI build anchor did not match exactly once')
-          path.write_text(content.replace(anchor, replacement, 1))
+          changelog_path = Path("CHANGELOG.md")
+          changelog = changelog_path.read_text()
+          anchor_line = "- `allmail version` and `allmail version --json`, populated through Go linker flags and OCI build metadata.\n"
+          addition = "- Platform-specific runtime-secret file locking so the published Linux, macOS, and Windows archives all cross-compile from the verified release source.\n"
+          if addition not in changelog:
+              if changelog.count(anchor_line) != 1:
+                  raise SystemExit("changelog anchor did not match exactly once")
+              changelog_path.write_text(changelog.replace(anchor_line, anchor_line + addition, 1))
           PY
 
-          cat >> scripts/release-contract.test.mjs <<'EOF'
-
-          test("CI cross-compiles every v2 release target", async () => {
-            const ci = await read(".github/workflows/ci.yml");
-            assert.match(ci, /Verify release cross-compilation/);
-            for (const target of [
-              "linux/amd64",
-              "linux/arm64",
-              "darwin/amd64",
-              "darwin/arm64",
-              "windows/amd64",
-              "windows/arm64",
-            ]) {
-              assert.ok(ci.includes(target), `CI omits ${target}`);
-            }
-            assert.match(ci, /CGO_ENABLED=0 GOOS=/);
-          });
-          EOF
-
-          python3 <<'PY'
-          from pathlib import Path
-          path = Path('CHANGELOG.md')
-          content = path.read_text()
-          anchor = '- `allmail version` and `allmail version --json`, populated through Go linker flags and OCI build metadata.\n'
-          addition = anchor + '- Platform-specific runtime-secret file locking so the published Linux, macOS, and Windows archives all cross-compile from the verified release source.\n'
-          if content.count(anchor) != 1:
-              raise SystemExit('changelog anchor did not match exactly once')
-          path.write_text(content.replace(anchor, addition, 1))
-          PY
-
-      - name: Verify native behavior and all release targets
+      - name: Verify native behavior and every release target
         shell: bash
         run: |
           set -euo pipefail
