@@ -44,17 +44,25 @@ test("security mutations rotate browser sessions", async () => {
 	assert.match(mailboxRoutes, /writeMailboxTwoFactorRotation[\s\S]*rotateMailboxSession/);
 });
 
-test("Microsoft OAuth defaults stay limited to identity and mail capabilities", async () => {
-	const [oauthService, helperConfig] = await Promise.all([
+test("OAuth scope profiles default to identity and mail read capabilities", async () => {
+	const [oauthService, environment, policy] = await Promise.all([
 		read("core/internal/businessapi/mail_oauth_handlers.go"),
-		read("oauth-temp/config.example.env"),
+		read(".env.example"),
+		read("core/internal/oauthscope/scopes.go"),
 	]);
-	for (const content of [oauthService, helperConfig]) {
+	for (const content of [oauthService, environment]) {
 		assert.match(content, /User\.Read/);
-		assert.match(content, /Mail\.ReadWrite/);
-		assert.match(content, /Mail\.Send/);
+		assert.match(content, /Mail\.Read(?:\s|"|$)/);
+		assert.doesNotMatch(content, /Mail\.ReadWrite/);
+		assert.doesNotMatch(content, /Mail\.Send/);
 		assert.doesNotMatch(content, /Contacts\.ReadWrite/);
 		assert.doesNotMatch(content, /Calendars\.ReadWrite/);
 		assert.doesNotMatch(content, /MailboxSettings\.ReadWrite/);
 	}
+	for (const profile of ["minimal", "send", "manage", "full"]) {
+		assert.match(policy, new RegExp(`Profile = "${profile}"`));
+	}
+	assert.match(policy, /Contacts\.ReadWrite/);
+	assert.match(policy, /Calendars\.ReadWrite/);
+	assert.match(policy, /MailboxSettings\.ReadWrite/);
 });
