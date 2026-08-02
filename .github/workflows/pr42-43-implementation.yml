@@ -43,9 +43,10 @@ jobs:
 
       - name: Apply combined PR42-43 changes
         run: |
+          python3 scripts/prepare-pr42-43.py
           python3 scripts/apply-pr42-43-core.py
           python3 scripts/apply-pr42-43-runtime.py
-          rm -f scripts/apply-pr42-43-core.py scripts/apply-pr42-43-runtime.py
+          rm -f scripts/prepare-pr42-43.py scripts/apply-pr42-43-core.py scripts/apply-pr42-43-runtime.py
           rm -f .github/workflows/pr42-43-implementation.yml
 
       - name: Format and test Go
