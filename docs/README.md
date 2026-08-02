@@ -2,6 +2,8 @@
 
 `all-Mail` v2 is a Docker-first, Go-only email control plane. Public documentation describes the supported runtime and operator procedures; historical design and migration notes live under [`internal/`](./internal/README.md).
 
+The supported request path is the public Go `app` gateway forwarding owned business routes to the private Go `go-business-api`; `worker-forwarding` and `worker-retention` remain independent background runtimes. The method-aware ownership contract is documented in [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md).
+
 The project is **source-available under the custom all-Mail Non-Commercial License**. It is not distributed under an OSI-approved open-source license. Use that wording consistently in public material.
 
 ## Operator documentation
