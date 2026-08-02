@@ -2,7 +2,7 @@
 
 `runtime-env.json` is the exact key set for the canonical production `.env.example` template. A change to the template must update the manifest in the same pull request.
 
-`retired-env.json` lists configuration aliases and hidden fallbacks that are no longer accepted in production. The production validator rejects these names even when the supplied value is empty. Local-only settings such as `CORS_ORIGIN` remain valid when `NODE_ENV` is not `production`, but they must not be copied into the production environment.
+`retired-env.json` lists configuration aliases and hidden fallbacks that are no longer accepted in production. The production validator rejects these names even when the supplied value is empty. Local-only settings such as `CORS_ORIGIN` remain valid when `ALL_MAIL_RUNTIME_ENV` is not `production`, but they must not be copied into the production environment.
 
 `route-ownership.json` is the canonical public route-family ownership contract. It is loaded by the Go gateway before the listener starts and drives routing, response ownership headers, and bounded Prometheus metrics. Ownership changes are committed revisions, not environment toggles.
 
@@ -15,9 +15,9 @@ Scopes in the environment manifest are process ownership, not documentation labe
 
 The long-running API does not receive `SEND_ENABLED_DOMAINS`, provider OAuth credentials, or `INGRESS_SIGNING_SECRET`. After one successful initializer import and verification, populated compatibility values should be removed from the production `.env`.
 
-Internal container variables such as `DATABASE_URL`, `REDIS_URL`, `ALL_MAIL_STATE_DIR`, `ALL_MAIL_STATIC_DIR`, `GO_BUSINESS_API_URL`, `ALL_MAIL_ROUTE_OWNERSHIP_FILE`, and fixed secret-file paths are owned by images or Compose and are intentionally absent from the operator template.
+Internal container variables such as `DATABASE_URL`, `REDIS_URL`, `ALL_MAIL_RUNTIME_ENV`, `ALL_MAIL_STATE_DIR`, `ALL_MAIL_STATIC_DIR`, `GO_BUSINESS_API_URL`, `ALL_MAIL_ROUTE_OWNERSHIP_FILE`, and fixed secret-file paths are owned by images or Compose and are intentionally absent from the operator template.
 
-Node.js 24 LTS is the Web and Cloudflare Worker build-tool baseline; it is not present in the production runtime image.
+Node.js 24 LTS is the Web and Cloudflare Worker build-tool baseline; it is not present in the production runtime image. The old `NODE_ENV` name is retired from the Go production contract.
 
 The Go image override variables are internal Compose inputs. Retired legacy API aliases remain rejected.
 
