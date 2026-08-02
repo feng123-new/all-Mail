@@ -1,0 +1,81 @@
+name: PR42-43 implementation
+
+on:
+  push:
+    branches: [agent/auth-oauth-config-pr42-43]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr42-43-implementation
+  cancel-in-progress: true
+
+jobs:
+  generate-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[pr42-43 generated]') }}
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/auth-oauth-config-pr42-43
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Apply combined PR42-43 changes
+        run: |
+          python3 scripts/apply-pr42-43-core.py
+          python3 scripts/apply-pr42-43-runtime.py
+          rm -f scripts/apply-pr42-43-core.py scripts/apply-pr42-43-runtime.py
+          rm -f .github/workflows/pr42-43-implementation.yml
+
+      - name: Format and test Go
+        working-directory: core
+        run: |
+          gofmt -w ./cmd ./internal
+          test -z "$(gofmt -l .)"
+          go test ./...
+          go vet ./...
+          go build -trimpath ./cmd/allmail
+
+      - name: Verify runtime contracts
+        run: ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs
+
+      - name: Verify Compose models
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.init.yml config --quiet
+
+      - name: Verify frontend
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+          ./scripts/sanitize-runtime-env.sh npm --prefix web run lint
+          ./scripts/sanitize-runtime-env.sh npm --prefix web run test
+          ./scripts/sanitize-runtime-env.sh npm --prefix web run build
+
+      - name: Commit generated implementation
+        run: |
+          git config user.name "feng123-new"
+          git config user.email "203426027+feng123-new@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(security): enforce identity and OAuth boundaries [pr42-43 generated]"
+          git push origin HEAD:agent/auth-oauth-config-pr42-43
