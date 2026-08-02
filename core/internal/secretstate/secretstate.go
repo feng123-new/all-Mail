@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/feng123-new/all-Mail/core/internal/passwordpolicy"
@@ -57,11 +56,11 @@ func WithLock(stateDir string, timeout time.Duration, run func() error) error {
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err = tryExclusiveFileLock(lockFile)
 		if err == nil {
 			break
 		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+		if !isFileLockContention(err) {
 			return fmt.Errorf("lock runtime secret state: %w", err)
 		}
 		if time.Now().After(deadline) {
@@ -69,7 +68,7 @@ func WithLock(stateDir string, timeout time.Duration, run func() error) error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	defer func() { _ = releaseFileLock(lockFile) }()
 	return run()
 }
 
