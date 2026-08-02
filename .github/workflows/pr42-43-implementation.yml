@@ -77,6 +77,11 @@ jobs:
 
       - name: Commit generated implementation
         run: |
+          rm -f core/allmail
+          git checkout HEAD -- \
+            .github/workflows/ci.yml \
+            .github/workflows/config-security.yml \
+            .github/workflows/pr42-43-implementation.yml
           git config user.name "feng123-new"
           git config user.email "203426027+feng123-new@users.noreply.github.com"
           git add -A
