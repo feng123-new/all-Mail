@@ -1,13 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 env_file="${ALL_MAIL_ENV_FILE:-.env}"
 wait_timeout="${ALL_MAIL_WAIT_TIMEOUT:-300}"
+version_file="${ALL_MAIL_VERSION_FILE:-$repo_root/VERSION}"
 
 if [[ ! -f "$env_file" ]]; then
   printf 'environment file not found: %s\n' "$env_file" >&2
   exit 1
 fi
+if [[ ! -f "$version_file" ]]; then
+  printf 'version file not found: %s\n' "$version_file" >&2
+  exit 1
+fi
+
+base_version="$(tr -d '[:space:]' < "$version_file")"
+if [[ ! "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+  printf 'invalid VERSION value: %s\n' "$base_version" >&2
+  exit 1
+fi
+
+if [[ -z "${ALL_MAIL_VERSION:-}" ]]; then
+  if git -C "$repo_root" describe --tags --exact-match --match "v$base_version" HEAD >/dev/null 2>&1; then
+    ALL_MAIL_VERSION="$base_version"
+  else
+    ALL_MAIL_VERSION="${base_version}-dev"
+  fi
+fi
+if [[ -z "${ALL_MAIL_COMMIT:-}" ]]; then
+  ALL_MAIL_COMMIT="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || printf unknown)"
+fi
+if [[ -z "${ALL_MAIL_BUILD_DATE:-}" ]]; then
+  ALL_MAIL_BUILD_DATE="$(git -C "$repo_root" show -s --format=%cI HEAD 2>/dev/null || date -u +'%Y-%m-%dT%H:%M:%SZ')"
+fi
+export ALL_MAIL_VERSION ALL_MAIL_COMMIT ALL_MAIL_BUILD_DATE
+
+echo "Building all-Mail ${ALL_MAIL_VERSION} (${ALL_MAIL_COMMIT})"
 
 compose=(docker compose --env-file "$env_file")
 initializer_compose=(
@@ -17,7 +46,11 @@ initializer_compose=(
 )
 
 "${compose[@]}" up -d --wait --wait-timeout "$wait_timeout" postgres
-"${compose[@]}" build app
+if [[ "${ALL_MAIL_USE_PUBLISHED_IMAGE:-0}" == "1" ]]; then
+  "${compose[@]}" pull app
+else
+  "${compose[@]}" build app
+fi
 
 mapfile -t volumes < <(
   "${compose[@]}" config --format json | python3 -c '
@@ -82,3 +115,7 @@ done
   app init
 
 "${compose[@]}" up -d --wait --wait-timeout "$wait_timeout"
+
+for service in app go-business-api worker-forwarding worker-retention; do
+  "${compose[@]}" exec -T "$service" allmail version --json
+done

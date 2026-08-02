@@ -1,67 +1,77 @@
-# Security Policy
+# Security policy
 
-## Supported scope
+`all-Mail` is a source-available project distributed under a custom non-commercial license. Security reports are welcome regardless of whether the reporter uses the software personally, for research, or under a separate commercial agreement.
 
-Security reports are welcome for the current `all-Mail` repository, including:
+## Supported versions
 
-- admin authentication and session handling
-- mailbox portal authentication and authorization
-- API key handling
-- OAuth callback and token storage flows
-- ingress signature validation
-- email sending and provider integration paths
-- secret exposure in docs, scripts, or committed artifacts
+| Version | Security support |
+| --- | --- |
+| `2.0.x` | Supported |
+| `< 2.0.0` | Unsupported; reproduce against the latest `2.0.x` release before reporting |
+| Unreleased commits | Best effort; not a stable deployment target |
 
-## Reporting a vulnerability
+Security fixes are released from the current stable line. Historical pre-Go and migration-era revisions do not receive patches.
 
-Please do **not** open a public issue for sensitive vulnerabilities.
+## Report a vulnerability privately
 
-Instead, report privately to the maintainer with:
+Do **not** disclose sensitive details in a public issue, discussion, pull request, commit message, or log attachment.
 
-- affected area
-- impact
-- reproduction steps
-- proof-of-concept if available
-- mitigation ideas if you have them
+Use GitHub's private **Report a vulnerability** entry on the repository Security page when it is available. Include:
 
-If a private contact channel is not yet documented publicly, open a minimal issue asking for a secure reporting path without disclosing details.
+- affected release, commit, image digest, and deployment topology;
+- impact and the security boundary crossed;
+- minimal reproduction steps or a proof of concept;
+- whether real mailbox data, credentials, or provider accounts were touched;
+- suggested mitigation, if known;
+- a safe way to contact you for follow-up.
+
+When the private reporting entry is unavailable, open a minimal public issue asking the maintainer to establish a private channel. Do not include exploit details in that issue.
 
 ## Response targets
 
-- initial acknowledgement target: within 72 hours
-- follow-up status target: within 7 days when possible
+These targets are best effort for a maintainer-run project:
 
-These targets are best-effort for an open-source maintenance workflow and may vary during holidays or maintainer unavailability.
+- acknowledgement within 72 hours;
+- initial triage within 7 days;
+- status updates at least every 14 days while a confirmed issue is being handled;
+- coordinated disclosure after a fix or mitigation is available.
 
-## Good-faith testing rules
+A report may be closed as unsupported when it affects only an obsolete revision, requires intentionally unsafe local configuration, or does not cross a documented trust boundary.
 
-- Do not access data you do not own.
-- Do not target real production mailboxes without permission.
-- Do not exfiltrate secrets, tokens, or message content.
-- Prefer local reproduction against your own environment.
+## In-scope security boundaries
 
-## Secrets hygiene
+Reports are especially useful for:
 
-If you discover committed secrets or runtime artifacts:
+- administrator or mailbox authentication, session revocation, 2FA, and password handling;
+- API-key authentication, permissions, rate limiting, and usage accounting;
+- OAuth authorization, state handling, scope policy, token refresh, and encrypted storage;
+- signed ingress validation, replay protection, mailbox routing, and message persistence;
+- forwarding, outbound sending, provider calls, and secret decryption;
+- PostgreSQL role isolation, Redis authentication, Docker networks, secret volumes, and private ports;
+- trusted-proxy identity, browser same-origin enforcement, CSP, and clickjacking protection;
+- migration, backup, restore, or rollback behavior that can expose or corrupt protected data;
+- secrets, tokens, mailbox content, or personal data committed to the repository or emitted in logs.
 
-1. Stop sharing the repository snapshot further.
-2. Rotate the affected secret.
-3. Remove the artifact from the repository and ignore future outputs.
-4. Document the cleanup in the relevant PR.
+## Good-faith testing
 
-## Out of scope
+- Test only systems, mailboxes, accounts, and data you own or are explicitly authorized to use.
+- Prefer a disposable local Compose deployment and synthetic messages.
+- Stop when you encounter data that is not yours.
+- Do not persist, exfiltrate, publish, or use credentials or message content.
+- Do not degrade provider services, bypass rate limits at scale, or perform denial-of-service testing.
+- Redact secrets and personal data from all evidence.
 
-The following are usually out of scope unless they create a real exploitable path:
+Good-faith research that follows these rules will not be treated as malicious by the maintainer.
 
-- self-inflicted local misconfiguration
-- outdated historical docs that do not affect runtime behavior
-- missing hardening suggestions without a concrete exploit path
+## Secret incident response
 
-## Dependency and provider risk
+When a real secret or protected artifact is exposed:
 
-Please also report issues involving:
+1. rotate or revoke it immediately;
+2. stop distributing the affected artifact or image;
+3. preserve the minimum evidence needed for investigation;
+4. remove the secret from the active tree and prevent recurrence;
+5. assess repository history, release assets, container layers, logs, and backups;
+6. document the remediation privately before coordinated disclosure.
 
-- OAuth scope misuse
-- provider token refresh weaknesses
-- weak ingress signing assumptions
-- dangerous default credentials or example configs
+Deleting a committed secret is not sufficient; rotation is required.

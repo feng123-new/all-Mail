@@ -1,2 +1,0 @@
-Generate and verify the final all-Mail v2.0.0 release implementation.
-All five payload chunks are present; this is the final generator trigger.

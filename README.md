@@ -1,39 +1,24 @@
-# all-Mail
+# all-Mail v2
 
-`all-Mail` is a self-hostable email control plane for operators who need one place to manage:
+`all-Mail` is a self-hosted email control plane for external provider mailboxes, domain mailboxes, signed inbound mail, outbound sending, mailbox portals, and automation APIs.
 
-- external mailbox providers such as Outlook, Gmail, QQ, and related IMAP/SMTP families;
-- domain mailboxes, aliases, and portal users;
-- signed inbound ingress for domain mail flows;
-- outbound sending and automation-facing mailbox APIs.
+**v2.0.0 is the first stable Go-only release.** Go owns the public gateway, private business API, schema initialization, migrations, authentication, provider operations, forwarding, retention, health/readiness, and runtime doctors. React is compiled into the shared runtime image; Node.js is a build tool only.
 
-The repository is Docker-first and the production runtime is Go-only. Go owns the public listener, React SPA, every business route, schema initialization, health/readiness, forwarding, and API-log retention. PostgreSQL and Redis remain private shared state backends.
+> **License:** this repository is source-available under the custom all-Mail Non-Commercial License in [`LICENSE`](./LICENSE). It is not distributed under an OSI-approved open-source license. Commercial deployment, resale, hosted service, or paid-support use requires prior written permission.
 
-## Product shape
+## What v2 manages
 
-`all-Mail` combines several operator workflows:
+- Outlook, Gmail, QQ, 163/126, iCloud, Yahoo, Zoho, Aliyun, Amazon WorkMail, Fastmail, AOL, GMX, Mail.com, Yandex, and custom IMAP/SMTP accounts;
+- domains, mailboxes, aliases, portal users, quotas, forwarding, and sending configuration;
+- signed Cloudflare Email Worker ingress with replay protection;
+- encrypted OAuth/provider credentials and least-privilege OAuth scope profiles;
+- API keys, allocation, mailbox reads, usage accounting, and audit logs.
 
-- **external mailbox control** - connect and operate provider mailboxes from one admin console;
-- **domain mailbox control** - manage domains, mailboxes, aliases, and portal access;
-- **ingress control** - receive inbound mail through a signed Cloudflare Worker path;
-- **outbound sending** - manage send configurations and delivery flows;
-- **automation APIs** - expose script-friendly mailbox allocation and message retrieval endpoints.
-
-## Screenshots
-
-| Admin sign-in | Dashboard overview |
-| --- | --- |
-| ![all-Mail admin sign-in page](./docs/screenshots/login-page.png) | ![all-Mail dashboard overview](./docs/screenshots/dashboard-home.png) |
-
-The screenshots are repository-tracked and sanitized for public documentation.
-
-## Runtime architecture
+## Stable runtime architecture
 
 ```mermaid
 flowchart TD
-    Operator[Operator] --> App[app: Go gateway and React SPA]
-    Automation[Automation client] --> App
-    Edge[Cloudflare Email Worker] --> App
+    Operator[Operator / automation / ingress] --> App[app: public Go gateway + React SPA]
     App --> Business[go-business-api: private Go business API]
     Business --> Postgres[(PostgreSQL)]
     Business --> Redis[(Redis)]
@@ -43,73 +28,56 @@ flowchart TD
     Retention[worker-retention] --> Postgres
 ```
 
-The public `app` receives no PostgreSQL URL, Redis URL, JWT secret, encryption key, or provider credential. It serves the SPA and system endpoints, then proxies every business route to `go-business-api`. The private API receives PostgreSQL, Redis, and read-only JWT and encryption-key files and resolves database-encrypted provider credentials.
-
-### Long-running services
-
 | Service | Responsibility |
 | --- | --- |
-| `app` | Public Go gateway, React SPA, trusted-proxy boundary, readiness, metrics, and business proxy |
-| `go-business-api` | Private Go authentication, administration, mailbox, domain, ingress, provider, sending, portal, and external APIs |
-| `worker-forwarding` | Forwarding claim, send, retry, lease, and terminal state transitions |
+| `app` | Public listener, SPA, trusted-proxy boundary, system endpoints, metrics, business proxy |
+| `go-business-api` | Authentication, administration, mailbox/domain/ingress/provider/sending/portal/external APIs |
+| `worker-forwarding` | Claim, lease, send, retry, and terminal forwarding transitions |
 | `worker-retention` | API-log retention |
-| `postgres` | Application and runtime state; private to the Compose network |
-| `redis` | Login protection, API-key limiting, OAuth state, ingress replay protection, and cache support; private to the Compose network |
+| `postgres` | Private application and migration state |
+| `redis` | Private authenticated lockout, limiting, OAuth state, replay protection, and cache state |
 
-Initialization is not a Compose service. The startup helper runs `app init` in a temporary container before starting the long-running stack.
+Only `app` is host-published. It has no PostgreSQL, Redis, JWT, encryption, OAuth, ingress, provider, bootstrap, or database-role credential.
 
-## Provider support
-
-| Provider family | Typical auth path | Inbox read | Junk read | Clear mailbox | Send |
-| --- | --- | --- | --- | --- | --- |
-| Outlook | Microsoft OAuth | Yes | Yes | Yes | Yes |
-| Gmail | Google OAuth / App Password | Yes | Yes | Google OAuth only | Yes |
-| QQ | IMAP / SMTP auth code | Yes | Yes | No | Yes |
-| 163 / 126 | IMAP / SMTP auth code | Yes | Yes | No | Yes |
-| iCloud / Yahoo / Zoho / Aliyun | IMAP / SMTP app password | Yes | Yes | No | Yes |
-| Fastmail / AOL / GMX / Mail.com / Yandex | IMAP / SMTP password or app password | Yes | Yes | No | Yes |
-| Amazon WorkMail | IMAP / SMTP password plus region-specific host | Yes | Yes | No | Yes |
-| Custom IMAP / SMTP | User-defined server settings | Yes | Yes | No | Yes |
-
-## Quick start
-
-### 1. Create the production environment file
+## Quick start from `v2.0.0`
 
 ```bash
+git fetch --tags --prune
+git switch --detach v2.0.0
 cp .env.example .env
 openssl rand -hex 24
 ```
 
-Set the generated value as `POSTGRES_PASSWORD`. Configure `INGRESS_SIGNING_SECRET`, OAuth inputs, `PUBLIC_BASE_URL`, and narrowly scoped `TRUSTED_PROXY_CIDRS` when those features are used.
+Place the generated value in `POSTGRES_PASSWORD`, review the remaining operator settings, then choose one mode.
 
-`ADMIN_USERNAME` and `ADMIN_PASSWORD` are temporary initializer inputs. Leave `ADMIN_PASSWORD` blank to generate a strong one-time password. Remove any populated one-shot values from `.env` after initialization and verification.
-
-### 2. Start the canonical stack
+### Build the release locally
 
 ```bash
 ./scripts/compose-up.sh
-docker compose ps -a
 ```
 
-The helper validates `.env`, starts and waits for PostgreSQL, builds the shared Go image, runs a temporary `app init` container, then starts and waits for:
-
-```text
-app
-go-business-api
-worker-forwarding
-worker-retention
-postgres
-redis
-```
-
-Only `app` is published to the host.
-
-### 3. Probe health and readiness
+### Pull the published multi-architecture image
 
 ```bash
-curl http://127.0.0.1:3002/health
-curl http://127.0.0.1:3002/livez
+ALL_MAIL_USE_PUBLISHED_IMAGE=1 \
+ALL_MAIL_GO_IMAGE=ghcr.io/feng123-new/all-mail \
+ALL_MAIL_IMAGE_TAG=2.0.0 \
+./scripts/compose-up.sh
+```
+
+The checkout remains required because Compose, migrations, environment contracts, and operations scripts are versioned with the image.
+
+## Verify the deployment
+
+```bash
+docker compose ps -a
+curl --fail http://127.0.0.1:3002/health
+curl --fail http://127.0.0.1:3002/livez
 curl --fail http://127.0.0.1:3002/readyz
+
+for service in app go-business-api worker-forwarding worker-retention; do
+  docker compose exec -T "$service" allmail version --json
+done
 
 docker compose exec -T app allmail doctor api
 docker compose exec -T go-business-api allmail doctor business-api
@@ -117,9 +85,11 @@ docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 ```
 
-`/health` and `/livez` report public-process health. `/readyz` requires the built SPA and `go-business-api`; the private API readiness check requires PostgreSQL and Redis.
+Official `v2.0.0` processes report version `2.0.0`, the release commit, a UTC build timestamp, and Go 1.26.5.
 
-### 4. Retrieve the one-time password
+## First administrator login
+
+`ADMIN_USERNAME` and `ADMIN_PASSWORD` are one-shot initializer inputs. A blank password generates a strong temporary value. Retrieve it only from the private API container:
 
 ```bash
 docker compose exec go-business-api sh -lc \
@@ -127,96 +97,66 @@ docker compose exec go-business-api sh -lc \
    grep '^ADMIN_PASSWORD=' /var/lib/all-mail/bootstrap-admin.env"
 ```
 
-After login, the administrator must change the password. A successful first rotation removes `bootstrap-admin.env`. The initializer never prints the temporary password to logs.
+After login, change the password and verify that `bootstrap-admin.env` was deleted. The initializer never logs the password, and the browser never stores or prefills portal passwords.
 
-Long-lived generated secrets remain in `/var/lib/all-mail/runtime-secrets.env` on `runtime_secrets_data`; least-privilege copies are exported to `forwarding_runtime_data` and `go_business_runtime_data`. Preserve PostgreSQL and all three secret volumes together for backup and restore.
+## Release assets
 
-## Trusted proxy contract
+The `v2.0.0` GitHub Release contains checksummed Go binaries for Linux, macOS, and Windows. The release workflow also publishes:
 
-The Go listener discards incoming `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, and `CF-Connecting-IP` values from untrusted socket peers. Only direct peers listed in `TRUSTED_PROXY_CIDRS` may supply client identity or forwarded protocol. Do not use blanket trust and do not publish `go-business-api`.
+```text
+ghcr.io/feng123-new/all-mail:2.0.0
+ghcr.io/feng123-new/all-mail:2.0
+ghcr.io/feng123-new/all-mail:2
+ghcr.io/feng123-new/all-mail:latest
+```
 
-## Local development
+Binary, image, tag, package, `VERSION`, and changelog identity are enforced by release-contract tests.
 
-Start PostgreSQL and Redis through the development overlay:
+## Upgrade, rollback, backup, and restore
+
+These are stateful operations. Do not change only the image tag after a schema or secret-layout change.
+
+- [`docs/UPGRADE.md`](docs/UPGRADE.md) — maintenance window, preflight, upgrade, validation, and rollback decision table.
+- [`docs/BACKUP-RESTORE.md`](docs/BACKUP-RESTORE.md) — PostgreSQL dump, secret/data volume archives, checksums, destructive restore, and rehearsal.
+- [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — release mismatch, readiness, database, Redis, secret, network, worker, OAuth, session, and recovery incidents.
+
+Never run two revisions against one persisted state and never use `docker compose down -v` during normal upgrade or recovery.
+
+## Security model
+
+- browser unsafe writes require a valid same-origin boundary;
+- framing is denied and CSP restricts form/base/frame origins;
+- administrator and mailbox session versions revoke older JWTs after security changes;
+- API-key permissions are explicit and fail closed;
+- OAuth state and ingress replay protection require Redis in production;
+- the PostgreSQL owner is initializer-only;
+- `allmail_api`, `allmail_forwarding`, and `allmail_retention` use independent generated credentials and table-scoped grants;
+- the master secret volume is initializer-only and long-running processes receive read-only exports.
+
+Report vulnerabilities through [`SECURITY.md`](SECURITY.md), not a public issue.
+
+## Documentation
+
+| Need | Document |
+| --- | --- |
+| Deployment | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+| Upgrade and rollback | [`docs/UPGRADE.md`](docs/UPGRADE.md) |
+| Backup and restore | [`docs/BACKUP-RESTORE.md`](docs/BACKUP-RESTORE.md) |
+| Operations and recovery | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
+| Environment and secret ownership | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
+| Security boundaries | [`docs/SECURITY-BOUNDARIES.md`](docs/SECURITY-BOUNDARIES.md) |
+| Go/schema compatibility | [`docs/GO-MIGRATION.md`](docs/GO-MIGRATION.md) |
+| Route ownership | [`docs/ROUTE-OWNERSHIP.md`](docs/ROUTE-OWNERSHIP.md) |
+| Cloudflare ingress | [`CLOUDFLARE-DEPLOY.md`](CLOUDFLARE-DEPLOY.md) |
+| Release gate | [`docs/source-available-release-checklist.md`](docs/source-available-release-checklist.md) |
+
+## Development verification
 
 ```bash
 ./bin/all-mail deps up
-```
-
-Initialize an isolated local database and secret directory, then run the private Go API:
-
-```bash
-(cd core && \
-  DATABASE_URL='postgresql://allmail:<password>@127.0.0.1:15433/allmail' \
-  ALL_MAIL_MIGRATION_DIR="$PWD/migrations" \
-  ALL_MAIL_STATE_DIR="$PWD/../.all-mail-runtime" \
-  ADMIN_USERNAME=admin \
-  ADMIN_PASSWORD=change-me-now \
-  go run ./cmd/allmail init)
-
 npm run dev:api
 npm run dev:web
+npm run verify:release
 ```
 
-Local `go-business-api` also requires `REDIS_URL`, `JWT_SECRET_FILE`, and `ENCRYPTION_KEY_FILE`; see [`docs/advanced-runtime.md`](docs/advanced-runtime.md) for the complete command.
-
-## Upgrade, restore, and rollback
-
-Before an upgrade, back up PostgreSQL, `.env`, `runtime_secrets_data`, `forwarding_runtime_data`, `go_business_runtime_data`, and `database_runtime_data``. Stop the old revision before starting the new one, then run the same startup helper:
-
-```bash
-git switch <target-tag-or-commit>
-./scripts/compose-up.sh
-```
-
-For a restore, stop the stack, restore PostgreSQL and the matching secret volumes as one unit, select the matching application revision, and run `./scripts/compose-up.sh`.
-
-Rollback is revision based. An image-only rollback is unsafe when the target revision does not understand the current schema or authentication state. Restore a database and secret-volume backup captured for the target revision whenever backward compatibility is not explicitly documented. Never run initializers or workers from two revisions against the same persisted state.
-
-## Development and verification entrypoints
-
-| Command | Purpose |
-| --- | --- |
-| `npm run docker:up` | Run the canonical production startup helper |
-| `npm run dev:api` | Run the private Go business API locally |
-| `go run ./cmd/allmail init` | Initialize schema, secrets, durable configuration, and the first administrator |
-| `go run ./cmd/allmail migrate` | Apply/adopt schema without secret or administrator phases |
-| `npm run dev:web` | Run the Vite frontend development server |
-| `./bin/all-mail deps up` | Start PostgreSQL and Redis through the development overlay |
-| `./bin/all-mail doctor` | Check local environment resolution, dependencies, and build artifacts |
-| `./bin/all-mail check` | Run the full repository verification gate |
-| `npm run test:runtime` | Run runtime and environment-contract tests |
-
-## Documentation map
-
-| Need | Canonical document |
-| --- | --- |
-| Deploy, update, smoke check, restore, and rollback | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
-| Day-2 operations and recovery | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
-| Environment variables and secret ownership | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
-| Completed Go migration and schema compatibility | [`docs/GO-MIGRATION.md`](docs/GO-MIGRATION.md) |
-| Route ownership and metrics | [`docs/ROUTE-OWNERSHIP.md`](docs/ROUTE-OWNERSHIP.md) |
-| Local API/frontend development | [`docs/advanced-runtime.md`](docs/advanced-runtime.md) |
-| Cloudflare ingress | [`CLOUDFLARE-DEPLOY.md`](CLOUDFLARE-DEPLOY.md) |
-
-## Repository layout
-
-```text
-core/                            Go gateway, business API, workers, migrations, and runtime contracts
-web/                             React admin console and mailbox portal UI
-cloudflare/workers/allmail-edge/ Signed inbound email Worker
-config/                          Environment and route ownership contracts
-scripts/                         Startup, verification, and helper tooling
-docs/                            Public operator docs and internal history
-Dockerfile                       Shared Go runtime plus built React SPA
-docker-compose.yml               Canonical production topology
-docker-compose.dev.yml           Local PostgreSQL/Redis host-port overlay
-```
-
-## Historical schema compatibility
-
-The Go schema runner embeds and verifies the immutable migration history created before the Go-only cutover. It can adopt a known former migration ledger and maintains compatibility tables needed by supported in-place upgrades and revision rollback. This is database-history compatibility only; no Node server, Prisma CLI, schema file, or separate production image is active.
-
-## License
-
-This repository is released under the custom **all-Mail Non-Commercial License**. It is source-available and is not distributed under an OSI-approved open-source license.
+The full GitHub gate additionally runs real PostgreSQL and Redis integrations, race tests, `govulncheck`, Docker startup, bootstrap rotation, network/secret/database boundaries, SBOM checks, all runtime doctors, and the release gate.
