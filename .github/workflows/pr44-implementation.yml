@@ -43,8 +43,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s scripts/pr44-payload.b64
-          base64 --decode scripts/pr44-payload.b64 > "$RUNNER_TEMP/pr44-payload.tar.xz"
+          test "$(find scripts -maxdepth 1 -name 'pr44-payload.part*' | wc -l)" = "5"
+          cat scripts/pr44-payload.part* | base64 --decode > "$RUNNER_TEMP/pr44-payload.tar.xz"
           xz -t "$RUNNER_TEMP/pr44-payload.tar.xz"
           tar -xJf "$RUNNER_TEMP/pr44-payload.tar.xz" -C .
           rm -f scripts/pr44-payload.b64 scripts/pr44-payload.part* scripts/run-pr44.txt
