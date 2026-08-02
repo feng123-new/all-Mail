@@ -1,0 +1,228 @@
+name: Agent security export and runtime environment cleanup
+
+on:
+  push:
+    branches:
+      - agent/security-export-env-cleanup
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-security-export-env-cleanup
+  cancel-in-progress: false
+
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: agent/security-export-env-cleanup
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            cloudflare/workers/allmail-edge/package-lock.json
+
+      - name: Apply reviewed security and environment changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected} occurrences, found {count}: {old!r}")
+              target.write_text(text.replace(old, new), encoding="utf-8")
+
+          replace_exact(
+              "core/internal/businessapi/mail_account_handlers.go",
+              'mux.HandleFunc("GET /admin/emails/export", s.withAdministrator(s.exportMailAccounts))',
+              'mux.HandleFunc("GET /admin/emails/export", s.withSuperAdministrator(s.exportMailAccounts))',
+          )
+
+          runtime_environment_files = [
+              "docker-compose.yml",
+              "scripts/compose-up.sh",
+              "core/internal/config/business_api.go",
+              "core/internal/initialize/preflight.go",
+              "core/internal/config/business_api_test.go",
+              "core/internal/initialize/initialize_test.go",
+              ".github/workflows/config-security.yml",
+              "config/README.md",
+              "docs/advanced-runtime.md",
+          ]
+          for path in runtime_environment_files:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              if "NODE_ENV" not in text:
+                  raise SystemExit(f"{path}: expected NODE_ENV before cleanup")
+              target.write_text(text.replace("NODE_ENV", "ALL_MAIL_RUNTIME_ENV"), encoding="utf-8")
+
+          retired_path = Path("config/retired-env.json")
+          retired = json.loads(retired_path.read_text(encoding="utf-8"))
+          variables = retired["variables"]
+          if "NODE_ENV" in variables:
+              raise SystemExit("config/retired-env.json already contains NODE_ENV")
+          variables.append("NODE_ENV")
+          variables.sort()
+          retired_path.write_text(json.dumps(retired, indent=2) + "\n", encoding="utf-8")
+
+          replace_exact(
+              "core/internal/initialize/preflight.go",
+              '\t"LEGACY_API_URL",\n',
+              '\t"LEGACY_API_URL",\n\t"NODE_ENV",\n',
+          )
+
+          replace_exact(
+              "scripts/env-contract.test.mjs",
+              "  const business = serviceSection(compose, 'go-business-api', 'worker-forwarding');\n  assert.match(business, /DATABASE_URL_FILE:",
+              "  const business = serviceSection(compose, 'go-business-api', 'worker-forwarding');\n  assert.match(business, /ALL_MAIL_RUNTIME_ENV: production/);\n  assert.doesNotMatch(business, /NODE_ENV/);\n  assert.match(business, /DATABASE_URL_FILE:",
+          )
+
+          replace_exact(
+              "CHANGELOG.md",
+              "## [Unreleased]\n\nNo unreleased changes.\n",
+              "## [Unreleased]\n\n### Security\n\n- Restricted full external-mailbox credential export to authenticated `SUPER_ADMIN` sessions. The personal single-owner workflow still exports original saved credentials, while ordinary `ADMIN` sessions can no longer bulk-export them.\n\n### Changed\n\n- Replaced the Node-era `NODE_ENV` switch in the Go initializer and private Go API with `ALL_MAIL_RUNTIME_ENV`; `NODE_ENV` is now a rejected production variable.\n",
+          )
+
+          replace_exact(
+              "docs/SECURITY-BOUNDARIES.md",
+              "## OAuth configuration\n",
+              "## Credential export\n\nFull external-mailbox credential export is retained for owner-controlled migration and recovery. The route requires an authenticated `SUPER_ADMIN`; ordinary `ADMIN` sessions are rejected before any credential is decrypted or serialized. Single-account secret reveal continues to use the existing 2FA step-up flow.\n\n## OAuth configuration\n",
+          )
+
+          Path("core/internal/businessapi/mail_account_export_authorization_test.go").write_text(
+              '''package businessapi
+
+import (
+    "net/http"
+    "net/http/httptest"
+    "strings"
+    "testing"
+)
+
+func TestMailAccountExportRequiresSuperAdministrator(t *testing.T) {
+    store := &fakeStore{
+        admin: Admin{
+            ID:             7,
+            Username:       "operator",
+            Role:           "ADMIN",
+            Status:         "ACTIVE",
+            SessionVersion: 1,
+        },
+    }
+    server := testServer(store)
+
+    request := authenticatedRequest(t, http.MethodGet, "/admin/emails/export", "admin-console")
+    response := httptest.NewRecorder()
+    server.Handler().ServeHTTP(response, request)
+    if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"code":"FORBIDDEN"`) {
+        t.Fatalf("regular administrator export response = %d %s", response.Code, response.Body.String())
+    }
+
+    store.admin.Role = "SUPER_ADMIN"
+    request = authenticatedRequest(t, http.MethodGet, "/admin/emails/export", "admin-console")
+    response = httptest.NewRecorder()
+    server.Handler().ServeHTTP(response, request)
+    if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), `"code":"MANAGEMENT_STORE_UNAVAILABLE"`) {
+        t.Fatalf("super administrator export authorization response = %d %s", response.Code, response.Body.String())
+    }
+}
+''',
+              encoding="utf-8",
+          )
+
+          Path("scripts/runtime-environment-cleanup.test.mjs").write_text(
+              '''import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const read = (relativePath) => readFile(path.join(repoRoot, relativePath), 'utf8');
+
+test('Go runtime uses the canonical environment selector and retires NODE_ENV', async () => {
+  const [compose, loader, preflight, retired] = await Promise.all([
+    read('docker-compose.yml'),
+    read('core/internal/config/business_api.go'),
+    read('core/internal/initialize/preflight.go'),
+    read('config/retired-env.json').then(JSON.parse),
+  ]);
+
+  assert.match(compose, /ALL_MAIL_RUNTIME_ENV: production/);
+  assert.doesNotMatch(compose, /NODE_ENV/);
+  assert.match(loader, /env\("ALL_MAIL_RUNTIME_ENV", "development"\)/);
+  assert.doesNotMatch(loader, /NODE_ENV/);
+  assert.match(preflight, /cfg\.Environment\["ALL_MAIL_RUNTIME_ENV"\]/);
+  assert.match(preflight, /"NODE_ENV"/);
+  assert.ok(retired.variables.includes('NODE_ENV'));
+});
+''',
+              encoding="utf-8",
+          )
+          PY
+
+          gofmt -w \
+            core/internal/businessapi/mail_account_export_authorization_test.go \
+            core/internal/businessapi/mail_account_handlers.go \
+            core/internal/config/business_api.go \
+            core/internal/config/business_api_test.go \
+            core/internal/initialize/preflight.go \
+            core/internal/initialize/initialize_test.go
+
+      - name: Install frontend and Worker dependencies
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+          ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge ci
+
+      - name: Verify targeted contracts
+        run: |
+          cd core
+          go test -run TestMailAccountExportRequiresSuperAdministrator -count=1 ./internal/businessapi
+          cd ..
+          ./scripts/sanitize-runtime-env.sh node --test scripts/runtime-environment-cleanup.test.mjs
+
+      - name: Run complete repository verification
+        run: ./scripts/sanitize-runtime-env.sh npm run verify:release
+
+      - name: Validate Compose models
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.init.yml config --quiet
+          rm -f .env
+
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          rm -f .github/workflows/agent-security-export-env-cleanup.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(security): restrict credential export and retire Node runtime env"
+          git push origin HEAD:agent/security-export-env-cleanup
