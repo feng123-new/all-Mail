@@ -3,6 +3,9 @@ name: PR44 implementation
 on:
   push:
     branches: [agent/go-2-release-pr44]
+  pull_request:
+    branches: [main]
+    types: [opened]
 
 permissions:
   contents: write
@@ -13,7 +16,7 @@ concurrency:
 
 jobs:
   generate-and-verify:
-    if: ${{ !contains(github.event.head_commit.message, '[pr44 generated]') }}
+    if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[pr44 generated]') }}
     runs-on: ubuntu-latest
     env:
       POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
