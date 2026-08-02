@@ -1,8 +1,0 @@
-{
-  "runId": "30731259021",
-  "apply": "success",
-  "preserveWorkflows": "success",
-  "goIdentity": "success",
-  "releaseContracts": "failure",
-  "frontend": "success"
-}
