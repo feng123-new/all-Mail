@@ -71,7 +71,7 @@ func TestLoadGoBusinessAPIURL(t *testing.T) {
 
 func TestLoadGoBusinessAPIRequiresDatabaseAndSecretFiles(t *testing.T) {
 	clearEnv(t,
-		"NODE_ENV",
+		"ALL_MAIL_RUNTIME_ENV",
 		"PORT",
 		"DATABASE_URL",
 		"REDIS_URL",
@@ -146,7 +146,7 @@ func TestLoadGoBusinessAPIRequiresDatabaseAndSecretFiles(t *testing.T) {
 		})
 	}
 	t.Setenv("JWT_EXPIRES_IN", "2h")
-	t.Setenv("NODE_ENV", "production")
+	t.Setenv("ALL_MAIL_RUNTIME_ENV", "production")
 	if _, err := LoadGoBusinessAPI(); err == nil {
 		t.Fatal("production Go business API accepted a missing Redis password file")
 	}
@@ -229,7 +229,7 @@ func TestLoadGoBusinessAPIRejectsUnsafeValues(t *testing.T) {
 		t.Fatal("LoadGoBusinessAPI() accepted a zero login lock duration")
 	}
 	t.Setenv("ADMIN_LOGIN_LOCK_MINUTES", "15")
-	t.Setenv("NODE_ENV", "staging")
+	t.Setenv("ALL_MAIL_RUNTIME_ENV", "staging")
 	if _, err := LoadGoBusinessAPI(); err == nil {
 		t.Fatal("LoadGoBusinessAPI() accepted an unsupported runtime environment")
 	}
