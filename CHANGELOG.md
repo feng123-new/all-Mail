@@ -6,6 +6,11 @@ The format is inspired by Keep a Changelog, and this project aims to use semanti
 
 ## [Unreleased]
 
+- isolated PostgreSQL owner access to the one-shot initializer and provisioned independent table-scoped API, forwarding, and retention roles through read-only database URL files
+- added same-origin browser write enforcement, clickjacking headers, and a shared 72-byte bcrypt input policy for administrator and mailbox credentials
+- replaced arbitrary server-path Google OAuth parsing with JSON-only import and introduced canonical minimal, send, manage, and full permission profiles with least-privilege defaults
+- removed the superseded `oauth-temp` Python helper and made the Go management API plus browser upload the only supported OAuth configuration path
+
 - removed portal-password persistence and prefill from browser storage, added cleanup for historical `all-mail:portal-login:` entries, and limited portal links to username-only prefill
 - split the production topology across public, private-app, provider-egress, database, and cache networks so the public gateway cannot directly reach PostgreSQL or Redis
 - added initializer-managed Redis authentication with a dedicated read-only password export, authenticated readiness, and live unauthenticated-access rejection tests

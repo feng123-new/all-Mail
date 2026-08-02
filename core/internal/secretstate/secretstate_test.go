@@ -27,7 +27,7 @@ func TestResolveGeneratesStableSplitRuntimeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.JWTSecret) != 64 || len(first.EncryptionKey) != 32 || len(first.RedisPassword) != 64 || len(first.CreatedKeys) != 3 {
+	if len(first.JWTSecret) != 64 || len(first.EncryptionKey) != 32 || len(first.RedisPassword) != 64 || len(first.CreatedKeys) != 6 {
 		t.Fatalf("first state = %#v", first)
 	}
 	second, err := Resolve(directory, nil, false)
@@ -56,7 +56,7 @@ func TestResolveAddsRedisPasswordToExistingRuntimeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.RedisPassword) != 64 || len(state.CreatedKeys) != 1 || state.CreatedKeys[0] != "REDIS_PASSWORD" {
+	if len(state.RedisPassword) != 64 || len(state.CreatedKeys) != 4 || state.CreatedKeys[0] != "REDIS_PASSWORD" {
 		t.Fatalf("upgraded state = %#v", state)
 	}
 	persisted, err := ReadEnvFile(runtimeFile)

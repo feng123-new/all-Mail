@@ -9,9 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
+
+	"github.com/feng123-new/all-Mail/core/internal/oauthscope"
 )
 
 const (
@@ -20,8 +21,8 @@ const (
 	googleUserInfoURL      = "https://openidconnect.googleapis.com/v1/userinfo"
 	googleGmailProfileURL  = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
 	microsoftGraphMeURL    = "https://graph.microsoft.com/v1.0/me?$select=mail"
-	googleDefaultScopes    = "openid email profile https://www.googleapis.com/auth/gmail.modify https://mail.google.com/"
-	microsoftDefaultScopes = "offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send"
+	googleDefaultScopes    = "openid email profile https://www.googleapis.com/auth/gmail.readonly"
+	microsoftDefaultScopes = "offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.Read"
 )
 
 type oauthStartRequest struct {
@@ -34,11 +35,11 @@ type oauthConfigRequest struct {
 	ClientSecret json.RawMessage `json:"clientSecret"`
 	RedirectURI  json.RawMessage `json:"redirectUri"`
 	Scopes       json.RawMessage `json:"scopes"`
+	ScopeProfile json.RawMessage `json:"scopeProfile"`
 	Tenant       json.RawMessage `json:"tenant"`
 }
 
 type googleClientSecretRequest struct {
-	FilePath    *string `json:"filePath"`
 	JSONText    *string `json:"jsonText"`
 	CallbackURI *string `json:"callbackUri"`
 }
@@ -131,8 +132,38 @@ func (s *Server) updateOAuthProviderConfig(w http.ResponseWriter, r *http.Reques
 		s.writeRequestError(w, r, err)
 		return
 	}
-	if scopes != nil {
-		normalized := strings.Join(strings.Fields(*scopes), " ")
+	scopeProfile, scopeProfilePresent, err := decodeNullableString(body.ScopeProfile, "scopeProfile")
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	if scopeProfilePresent && scopesPresent {
+		s.writeRequestError(w, r, validationError("scopeProfile and scopes are mutually exclusive"))
+		return
+	}
+	if scopeProfilePresent {
+		if scopeProfile == nil || strings.TrimSpace(*scopeProfile) == "" {
+			s.writeRequestError(w, r, validationError("scopeProfile is required when supplied"))
+			return
+		}
+		profile, parseErr := oauthscope.ParseProfile(*scopeProfile)
+		if parseErr != nil {
+			s.writeRequestError(w, r, validationError(parseErr.Error()))
+			return
+		}
+		normalized, normalizeErr := oauthscope.Canonical(provider, profile)
+		if normalizeErr != nil {
+			s.writeRequestError(w, r, validationError(normalizeErr.Error()))
+			return
+		}
+		scopes = &normalized
+		scopesPresent = true
+	} else if scopes != nil {
+		normalized, _, normalizeErr := oauthscope.Normalize(provider, *scopes)
+		if normalizeErr != nil {
+			s.writeRequestError(w, r, validationError(normalizeErr.Error()))
+			return
+		}
 		scopes = &normalized
 	}
 	tenant, tenantPresent, err := decodeNullableString(body.Tenant, "tenant")
@@ -168,20 +199,6 @@ func (s *Server) parseGoogleClientSecret(w http.ResponseWriter, r *http.Request,
 	jsonText := ""
 	if body.JSONText != nil {
 		jsonText = strings.TrimSpace(*body.JSONText)
-	}
-	if jsonText == "" && body.FilePath != nil && strings.TrimSpace(*body.FilePath) != "" {
-		file, err := os.Open(strings.TrimSpace(*body.FilePath))
-		if err != nil {
-			s.writeRequestError(w, r, &requestError{Status: http.StatusBadRequest, Code: "GOOGLE_CLIENT_SECRET_PATH_UNREADABLE", Cause: err})
-			return
-		}
-		content, readErr := io.ReadAll(io.LimitReader(file, 1<<20))
-		closeErr := file.Close()
-		if readErr != nil || closeErr != nil {
-			s.writeRequestError(w, r, &requestError{Status: http.StatusBadRequest, Code: "GOOGLE_CLIENT_SECRET_PATH_UNREADABLE", Cause: errors.Join(readErr, closeErr)})
-			return
-		}
-		jsonText = string(content)
 	}
 	if jsonText == "" || len(jsonText) > 1<<20 {
 		s.writeRequestError(w, r, &requestError{Status: http.StatusBadRequest, Code: "GOOGLE_CLIENT_SECRET_SOURCE_REQUIRED"})
@@ -535,8 +552,9 @@ func buildOAuthAuthorizationURL(config oauthProviderConfig, state string) string
 }
 
 func oauthScopes(config oauthProviderConfig) string {
-	if strings.TrimSpace(config.Scopes) != "" {
-		return strings.Join(strings.Fields(config.Scopes), " ")
+	normalized, _, err := oauthscope.Normalize(config.Provider, config.Scopes)
+	if err == nil {
+		return normalized
 	}
 	if config.Provider == "GMAIL" {
 		return googleDefaultScopes

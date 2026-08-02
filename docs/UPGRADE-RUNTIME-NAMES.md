@@ -61,6 +61,7 @@ postgres_data
 runtime_secrets_data
 forwarding_runtime_data
 go_business_runtime_data
+database_runtime_data
 redis_data
 ```
 

@@ -37,3 +37,15 @@ core/internal/initialize/bootstrap_secret_test.go
 core/internal/secretstate/secretstate_test.go
 core/internal/config/business_api_test.go
 ```
+
+## Database identities
+
+The PostgreSQL owner is initializer-only. `go-business-api`, forwarding, and retention use independent generated login roles through read-only URL files. The initializer revokes stale runtime grants and reapplies the canonical CRUD, forwarding-table, or retention-table policy after schema migration.
+
+## Browser request integrity
+
+Unsafe browser requests are rejected when `Origin` does not match the gateway-normalized scheme and host or when `Sec-Fetch-Site` reports `cross-site`. The gateway emits `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'`. Non-browser API clients without browser origin headers remain supported.
+
+## OAuth configuration
+
+Google client-secret documents are accepted only as uploaded or pasted JSON; the API cannot read administrator-selected server paths. OAuth scopes are canonical `minimal`, `send`, `manage`, or `full` profiles. Fresh configuration defaults to `minimal`; wider profiles require an explicit saved choice.

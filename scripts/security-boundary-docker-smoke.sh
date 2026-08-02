@@ -24,6 +24,9 @@ done
   test -r /var/lib/all-mail-secrets/jwt-secret
   test -r /var/lib/all-mail-encryption/encryption-key
   test -r /var/lib/all-mail-redis/redis-password
+  test -r /var/lib/all-mail-database/api-url
+  test "${DATABASE_URL_FILE:-}" = "/var/lib/all-mail-database/api-url"
+  test -z "${DATABASE_URL:-}"
   test ! -e /var/lib/all-mail-state
   test -r /var/lib/all-mail/runtime-secrets.env
   ! grep -Eq "^(JWT_SECRET|ENCRYPTION_KEY|REDIS_PASSWORD|ADMIN_PASSWORD)=" /var/lib/all-mail/runtime-secrets.env
@@ -89,6 +92,7 @@ for target in (
     "/var/lib/all-mail-secrets",
     "/var/lib/all-mail-encryption",
     "/var/lib/all-mail-redis",
+    "/var/lib/all-mail-database",
 ):
     if target not in mounts or mounts[target].get("RW"):
         raise AssertionError(f"private API secret mount {target} is missing or writable")
@@ -99,3 +103,62 @@ for name in ("app-network", "database-network", "cache-network"):
     if not model["networks"][name].get("internal", False):
         raise AssertionError(f"{name} is not internal")
 PY
+
+# Database identities are login-only, non-owner roles with narrowly bounded grants.
+"${compose[@]}" exec -T postgres psql -U "${POSTGRES_USER:-allmail}" -d "${POSTGRES_DB:-allmail}" -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE
+  role_name text;
+  ledger_name text;
+BEGIN
+  FOREACH role_name IN ARRAY ARRAY['allmail_api', 'allmail_forwarding', 'allmail_retention'] LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_roles
+      WHERE rolname = role_name AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+        AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls
+    ) THEN
+      RAISE EXCEPTION 'unsafe or missing runtime role: %', role_name;
+    END IF;
+  END LOOP;
+
+  FOREACH ledger_name IN ARRAY ARRAY['allmail_schema_migrations', '_prisma_migrations', 'runtime_migrations'] LOOP
+    IF to_regclass('public.' || ledger_name) IS NULL THEN
+      RAISE EXCEPTION 'missing expected migration ledger: %', ledger_name;
+    END IF;
+    IF has_table_privilege(
+      'allmail_api',
+      'public.' || ledger_name,
+      'SELECT,INSERT,UPDATE,DELETE'
+    ) THEN
+      RAISE EXCEPTION 'allmail_api can access migration ledger: %', ledger_name;
+    END IF;
+  END LOOP;
+END $$;
+
+SELECT 1 / CASE WHEN
+  has_table_privilege('allmail_api', 'admins', 'SELECT')
+  AND has_table_privilege('allmail_api', 'admins', 'INSERT')
+  AND has_table_privilege('allmail_api', 'admins', 'UPDATE')
+  AND has_table_privilege('allmail_api', 'admins', 'DELETE')
+THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN NOT has_schema_privilege('allmail_api', 'public', 'CREATE') THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN
+  has_table_privilege('allmail_forwarding', 'mailbox_forward_jobs', 'SELECT')
+  AND has_table_privilege('allmail_forwarding', 'mailbox_forward_jobs', 'UPDATE')
+THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN
+  has_table_privilege('allmail_forwarding', 'inbound_messages', 'SELECT')
+  AND has_table_privilege('allmail_forwarding', 'inbound_messages', 'UPDATE')
+THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN NOT has_table_privilege('allmail_forwarding', 'admins', 'SELECT') THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN
+  has_table_privilege('allmail_retention', 'api_logs', 'SELECT')
+  AND has_table_privilege('allmail_retention', 'api_logs', 'UPDATE')
+  AND has_table_privilege('allmail_retention', 'api_logs', 'DELETE')
+THEN 1 ELSE 0 END;
+SELECT 1 / CASE WHEN
+  NOT has_table_privilege('allmail_retention', 'admins', 'SELECT')
+  AND NOT has_table_privilege('allmail_retention', 'admins', 'UPDATE')
+  AND NOT has_table_privilege('allmail_retention', 'admins', 'DELETE')
+THEN 1 ELSE 0 END;
+SQL

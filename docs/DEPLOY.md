@@ -99,7 +99,7 @@ The helper performs this sequence:
 1. require the selected environment file;
 2. start and wait for `postgres`;
 3. build the shared Go image;
-4. resolve `runtime_secrets_data`, `bootstrap_admin_data`, `forwarding_runtime_data`, `go_business_runtime_data`, and `redis_runtime_data`;
+4. resolve `runtime_secrets_data`, `bootstrap_admin_data`, `forwarding_runtime_data`, `go_business_runtime_data`, `redis_runtime_data`, and `database_runtime_data`;
 5. run a temporary privileged `app init` container;
 6. adopt or migrate schema history;
 7. initialize or reuse JWT, encryption, and Redis authentication secrets;
@@ -233,3 +233,7 @@ Restore every matching component before running `./scripts/compose-up.sh`. Never
 ## Rollback
 
 Rollback is revision based. Stop the complete revision, deploy only a version that explicitly supports the current schema and secret layout, or restore the matching PostgreSQL and volume backup first. Never run two revisions against the same database or persisted secret state.
+
+## Database least privilege
+
+`POSTGRES_USER` is an initializer-only owner. Startup provisions `allmail_api`, `allmail_forwarding`, and `allmail_retention`, writes role-specific URLs to `database_runtime_data`, and mounts only the matching read-only file into each long-running process. `bash scripts/security-boundary-docker-smoke.sh` verifies role attributes and representative allow/deny table privileges.

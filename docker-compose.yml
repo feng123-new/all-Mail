@@ -54,7 +54,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3200
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
+      DATABASE_URL_FILE: /var/lib/all-mail-database/api-url
       REDIS_URL: redis://redis:6379
       REDIS_PASSWORD_FILE: /var/lib/all-mail-redis/redis-password
       JWT_SECRET_FILE: /var/lib/all-mail-secrets/jwt-secret
@@ -81,6 +81,7 @@ services:
       - go_business_runtime_data:/var/lib/all-mail-secrets:ro
       - forwarding_runtime_data:/var/lib/all-mail-encryption:ro
       - redis_runtime_data:/var/lib/all-mail-redis:ro
+      - database_runtime_data:/var/lib/all-mail-database:ro
     networks:
       - app-network
       - provider-network
@@ -99,7 +100,7 @@ services:
     environment:
       ALL_MAIL_STATE_DIR: /tmp/all-mail
       ENCRYPTION_KEY_FILE: /var/lib/all-mail-secrets/encryption-key
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
+      DATABASE_URL_FILE: /var/lib/all-mail-database/forwarding-url
       FORWARDING_WORKER_INTERVAL_SECONDS: ${FORWARDING_WORKER_INTERVAL_SECONDS:-30}
       FORWARDING_WORKER_BATCH_SIZE: ${FORWARDING_WORKER_BATCH_SIZE:-10}
       FORWARDING_RUN_TIMEOUT_SECONDS: ${FORWARDING_RUN_TIMEOUT_SECONDS:-120}
@@ -116,6 +117,7 @@ services:
     stop_grace_period: 30s
     volumes:
       - forwarding_runtime_data:/var/lib/all-mail-secrets:ro
+      - database_runtime_data:/var/lib/all-mail-database:ro
     networks:
       - provider-network
       - database-network
@@ -131,7 +133,7 @@ services:
     command: ["worker", "retention"]
     environment:
       ALL_MAIL_STATE_DIR: /tmp/all-mail
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-allmail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-allmail}"
+      DATABASE_URL_FILE: /var/lib/all-mail-database/retention-url
       API_LOG_RETENTION_DAYS: ${API_LOG_RETENTION_DAYS:-30}
       API_LOG_CLEANUP_INTERVAL_MINUTES: ${API_LOG_CLEANUP_INTERVAL_MINUTES:-60}
       API_LOG_CLEANUP_RETRY_SECONDS: ${API_LOG_CLEANUP_RETRY_SECONDS:-30}
@@ -147,6 +149,8 @@ services:
         condition: service_healthy
     restart: unless-stopped
     stop_grace_period: 30s
+    volumes:
+      - database_runtime_data:/var/lib/all-mail-database:ro
     networks:
       - database-network
     healthcheck:
@@ -225,5 +229,6 @@ volumes:
   forwarding_runtime_data:
   go_business_runtime_data:
   redis_runtime_data:
+  database_runtime_data:
   redis_data:
   postgres_data:

@@ -28,6 +28,9 @@ docker compose exec -T go-business-api sh -lc \
 docker compose exec -T go-business-api sh -lc '
   test -r /var/lib/all-mail-secrets/jwt-secret
   test -r /var/lib/all-mail-encryption/encryption-key
+  test -r /var/lib/all-mail-database/api-url
+  test "${DATABASE_URL_FILE:-}" = "/var/lib/all-mail-database/api-url"
+  test -z "${DATABASE_URL:-}"
   test "${JWT_SECRET_FILE:-}" = "/var/lib/all-mail-secrets/jwt-secret"
   test "${ENCRYPTION_KEY_FILE:-}" = "/var/lib/all-mail-encryption/encryption-key"
   test -z "${JWT_SECRET:-}"

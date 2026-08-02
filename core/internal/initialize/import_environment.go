@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/feng123-new/all-Mail/core/internal/legacycrypto"
+	"github.com/feng123-new/all-Mail/core/internal/oauthscope"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -59,6 +60,9 @@ func ImportEnvironment(ctx context.Context, databaseURL, encryptionKey string, e
 	if err := importIngress(ctx, transaction, encryptionKey, environment, &summary); err != nil {
 		return ImportSummary{}, err
 	}
+	if err := normalizeStoredOAuthScopes(ctx, transaction); err != nil {
+		return ImportSummary{}, err
+	}
 	if err := backfillOAuthAuthority(ctx, transaction); err != nil {
 		return ImportSummary{}, err
 	}
@@ -66,6 +70,45 @@ func ImportEnvironment(ctx context.Context, databaseURL, encryptionKey string, e
 		return ImportSummary{}, fmt.Errorf("commit environment import: %w", err)
 	}
 	return summary, nil
+}
+
+func normalizeStoredOAuthScopes(ctx context.Context, tx pgx.Tx) error {
+	rows, err := tx.Query(ctx, `SELECT id, provider::text, COALESCE(scopes, '') FROM provider_oauth_configs ORDER BY id`)
+	if err != nil {
+		return fmt.Errorf("list stored OAuth scopes: %w", err)
+	}
+	type storedScope struct {
+		ID       int64
+		Provider string
+		Scopes   string
+	}
+	var records []storedScope
+	for rows.Next() {
+		var record storedScope
+		if err := rows.Scan(&record.ID, &record.Provider, &record.Scopes); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan stored OAuth scope: %w", err)
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate stored OAuth scopes: %w", err)
+	}
+	rows.Close()
+	for _, record := range records {
+		normalized, _, err := oauthscope.Normalize(record.Provider, record.Scopes)
+		if err != nil {
+			return fmt.Errorf("normalize stored %s OAuth scopes: %w", record.Provider, err)
+		}
+		if normalized == strings.TrimSpace(record.Scopes) {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `UPDATE provider_oauth_configs SET scopes = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, record.ID, normalized); err != nil {
+			return fmt.Errorf("update stored %s OAuth scopes: %w", record.Provider, err)
+		}
+	}
+	return nil
 }
 
 func backfillOAuthAuthority(ctx context.Context, tx pgx.Tx) error {
@@ -133,12 +176,16 @@ func buildOAuthImport(provider string, environment map[string]string) (*oauthImp
 	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, fmt.Errorf("%s OAuth redirect URI must be an absolute HTTP(S) URL", provider)
 	}
+	normalizedScopes, _, err := oauthscope.Normalize(provider, environment[prefix+"_OAUTH_SCOPES"])
+	if err != nil {
+		return nil, fmt.Errorf("%s OAuth scopes: %w", provider, err)
+	}
 	result := &oauthImport{
 		Provider:     provider,
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURI:  redirectURI,
-		Scopes:       normalizeScopes(environment[prefix+"_OAUTH_SCOPES"]),
+		Scopes:       &normalizedScopes,
 	}
 	if provider == "OUTLOOK" {
 		result.Tenant = pointer(strings.TrimSpace(environment["MICROSOFT_OAUTH_TENANT"]))
@@ -168,7 +215,11 @@ func importOAuth(ctx context.Context, tx pgx.Tx, encryptionKey string, desired o
 		}
 		currentPlaintext = &plaintext
 	}
-	normalizedCurrentScopes := normalizeScopes(value(currentScopes))
+	currentScopesValue, _, err := oauthscope.Normalize(desired.Provider, value(currentScopes))
+	if err != nil {
+		return fmt.Errorf("normalize %s OAuth database scopes: %w", desired.Provider, err)
+	}
+	normalizedCurrentScopes := &currentScopesValue
 	normalizedCurrentTenant := pointer(strings.TrimSpace(value(currentTenant)))
 	if conflicts(currentClientID, desired.ClientID) || conflicts(currentPlaintext, desired.ClientSecret) || conflicts(currentRedirect, desired.RedirectURI) || optionalConflict(normalizedCurrentScopes, desired.Scopes) || optionalConflict(normalizedCurrentTenant, desired.Tenant) {
 		return fmt.Errorf("%s OAuth database configuration conflicts with the legacy environment values", desired.Provider)

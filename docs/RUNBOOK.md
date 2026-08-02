@@ -176,3 +176,7 @@ git switch <known-good-compatible-tag-or-commit>
 ```
 
 Never run two revisions against one persisted state, never use an arbitrary old image with a newer schema, and never run `docker compose down -v` during recovery unless destruction is intended.
+
+## Runtime database role recovery
+
+The owner credential is available only to PostgreSQL and the temporary initializer. Confirm that `database_runtime_data` contains `api-url`, `forwarding-url`, and `retention-url` without printing their contents. If a role or grant drifted, rerun `./scripts/compose-up.sh`; provisioning revokes stale grants before applying the canonical table-level policy. Never copy `POSTGRES_PASSWORD` into a long-running service.

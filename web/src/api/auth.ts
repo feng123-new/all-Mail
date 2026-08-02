@@ -71,6 +71,7 @@ export const oauthApi = {
 				source: "database" | "environment" | "none";
 				clientId: string | null;
 				scopes: string | null;
+				scopeProfile: "minimal" | "send" | "manage" | "full";
 				tenant: string | null;
 				hasClientSecret: boolean;
 			};
@@ -80,6 +81,7 @@ export const oauthApi = {
 				source: "database" | "environment" | "none";
 				clientId: string | null;
 				scopes: string | null;
+				scopeProfile: "minimal" | "send" | "manage" | "full";
 				tenant: string | null;
 				hasClientSecret: boolean;
 			};
@@ -93,6 +95,7 @@ export const oauthApi = {
 				source: "database" | "environment" | "none";
 				clientId: string | null;
 				scopes: string | null;
+				scopeProfile: "minimal" | "send" | "manage" | "full";
 				tenant: string | null;
 				hasClientSecret: boolean;
 			};
@@ -102,6 +105,7 @@ export const oauthApi = {
 				source: "database" | "environment" | "none";
 				clientId: string | null;
 				scopes: string | null;
+				scopeProfile: "minimal" | "send" | "manage" | "full";
 				tenant: string | null;
 				hasClientSecret: boolean;
 			};
@@ -114,6 +118,7 @@ export const oauthApi = {
 			clientSecret?: string | null;
 			redirectUri?: string | null;
 			scopes?: string | null;
+			scopeProfile?: "minimal" | "send" | "manage" | "full";
 			tenant?: string | null;
 		},
 	) =>
@@ -124,6 +129,7 @@ export const oauthApi = {
 				source: "database" | "environment" | "none";
 				clientId: string | null;
 				scopes: string | null;
+				scopeProfile: "minimal" | "send" | "manage" | "full";
 				tenant: string | null;
 				hasClientSecret: boolean;
 			},
@@ -132,6 +138,7 @@ export const oauthApi = {
 				clientSecret?: string | null;
 				redirectUri?: string | null;
 				scopes?: string | null;
+				scopeProfile?: "minimal" | "send" | "manage" | "full";
 				tenant?: string | null;
 			}
 		>(
@@ -140,7 +147,6 @@ export const oauthApi = {
 		),
 
 	parseGoogleClientSecret: (data: {
-		filePath?: string | null;
 		jsonText?: string | null;
 		callbackUri?: string | null;
 	}) =>
@@ -153,8 +159,7 @@ export const oauthApi = {
 				projectId: string | null;
 			},
 			{
-				filePath?: string | null;
-				jsonText?: string | null;
+						jsonText?: string | null;
 				callbackUri?: string | null;
 			}
 		>("/admin/oauth/google/parse-client-secret", data),
