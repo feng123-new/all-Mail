@@ -25,6 +25,7 @@ No unreleased changes.
 - Canonical OAuth permission profiles (`minimal`, `send`, `manage`, and `full`) with least-privilege defaults for Google and Microsoft.
 - `allmail version` and `allmail version --json`, populated through Go linker flags and OCI build metadata.
 - A stable release workflow that verifies all required checks, creates `v2.0.0`, publishes checksummed Go binaries and a multi-architecture GHCR image, creates the GitHub Release, and removes merged maintenance branches.
+- Platform-native runtime-secret locking and a permanent portability gate for Linux, macOS, and Windows release archives on amd64 and arm64.
 - Dedicated upgrade, rollback, backup, and restore documentation.
 
 ### Changed
@@ -45,7 +46,7 @@ No unreleased changes.
 - Removed arbitrary server-path OAuth client-secret reads; Google client-secret documents are accepted only as uploaded or pasted JSON.
 - Added endpoint-scoped encrypted ingress secrets, Redis-backed replay protection, atomic OAuth state consumption, login lockout, API-key limiting, and provider timeout boundaries.
 - Removed browser persistence and prefill of portal passwords and added cleanup for historical storage keys.
-- Added static, race, vulnerability, dependency, PostgreSQL/Redis integration, Docker boundary, bootstrap, SBOM, and release-gate checks.
+- Added static, race, vulnerability, dependency, PostgreSQL/Redis integration, Docker boundary, bootstrap, SBOM, release-portability, and release-gate checks.
 
 ### Removed
 
