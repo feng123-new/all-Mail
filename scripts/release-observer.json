@@ -1,0 +1,261 @@
+{
+  "observedAt": "2026-08-02T04:45:53Z",
+  "targetSha": "bf3b240897295c6c6a7d1033eb4a4ed59ae80944",
+  "workflowRuns": [
+    {
+      "id": 30732087779,
+      "name": "Release",
+      "event": "workflow_run",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_number": 1,
+      "head_branch": "main",
+      "head_sha": "bf3b240897295c6c6a7d1033eb4a4ed59ae80944",
+      "created_at": "2026-08-02T04:16:26Z",
+      "updated_at": "2026-08-02T04:21:10Z",
+      "html_url": "https://github.com/feng123-new/all-Mail/actions/runs/30732087779"
+    },
+    {
+      "id": 30731943011,
+      "name": "Configuration and proxy security",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_number": 352,
+      "head_branch": "main",
+      "head_sha": "bf3b240897295c6c6a7d1033eb4a4ed59ae80944",
+      "created_at": "2026-08-02T04:11:36Z",
+      "updated_at": "2026-08-02T04:11:55Z",
+      "html_url": "https://github.com/feng123-new/all-Mail/actions/runs/30731943011"
+    },
+    {
+      "id": 30731942996,
+      "name": "Security boundaries",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_number": 51,
+      "head_branch": "main",
+      "head_sha": "bf3b240897295c6c6a7d1033eb4a4ed59ae80944",
+      "created_at": "2026-08-02T04:11:36Z",
+      "updated_at": "2026-08-02T04:14:19Z",
+      "html_url": "https://github.com/feng123-new/all-Mail/actions/runs/30731942996"
+    },
+    {
+      "id": 30731943016,
+      "name": "Bootstrap administrator security",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_number": 340,
+      "head_branch": "main",
+      "head_sha": "bf3b240897295c6c6a7d1033eb4a4ed59ae80944",
+      "created_at": "2026-08-02T04:11:36Z",
+      "updated_at": "2026-08-02T04:15:23Z",
+      "html_url": "https://github.com/feng123-new/all-Mail/actions/runs/30731943016"
+    },
+    {
+      "id": 30731943040,
+      "name": "CI",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_number": 475,
+      "head_branch": "main",
+      "head_sha": "bf3b240897295c6c6a7d1033eb4a4ed59ae80944",
+      "created_at": "2026-08-02T04:11:36Z",
+      "updated_at": "2026-08-02T04:16:24Z",
+      "html_url": "https://github.com/feng123-new/all-Mail/actions/runs/30731943040"
+    }
+  ],
+  "releaseJobs": [
+    {
+      "id": 91454152418,
+      "name": "publish-v2",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-08-02T04:16:29Z",
+      "completed_at": "2026-08-02T04:21:09Z",
+      "html_url": "https://github.com/feng123-new/all-Mail/actions/runs/30732087779/job/91454152418",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Checkout release commit",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Setup Go",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3
+        },
+        {
+          "name": "Setup Node.js",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Resolve and verify release identity",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5
+        },
+        {
+          "name": "Install frontend and Worker dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6
+        },
+        {
+          "name": "Run repository release verification",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7
+        },
+        {
+          "name": "Require every release check on the commit",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8
+        },
+        {
+          "name": "Build checksummed Go release archives",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 9
+        },
+        {
+          "name": "Extract release notes",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 10
+        },
+        {
+          "name": "Download the verified CI SBOM",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 11
+        },
+        {
+          "name": "Setup QEMU",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 12
+        },
+        {
+          "name": "Setup Docker Buildx",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 13
+        },
+        {
+          "name": "Login to GHCR",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 14
+        },
+        {
+          "name": "Publish multi-architecture OCI image",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 15
+        },
+        {
+          "name": "Generate and verify release checksums",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 16
+        },
+        {
+          "name": "Create annotated tag and GitHub Release",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 17
+        },
+        {
+          "name": "Delete merged maintenance branches",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 18
+        },
+        {
+          "name": "Publish release summary",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 19
+        },
+        {
+          "name": "Post Setup Node.js",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 36
+        },
+        {
+          "name": "Post Setup Go",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 37
+        },
+        {
+          "name": "Post Checkout release commit",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 38
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 39
+        }
+      ]
+    }
+  ],
+  "tag": {
+    "exists": false,
+    "object": null
+  },
+  "release": {
+    "exists": false,
+    "object": null
+  },
+  "branches": [
+    "agent/api-key-permission-v2",
+    "agent/auth-oauth-config-pr42-43",
+    "agent/bootstrap-admin-one-shot",
+    "agent/config-runtime-contract",
+    "agent/config-security-hard-delete",
+    "agent/durable-config-migration",
+    "agent/final-go-cutover",
+    "agent/go-2-release-pr44-final",
+    "agent/go-2-release-pr44",
+    "agent/go-auth",
+    "agent/go-business-api-key-external",
+    "agent/go-business-dashboard",
+    "agent/go-core-rewrite",
+    "agent/go-dashboard-log-writes",
+    "agent/go-database-admin-writes",
+    "agent/go-ingress-lifecycle",
+    "agent/go-mail-operations",
+    "agent/go-only-runtime",
+    "agent/major-stabilization",
+    "agent/oauth-session-security",
+    "agent/post-stabilization-closeout",
+    "agent/private-go-business-dashboard",
+    "agent/retire-legacy-runtime",
+    "agent/retire-migration-era-names",
+    "agent/route-ownership-telemetry",
+    "agent/runtime-consolidation-cleanup",
+    "agent/runtime-truth-release-contract",
+    "fix/main-secret-smoke",
+    "main"
+  ]
+}
