@@ -92,7 +92,7 @@ func (s *Server) registerMailAccountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/emails/batch-fetch-mails", s.withAdministratorProvider(s.batchFetchMailAccounts))
 	mux.HandleFunc("POST /admin/emails/batch-clear-mailbox", s.withAdministratorProvider(s.batchClearMailAccounts))
 	mux.HandleFunc("POST /admin/emails/import", s.withAdministrator(s.importMailAccounts))
-	mux.HandleFunc("GET /admin/emails/export", s.withAdministrator(s.exportMailAccounts))
+	mux.HandleFunc("GET /admin/emails/export", s.withSuperAdministrator(s.exportMailAccounts))
 	mux.HandleFunc("GET /admin/emails/{id}/mails", s.withAdministratorProvider(s.fetchMailAccountMessages))
 	mux.HandleFunc("POST /admin/emails/{id}/mails/delete", s.withAdministratorProvider(s.deleteMailAccountMessages))
 	mux.HandleFunc("POST /admin/emails/{id}/send", s.withAdministratorProvider(s.sendMailAccountMessage))
