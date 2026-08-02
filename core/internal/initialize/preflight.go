@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+
+	"github.com/feng123-new/all-Mail/core/internal/passwordpolicy"
 )
 
 var retiredEnvironmentVariables = []string{
@@ -122,8 +124,10 @@ func validateAdminPreflight(environment map[string]string) error {
 	if username != "" && !hasPlaceholderPrefix(strings.ToLower(username)) && len(username) > 50 {
 		return errors.New("ADMIN_USERNAME must contain at most 50 characters")
 	}
-	if password != "" && !hasPlaceholderPrefix(strings.ToLower(password)) && len(password) < 8 {
-		return errors.New("ADMIN_PASSWORD must contain at least 8 characters")
+	if password != "" && !hasPlaceholderPrefix(strings.ToLower(password)) {
+		if err := passwordpolicy.Validate("ADMIN_PASSWORD", password, 8); err != nil {
+			return err
+		}
 	}
 	return nil
 }

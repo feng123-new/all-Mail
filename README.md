@@ -162,7 +162,7 @@ Local `go-business-api` also requires `REDIS_URL`, `JWT_SECRET_FILE`, and `ENCRY
 
 ## Upgrade, restore, and rollback
 
-Before an upgrade, back up PostgreSQL, `.env`, `runtime_secrets_data`, `forwarding_runtime_data`, and `go_business_runtime_data`. Stop the old revision before starting the new one, then run the same startup helper:
+Before an upgrade, back up PostgreSQL, `.env`, `runtime_secrets_data`, `forwarding_runtime_data`, `go_business_runtime_data`, and `database_runtime_data``. Stop the old revision before starting the new one, then run the same startup helper:
 
 ```bash
 git switch <target-tag-or-commit>

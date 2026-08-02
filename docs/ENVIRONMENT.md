@@ -33,7 +33,7 @@ It must not receive database, Redis, JWT, encryption, OAuth, ingress-signing, pr
 Internal Compose values include:
 
 ```text
-DATABASE_URL=postgresql://...
+DATABASE_URL_FILE=/var/lib/all-mail-database/api-url
 REDIS_URL=redis://redis:6379
 REDIS_PASSWORD_FILE=/var/lib/all-mail-redis/redis-password
 JWT_SECRET_FILE=/var/lib/all-mail-secrets/jwt-secret
@@ -41,13 +41,14 @@ ENCRYPTION_KEY_FILE=/var/lib/all-mail-encryption/encryption-key
 BOOTSTRAP_ADMIN_SECRET_FILE=/var/lib/all-mail/bootstrap-admin.env
 ```
 
-The loader injects the file-backed Redis password into the in-memory client URL. Production refuses to start without `REDIS_PASSWORD_FILE`.
+The loader reads the generated `allmail_api` URL from `DATABASE_URL_FILE` and injects the file-backed Redis password into the in-memory client URL. Production refuses to start without either file.
 
 ### `worker-forwarding`
 
-Receives PostgreSQL, provider egress, forwarding policy, and:
+Receives provider egress, forwarding policy, and read-only files for:
 
 ```text
+DATABASE_URL_FILE=/var/lib/all-mail-database/forwarding-url
 ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
 ```
 
@@ -55,7 +56,7 @@ It receives no JWT or Redis credential.
 
 ### `worker-retention`
 
-Receives PostgreSQL and retention policy only. It receives no application secret volume.
+Receives retention policy and `DATABASE_URL_FILE=/var/lib/all-mail-database/retention-url`. It receives no JWT, encryption, Redis, provider, or database-owner credential.
 
 ### Temporary initializer
 
@@ -66,9 +67,20 @@ Receives PostgreSQL and retention policy only. It receives no application secret
 - import compatibility configuration;
 - create the first administrator;
 - migrate the one-time bootstrap credential;
-- export least-privilege secret files.
+- provision and reconcile least-privilege PostgreSQL login roles;
+- export least-privilege secret and database URL files.
 
 Long-running processes never generate keys or migrate schema.
+
+## Runtime database identities
+
+`POSTGRES_USER` and `POSTGRES_PASSWORD` are schema-owner inputs used only by PostgreSQL and the temporary initializer. After schema migration the initializer idempotently reconciles three non-owner login roles:
+
+- `allmail_api`: application-table CRUD and sequence use, without schema creation;
+- `allmail_forwarding`: forwarding queue and inbound-message state plus the mailbox/domain configuration reads required for delivery;
+- `allmail_retention`: read/delete access to `api_logs` only.
+
+Stale runtime grants are revoked before the canonical policy is reapplied. Long-running services receive a read-only `DATABASE_URL_FILE`; they never receive the owner URL or `POSTGRES_PASSWORD`.
 
 ## Durable secret volumes
 
@@ -87,6 +99,9 @@ Initializer-only master file:
   JWT_SECRET
   ENCRYPTION_KEY
   REDIS_PASSWORD
+  DATABASE_API_PASSWORD
+  DATABASE_FORWARDING_PASSWORD
+  DATABASE_RETENTION_PASSWORD
 ```
 
 No long-running service mounts this volume.
@@ -125,6 +140,16 @@ redis-password
 ```
 
 Read-only in `go-business-api` and `redis`. The Redis process starts with `requirepass`, and health checks authenticate using the file.
+
+### `database_runtime_data`
+
+```text
+api-url
+forwarding-url
+retention-url
+```
+
+Each file contains the matching generated role URL and is mounted read-only only into its intended long-running service.
 
 ## Network ownership
 

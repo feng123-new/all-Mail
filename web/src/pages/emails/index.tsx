@@ -1068,9 +1068,9 @@ interface OAuthAuthorizationStatusResult {
 }
 
 const DEFAULT_GOOGLE_OAUTH_SCOPES =
-	"openid email profile https://www.googleapis.com/auth/gmail.modify https://mail.google.com/";
+	"openid email profile https://www.googleapis.com/auth/gmail.readonly";
 const DEFAULT_OUTLOOK_OAUTH_SCOPES =
-	"offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/MailboxSettings.ReadWrite";
+	"offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.Read";
 const DEFAULT_OUTLOOK_OAUTH_TENANT = "consumers";
 
 const EMPTY_OAUTH_PROVIDER_STATUS: OAuthProviderStatus = {

@@ -139,9 +139,13 @@ func LoadForwarding() (ForwardingConfig, error) {
 	if err != nil {
 		return ForwardingConfig{}, err
 	}
+	databaseURL, err := loadRuntimeDatabaseURL("the forwarding worker")
+	if err != nil {
+		return ForwardingConfig{}, err
+	}
 	cfg := ForwardingConfig{
 		StateDir:          env("ALL_MAIL_STATE_DIR", "/var/lib/all-mail"),
-		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		DatabaseURL:       databaseURL,
 		EncryptionKey:     encryptionKey,
 		Interval:          time.Duration(intervalSeconds) * time.Second,
 		RunTimeout:        time.Duration(runTimeoutSeconds) * time.Second,
@@ -228,9 +232,13 @@ func LoadRetention() (RetentionConfig, error) {
 	if err != nil {
 		return RetentionConfig{}, err
 	}
+	databaseURL, err := loadRuntimeDatabaseURL("the retention worker")
+	if err != nil {
+		return RetentionConfig{}, err
+	}
 	cfg := RetentionConfig{
 		StateDir:          env("ALL_MAIL_STATE_DIR", "/var/lib/all-mail"),
-		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		DatabaseURL:       databaseURL,
 		RetentionDays:     retentionDays,
 		Interval:          time.Duration(intervalMinutes) * time.Minute,
 		Retry:             time.Duration(retrySeconds) * time.Second,

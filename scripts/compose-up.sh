@@ -35,12 +35,13 @@ for name in (
     "forwarding_runtime_data",
     "go_business_runtime_data",
     "redis_runtime_data",
+    "database_runtime_data",
 ):
     print(model["volumes"][name]["name"])
 '
 )
 
-if [[ "${#volumes[@]}" -ne 5 ]]; then
+if [[ "${#volumes[@]}" -ne 6 ]]; then
   printf 'failed to resolve Compose volume names\n' >&2
   exit 1
 fi
@@ -69,11 +70,15 @@ done
   -e ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE=/var/lib/all-mail-forwarding/encryption-key \
   -e ALL_MAIL_EXPORT_JWT_SECRET_FILE=/var/lib/all-mail-go-business/jwt-secret \
   -e ALL_MAIL_EXPORT_REDIS_PASSWORD_FILE=/var/lib/all-mail-redis/redis-password \
+  -e ALL_MAIL_EXPORT_API_DATABASE_URL_FILE=/var/lib/all-mail-database/api-url \
+  -e ALL_MAIL_EXPORT_FORWARDING_DATABASE_URL_FILE=/var/lib/all-mail-database/forwarding-url \
+  -e ALL_MAIL_EXPORT_RETENTION_DATABASE_URL_FILE=/var/lib/all-mail-database/retention-url \
   -v "${volumes[0]}:/var/lib/all-mail-state" \
   -v "${volumes[1]}:/var/lib/all-mail" \
   -v "${volumes[2]}:/var/lib/all-mail-forwarding" \
   -v "${volumes[3]}:/var/lib/all-mail-go-business" \
   -v "${volumes[4]}:/var/lib/all-mail-redis" \
+  -v "${volumes[5]}:/var/lib/all-mail-database" \
   app init
 
 "${compose[@]}" up -d --wait --wait-timeout "$wait_timeout"

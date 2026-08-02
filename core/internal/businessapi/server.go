@@ -186,7 +186,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerOAuthRoutes(mux)
 	s.registerSendRoutes(mux)
 	mux.HandleFunc("/", s.notFound)
-	return s.withRequestMetadata(mux)
+	return s.withRequestMetadata(s.withBrowserOriginProtection(mux))
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {

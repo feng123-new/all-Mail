@@ -18,13 +18,16 @@ import (
 )
 
 type Config struct {
-	Migration               config.MigrationConfig
-	StateDir                string
-	BootstrapAdminFile      string
-	EncryptionKeyExportFile string
-	JWTSecretExportFile     string
-	RedisPasswordExportFile string
-	Environment             map[string]string
+	Migration                       config.MigrationConfig
+	StateDir                        string
+	BootstrapAdminFile              string
+	EncryptionKeyExportFile         string
+	JWTSecretExportFile             string
+	RedisPasswordExportFile         string
+	APIDatabaseURLExportFile        string
+	ForwardingDatabaseURLExportFile string
+	RetentionDatabaseURLExportFile  string
+	Environment                     map[string]string
 }
 
 func LoadConfig() (Config, error) {
@@ -41,13 +44,16 @@ func LoadConfig() (Config, error) {
 		bootstrapFile = stateDir + "/bootstrap-admin.env"
 	}
 	return Config{
-		Migration:               migrationConfig,
-		StateDir:                stateDir,
-		BootstrapAdminFile:      bootstrapFile,
-		EncryptionKeyExportFile: strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE")),
-		JWTSecretExportFile:     strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_JWT_SECRET_FILE")),
-		RedisPasswordExportFile: strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_REDIS_PASSWORD_FILE")),
-		Environment:             currentEnvironment(),
+		Migration:                       migrationConfig,
+		StateDir:                        stateDir,
+		BootstrapAdminFile:              bootstrapFile,
+		EncryptionKeyExportFile:         strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE")),
+		JWTSecretExportFile:             strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_JWT_SECRET_FILE")),
+		RedisPasswordExportFile:         strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_REDIS_PASSWORD_FILE")),
+		APIDatabaseURLExportFile:        strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_API_DATABASE_URL_FILE")),
+		ForwardingDatabaseURLExportFile: strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_FORWARDING_DATABASE_URL_FILE")),
+		RetentionDatabaseURLExportFile:  strings.TrimSpace(os.Getenv("ALL_MAIL_EXPORT_RETENTION_DATABASE_URL_FILE")),
+		Environment:                     currentEnvironment(),
 	}, nil
 }
 
@@ -126,6 +132,13 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 			}
 		}
 		if err := SchemaOnly(ctx, cfg.Migration, logger); err != nil {
+			return err
+		}
+		if err := ProvisionRuntimeDatabaseRoles(ctx, cfg.Migration.DatabaseURL, state, RuntimeDatabaseExports{
+			API:        cfg.APIDatabaseURLExportFile,
+			Forwarding: cfg.ForwardingDatabaseURLExportFile,
+			Retention:  cfg.RetentionDatabaseURLExportFile,
+		}); err != nil {
 			return err
 		}
 		verifiedBefore, err := VerifyCiphertexts(ctx, cfg.Migration.DatabaseURL, state.EncryptionKey)

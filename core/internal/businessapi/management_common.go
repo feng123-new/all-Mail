@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/feng123-new/all-Mail/core/internal/passwordpolicy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
@@ -35,8 +35,8 @@ func (s *Server) managementStore() (*PostgresStore, error) {
 }
 
 func hashManagementPassword(password string) (string, error) {
-	if utf8.RuneCountInString(password) < 8 || utf8.RuneCountInString(password) > 1024 {
-		return "", validationError("password must contain between 8 and 1024 characters")
+	if err := passwordpolicy.Validate("password", password, 8); err != nil {
+		return "", validationError(err.Error())
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/feng123-new/all-Mail/core/internal/passwordpolicy"
 	"github.com/feng123-new/all-Mail/core/internal/secretstate"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -163,8 +164,11 @@ func resolveAdminCredential(fileEntries, environment map[string]string) (adminCr
 	if len(username) < 1 || len(username) > 50 || strings.ContainsAny(username, "\r\n") {
 		return adminCredential{}, errors.New("ADMIN_USERNAME must contain between 1 and 50 characters without line breaks")
 	}
-	if len(password) < 8 || strings.ContainsAny(password, "\r\n") {
-		return adminCredential{}, errors.New("ADMIN_PASSWORD must contain at least 8 characters without line breaks")
+	if strings.ContainsAny(password, "\r\n") {
+		return adminCredential{}, errors.New("ADMIN_PASSWORD must not contain line breaks")
+	}
+	if err := passwordpolicy.Validate("ADMIN_PASSWORD", password, 8); err != nil {
+		return adminCredential{}, err
 	}
 	return adminCredential{Username: username, Password: password}, nil
 }

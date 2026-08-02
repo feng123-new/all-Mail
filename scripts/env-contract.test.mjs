@@ -47,7 +47,8 @@ test('production Compose contains only Go runtimes and private state services', 
   assert.match(app, /GO_BUSINESS_API_URL: http:\/\/go-business-api:3200/);
 
   const business = serviceSection(compose, 'go-business-api', 'worker-forwarding');
-  assert.match(business, /DATABASE_URL:[\s\S]*REDIS_URL: redis:\/\/redis:6379/);
+  assert.match(business, /DATABASE_URL_FILE: \/var\/lib\/all-mail-database\/api-url[\s\S]*REDIS_URL: redis:\/\/redis:6379/);
+  assert.doesNotMatch(business, /\n\s+DATABASE_URL:/);
   assert.match(business, /JWT_SECRET_FILE: \/var\/lib\/all-mail-secrets\/jwt-secret/);
   assert.match(business, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-encryption\/encryption-key/);
   assert.doesNotMatch(business, /\n\s+JWT_SECRET:|\n\s+ENCRYPTION_KEY:/);
@@ -67,6 +68,9 @@ test('temporary initialization is outside the declared Compose service graph', a
   assert.match(script, /app init/);
   assert.match(script, /ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE/);
   assert.match(script, /ALL_MAIL_EXPORT_JWT_SECRET_FILE/);
+  assert.match(script, /ALL_MAIL_EXPORT_API_DATABASE_URL_FILE/);
+  assert.match(script, /ALL_MAIL_EXPORT_FORWARDING_DATABASE_URL_FILE/);
+  assert.match(script, /ALL_MAIL_EXPORT_RETENTION_DATABASE_URL_FILE/);
 });
 
 test('CI runs every PostgreSQL business API integration suite', async () => {

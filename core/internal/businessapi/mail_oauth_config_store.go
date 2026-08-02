@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/feng123-new/all-Mail/core/internal/legacycrypto"
+	"github.com/feng123-new/all-Mail/core/internal/oauthscope"
 )
 
 type oauthProviderConfig struct {
@@ -26,6 +27,7 @@ type oauthProviderConfigSummary struct {
 	ClientID        *string `json:"clientId"`
 	RedirectURI     *string `json:"redirectUri"`
 	Scopes          *string `json:"scopes"`
+	ScopeProfile    string  `json:"scopeProfile"`
 	Tenant          *string `json:"tenant"`
 	HasClientSecret bool    `json:"hasClientSecret"`
 }
@@ -53,16 +55,24 @@ type oauthProviderConfigRow struct {
 }
 
 func oauthConfigSummary(row oauthProviderConfigRow, found bool) oauthProviderConfigSummary {
+	normalizedScopes, profile, scopeErr := oauthscope.Normalize(row.Provider, row.Scopes.String)
 	if !found {
-		return oauthProviderConfigSummary{Provider: row.Provider, Source: "none"}
+		normalizedScopes, _ = oauthscope.Canonical(row.Provider, oauthscope.Minimal)
+		profile = oauthscope.Minimal
+		return oauthProviderConfigSummary{Provider: row.Provider, Source: "none", Scopes: &normalizedScopes, ScopeProfile: string(profile)}
+	}
+	var scopes *string
+	if scopeErr == nil {
+		scopes = &normalizedScopes
 	}
 	return oauthProviderConfigSummary{
 		Provider:        row.Provider,
-		Configured:      row.ClientID.Valid && strings.TrimSpace(row.ClientID.String) != "" && row.EncryptedClientSecret.Valid && strings.TrimSpace(row.EncryptedClientSecret.String) != "" && row.RedirectURI.Valid && strings.TrimSpace(row.RedirectURI.String) != "",
+		Configured:      scopeErr == nil && row.ClientID.Valid && strings.TrimSpace(row.ClientID.String) != "" && row.EncryptedClientSecret.Valid && strings.TrimSpace(row.EncryptedClientSecret.String) != "" && row.RedirectURI.Valid && strings.TrimSpace(row.RedirectURI.String) != "",
 		Source:          "database",
 		ClientID:        nullableStringValue(row.ClientID),
 		RedirectURI:     nullableStringValue(row.RedirectURI),
-		Scopes:          nullableStringValue(row.Scopes),
+		Scopes:          scopes,
+		ScopeProfile:    string(profile),
 		Tenant:          nullableStringValue(row.Tenant),
 		HasClientSecret: row.EncryptedClientSecret.Valid && strings.TrimSpace(row.EncryptedClientSecret.String) != "",
 	}
@@ -165,11 +175,15 @@ func (s *PostgresStore) loadOAuthProviderRefreshConfig(ctx context.Context, prov
 	if err != nil || !found {
 		return oauthProviderConfig{Provider: provider}, found, err
 	}
+	normalizedScopes, _, scopeErr := oauthscope.Normalize(row.Provider, row.Scopes.String)
+	if scopeErr != nil {
+		return oauthProviderConfig{}, false, &requestError{Status: http.StatusServiceUnavailable, Code: "OAUTH_SCOPE_POLICY_INVALID", Cause: scopeErr}
+	}
 	config := oauthProviderConfig{
 		Provider:    row.Provider,
 		ClientID:    strings.TrimSpace(row.ClientID.String),
 		RedirectURI: strings.TrimSpace(row.RedirectURI.String),
-		Scopes:      strings.TrimSpace(row.Scopes.String),
+		Scopes:      normalizedScopes,
 		Tenant:      strings.TrimSpace(row.Tenant.String),
 	}
 	if row.EncryptedClientSecret.Valid && strings.TrimSpace(row.EncryptedClientSecret.String) != "" {

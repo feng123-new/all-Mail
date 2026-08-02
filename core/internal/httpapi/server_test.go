@@ -152,6 +152,22 @@ func TestReadinessUsesGoBusinessProbe(t *testing.T) {
 	}
 }
 
+func TestGatewaySetsClickjackingAndCSPHeaders(t *testing.T) {
+	server := mustGateway(t, config.APIConfig{
+		StaticDir:       writeStaticIndex(t),
+		ReadyTimeout:    time.Second,
+		ShutdownTimeout: time.Second,
+	}, "")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+	if response.Header().Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("X-Frame-Options = %q", response.Header().Get("X-Frame-Options"))
+	}
+	if csp := response.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "frame-ancestors 'none'") || !strings.Contains(csp, "form-action 'self'") {
+		t.Fatalf("Content-Security-Policy = %q", csp)
+	}
+}
+
 func TestInvalidIncomingRequestIDIsReplaced(t *testing.T) {
 	server := mustGateway(t, config.APIConfig{
 		StaticDir:       writeStaticIndex(t),

@@ -159,3 +159,7 @@ curl -X POST http://127.0.0.1:3002/admin/emails/12/send \
 - 所有真实邮箱地址、账号 ID、生产域名都不要写进公开文档
 - 验证示例统一使用 `recipient@example.com` 这类占位地址
 - 如果你需要记录自己环境里的验证结果，建议保存在私有 runbook，而不是公开仓库
+
+## OAuth permission profiles
+
+The management API accepts four canonical profiles: `minimal` (identity plus read), `send` (read plus send), `manage` (mail modification plus send), and `full` (provider-wide or optional extension permissions). New Gmail and Microsoft configurations default to `minimal`. Pasted Google client-secret JSON is parsed in memory; server filesystem paths are intentionally unsupported.

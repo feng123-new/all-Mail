@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/feng123-new/all-Mail/core/internal/passwordpolicy"
 )
 
 const (
@@ -22,14 +24,17 @@ const (
 var placeholderPrefixes = []string{"replace-with-", "changeme-", "example-"}
 
 type State struct {
-	StateDir           string
-	RuntimeSecretsFile string
-	BootstrapAdminFile string
-	LegacySecretsFile  string
-	JWTSecret          string
-	EncryptionKey      string
-	RedisPassword      string
-	CreatedKeys        []string
+	StateDir                   string
+	RuntimeSecretsFile         string
+	BootstrapAdminFile         string
+	LegacySecretsFile          string
+	JWTSecret                  string
+	EncryptionKey              string
+	RedisPassword              string
+	DatabaseAPIPassword        string
+	DatabaseForwardingPassword string
+	DatabaseRetentionPassword  string
+	CreatedKeys                []string
 }
 
 func WithLock(stateDir string, timeout time.Duration, run func() error) error {
@@ -106,8 +111,15 @@ func Resolve(stateDir string, environment map[string]string, allowGenerate bool)
 			persisted[key] = legacyValue
 		}
 	}
-	if value := strings.TrimSpace(existingRuntime["REDIS_PASSWORD"]); !isMissing(value) {
-		persisted["REDIS_PASSWORD"] = value
+	for _, key := range []string{
+		"REDIS_PASSWORD",
+		"DATABASE_API_PASSWORD",
+		"DATABASE_FORWARDING_PASSWORD",
+		"DATABASE_RETENTION_PASSWORD",
+	} {
+		if value := strings.TrimSpace(existingRuntime[key]); !isMissing(value) {
+			persisted[key] = value
+		}
 	}
 
 	resolve := func(key string, canGenerate bool, generate func() (string, error)) (string, error) {
@@ -154,7 +166,39 @@ func Resolve(stateDir string, environment map[string]string, allowGenerate bool)
 		persisted["REDIS_PASSWORD"] = state.RedisPassword
 		state.CreatedKeys = append(state.CreatedKeys, "REDIS_PASSWORD")
 	}
-	if err := validateRuntimeSecrets(state.JWTSecret, state.EncryptionKey, state.RedisPassword); err != nil {
+	resolvePostCutoverSecret := func(key string) (string, error) {
+		value := strings.TrimSpace(persisted[key])
+		if !isMissing(value) {
+			return value, nil
+		}
+		value, err := randomHex(32)
+		if err != nil {
+			return "", err
+		}
+		persisted[key] = value
+		state.CreatedKeys = append(state.CreatedKeys, key)
+		return value, nil
+	}
+	state.DatabaseAPIPassword, err = resolvePostCutoverSecret("DATABASE_API_PASSWORD")
+	if err != nil {
+		return State{}, err
+	}
+	state.DatabaseForwardingPassword, err = resolvePostCutoverSecret("DATABASE_FORWARDING_PASSWORD")
+	if err != nil {
+		return State{}, err
+	}
+	state.DatabaseRetentionPassword, err = resolvePostCutoverSecret("DATABASE_RETENTION_PASSWORD")
+	if err != nil {
+		return State{}, err
+	}
+	if err := validateRuntimeSecrets(
+		state.JWTSecret,
+		state.EncryptionKey,
+		state.RedisPassword,
+		state.DatabaseAPIPassword,
+		state.DatabaseForwardingPassword,
+		state.DatabaseRetentionPassword,
+	); err != nil {
 		return State{}, err
 	}
 	if err := WriteEnvFile(state.RuntimeSecretsFile, "Auto-generated all-Mail runtime secrets", persisted); err != nil {
@@ -243,7 +287,11 @@ func ParseEnvText(content string) map[string]string {
 }
 
 func WriteEnvFile(path, title string, entries map[string]string) error {
-	keys := []string{"JWT_SECRET", "ENCRYPTION_KEY", "REDIS_PASSWORD", "ADMIN_USERNAME", "ADMIN_PASSWORD"}
+	keys := []string{
+		"JWT_SECRET", "ENCRYPTION_KEY", "REDIS_PASSWORD",
+		"DATABASE_API_PASSWORD", "DATABASE_FORWARDING_PASSWORD", "DATABASE_RETENTION_PASSWORD",
+		"ADMIN_USERNAME", "ADMIN_PASSWORD",
+	}
 	var content strings.Builder
 	fmt.Fprintf(&content, "# %s\n", title)
 	content.WriteString("# Keep this file private and preserve it with the matching database backup.\n")
@@ -337,7 +385,7 @@ func syncDirectory(path string) error {
 	return nil
 }
 
-func validateRuntimeSecrets(jwtSecret, encryptionKey, redisPassword string) error {
+func validateRuntimeSecrets(jwtSecret, encryptionKey, redisPassword, apiDatabasePassword, forwardingDatabasePassword, retentionDatabasePassword string) error {
 	if len(strings.TrimSpace(jwtSecret)) < 32 || isMissing(jwtSecret) {
 		return errors.New("JWT_SECRET must contain at least 32 non-placeholder characters")
 	}
@@ -346,6 +394,15 @@ func validateRuntimeSecrets(jwtSecret, encryptionKey, redisPassword string) erro
 	}
 	if len(strings.TrimSpace(redisPassword)) < 32 || isMissing(redisPassword) {
 		return errors.New("REDIS_PASSWORD must contain at least 32 non-placeholder characters")
+	}
+	for name, value := range map[string]string{
+		"DATABASE_API_PASSWORD":        apiDatabasePassword,
+		"DATABASE_FORWARDING_PASSWORD": forwardingDatabasePassword,
+		"DATABASE_RETENTION_PASSWORD":  retentionDatabasePassword,
+	} {
+		if len(strings.TrimSpace(value)) < 32 || isMissing(value) {
+			return fmt.Errorf("%s must contain at least 32 non-placeholder characters", name)
+		}
 	}
 	return nil
 }
@@ -366,8 +423,10 @@ func validateAdminEnvironment(environment map[string]string) error {
 	if !isMissing(username) && len(username) > 50 {
 		return errors.New("ADMIN_USERNAME must contain at most 50 characters")
 	}
-	if !isMissing(password) && len(password) < 8 {
-		return errors.New("ADMIN_PASSWORD must contain at least 8 characters")
+	if !isMissing(password) {
+		if err := passwordpolicy.Validate("ADMIN_PASSWORD", password, 8); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -56,6 +56,9 @@ test('long-running services receive isolated secret exports only', async () => {
   assert.match(business, /go_business_runtime_data:\/var\/lib\/all-mail-secrets:ro/);
   assert.match(business, /forwarding_runtime_data:\/var\/lib\/all-mail-encryption:ro/);
   assert.match(business, /redis_runtime_data:\/var\/lib\/all-mail-redis:ro/);
+  assert.match(business, /database_runtime_data:\/var\/lib\/all-mail-database:ro/);
+  assert.match(business, /DATABASE_URL_FILE: \/var\/lib\/all-mail-database\/api-url/);
+  assert.doesNotMatch(business, /\n\s+DATABASE_URL:/);
   assert.doesNotMatch(business, /runtime_secrets_data/);
   assert.match(business, /REDIS_PASSWORD_FILE: \/var\/lib\/all-mail-redis\/redis-password/);
 
@@ -63,6 +66,8 @@ test('long-running services receive isolated secret exports only', async () => {
   assert.match(initializer, /ALL_MAIL_EXPORT_REDIS_PASSWORD_FILE=\/var\/lib\/all-mail-redis\/redis-password/);
   assert.match(initializer, /bootstrap_admin_data/);
   assert.match(initializer, /redis_runtime_data/);
+  assert.match(initializer, /database_runtime_data/);
+  assert.match(initializer, /ALL_MAIL_EXPORT_API_DATABASE_URL_FILE/);
 });
 
 test('legacy master state stays preserved without a long-running service mount', async () => {

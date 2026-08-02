@@ -99,10 +99,14 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	if err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
+	databaseURL, err := loadRuntimeDatabaseURL("the Go business API")
+	if err != nil {
+		return GoBusinessAPIConfig{}, err
+	}
 
 	cfg := GoBusinessAPIConfig{
 		Port:                   port,
-		DatabaseURL:            strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		DatabaseURL:            databaseURL,
 		RedisURL:               redisURL,
 		JWTSecret:              jwtSecret,
 		EncryptionKey:          encryptionKey,
@@ -120,9 +124,6 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return GoBusinessAPIConfig{}, errors.New("PORT must be between 1 and 65535")
-	}
-	if cfg.DatabaseURL == "" {
-		return GoBusinessAPIConfig{}, errors.New("DATABASE_URL is required for the Go business API")
 	}
 	if cfg.RedisURL == "" {
 		return GoBusinessAPIConfig{}, errors.New("REDIS_URL is required for the Go business API")

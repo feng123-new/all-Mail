@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/feng123-new/all-Mail/core/internal/legacycrypto"
+	"github.com/feng123-new/all-Mail/core/internal/passwordpolicy"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -202,8 +202,8 @@ func (s *Server) adminChangePassword(w http.ResponseWriter, r *http.Request, ide
 		s.writeRequestError(w, r, validationError("oldPassword is required"))
 		return
 	}
-	if utf8.RuneCountInString(body.NewPassword) < 8 {
-		s.writeRequestError(w, r, validationError("newPassword must contain at least 8 characters"))
+	if err := passwordpolicy.Validate("newPassword", body.NewPassword, 8); err != nil {
+		s.writeRequestError(w, r, validationError(err.Error()))
 		return
 	}
 	admin, ok := s.loadAuthenticationAdmin(w, r, identity.ID, identity.SessionVersion)

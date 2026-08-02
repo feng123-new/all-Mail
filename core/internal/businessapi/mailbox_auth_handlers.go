@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/feng123-new/all-Mail/core/internal/legacycrypto"
+	"github.com/feng123-new/all-Mail/core/internal/passwordpolicy"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -189,8 +189,8 @@ func (s *Server) mailboxChangePassword(w http.ResponseWriter, r *http.Request, i
 		s.writeRequestError(w, r, validationError("oldPassword is required"))
 		return
 	}
-	if utf8.RuneCountInString(body.NewPassword) < 8 {
-		s.writeRequestError(w, r, validationError("newPassword must contain at least 8 characters"))
+	if err := passwordpolicy.Validate("newPassword", body.NewPassword, 8); err != nil {
+		s.writeRequestError(w, r, validationError(err.Error()))
 		return
 	}
 	if bcrypt.CompareHashAndPassword([]byte(identity.PasswordHash), []byte(body.OldPassword)) != nil {

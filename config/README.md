@@ -22,3 +22,5 @@ Node.js 24 LTS is the Web and Cloudflare Worker build-tool baseline; it is not p
 The Go image override variables are internal Compose inputs. Retired legacy API aliases remain rejected.
 
 Production startup uses `./scripts/compose-up.sh`, which runs the `init` scope in a temporary `app init` container before starting the six long-running Compose services. There is no initializer service or alternate production API image.
+
+Runtime database ownership is file-backed: the initializer exports independent API, forwarding, and retention URLs to `database_runtime_data`. The owner `POSTGRES_PASSWORD` remains an initializer-only operator input.
