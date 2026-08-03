@@ -25,6 +25,9 @@ func TestProviderProxyInputNormalizationAndTransport(t *testing.T) {
 		{socks5: "http://not-socks.example.test:1080"},
 		{http: "socks5://not-http.example.test:8080"},
 		{http: "relative-proxy"},
+		{socks5: "127.0.0.1:1080"},
+		{http: "http://169.254.169.254:80"},
+		{http: "http://[::1]:8080"},
 	} {
 		if _, err := normalizeProviderProxyConfig(fixture.socks5, fixture.http); err == nil {
 			t.Fatalf("accepted invalid proxy config %#v", fixture)

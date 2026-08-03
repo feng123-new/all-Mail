@@ -18,6 +18,7 @@ Use a restricted directory, encrypt backups at rest, and never attach backup arc
 | `redis_runtime_data` | Yes | Redis-password export |
 | `database_runtime_data` | Yes | API, forwarding, and retention database URL exports |
 | `redis_data` | Recommended | OAuth state, replay protection, lockouts, rate-limit continuity, append-only persistence |
+| Cloudflare R2 raw-message bucket | Required when raw persistence is enabled and raw `.eml` recovery matters | Full RFC 822 messages referenced by `inbound_messages.raw_object_key`; this state is outside Docker volumes |
 | `postgres_data` | Not in the canonical online backup | Use the logical dump; a cold physical copy is optional only with PostgreSQL fully stopped |
 
 ## Backup preparation
@@ -102,6 +103,22 @@ done < "$backup_dir/volumes.txt"
 
 For the most consistent Redis archive, pause writes briefly or stop the application services before archiving `redis_data`. PostgreSQL consistency comes from `pg_dump`; do not copy a live `postgres_data` directory as the primary backup.
 
+## Cloudflare R2 raw-message backup
+
+When the Worker has `RAW_EMAIL_BUCKET` bound, PostgreSQL stores object keys while R2 stores the complete `.eml`. A database and Docker-volume backup alone therefore does **not** guarantee raw-message recovery.
+
+Use an R2 S3 API credential restricted to the selected bucket and an encrypted backup destination. One example with an S3-compatible client is:
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID=<account-id>
+export R2_BUCKET=mail-eml
+mkdir -p "$backup_dir/r2/$R2_BUCKET"
+aws s3 sync           "s3://$R2_BUCKET" "$backup_dir/r2/$R2_BUCKET"           --endpoint-url "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+find "$backup_dir/r2/$R2_BUCKET" -type f -print0           | sort -z           | xargs -0 sha256sum > "$backup_dir/r2-$R2_BUCKET.SHA256SUMS"
+```
+
+Keep R2 access keys outside the backup directory. Configure an explicit bucket lifecycle in Cloudflare for the retention period required by your privacy and recovery policy; an unbounded bucket is not a retention policy. If raw `.eml` objects are intentionally disposable, record that decision in the backup manifest and expect restored records to retain previews and metadata without a recoverable raw object.
+
 ## Checksums and backup acceptance
 
 ```bash
@@ -120,7 +137,8 @@ A backup is accepted only when:
 - every expected volume archive exists and is non-empty;
 - checksums pass;
 - `revision.txt`, `tag.txt`, `.env`, and the resolved Compose model are present;
-- a restore rehearsal has succeeded recently on isolated infrastructure.
+- a restore rehearsal has succeeded recently on isolated infrastructure;
+- when R2 raw persistence is in scope, the bucket export and its object checksums are present and verified.
 
 ## In-place restore
 
@@ -191,6 +209,19 @@ docker compose exec -T postgres \
 
 The initializer validates migration history, reuses the restored master secrets, recreates read-only exports when necessary, and reconciles runtime database roles.
 
+### 6. Restore the R2 raw-message bucket when it is in scope
+
+Restore to the bucket bound by the matching Worker revision before reconnecting real Email Routing:
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID=<account-id>
+export R2_BUCKET=mail-eml
+sha256sum --check "$backup_dir/r2-$R2_BUCKET.SHA256SUMS"
+aws s3 sync           "$backup_dir/r2/$R2_BUCKET" "s3://$R2_BUCKET"           --endpoint-url "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+```
+
+Sample several restored `raw_object_key` values from PostgreSQL and confirm the corresponding R2 objects exist. Do not reconnect production ingress until the database revision, encryption state, Worker binding, and bucket contents agree.
+
 ## Restore verification
 
 ```bash
@@ -212,7 +243,7 @@ Then verify with synthetic data:
 - mailbox portal login;
 - decryption of an existing provider credential;
 - provider mailbox read;
-- signed ingress and persisted message retrieval;
+- signed ingress, persisted message retrieval, and raw R2 object retrieval when configured;
 - forwarding and outbound sending;
 - API-key permission enforcement;
 - retention worker health.

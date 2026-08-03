@@ -2,7 +2,7 @@
 
 `all-Mail` is a self-hosted email control plane for external provider mailboxes, domain mailboxes, signed inbound mail, outbound sending, mailbox portals, and automation APIs.
 
-**v2.0.0 is the first stable Go-only release.** Go owns the public gateway, private business API, schema initialization, migrations, authentication, provider operations, forwarding, retention, health/readiness, and runtime doctors. React is compiled into the shared runtime image; Node.js is a build tool only.
+**v2.0.1 is the current stable Go-only release; v2.0.0 was the first stable Go-only release.** Go owns the public gateway, private business API, schema initialization, migrations, authentication, provider operations, forwarding, retention, health/readiness, and runtime doctors. React is compiled into the shared runtime image; Node.js is a build tool only.
 
 > **License:** this repository is source-available under the custom all-Mail Non-Commercial License in [`LICENSE`](./LICENSE). It is not distributed under an OSI-approved open-source license. Commercial deployment, resale, hosted service, or paid-support use requires prior written permission.
 
@@ -39,11 +39,11 @@ flowchart TD
 
 Only `app` is host-published. It has no PostgreSQL, Redis, JWT, encryption, OAuth, ingress, provider, bootstrap, or database-role credential.
 
-## Quick start from `v2.0.0`
+## Quick start from `v2.0.1`
 
 ```bash
 git fetch --tags --prune
-git switch --detach v2.0.0
+git switch --detach v2.0.1
 cp .env.example .env
 openssl rand -hex 24
 ```
@@ -61,7 +61,7 @@ Place the generated value in `POSTGRES_PASSWORD`, review the remaining operator 
 ```bash
 ALL_MAIL_USE_PUBLISHED_IMAGE=1 \
 ALL_MAIL_GO_IMAGE=ghcr.io/feng123-new/all-mail \
-ALL_MAIL_IMAGE_TAG=2.0.0 \
+ALL_MAIL_IMAGE_TAG=2.0.1 \
 ./scripts/compose-up.sh
 ```
 
@@ -85,7 +85,7 @@ docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 ```
 
-Official `v2.0.0` processes report version `2.0.0`, the release commit, a UTC build timestamp, and Go 1.26.5.
+Official `v2.0.1` processes report version `2.0.1`, the release commit, a UTC build timestamp, and Go 1.26.5.
 
 ## First administrator login
 
@@ -101,10 +101,10 @@ After login, change the password and verify that `bootstrap-admin.env` was delet
 
 ## Release assets
 
-The `v2.0.0` GitHub Release contains checksummed Go binaries for Linux, macOS, and Windows. The release workflow also publishes:
+The `v2.0.1` GitHub Release contains checksummed Go binaries for Linux, macOS, and Windows. The release workflow also publishes:
 
 ```text
-ghcr.io/feng123-new/all-mail:2.0.0
+ghcr.io/feng123-new/all-mail:2.0.1
 ghcr.io/feng123-new/all-mail:2.0
 ghcr.io/feng123-new/all-mail:2
 ghcr.io/feng123-new/all-mail:latest

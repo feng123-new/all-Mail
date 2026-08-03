@@ -200,7 +200,7 @@ func (p imapSMTPProvider) Clear(ctx context.Context, account mailAccountCredenti
 	return providerDeleteResult{Email: account.Email, Mailbox: mailbox, ResolvedMailbox: folder, DeletedCount: int(selected.Messages), Message: "mailbox cleared", Method: "IMAP", Provider: account.Provider}, nil
 }
 
-func (imapSMTPProvider) Send(ctx context.Context, account mailAccountCredentials, input providerSendInput) (providerSendResult, error) {
+func (p imapSMTPProvider) Send(ctx context.Context, account mailAccountCredentials, input providerSendInput) (providerSendResult, error) {
 	config := account.ProviderConfig
 	if config.SMTPHost == "" || config.SMTPPort <= 0 {
 		return providerSendResult{}, providerFailure("SMTP_NOT_CONFIGURED", fmt.Errorf("SMTP host or port is missing"))
@@ -211,8 +211,7 @@ func (imapSMTPProvider) Send(ctx context.Context, account mailAccountCredentials
 	}
 	address := net.JoinHostPort(config.SMTPHost, strconv.Itoa(config.SMTPPort))
 	secure := config.SMTPSecure != nil && *config.SMTPSecure
-	dialer := &net.Dialer{Timeout: 20 * time.Second}
-	connection, err := dialer.DialContext(ctx, "tcp", address)
+	connection, err := p.server.dialProviderContext(ctx, "tcp", address)
 	if err != nil {
 		return providerSendResult{}, providerFailure("SMTP_CONNECT_FAILED", err)
 	}
@@ -287,8 +286,7 @@ func (p imapSMTPProvider) connectIMAP(ctx context.Context, account mailAccountCr
 		return nil, "", providerFailure("IMAP_NOT_CONFIGURED", fmt.Errorf("IMAP host or port is missing"))
 	}
 	address := net.JoinHostPort(config.IMAPHost, strconv.Itoa(config.IMAPPort))
-	dialer := &net.Dialer{Timeout: 20 * time.Second}
-	connection, err := dialer.DialContext(ctx, "tcp", address)
+	connection, err := p.server.dialProviderContext(ctx, "tcp", address)
 	if err != nil {
 		return nil, "", providerFailure("IMAP_CONNECT_FAILED", err)
 	}

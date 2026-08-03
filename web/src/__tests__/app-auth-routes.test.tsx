@@ -199,6 +199,19 @@ describe('App auth routing', () => {
     expect(await screen.findByText('Admin Shell Layout')).toBeInTheDocument();
   });
 
+  it('finishes mailbox bootstrap when the API returns a non-success envelope', async () => {
+    vi.mocked(portalAccountContract.getSession).mockResolvedValue({
+      code: 401,
+      data: { authenticated: false },
+      message: 'Unauthorized',
+    } as never);
+    window.history.pushState({}, '', '/mail/overview');
+
+    render(<App />);
+
+    expect(await screen.findByText('Mailbox Portal Login Page')).toBeInTheDocument();
+  });
+
   it('bootstraps the mailbox shell from the cookie-backed session endpoint', async () => {
     vi.mocked(portalAccountContract.getSession).mockResolvedValue({
       code: 200,
