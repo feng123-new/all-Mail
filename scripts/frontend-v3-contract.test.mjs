@@ -15,13 +15,14 @@ const frontendV3Components = [
 ];
 
 test('frontend v3 keeps cookie-first authentication and inbox-first portal routing', async () => {
-  const [app, adminLogin, portalLogin, apiCore, authStore, mailboxStore] = await Promise.all([
+  const [app, adminLogin, portalLogin, apiCore, authStore, mailboxStore, viteConfig] = await Promise.all([
     read('web/src/App.tsx'),
     read('web/src/pages/login/index.tsx'),
     read('web/src/pages/mail-portal/login/index.tsx'),
     read('web/src/api/core.ts'),
     read('web/src/stores/authStore.ts'),
     read('web/src/stores/mailboxAuthStore.ts'),
+    read('web/vite.config.ts'),
   ]);
 
   assert.ok(
@@ -37,6 +38,12 @@ test('frontend v3 keeps cookie-first authentication and inbox-first portal routi
     'the direct portal login must send normal portal users to Inbox',
   );
   assert.match(apiCore, /withCredentials:\s*true/);
+  assert.match(viteConfig, /['"]\/mail\/api['"]\s*:/);
+  assert.doesNotMatch(
+    viteConfig,
+    /['"]\/mail['"]\s*:/,
+    'the dev proxy must not swallow mailbox-portal SPA routes',
+  );
 
   for (const [name, store] of [
     ['administrator store', authStore],
@@ -131,8 +138,10 @@ test('frontend v3 browser and bundle regression gates are present', async () => 
   assert.match(browserSpec, /administrator login reaches the explainable dashboard/);
   assert.match(browserSpec, /portal login reaches the inbox-first workspace/);
   assert.match(bootstrapWorkflow, /Check frontend build budget/);
-  assert.match(bootstrapWorkflow, /Install Playwright browser smoke dependency/);
+  assert.match(bootstrapWorkflow, /Install isolated Playwright browser smoke dependency/);
   assert.match(bootstrapWorkflow, /@playwright\/test@1\.55\.0/);
+  assert.match(bootstrapWorkflow, /frontend-playwright/);
+  assert.match(bootstrapWorkflow, /ln -s .*node_modules\/@playwright/);
   assert.match(bootstrapWorkflow, /Run frontend browser smoke/);
   assert.match(rootMetadata.scripts['verify:release'], /check:budget/);
   assert.match(budgetScript, /largestJavaScript/);
