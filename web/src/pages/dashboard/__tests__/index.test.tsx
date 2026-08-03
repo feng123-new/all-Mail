@@ -31,6 +31,8 @@ describe('DashboardPage proof scenario', () => {
     );
 
     expect(await screen.findByText('本地证据场景 · 降级数据')).toBeInTheDocument();
+    expect(screen.getByText('待处理项')).toBeInTheDocument();
+    expect(screen.getByText('15')).toBeInTheDocument();
     expect(screen.getByText(/5 类服务商正在承载当前邮箱池|3 类服务商正在承载当前邮箱池/)).toBeInTheDocument();
     expect(screen.getByText('outlook-hot-01@example.com')).toBeInTheDocument();
     expect(await screen.findByTestId('mock-line-chart')).toHaveTextContent('7');
@@ -41,7 +43,7 @@ describe('DashboardPage proof scenario', () => {
     expect(dashboardContract.getErrorEmails).not.toHaveBeenCalled();
   });
 
-  it('renders clean English copy in proof mode', async () => {
+  it('renders direct, explainable English operating state in proof mode', async () => {
     render(
       <I18nProvider initialLanguage="en-US" persist={false}>
         <MemoryRouter
@@ -53,9 +55,11 @@ describe('DashboardPage proof scenario', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument();
-    expect(screen.getByText('Daily posture')).toBeInTheDocument();
-    expect(screen.getByText('Calls in last 14 days')).toBeInTheDocument();
+    expect(screen.getByText('Operational priorities')).toBeInTheDocument();
+    expect(screen.getByText('Items requiring attention')).toBeInTheDocument();
     expect(screen.getByText('Provider breakdown')).toBeInTheDocument();
+    expect(screen.queryByText('Automation health score')).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/ 100/)).not.toBeInTheDocument();
     expect(screen.queryByText('控制台概览')).not.toBeInTheDocument();
   });
 });
