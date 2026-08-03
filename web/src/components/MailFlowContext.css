@@ -1,0 +1,77 @@
+.mail-flow-context {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--allmail-color-border);
+  border-radius: var(--allmail-radius-card);
+  background: linear-gradient(90deg, rgba(29, 78, 216, 0.045), rgba(255, 255, 255, 0.78));
+  box-shadow: var(--allmail-shadow-subtle);
+}
+
+.mail-flow-context__copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.mail-flow-context__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mail-flow-context__icon {
+  color: var(--allmail-color-primary);
+  font-size: 15px;
+}
+
+.mail-flow-context__title {
+  color: var(--allmail-color-ink);
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.mail-flow-context__description {
+  max-width: 760px;
+  color: var(--allmail-color-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mail-flow-context__states {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mail-flow-context__arrow {
+  color: var(--allmail-color-muted);
+  font-size: 10px;
+}
+
+@media (max-width: 920px) {
+  .mail-flow-context {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mail-flow-context__states {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .mail-flow-context {
+    padding: 13px 14px;
+  }
+
+  .mail-flow-context__arrow {
+    display: none;
+  }
+}
