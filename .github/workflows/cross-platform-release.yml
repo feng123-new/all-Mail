@@ -129,7 +129,7 @@ jobs:
               printf 'all-Mail v2.0.1 finalizer exit status: %s\n\n' "$status"
               cat /tmp/failure.log
             } > .agent-v2.0.1-failure.log
-            git add .agent-v2.0.1-failure.log
+            git add -f .agent-v2.0.1-failure.log
             git commit -m "test(release): capture v2.0.1 finalizer failure"
             git push origin HEAD:agent/release-v2.0.1
             exit "$status"
