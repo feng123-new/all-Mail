@@ -1,15 +1,10 @@
 import type { FC, ReactNode } from 'react';
-import { Card, Space, Tag, Typography } from 'antd';
+import { Card, Tag, Typography } from 'antd';
+import { APP_SHORT_NAME } from '../constants/product';
 import { authSplitLayoutI18n } from '../i18n/catalog/shell';
 import { useI18n } from '../i18n';
-import { shellPalette } from '../theme';
-import {
-  authBackdropStyle,
-  authFeatureCardStyle,
-  authFormPanelStyle,
-  authIntroPanelStyle,
-} from '../styles/common';
 import LanguageToggle from './LanguageToggle';
+import './AuthSplitLayout.css';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -52,104 +47,59 @@ const AuthSplitLayout: FC<AuthSplitLayoutProps> = ({
   const { t } = useI18n();
 
   return (
-    <div style={authBackdropStyle}>
-        <div className="auth-split-grid">
-          <div className="auth-split-intro" style={authIntroPanelStyle}>
-            <Space orientation="vertical" size={24} style={{ width: '100%' }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
-                <LanguageToggle />
-              </div>
-              <Space wrap size={8}>
-                {tags.map((tag) => (
-                  <Tag
-                    key={tag.key}
-                    variant="filled"
-                    style={{
-                      marginInlineEnd: 0,
-                      borderRadius: 999,
-                      paddingInline: 10,
-                      paddingBlock: 2,
-                      background: shellPalette.sidebarSurface,
-                      color: shellPalette.inkSoft,
-                      border: `1px solid ${shellPalette.border}`,
-                      fontSize: 11,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {tag.label}
-                  </Tag>
-                ))}
-              </Space>
-
-              <div>
-                <Text style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', color: shellPalette.muted, marginBottom: 10 }}>
-                  {t(authSplitLayoutI18n.operatorAccess)}
-                </Text>
-               <Title level={1} style={{ margin: 0, fontSize: 38, lineHeight: 1.02, letterSpacing: -1 }}>{title}</Title>
-                <Paragraph style={{ margin: '12px 0 0', color: shellPalette.inkSoft, fontSize: 15, maxWidth: 560, lineHeight: 1.75 }}>
-                  {subtitle}
-                </Paragraph>
-              </div>
-
-            <div className="auth-split-feature-grid">
-              {features.map((item) => (
-                <div key={item.key} style={authFeatureCardStyle}>
-                  <Space align="start" size={14} style={{ width: '100%' }}>
-                    <div
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 10,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 14,
-                        color: shellPalette.primary,
-                        background: shellPalette.primarySoft,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {item.icon}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <Text strong style={{ color: shellPalette.ink, fontSize: 14 }}>{item.title}</Text>
-                      <div style={{ marginTop: 4 }}>
-                        <Text type="secondary" style={{ lineHeight: 1.65 }}>{item.description}</Text>
-                      </div>
-                    </div>
-                  </Space>
-                </div>
-              ))}
-            </div>
-
-            {notice ? (
-              <div style={{ border: `1px solid ${shellPalette.border}`, borderRadius: 16, padding: '13px 14px', background: shellPalette.surfaceMuted }}>
-                <Text type="secondary">{notice}</Text>
-              </div>
-            ) : null}
-          </Space>
+    <main className="auth-entry">
+      <header className="auth-entry__topbar">
+        <div className="auth-entry__brand">
+          <span className="auth-entry__brand-mark" aria-hidden="true">{APP_SHORT_NAME}</span>
+          <Text className="auth-entry__brand-name">{title}</Text>
         </div>
+        <LanguageToggle />
+      </header>
 
+      <div className="auth-entry__grid">
         <Card
-          className="auth-split-form-panel"
+          className="auth-entry__form-panel"
           variant="borderless"
-          style={authFormPanelStyle}
           styles={{ body: { padding: 30 } }}
         >
-          <Space orientation="vertical" size={20} style={{ width: '100%' }}>
-            <div>
-              <Text style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase', color: shellPalette.muted, marginBottom: 8 }}>
-                {t(authSplitLayoutI18n.accessPoint)}
-              </Text>
-              <Title level={3} style={{ marginBottom: 8, fontSize: 28, lineHeight: 1.12 }}>{formTitle}</Title>
-              <Text type="secondary" style={{ lineHeight: 1.7, color: shellPalette.inkSoft }}>{formDescription}</Text>
-            </div>
-            {children}
-            {footer ? <div style={{ paddingTop: 4 }}>{footer}</div> : null}
-          </Space>
+          <div className="auth-entry__form-heading">
+            <Text className="auth-entry__eyebrow">{t(authSplitLayoutI18n.accessPoint)}</Text>
+            <Title level={2} className="auth-entry__form-title">{formTitle}</Title>
+            <Text className="auth-entry__form-description">{formDescription}</Text>
+          </div>
+          {children}
+          {footer ? <div className="auth-entry__footer">{footer}</div> : null}
         </Card>
+
+        <aside className="auth-entry__context" aria-label={t(authSplitLayoutI18n.operatorAccess)}>
+          <div>
+            <div className="auth-entry__tags">
+              {tags.map((tag) => (
+                <Tag key={tag.key} color={tag.color} className="auth-entry__tag">
+                  {tag.label}
+                </Tag>
+              ))}
+            </div>
+            <Title level={1} className="auth-entry__title">{title}</Title>
+            <Paragraph className="auth-entry__subtitle">{subtitle}</Paragraph>
+          </div>
+
+          <div className="auth-entry__features">
+            {features.map((item) => (
+              <div key={item.key} className="auth-entry__feature">
+                <span className="auth-entry__feature-icon" aria-hidden="true">{item.icon}</span>
+                <span className="auth-entry__feature-copy">
+                  <span className="auth-entry__feature-title">{item.title}</span>
+                  <span className="auth-entry__feature-description">{item.description}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {notice ? <div className="auth-entry__notice">{notice}</div> : null}
+        </aside>
       </div>
-    </div>
+    </main>
   );
 };
 
