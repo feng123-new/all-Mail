@@ -1,0 +1,73 @@
+.portal-workspace-context {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--allmail-color-border);
+  border-radius: var(--allmail-radius-card);
+  background: var(--allmail-color-surface);
+  box-shadow: var(--allmail-shadow-subtle);
+}
+
+.portal-workspace-context[data-surface='inbox'] {
+  border-color: rgba(29, 78, 216, 0.22);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035), 0 0 0 1px rgba(29, 78, 216, 0.025);
+}
+
+.portal-workspace-context__copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.portal-workspace-context__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.portal-workspace-context__icon {
+  color: var(--allmail-color-primary);
+  font-size: 15px;
+}
+
+.portal-workspace-context__title {
+  color: var(--allmail-color-ink);
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.portal-workspace-context__description {
+  max-width: 760px;
+  color: var(--allmail-color-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.portal-workspace-context__signals {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 920px) {
+  .portal-workspace-context {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .portal-workspace-context__signals {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .portal-workspace-context {
+    padding: 13px 14px;
+  }
+}

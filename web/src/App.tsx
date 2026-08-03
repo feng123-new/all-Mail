@@ -249,7 +249,7 @@ const AppShell: FC = () => {
                 </MailboxProtectedRoute>
               }
             >
-              <Route index element={<Navigate to="/mail/overview" replace />} />
+              <Route index element={<Navigate to="/mail/inbox" replace />} />
               <Route path="overview" element={withSuspense(<MailPortalOverviewPage />)} />
               <Route path="inbox" element={withSuspense(<MailPortalInboxPage />)} />
               <Route path="settings" element={withSuspense(<MailPortalSettingsPage />)} />

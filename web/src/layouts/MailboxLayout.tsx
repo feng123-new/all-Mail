@@ -18,7 +18,13 @@ import {
 import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { mailboxPortalApi } from '../api';
-import { LanguageToggle, PageSurface, WorkspaceFrame } from '../components';
+import {
+  LanguageToggle,
+  PageSurface,
+  PortalWorkspaceContext,
+  type PortalWorkspaceSurface,
+  WorkspaceFrame,
+} from '../components';
 import { APP_NAME, APP_SHORT_NAME } from '../constants/product';
 import { useResponsiveShell } from '../hooks/useResponsiveShell';
 import { useI18n } from '../i18n';
@@ -34,16 +40,19 @@ const portalNavigation: Array<{
   icon: ReactNode;
   label: typeof mailboxLayoutI18n.overview;
 }> = [
-  { key: '/mail/overview', icon: <AppstoreOutlined />, label: mailboxLayoutI18n.overview },
   { key: '/mail/inbox', icon: <InboxOutlined />, label: mailboxLayoutI18n.inbox },
+  { key: '/mail/overview', icon: <AppstoreOutlined />, label: mailboxLayoutI18n.overview },
   { key: '/mail/settings', icon: <SettingOutlined />, label: mailboxLayoutI18n.settings },
 ];
 
-const portalRouteMeta = {
-  '/mail/overview': mailboxLayoutI18n.overview,
-  '/mail/inbox': mailboxLayoutI18n.inbox,
-  '/mail/settings': mailboxLayoutI18n.settings,
-} as const;
+const portalRouteMeta: Record<string, {
+  label: typeof mailboxLayoutI18n.overview;
+  surface: PortalWorkspaceSurface;
+}> = {
+  '/mail/inbox': { label: mailboxLayoutI18n.inbox, surface: 'inbox' },
+  '/mail/overview': { label: mailboxLayoutI18n.overview, surface: 'overview' },
+  '/mail/settings': { label: mailboxLayoutI18n.settings, surface: 'settings' },
+};
 
 const MailboxLayout: React.FC = () => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -55,8 +64,10 @@ const MailboxLayout: React.FC = () => {
 
   const assignedMailboxCount = mailboxUser?.mailboxIds?.length || 0;
   const mustChangePassword = Boolean(mailboxUser?.mustChangePassword);
-  const activeMeta = portalRouteMeta[location.pathname as keyof typeof portalRouteMeta]
-    || mailboxLayoutI18n.mailboxPortal;
+  const activeRoute = portalRouteMeta[location.pathname] || {
+    label: mailboxLayoutI18n.mailboxPortal,
+    surface: 'overview' as const,
+  };
 
   const menuItems: MenuProps['items'] = useMemo(
     () => portalNavigation.map((item) => ({
@@ -165,7 +176,7 @@ const MailboxLayout: React.FC = () => {
               />
             ) : null}
             <div className="app-shell__route-context">
-              <Text className="app-shell__route-title">{t(activeMeta)}</Text>
+              <Text className="app-shell__route-title">{t(activeRoute.label)}</Text>
               <Text className="app-shell__route-subtitle">{t(mailboxLayoutI18n.mailboxPortal)}</Text>
             </div>
           </div>
@@ -193,6 +204,7 @@ const MailboxLayout: React.FC = () => {
         <Content className="app-shell__content">
           <PageSurface maxWidth={shellMetrics.portalContentMaxWidth}>
             <WorkspaceFrame kind="portal">
+              <PortalWorkspaceContext surface={activeRoute.surface} />
               <Outlet />
             </WorkspaceFrame>
           </PageSurface>
