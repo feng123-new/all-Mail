@@ -73,7 +73,7 @@ const MailPortalLoginPage = () => {
         setFormError(null);
         setAuth(mailboxUser);
         message.success(t(mailPortalLoginI18n.loginSuccess));
-        navigate(mailboxUser.mustChangePassword ? '/mail/settings' : '/mail/overview');
+        navigate(mailboxUser.mustChangePassword ? '/mail/settings' : '/mail/inbox');
     };
 
     const handleSubmit = async (values: { username: string; password: string }) => {
