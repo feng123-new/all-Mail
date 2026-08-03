@@ -19,7 +19,7 @@ import { type FC, useCallback, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ADMIN_NAVIGATION_GROUPS, getAdminRouteMeta } from '../app/navigation';
 import { authApi } from '../api';
-import { LanguageToggle, PageSurface } from '../components';
+import { LanguageToggle, PageSurface, WorkspaceFrame } from '../components';
 import { APP_NAME, APP_SHORT_NAME } from '../constants/product';
 import { useResponsiveShell } from '../hooks/useResponsiveShell';
 import { useI18n } from '../i18n';
@@ -196,7 +196,9 @@ const MainLayout: FC = () => {
 
         <Content className="app-shell__content">
           <PageSurface>
-            <Outlet />
+            <WorkspaceFrame kind={routeMeta.workspace}>
+              <Outlet />
+            </WorkspaceFrame>
           </PageSurface>
         </Content>
       </Layout>
