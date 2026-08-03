@@ -7,20 +7,9 @@ import {
 import type { ReactNode } from 'react';
 import { useI18n } from '../i18n';
 import { defineMessage, type TranslationInput } from '../i18n/messages';
+import type { MailFlowState, MailFlowSurface } from './mailFlow';
 import StatusBadge from './MailFlowStatusBadge';
 import './MailFlowContext.css';
-
-export type MailFlowSurface = 'inbound' | 'forwarding' | 'outbound';
-export type MailFlowState =
-  | 'RECEIVED'
-  | 'ROUTED'
-  | 'STORED'
-  | 'PENDING'
-  | 'RUNNING'
-  | 'READY'
-  | 'SENT'
-  | 'FAILED'
-  | 'SKIPPED';
 
 const mailFlowI18n = {
   inboundTitle: defineMessage('mailFlowContext.inbound.title', '入站邮件链路', 'Inbound mail flow'),
@@ -107,9 +96,9 @@ const MailFlowContext = ({ surface }: MailFlowContextProps) => {
         </div>
         <span className="mail-flow-context__description">{t(definition.description)}</span>
       </div>
-      <div className="mail-flow-context__states" aria-label={t(definition.title)}>
+      <div className="mail-flow-context__states">
         {definition.states.map((state, index) => (
-          <span key={state} className="mail-flow-context__states">
+          <span key={state} className="mail-flow-context__state-item">
             {index > 0 ? <ArrowRightOutlined className="mail-flow-context__arrow" aria-hidden="true" /> : null}
             <StatusBadge state={state}>{t(stateLabels[state])}</StatusBadge>
           </span>
