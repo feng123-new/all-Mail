@@ -14,7 +14,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import type { ReactNode } from 'react';
-import type { MailFlowSurface, WorkspaceKind } from '../components';
+import type { ControlBoundarySurface, MailFlowSurface, WorkspaceKind } from '../components';
 import { mainLayoutI18n } from '../i18n/catalog/shell';
 import type { TranslationInput } from '../i18n/messages';
 
@@ -26,6 +26,7 @@ export interface AdminNavigationItem {
   subtitle: TranslationInput;
   workspace: WorkspaceKind;
   mailFlowSurface?: MailFlowSurface;
+  controlBoundarySurface?: ControlBoundarySurface;
   superAdmin?: boolean;
 }
 
@@ -91,9 +92,24 @@ export const ADMIN_NAVIGATION_GROUPS: AdminNavigationGroup[] = [
     label: mainLayoutI18n.groups.automation,
     workspace: 'automation',
     items: withWorkspace('automation', [
-      { key: '/api-keys', icon: <KeyOutlined />, ...mainLayoutI18n.apiKeys },
-      { key: '/api-docs', icon: <FileTextOutlined />, ...mainLayoutI18n.apiDocs },
-      { key: '/operation-logs', icon: <HistoryOutlined />, ...mainLayoutI18n.operationLogs },
+      {
+        key: '/api-keys',
+        icon: <KeyOutlined />,
+        controlBoundarySurface: 'api-keys',
+        ...mainLayoutI18n.apiKeys,
+      },
+      {
+        key: '/api-docs',
+        icon: <FileTextOutlined />,
+        controlBoundarySurface: 'api-docs',
+        ...mainLayoutI18n.apiDocs,
+      },
+      {
+        key: '/operation-logs',
+        icon: <HistoryOutlined />,
+        controlBoundarySurface: 'audit',
+        ...mainLayoutI18n.operationLogs,
+      },
     ]),
   },
   {
@@ -101,8 +117,19 @@ export const ADMIN_NAVIGATION_GROUPS: AdminNavigationGroup[] = [
     label: mainLayoutI18n.groups.system,
     workspace: 'system',
     items: withWorkspace('system', [
-      { key: '/admins', icon: <UserOutlined />, ...mainLayoutI18n.admins, superAdmin: true },
-      { key: '/settings', icon: <SettingOutlined />, ...mainLayoutI18n.settings },
+      {
+        key: '/admins',
+        icon: <UserOutlined />,
+        controlBoundarySurface: 'admins',
+        ...mainLayoutI18n.admins,
+        superAdmin: true,
+      },
+      {
+        key: '/settings',
+        icon: <SettingOutlined />,
+        controlBoundarySurface: 'settings',
+        ...mainLayoutI18n.settings,
+      },
     ]),
   },
 ];

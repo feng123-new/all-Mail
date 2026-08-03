@@ -1,0 +1,67 @@
+.control-boundary {
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  border: 1px solid var(--allmail-color-border);
+  border-radius: var(--allmail-radius-card);
+  background: var(--allmail-color-surface);
+  box-shadow: var(--allmail-shadow-subtle);
+}
+
+.control-boundary__copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.control-boundary__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-boundary__icon {
+  color: var(--allmail-color-primary);
+  font-size: 15px;
+}
+
+.control-boundary__title {
+  color: var(--allmail-color-ink);
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.control-boundary__description {
+  max-width: 780px;
+  color: var(--allmail-color-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.control-boundary__signals {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+@media (max-width: 900px) {
+  .control-boundary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .control-boundary__signals {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .control-boundary {
+    padding: 13px 14px;
+  }
+}
