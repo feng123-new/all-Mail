@@ -16,6 +16,10 @@ No unreleased changes.
 - Rebuilt the administrator and portal shells around grouped navigation, route context, responsive narrow-screen navigation, semantic surfaces, restrained operational state, and shared workspace primitives.
 - Made the mailbox portal Inbox-first while preserving mandatory password rotation, mailbox assignment enforcement, cookie-backed sessions, and every existing portal URL.
 
+### Security
+
+- Upgraded the transitive `fast-uri` production override and lockfile to `4.1.2`, the patched release for the host-confusion advisory affecting earlier 4.x versions. No audit exception was added.
+
 ### Added
 
 - Shared data-workspace primitives for route framing, toolbars, section headings, semantic status badges, and bounded empty states.
