@@ -48,7 +48,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    chunkSizeWarningLimit: 1600,
+    chunkSizeWarningLimit: 700,
   },
   test: {
     environment: 'jsdom',
