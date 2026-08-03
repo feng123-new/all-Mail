@@ -3,7 +3,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import { Col, Row, Typography } from 'antd';
-import { SurfaceCard } from '../../components';
+import { StatusBadge, SurfaceCard } from '../../components';
 import { useI18n } from '../../i18n';
 import { defineMessage, type TranslationInput } from '../../i18n/messages';
 import './DashboardPriorityHero.css';
@@ -87,9 +87,9 @@ const DashboardPriorityHero = ({
           >
             <div className="dashboard-priority__summary-head">
               <div>
-                <Text className="dashboard-priority__summary-label">
+                <StatusBadge tone={hasAttention ? 'warning' : 'success'}>
                   {t(hasAttention ? dashboardPriorityI18n.attentionLabel : dashboardPriorityI18n.clearLabel)}
-                </Text>
+                </StatusBadge>
                 <div className="dashboard-priority__summary-value">{attentionCount}</div>
               </div>
               <span className="dashboard-priority__summary-icon" aria-hidden="true">
