@@ -6,24 +6,24 @@
 
 :root {
   color-scheme: light;
-  --allmail-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --allmail-font-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --allmail-color-primary: #1d4ed8;
-  --allmail-color-primary-soft: rgba(29, 78, 216, 0.10);
-  --allmail-color-ink: #0f172a;
-  --allmail-color-ink-soft: #334155;
-  --allmail-color-muted: #64748b;
-  --allmail-color-border: rgba(148, 163, 184, 0.18);
-  --allmail-color-layout-bg: #f3f6fa;
+  --allmail-color-primary-hover: #1e40af;
+  --allmail-color-primary-soft: rgba(29, 78, 216, 0.09);
+  --allmail-color-ink: #111827;
+  --allmail-color-ink-soft: #374151;
+  --allmail-color-muted: #6b7280;
+  --allmail-color-border: rgba(148, 163, 184, 0.20);
+  --allmail-color-border-strong: rgba(100, 116, 139, 0.30);
+  --allmail-color-layout-bg: #f4f6f8;
   --allmail-color-surface: #ffffff;
   --allmail-color-surface-muted: #f8fafc;
-  --allmail-radius-control: 10px;
-  --allmail-radius-card: 16px;
-  --allmail-radius-panel: 18px;
-  --allmail-radius-hero: 18px;
-  --allmail-shadow-subtle: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --allmail-shadow-medium: 0 8px 24px rgba(15, 23, 42, 0.06);
-  --allmail-shadow-strong: 0 16px 40px rgba(15, 23, 42, 0.08);
-  --allmail-shell-header-height: 60px;
+  --allmail-radius-control: 8px;
+  --allmail-radius-card: 12px;
+  --allmail-radius-panel: 14px;
+  --allmail-shadow-subtle: 0 1px 2px rgba(15, 23, 42, 0.035);
+  --allmail-shadow-medium: 0 10px 28px rgba(15, 23, 42, 0.07);
+  --allmail-shell-header-height: 64px;
   --allmail-page-gap: 20px;
   --allmail-page-surface-max-width: 1520px;
 }
@@ -31,16 +31,19 @@
 html,
 body,
 #root {
-  height: 100%;
+  min-width: 320px;
+  min-height: 100%;
 }
 
 body {
+  min-height: 100vh;
   font-family: var(--allmail-font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--allmail-color-layout-bg);
   color: var(--allmail-color-ink);
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
 body,
@@ -51,48 +54,40 @@ select {
   font-family: inherit;
 }
 
+button {
+  color: inherit;
+}
+
 a {
   color: inherit;
 }
 
 ::selection {
-  background: rgba(29, 78, 216, 0.18);
+  background: rgba(29, 78, 216, 0.16);
   color: var(--allmail-color-ink);
 }
 
 :focus-visible {
-  outline: 2px solid rgba(29, 78, 216, 0.35);
+  outline: 2px solid rgba(29, 78, 216, 0.42);
   outline-offset: 2px;
 }
 
-/* 滚动条样式 */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(148, 163, 184, 0.14);
+  background: rgba(148, 163, 184, 0.10);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.42);
-  border-radius: 3px;
+  background: rgba(100, 116, 139, 0.38);
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(71, 85, 105, 0.58);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto;
-    animation-duration: 0.01ms;
-    animation-iteration-count: 1;
-    transition-duration: 0.01ms;
-  }
+  background: rgba(71, 85, 105, 0.54);
 }
 
 .page-fallback {
@@ -110,27 +105,400 @@ a {
   gap: var(--page-surface-gap, var(--allmail-page-gap));
 }
 
-.page-header__top {
+.page-header {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  gap: 20px;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+}
+
+.page-header__content {
+  min-width: 0;
+  max-width: 760px;
+}
+
+.page-header__breadcrumb {
+  margin-bottom: 8px;
 }
 
 .page-header__eyebrow {
   display: block;
+  margin-bottom: 6px;
   color: var(--allmail-color-muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 1.6px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  margin-bottom: 8px;
+}
+
+.page-header__title.ant-typography {
+  margin: 0;
+  color: var(--allmail-color-ink);
+  font-size: clamp(22px, 2vw, 27px);
+  line-height: 1.16;
+  letter-spacing: -0.025em;
+  font-weight: 720;
+}
+
+.page-header__subtitle {
+  display: block;
+  margin-top: 6px;
+  max-width: 700px;
+  color: var(--allmail-color-ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .page-header__extra {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.surface-card.ant-card {
+  overflow: hidden;
+  border: 1px solid var(--allmail-color-border);
+  border-radius: var(--allmail-radius-card);
+  background: var(--allmail-color-surface);
+  box-shadow: var(--allmail-shadow-subtle);
+}
+
+.surface-card--muted.ant-card {
+  background: var(--allmail-color-surface-muted);
+  box-shadow: none;
+}
+
+.stat-card.ant-card {
+  height: 100%;
+  border: 1px solid var(--allmail-color-border);
+  border-radius: var(--allmail-radius-card);
+  background: var(--allmail-color-surface);
+  box-shadow: var(--allmail-shadow-subtle);
+}
+
+.stat-card__body {
+  display: grid;
+  gap: 12px;
+}
+
+.stat-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.stat-card__label {
+  color: var(--allmail-color-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stat-card__value {
+  margin-top: 7px;
+  color: var(--allmail-color-ink);
+  font-size: 29px;
+  font-weight: 760;
+  line-height: 1;
+  letter-spacing: -0.025em;
+}
+
+.stat-card__suffix {
+  margin-left: 6px;
+  color: var(--allmail-color-ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.stat-card__icon {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--stat-icon-color, #1d4ed8) 15%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--stat-icon-color, #1d4ed8) 9%, transparent);
+  color: var(--stat-icon-color, #1d4ed8);
+  font-size: 17px;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: var(--allmail-color-layout-bg);
+}
+
+.app-shell__sider.ant-layout-sider {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 60;
+  height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-right: 1px solid var(--allmail-color-border);
+  background: #f8fafc;
+  box-shadow: none;
+  transition: width 0.2s ease, transform 0.2s ease;
+}
+
+.app-shell__main {
+  min-width: 0;
+  min-height: 100vh;
+  background: transparent;
+  transition: margin-left 0.2s ease;
+}
+
+.app-shell__brand {
+  min-height: 76px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--allmail-color-border);
+}
+
+.app-shell__brand-mark {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(29, 78, 216, 0.18);
+  border-radius: 9px;
+  background: var(--allmail-color-primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  box-shadow: 0 8px 18px rgba(29, 78, 216, 0.18);
+}
+
+.app-shell__brand-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.app-shell__brand-name {
+  color: var(--allmail-color-ink);
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.app-shell__brand-subtitle {
+  color: var(--allmail-color-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.app-shell__navigation {
+  padding: 14px 8px 22px;
+}
+
+.app-shell__navigation-label {
+  display: block;
+  padding: 0 12px 8px;
+  color: var(--allmail-color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.app-shell__menu.ant-menu {
+  border-inline-end: 0;
+  background: transparent;
+}
+
+.app-shell__menu .ant-menu-item-group-title {
+  padding: 12px 12px 5px;
+  color: var(--allmail-color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.app-shell__menu .ant-menu-item {
+  font-weight: 560;
+}
+
+.app-shell__header.ant-layout-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: var(--allmail-shell-header-height);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--allmail-color-border);
+  background: rgba(244, 246, 248, 0.92);
+  line-height: normal;
+  backdrop-filter: blur(12px);
+}
+
+.app-shell__header-start,
+.app-shell__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.app-shell__header-actions {
+  flex: 0 0 auto;
+}
+
+.app-shell__menu-trigger.ant-btn {
+  flex: 0 0 auto;
+  color: var(--allmail-color-ink-soft);
+}
+
+.app-shell__route-context {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.app-shell__route-title {
+  overflow: hidden;
+  color: var(--allmail-color-ink);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell__route-subtitle {
+  overflow: hidden;
+  max-width: min(52vw, 680px);
+  color: var(--allmail-color-muted);
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell__user-trigger {
+  min-height: 42px;
+  padding: 5px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.app-shell__user-trigger:hover {
+  border-color: var(--allmail-color-border);
+  background: var(--allmail-color-surface);
+}
+
+.app-shell__user-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  text-align: left;
+}
+
+.app-shell__user-name,
+.app-shell__user-role {
+  overflow: hidden;
+  max-width: 150px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell__user-name {
+  color: var(--allmail-color-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.app-shell__user-role {
+  color: var(--allmail-color-muted);
+  font-size: 11px;
+}
+
+.app-shell__security-tag.ant-tag {
+  margin-inline-end: 0;
+}
+
+.app-shell__content.ant-layout-content {
+  min-width: 0;
+  min-height: calc(100vh - var(--allmail-shell-header-height));
+  padding: 22px 24px 34px;
+  background: transparent;
+}
+
+.app-shell__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  border: 0;
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+
+.portal-shell__identity {
+  margin: 14px 14px 2px;
+  padding: 13px 14px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--allmail-color-border);
+  border-radius: var(--allmail-radius-card);
+  background: var(--allmail-color-surface);
+}
+
+.portal-shell__identity-label {
+  color: var(--allmail-color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.portal-shell__identity-value {
+  color: var(--allmail-color-ink);
+  font-size: 13px;
+}
+
+.portal-shell__identity-state,
+.portal-shell__security-copy {
+  color: var(--allmail-color-ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.portal-shell__security-notice {
+  margin: auto 14px 18px;
+  padding: 13px 14px;
+  display: grid;
+  gap: 7px;
+  border: 1px solid rgba(180, 83, 9, 0.18);
+  border-radius: var(--allmail-radius-card);
+  background: rgba(255, 251, 235, 0.78);
+}
+
+.portal-shell__security-title {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -168,13 +536,78 @@ a {
   }
 }
 
-@media (max-width: 900px) {
-  .page-header__top {
+@media (max-width: 1023px) {
+  .app-shell__sider.ant-layout-sider {
+    width: 272px !important;
+    max-width: min(86vw, 272px) !important;
+    min-width: min(86vw, 272px) !important;
+    flex-basis: min(86vw, 272px) !important;
+    transform: translateX(-105%);
+    box-shadow: var(--allmail-shadow-medium);
+  }
+
+  .app-shell__sider.ant-layout-sider.is-open {
+    transform: translateX(0);
+  }
+
+  .app-shell__main {
+    margin-left: 0 !important;
+  }
+
+  .app-shell__header.ant-layout-header {
+    padding: 0 16px;
+  }
+
+  .app-shell__content.ant-layout-content {
+    padding: 18px 16px 28px;
+  }
+}
+
+@media (max-width: 760px) {
+  .page-header {
     flex-direction: column;
-    align-items: stretch;
+    gap: 14px;
   }
 
   .page-header__extra {
+    width: 100%;
     justify-content: flex-start;
+  }
+
+  .app-shell__route-subtitle {
+    display: none;
+  }
+
+  .app-shell__user-copy {
+    display: none;
+  }
+
+  .app-shell__security-tag.ant-tag {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .app-shell__header-actions {
+    gap: 6px;
+  }
+
+  .app-shell__content.ant-layout-content {
+    padding: 16px 12px 24px;
+  }
+
+  .page-header__extra > * {
+    max-width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
