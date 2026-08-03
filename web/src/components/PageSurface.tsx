@@ -9,12 +9,14 @@ interface PageSurfaceProps {
   children: ReactNode;
   gap?: number;
   maxWidth?: number;
+  className?: string;
 }
 
 const PageSurface: FC<PageSurfaceProps> = ({
   children,
   gap = 20,
-  maxWidth = 1560,
+  maxWidth = 1520,
+  className,
 }) => {
   const style: PageSurfaceCustomProperties = {
     '--page-surface-gap': `${gap}px`,
@@ -22,7 +24,7 @@ const PageSurface: FC<PageSurfaceProps> = ({
   };
 
   return (
-    <div className="page-surface" style={style}>
+    <div className={['page-surface', className].filter(Boolean).join(' ')} style={style}>
       {children}
     </div>
   );
