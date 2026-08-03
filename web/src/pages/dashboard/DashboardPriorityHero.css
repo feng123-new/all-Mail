@@ -1,0 +1,172 @@
+.dashboard-priority {
+  margin-bottom: 12px;
+}
+
+.dashboard-priority__copy {
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.dashboard-priority__kicker {
+  color: var(--allmail-color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.dashboard-priority__title.ant-typography {
+  max-width: 680px;
+  margin: 0;
+  color: var(--allmail-color-ink);
+  font-size: clamp(24px, 2.6vw, 32px);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.dashboard-priority__description.ant-typography {
+  max-width: 700px;
+  margin: 0;
+  color: var(--allmail-color-ink-soft);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.dashboard-priority__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dashboard-priority__badge {
+  min-width: 142px;
+  padding: 11px 13px;
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--allmail-color-border);
+  border-radius: var(--allmail-radius-card);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.dashboard-priority__badge-label {
+  color: var(--allmail-color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dashboard-priority__badge-value {
+  color: var(--allmail-color-ink);
+  font-size: 21px;
+  font-weight: 760;
+  line-height: 1;
+}
+
+.dashboard-priority__summary {
+  height: 100%;
+  padding: 18px;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  border: 1px solid var(--allmail-color-border);
+  border-radius: var(--allmail-radius-card);
+  background: var(--allmail-color-surface);
+}
+
+.dashboard-priority__summary[data-state='attention'] {
+  border-color: rgba(180, 83, 9, 0.24);
+  background: rgba(255, 251, 235, 0.76);
+}
+
+.dashboard-priority__summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dashboard-priority__summary-label {
+  color: var(--allmail-color-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.dashboard-priority__summary-value {
+  margin-top: 5px;
+  color: var(--allmail-color-ink);
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.dashboard-priority__summary-icon {
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 11px;
+  background: var(--allmail-color-primary-soft);
+  color: var(--allmail-color-primary);
+  font-size: 19px;
+}
+
+.dashboard-priority__summary[data-state='attention'] .dashboard-priority__summary-icon {
+  background: rgba(180, 83, 9, 0.10);
+  color: #b45309;
+}
+
+.dashboard-priority__summary-hint {
+  color: var(--allmail-color-ink-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.dashboard-priority__breakdown {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-priority__breakdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--allmail-color-border);
+}
+
+.dashboard-priority__breakdown-label {
+  color: var(--allmail-color-muted);
+  font-size: 12px;
+}
+
+.dashboard-priority__breakdown-value {
+  color: var(--allmail-color-ink);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+@media (max-width: 760px) {
+  .dashboard-priority__badge {
+    min-width: calc(50% - 5px);
+    flex: 1 1 calc(50% - 5px);
+  }
+}
+
+@media (max-width: 460px) {
+  .dashboard-priority__badges {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-priority__badge {
+    min-width: 0;
+  }
+}
