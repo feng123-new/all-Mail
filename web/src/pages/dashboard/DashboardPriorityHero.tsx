@@ -52,6 +52,11 @@ const DashboardPriorityHero = ({
 }: DashboardPriorityHeroProps) => {
   const { t } = useI18n();
   const hasAttention = attentionCount > 0;
+  const breakdown: Array<{ label: TranslationInput; value: number }> = [
+    { label: dashboardPriorityI18n.abnormalConnections, value: abnormalConnections },
+    { label: dashboardPriorityI18n.inactiveDomains, value: inactiveDomains },
+    { label: dashboardPriorityI18n.inactiveMailboxes, value: inactiveMailboxes },
+  ];
 
   return (
     <SurfaceCard tone="muted" className="dashboard-priority" bodyStyle={{ padding: 24 }}>
@@ -95,14 +100,13 @@ const DashboardPriorityHero = ({
               {t(hasAttention ? dashboardPriorityI18n.attentionHint : dashboardPriorityI18n.clearHint)}
             </Text>
             <div className="dashboard-priority__breakdown">
-              {[
-                [dashboardPriorityI18n.abnormalConnections, abnormalConnections],
-                [dashboardPriorityI18n.inactiveDomains, inactiveDomains],
-                [dashboardPriorityI18n.inactiveMailboxes, inactiveMailboxes],
-              ].map(([label, value]) => (
-                <div key={(label as TranslationInput).id} className="dashboard-priority__breakdown-row">
-                  <Text className="dashboard-priority__breakdown-label">{t(label as TranslationInput)}</Text>
-                  <span className="dashboard-priority__breakdown-value">{value as number}</span>
+              {breakdown.map(({ label, value }) => (
+                <div
+                  key={typeof label === 'string' ? label : label.key}
+                  className="dashboard-priority__breakdown-row"
+                >
+                  <Text className="dashboard-priority__breakdown-label">{t(label)}</Text>
+                  <span className="dashboard-priority__breakdown-value">{value}</span>
                 </div>
               ))}
             </div>
