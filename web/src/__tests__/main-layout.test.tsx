@@ -61,6 +61,22 @@ describe('MainLayout navigation', () => {
     expect(screen.getByText(/失败原因和下一次重试时间/)).toBeInTheDocument();
   });
 
+  it('attaches the correct workspace contract to resource and mail-flow routes', async () => {
+    useAuthStore.setState({
+      admin: { id: 1, username: 'root', role: 'SUPER_ADMIN' },
+      isAuthenticated: true,
+    });
+
+    const resourceView = renderMainLayout('zh-CN', '/domains');
+    expect(await screen.findByText(/查看域名收发状态/)).toBeInTheDocument();
+    expect(resourceView.container.querySelector('[data-workspace="resource"]')).toBeInTheDocument();
+    resourceView.unmount();
+
+    const flowView = renderMainLayout('zh-CN', '/forwarding-jobs');
+    expect(await screen.findByText(/失败原因和下一次重试时间/)).toBeInTheDocument();
+    expect(flowView.container.querySelector('[data-workspace="flow"]')).toBeInTheDocument();
+  });
+
   it('renders English navigation when the language is switched', async () => {
     useAuthStore.setState({
       admin: { id: 1, username: 'root', role: 'SUPER_ADMIN' },

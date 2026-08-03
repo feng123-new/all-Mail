@@ -14,6 +14,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import type { ReactNode } from 'react';
+import type { WorkspaceKind } from '../components';
 import { mainLayoutI18n } from '../i18n/catalog/shell';
 import type { TranslationInput } from '../i18n/messages';
 
@@ -23,58 +24,70 @@ export interface AdminNavigationItem {
   label: TranslationInput;
   title: TranslationInput;
   subtitle: TranslationInput;
+  workspace: WorkspaceKind;
   superAdmin?: boolean;
 }
 
 export interface AdminNavigationGroup {
   key: string;
   label: TranslationInput;
+  workspace: WorkspaceKind;
   items: AdminNavigationItem[];
 }
+
+const withWorkspace = (
+  workspace: WorkspaceKind,
+  items: Array<Omit<AdminNavigationItem, 'workspace'>>,
+): AdminNavigationItem[] => items.map((item) => ({ ...item, workspace }));
 
 export const ADMIN_NAVIGATION_GROUPS: AdminNavigationGroup[] = [
   {
     key: 'overview',
     label: mainLayoutI18n.groups.overview,
-    items: [
+    workspace: 'overview',
+    items: withWorkspace('overview', [
       { key: '/dashboard', icon: <DashboardOutlined />, ...mainLayoutI18n.dashboard },
-    ],
+    ]),
   },
   {
     key: 'mail-resources',
     label: mainLayoutI18n.groups.mailResources,
-    items: [
+    workspace: 'resource',
+    items: withWorkspace('resource', [
       { key: '/emails', icon: <MailOutlined />, ...mainLayoutI18n.emails },
       { key: '/domains', icon: <CloudServerOutlined />, ...mainLayoutI18n.domains },
       { key: '/domain-mailboxes', icon: <InboxOutlined />, ...mainLayoutI18n.domainMailboxes },
       { key: '/mailbox-users', icon: <TeamOutlined />, ...mainLayoutI18n.mailboxUsers },
-    ],
+    ]),
   },
   {
     key: 'mail-flow',
     label: mainLayoutI18n.groups.mailFlow,
-    items: [
+    workspace: 'flow',
+    items: withWorkspace('flow', [
       { key: '/domain-messages', icon: <MessageOutlined />, ...mainLayoutI18n.domainMessages },
       { key: '/forwarding-jobs', icon: <SwapOutlined />, ...mainLayoutI18n.forwardingJobs },
       { key: '/sending-configs', icon: <SendOutlined />, ...mainLayoutI18n.sendingConfigs },
-    ],
+    ]),
   },
   {
     key: 'automation',
     label: mainLayoutI18n.groups.automation,
-    items: [
+    workspace: 'automation',
+    items: withWorkspace('automation', [
       { key: '/api-keys', icon: <KeyOutlined />, ...mainLayoutI18n.apiKeys },
       { key: '/api-docs', icon: <FileTextOutlined />, ...mainLayoutI18n.apiDocs },
       { key: '/operation-logs', icon: <HistoryOutlined />, ...mainLayoutI18n.operationLogs },
-    ],
+    ]),
   },
   {
     key: 'system',
     label: mainLayoutI18n.groups.system,
-    items: [
+    workspace: 'system',
+    items: withWorkspace('system', [
       { key: '/admins', icon: <UserOutlined />, ...mainLayoutI18n.admins, superAdmin: true },
       { key: '/settings', icon: <SettingOutlined />, ...mainLayoutI18n.settings },
-    ],
+    ]),
   },
 ];
 

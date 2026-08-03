@@ -4,3 +4,11 @@ export { default as PageSurface } from './PageSurface';
 export { default as SurfaceCard } from './SurfaceCard';
 export { default as AuthSplitLayout } from './AuthSplitLayout';
 export { default as LanguageToggle } from './LanguageToggle';
+export {
+  DataToolbar,
+  SectionHeading,
+  StatusBadge,
+  WorkspaceEmpty,
+  WorkspaceFrame,
+} from './DataWorkspace';
+export type { StatusTone, WorkspaceKind } from './DataWorkspace';
