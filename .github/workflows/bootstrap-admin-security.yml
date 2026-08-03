@@ -40,12 +40,30 @@ jobs:
           node-version-file: .node-version
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install, lint, test and build frontend
+      - name: Install frontend dependencies
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+      - name: Lint, test and build frontend
         run: |
-          ./scripts/sanitize-runtime-env.sh npm --prefix web ci
           ./scripts/sanitize-runtime-env.sh npm --prefix web run lint
           ./scripts/sanitize-runtime-env.sh npm --prefix web run test
           ./scripts/sanitize-runtime-env.sh npm --prefix web run build
+      - name: Check frontend build budget
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web run check:budget
+      - name: Install Playwright browser smoke dependency
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix web install --no-save --no-package-lock @playwright/test@1.55.0
+          (cd web && ../scripts/sanitize-runtime-env.sh npx playwright install --with-deps chromium)
+      - name: Run frontend browser smoke
+        run: (cd web && ../scripts/sanitize-runtime-env.sh npm run test:browser)
+      - name: Upload frontend browser report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-browser-report
+          path: |
+            web/playwright-report
+            web/test-results
+          if-no-files-found: warn
 
   runtime-contract:
     runs-on: ubuntu-latest
