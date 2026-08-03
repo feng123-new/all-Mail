@@ -44,10 +44,11 @@
     "audit:web": "./scripts/sanitize-runtime-env.sh npm --prefix web audit --omit=dev",
     "audit:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge audit --omit=dev",
     "audit:prod": "./scripts/sanitize-runtime-env.sh node scripts/run-audit-prod.mjs",
+    "check:frontend-budget": "./scripts/sanitize-runtime-env.sh npm --prefix web run check:budget",
     "check:go": "cd core && test -z \"$(gofmt -l .)\" && go test -race ./... && go vet ./... && output=\"${TMPDIR:-/tmp}/allmail-release-check-$$\" && go build -trimpath -o \"$output\" ./cmd/allmail && rm -f \"$output\"",
     "check:worker": "./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check",
     "check:release-contract": "./scripts/sanitize-runtime-env.sh node --test scripts/release-contract.test.mjs",
-    "verify:release": "./scripts/sanitize-runtime-env.sh npm run check:go && ./scripts/sanitize-runtime-env.sh npm --prefix web run lint && ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs && ./scripts/sanitize-runtime-env.sh npm --prefix web run test && ./scripts/sanitize-runtime-env.sh npm --prefix web run build && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check && ./scripts/sanitize-runtime-env.sh npm run audit:prod",
+    "verify:release": "./scripts/sanitize-runtime-env.sh npm run check:go && ./scripts/sanitize-runtime-env.sh npm --prefix web run lint && ./scripts/sanitize-runtime-env.sh node --test scripts/*.test.mjs && ./scripts/sanitize-runtime-env.sh npm --prefix web run test && ./scripts/sanitize-runtime-env.sh npm --prefix web run build && ./scripts/sanitize-runtime-env.sh npm --prefix web run check:budget && ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge run check && ./scripts/sanitize-runtime-env.sh npm run audit:prod",
     "check": "./scripts/sanitize-runtime-env.sh npm run verify:release"
   }
 }

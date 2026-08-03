@@ -40,12 +40,41 @@ jobs:
           node-version-file: .node-version
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install, lint, test and build frontend
+      - name: Install frontend dependencies
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+      - name: Lint, test and build frontend
         run: |
-          ./scripts/sanitize-runtime-env.sh npm --prefix web ci
           ./scripts/sanitize-runtime-env.sh npm --prefix web run lint
           ./scripts/sanitize-runtime-env.sh npm --prefix web run test
           ./scripts/sanitize-runtime-env.sh npm --prefix web run build
+      - name: Check frontend build budget
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web run check:budget
+      - name: Install isolated Playwright browser smoke dependency
+        shell: bash
+        run: |
+          playwright_home="$RUNNER_TEMP/frontend-playwright"
+          mkdir -p "$playwright_home"
+          ./scripts/sanitize-runtime-env.sh npm --prefix "$playwright_home" install \
+            --no-save --no-package-lock --ignore-scripts @playwright/test@1.55.0
+          rm -rf web/node_modules/@playwright
+          ln -s "$playwright_home/node_modules/@playwright" web/node_modules/@playwright
+          (cd web && ../scripts/sanitize-runtime-env.sh \
+            "$playwright_home/node_modules/.bin/playwright" install --with-deps chromium)
+      - name: Run frontend browser smoke
+        shell: bash
+        run: |
+          playwright_home="$RUNNER_TEMP/frontend-playwright"
+          (cd web && ../scripts/sanitize-runtime-env.sh \
+            "$playwright_home/node_modules/.bin/playwright" test)
+      - name: Upload frontend browser report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-browser-report
+          path: |
+            web/playwright-report
+            web/test-results
+          if-no-files-found: warn
 
   runtime-contract:
     runs-on: ubuntu-latest

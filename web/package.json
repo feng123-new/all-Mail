@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"vite\"",
     "build": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"tsc -b && vite build\"",
+    "check:budget": "node ./scripts/check-build-budget.mjs",
     "lint": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"eslint .\"",
     "preview": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"vite preview\"",
-    "test": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"vitest run\""
+    "test": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"vitest run\"",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "@ant-design/charts": "^2.6.7",
