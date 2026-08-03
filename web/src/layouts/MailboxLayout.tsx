@@ -1,171 +1,207 @@
-import { useCallback, type ReactNode } from 'react';
-import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
-import { Layout, Menu, Typography, Space, Dropdown, Avatar, Button } from 'antd';
-import type { MenuProps } from 'antd';
-import { AppstoreOutlined, InboxOutlined, SettingOutlined, LogoutOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import {
+  AppstoreOutlined,
+  InboxOutlined,
+  LogoutOutlined,
+  MenuOutlined,
+  SafetyCertificateOutlined,
+  SettingOutlined,
+} from '@ant-design/icons';
+import {
+  Avatar,
+  Button,
+  Dropdown,
+  Layout,
+  Menu,
+  type MenuProps,
+  Typography,
+} from 'antd';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { mailboxPortalApi } from '../api';
 import { LanguageToggle, PageSurface } from '../components';
 import { APP_NAME, APP_SHORT_NAME } from '../constants/product';
-import { mailboxLayoutI18n } from '../i18n/catalog/shell';
+import { useResponsiveShell } from '../hooks/useResponsiveShell';
 import { useI18n } from '../i18n';
-import { shellMetrics, shellPalette } from '../theme';
-import {
-    contentFrameStyle,
-    createBrandMarkStyle,
-    floatingSidebarStyle,
-    shellHeaderContextStyle,
-    shellHeaderLabelStyle,
-    shellHeaderMetaStyle,
-    shellHeaderStyle,
-    shellLayoutStyle,
-    sidebarPanelStyle,
-    translucentSidebarPanelStyle,
-} from '../styles/common';
+import { mailboxLayoutI18n } from '../i18n/catalog/shell';
 import { useMailboxAuthStore } from '../stores/mailboxAuthStore';
+import { shellMetrics, shellPalette } from '../theme';
 
 const { Header, Sider, Content } = Layout;
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
-const menuItems: Array<{ key: string; icon: ReactNode; label: typeof mailboxLayoutI18n.overview }> = [
-    { key: '/mail/overview', icon: <AppstoreOutlined />, label: mailboxLayoutI18n.overview },
-    { key: '/mail/inbox', icon: <InboxOutlined />, label: mailboxLayoutI18n.inbox },
-    { key: '/mail/settings', icon: <SettingOutlined />, label: mailboxLayoutI18n.settings },
+const portalNavigation: Array<{
+  key: string;
+  icon: ReactNode;
+  label: typeof mailboxLayoutI18n.overview;
+}> = [
+  { key: '/mail/overview', icon: <AppstoreOutlined />, label: mailboxLayoutI18n.overview },
+  { key: '/mail/inbox', icon: <InboxOutlined />, label: mailboxLayoutI18n.inbox },
+  { key: '/mail/settings', icon: <SettingOutlined />, label: mailboxLayoutI18n.settings },
 ];
 
-const routeMeta = {
-    '/mail/overview': mailboxLayoutI18n.overview,
-    '/mail/inbox': mailboxLayoutI18n.inbox,
-    '/mail/settings': mailboxLayoutI18n.settings,
+const portalRouteMeta = {
+  '/mail/overview': mailboxLayoutI18n.overview,
+  '/mail/inbox': mailboxLayoutI18n.inbox,
+  '/mail/settings': mailboxLayoutI18n.settings,
 } as const;
 
 const MailboxLayout: React.FC = () => {
-    const navigate = useNavigate();
-    const location = useLocation();
-    const { t } = useI18n();
-    const { mailboxUser, clearAuth } = useMailboxAuthStore();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const isNarrow = useResponsiveShell();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { t } = useI18n();
+  const { mailboxUser, clearAuth } = useMailboxAuthStore();
 
-    const assignedMailboxCount = mailboxUser?.mailboxIds?.length || 0;
-    const mustChangePassword = Boolean(mailboxUser?.mustChangePassword);
-    const activeMeta = t(routeMeta[location.pathname as keyof typeof routeMeta] || mailboxLayoutI18n.mailboxPortal);
-    const menuItemsWithState: MenuProps['items'] = menuItems.map((item) => ({
-        key: item.key,
-        icon: item.icon,
-        label: <Link to={item.key}>{t(item.label)}</Link>,
-        disabled: mustChangePassword && item?.key !== '/mail/settings',
-    }));
+  const assignedMailboxCount = mailboxUser?.mailboxIds?.length || 0;
+  const mustChangePassword = Boolean(mailboxUser?.mustChangePassword);
+  const activeMeta = portalRouteMeta[location.pathname as keyof typeof portalRouteMeta]
+    || mailboxLayoutI18n.mailboxPortal;
 
-    const handleLogout = useCallback(async () => {
-        try {
-            await mailboxPortalApi.logout();
-        } catch (error) {
-            console.warn('Mailbox portal logout request failed:', error);
-        }
-        clearAuth();
-        navigate('/mail/login');
-    }, [clearAuth, navigate]);
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
 
-    const userMenuItems: MenuProps['items'] = [
-        {
-            key: 'logout',
-            icon: <LogoutOutlined />,
-            label: t(mailboxLayoutI18n.signOut),
-            onClick: handleLogout,
-            danger: true,
-        },
-    ];
+  const menuItems: MenuProps['items'] = useMemo(
+    () => portalNavigation.map((item) => ({
+      key: item.key,
+      icon: item.icon,
+      label: <Link to={item.key}>{t(item.label)}</Link>,
+      disabled: mustChangePassword && item.key !== '/mail/settings',
+    })),
+    [mustChangePassword, t],
+  );
 
-    return (
-        <Layout style={shellLayoutStyle}>
-            <Sider
-                theme="light"
-                width={shellMetrics.portalSidebarWidth}
-                style={floatingSidebarStyle}
-            >
-                <div style={{ padding: 20, borderBottom: `1px solid ${shellPalette.border}` }}>
-                    <Space orientation="vertical" size={16} style={{ width: '100%' }}>
-                        <Space align="center">
-                            <div style={createBrandMarkStyle({ size: 38, radius: 12, fontSize: 18 })}>
-                                {APP_SHORT_NAME}
-                            </div>
-                            <div>
-                                 <Title level={4} style={{ margin: 0, color: shellPalette.sidebarText }}>{APP_NAME}</Title>
-                                <Text style={{ color: shellPalette.sidebarMuted }}>{t(mailboxLayoutI18n.mailboxWorkspace)}</Text>
-                            </div>
-                        </Space>
+  const handleLogout = useCallback(async () => {
+    try {
+      await mailboxPortalApi.logout();
+    } catch {
+      // The local session is still cleared when the best-effort logout request fails.
+    }
+    clearAuth();
+    navigate('/mail/login');
+  }, [clearAuth, navigate]);
 
-                        <div style={sidebarPanelStyle}>
-                            <Space orientation="vertical" size={6} style={{ width: '100%' }}>
-                                <Text style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.3, textTransform: 'uppercase', color: shellPalette.muted }}>{t(mailboxLayoutI18n.mailboxAccess)}</Text>
-                                <Text strong style={{ color: shellPalette.ink }}>{t(mailboxLayoutI18n.accessibleMailboxCount, { count: assignedMailboxCount })}</Text>
-                                <Text style={{ color: shellPalette.inkSoft }}>{mailboxUser?.mustChangePassword ? t(mailboxLayoutI18n.passwordUpdateRequired) : t(mailboxLayoutI18n.securityHealthy)}</Text>
-                            </Space>
-                        </div>
-                    </Space>
-                </div>
+  const userMenuItems: MenuProps['items'] = useMemo(() => [
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: t(mailboxLayoutI18n.signOut),
+      onClick: handleLogout,
+      danger: true,
+    },
+  ], [handleLogout, t]);
 
-                <div style={{ padding: '14px 10px 20px' }}>
-                    <Text style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase', color: shellPalette.muted, paddingInline: 10, marginBottom: 8 }}>
-                        {t(mailboxLayoutI18n.workspace)}
-                    </Text>
-                    <Menu
-                        mode="inline"
-                        selectedKeys={[location.pathname]}
-                        items={menuItemsWithState}
-                        theme="light"
-                        style={{ borderRight: 0, background: 'transparent' }}
-                    />
-                </div>
+  return (
+    <Layout className="app-shell app-shell--portal">
+      {isNarrow && mobileNavOpen ? (
+        <button
+          type="button"
+          className="app-shell__overlay"
+          aria-label={t(mailboxLayoutI18n.closeNavigation)}
+          onClick={() => setMobileNavOpen(false)}
+        />
+      ) : null}
 
-                {mailboxUser?.mustChangePassword ? (
-                    <div style={{ padding: 20, marginTop: 'auto' }}>
-                        <div style={translucentSidebarPanelStyle}>
-                            <Space orientation="vertical" size={8} style={{ width: '100%' }}>
-                                <Space>
-                                     <SafetyCertificateOutlined style={{ color: shellPalette.warning }} />
-                                    <Text strong style={{ color: shellPalette.ink }}>{t(mailboxLayoutI18n.updatePasswordFirst)}</Text>
-                                </Space>
-                                <Text style={{ color: shellPalette.inkSoft }}>{t(mailboxLayoutI18n.updatePasswordHint)}</Text>
-                            </Space>
-                        </div>
-                    </div>
-                ) : null}
-            </Sider>
+      <Sider
+        theme="light"
+        width={shellMetrics.portalSidebarWidth}
+        className={`app-shell__sider app-shell__sider--portal${mobileNavOpen ? ' is-open' : ''}`}
+      >
+        <div className="app-shell__brand app-shell__brand--portal">
+          <div className="app-shell__brand-mark" aria-hidden="true">{APP_SHORT_NAME}</div>
+          <div className="app-shell__brand-copy">
+            <Text strong className="app-shell__brand-name">{APP_NAME}</Text>
+            <Text className="app-shell__brand-subtitle">{t(mailboxLayoutI18n.mailboxWorkspace)}</Text>
+          </div>
+        </div>
 
-            <Layout>
-                <Header
-                    style={shellHeaderStyle}
-                >
-                    <div style={shellHeaderContextStyle}>
-                        <Text style={shellHeaderLabelStyle}>{t(mailboxLayoutI18n.mailboxPortal)}</Text>
-                        <Text type="secondary" style={shellHeaderMetaStyle}>{activeMeta}</Text>
-                    </div>
+        <div className="portal-shell__identity">
+          <Text className="portal-shell__identity-label">{t(mailboxLayoutI18n.mailboxAccess)}</Text>
+          <Text strong className="portal-shell__identity-value">
+            {t(mailboxLayoutI18n.accessibleMailboxCount, { count: assignedMailboxCount })}
+          </Text>
+          <Text className="portal-shell__identity-state">
+            {mustChangePassword
+              ? t(mailboxLayoutI18n.passwordUpdateRequired)
+              : t(mailboxLayoutI18n.securityHealthy)}
+          </Text>
+        </div>
 
-                    <Space size={12}>
-                        <LanguageToggle />
-                        <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-                            <Button type="text" style={{ height: 'auto', padding: 0, borderRadius: 14 }}>
-                                <Space>
-                                    <Avatar size="small" style={{ background: shellPalette.primary }}>
-                                        {(mailboxUser?.username || 'M').slice(0, 1).toUpperCase()}
-                                    </Avatar>
-                                    <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
-                                        <div>{mailboxUser?.username || t(mailboxLayoutI18n.mailboxUser)}</div>
-                                        <Text type="secondary" style={{ fontSize: 12 }}>{t(mailboxLayoutI18n.accessibleMailboxCount, { count: assignedMailboxCount })}</Text>
-                                    </div>
-                                </Space>
-                            </Button>
-                        </Dropdown>
-                    </Space>
-                </Header>
+        <div className="app-shell__navigation">
+          <Text className="app-shell__navigation-label">{t(mailboxLayoutI18n.workspace)}</Text>
+          <Menu
+            mode="inline"
+            selectedKeys={[location.pathname]}
+            items={menuItems}
+            theme="light"
+            className="app-shell__menu"
+            onClick={() => {
+              if (isNarrow) setMobileNavOpen(false);
+            }}
+          />
+        </div>
 
-                <Content style={{ ...contentFrameStyle, minHeight: `calc(100vh - ${shellMetrics.headerHeight}px)`, background: 'transparent' }}>
-                    <PageSurface maxWidth={shellMetrics.portalContentMaxWidth}>
-                        <Outlet />
-                    </PageSurface>
-                </Content>
-            </Layout>
-        </Layout>
-    );
+        {mustChangePassword ? (
+          <div className="portal-shell__security-notice">
+            <div className="portal-shell__security-title">
+              <SafetyCertificateOutlined style={{ color: shellPalette.warning }} />
+              <Text strong>{t(mailboxLayoutI18n.updatePasswordFirst)}</Text>
+            </div>
+            <Text className="portal-shell__security-copy">{t(mailboxLayoutI18n.updatePasswordHint)}</Text>
+          </div>
+        ) : null}
+      </Sider>
+
+      <Layout
+        className="app-shell__main"
+        style={{ marginLeft: isNarrow ? 0 : shellMetrics.portalSidebarWidth }}
+      >
+        <Header className="app-shell__header">
+          <div className="app-shell__header-start">
+            {isNarrow ? (
+              <Button
+                type="text"
+                className="app-shell__menu-trigger"
+                aria-label={t(mailboxLayoutI18n.openNavigation)}
+                icon={<MenuOutlined />}
+                onClick={() => setMobileNavOpen(true)}
+              />
+            ) : null}
+            <div className="app-shell__route-context">
+              <Text className="app-shell__route-title">{t(activeMeta)}</Text>
+              <Text className="app-shell__route-subtitle">{t(mailboxLayoutI18n.mailboxPortal)}</Text>
+            </div>
+          </div>
+
+          <div className="app-shell__header-actions">
+            <LanguageToggle />
+            <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
+              <button type="button" className="app-shell__user-trigger">
+                <Avatar size="small" style={{ background: shellPalette.primary }}>
+                  {(mailboxUser?.username || 'M').slice(0, 1).toUpperCase()}
+                </Avatar>
+                <span className="app-shell__user-copy">
+                  <span className="app-shell__user-name">
+                    {mailboxUser?.username || t(mailboxLayoutI18n.mailboxUser)}
+                  </span>
+                  <span className="app-shell__user-role">
+                    {t(mailboxLayoutI18n.accessibleMailboxCount, { count: assignedMailboxCount })}
+                  </span>
+                </span>
+              </button>
+            </Dropdown>
+          </div>
+        </Header>
+
+        <Content className="app-shell__content">
+          <PageSurface maxWidth={shellMetrics.portalContentMaxWidth}>
+            <Outlet />
+          </PageSurface>
+        </Content>
+      </Layout>
+    </Layout>
+  );
 };
 
 export default MailboxLayout;
