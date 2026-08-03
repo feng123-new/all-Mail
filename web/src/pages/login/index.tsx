@@ -89,7 +89,7 @@ const LoginPage: FC = () => {
         setFormError(null);
         setMailboxAuth(result.mailboxUser);
         message.success(t(loginPageI18n.portalLoginSuccess));
-        navigate(result.mailboxUser.mustChangePassword ? '/mail/settings' : '/mail/overview');
+        navigate(result.mailboxUser.mustChangePassword ? '/mail/settings' : '/mail/inbox');
     };
 
     const handleSubmit = async (values: LoginForm) => {
