@@ -1,0 +1,16 @@
+all-Mail v2.0.1 finalizer exit status: 1
+
+From https://github.com/feng123-new/all-Mail
+ * branch            main       -> FETCH_HEAD
+v2.0.1 core hardening changes applied
+Traceback (most recent call last):
+  File "/home/runner/work/all-Mail/all-Mail/scripts/agent-release-v2.0.1-release2.py", line 25, in <module>
+    exec(compile(source, str(source_path), "exec"), {"__name__": "__main__", "__file__": str(source_path)})
+  File "/home/runner/work/all-Mail/all-Mail/scripts/agent-release-v2.0.1-release.py", line 369, in <module>
+    
+  File "/usr/lib/python3.12/re/__init__.py", line 334, in _compile_template
+    return _sre.template(pattern, _parser.parse_template(repl, pattern))
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/re/_parser.py", line 1075, in parse_template
+    raise s.error('bad escape %s' % this, len(this)) from None
+re.error: bad escape \d at position 171 (line 3, column 27)
