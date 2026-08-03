@@ -8,6 +8,8 @@ export { default as MailFlowContext } from './MailFlowContext';
 export { default as MailFlowStatusBadge } from './MailFlowStatusBadge';
 export { default as ControlBoundaryContext } from './ControlBoundaryContext';
 export type { ControlBoundarySurface } from './ControlBoundaryContext';
+export { default as PortalWorkspaceContext } from './PortalWorkspaceContext';
+export type { PortalWorkspaceSurface } from './PortalWorkspaceContext';
 export { getMailFlowStateTone } from './mailFlow';
 export type { MailFlowState, MailFlowSurface } from './mailFlow';
 export {
