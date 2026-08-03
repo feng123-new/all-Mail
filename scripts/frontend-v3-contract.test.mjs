@@ -113,12 +113,12 @@ test('frontend v3 operational context avoids decorative gradients', async () => 
 });
 
 test('frontend v3 browser and bundle regression gates are present', async () => {
-  const [webPackage, playwrightConfig, browserSpec, budgetScript, ci, rootPackage] = await Promise.all([
+  const [webPackage, playwrightConfig, browserSpec, budgetScript, bootstrapWorkflow, rootPackage] = await Promise.all([
     read('web/package.json'),
     read('web/playwright.config.ts'),
     read('web/e2e/frontend-v3.spec.ts'),
     read('web/scripts/check-build-budget.mjs'),
-    read('.github/workflows/ci.yml'),
+    read('.github/workflows/bootstrap-admin-security.yml'),
     read('package.json'),
   ]);
 
@@ -130,8 +130,12 @@ test('frontend v3 browser and bundle regression gates are present', async () => 
   assert.match(playwrightConfig, /Mobile Chromium/);
   assert.match(browserSpec, /administrator login reaches the explainable dashboard/);
   assert.match(browserSpec, /portal login reaches the inbox-first workspace/);
-  assert.match(ci, /name:\s*frontend-browser-smoke/);
-  assert.match(ci, /Check frontend build budget/);
+  assert.match(bootstrapWorkflow, /Check frontend build budget/);
+  assert.match(bootstrapWorkflow, /Install Playwright browser smoke dependency/);
+  assert.match(bootstrapWorkflow, /@playwright\/test@1\.55\.0/);
+  assert.match(bootstrapWorkflow, /Run frontend browser smoke/);
   assert.match(rootMetadata.scripts['verify:release'], /check:budget/);
+  assert.match(budgetScript, /largestJavaScript/);
+  assert.match(budgetScript, /totalJavaScript/);
   await access(path.join(root, 'web/e2e/frontend-v3.spec.ts'));
 });
