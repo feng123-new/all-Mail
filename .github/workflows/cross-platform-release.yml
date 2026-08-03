@@ -135,7 +135,10 @@ jobs:
             exit "$status"
           fi
 
-          git checkout origin/main -- .github/workflows/cross-platform-release.yml
+          cp .github/workflows/release.yml scripts/generated-release-v2.0.1.yml
+          git checkout origin/main -- \
+            .github/workflows/cross-platform-release.yml \
+            .github/workflows/release.yml
           rm -f \
             .github/workflows/agent-release-v2.0.1-apply.yml \
             scripts/agent-release-v2.0.1-core.py \
@@ -153,7 +156,6 @@ jobs:
 
           git commit -m "release: prepare all-Mail v2.0.1 [release:v2.0.1]"
           git push origin HEAD:agent/release-v2.0.1
-          git push origin --delete agent/release-v2.0.1-scaffold || true
 
   cross-compile:
     name: cross-platform-release-builds
