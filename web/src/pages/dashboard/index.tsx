@@ -24,8 +24,8 @@ import {
 	getProviderLabelMessage,
 } from "../../i18n/catalog/providers";
 import { shellPalette } from "../../theme";
+import DashboardPriorityHero from "./DashboardPriorityHero";
 import {
-	DashboardHeroSection,
 	DashboardPageHeader,
 	DashboardProofAlert,
 	DashboardStatsRow,
@@ -291,23 +291,16 @@ const DashboardPage: FC = () => {
 	const dominantProvider =
 		rankedProviders.find((item) => item.count > 0) || rankedProviders[0];
 
-	const automationHealthScore = useMemo(() => {
-		const emailHealth =
-			safeEmailStats.total > 0
-				? safeEmailStats.active / safeEmailStats.total
-				: 1;
-		const domainHealth =
-			statsData.domainMail.mailboxes > 0
-				? statsData.domainMail.activeMailboxes / statsData.domainMail.mailboxes
-				: 1;
-		const keyHealth =
-			statsData.apiKeys.total > 0
-				? statsData.apiKeys.active / statsData.apiKeys.total
-				: 1;
-		return Math.round(
-			(emailHealth * 0.45 + domainHealth * 0.35 + keyHealth * 0.2) * 100,
-		);
-	}, [safeEmailStats, statsData]);
+	const abnormalConnections = safeEmailStats.error;
+	const inactiveDomains = Math.max(
+		statsData.domainMail.domains - statsData.domainMail.activeDomains,
+		0,
+	);
+	const inactiveMailboxes = Math.max(
+		statsData.domainMail.mailboxes - statsData.domainMail.activeMailboxes,
+		0,
+	);
+	const attentionCount = abnormalConnections + inactiveDomains + inactiveMailboxes;
 
 	const heroBadges = useMemo(
 		() => [
@@ -380,29 +373,16 @@ const DashboardPage: FC = () => {
 		},
 	];
 
-	const trendTotal = useMemo(
-		() => apiTrend.reduce((sum, item) => sum + item.count, 0),
-		[apiTrend],
-	);
-	const trendPeak = useMemo(
-		() => apiTrend.reduce((max, item) => Math.max(max, item.count), 0),
-		[apiTrend],
-	);
-	const averageTrend =
-		apiTrend.length > 0 ? Math.round(trendTotal / apiTrend.length) : 0;
-
 	return (
 		<div>
 			<DashboardPageHeader t={t} />
 			<DashboardProofAlert visible={isDegradedProof} t={t} />
-			<DashboardHeroSection
-				t={t}
+			<DashboardPriorityHero
 				heroBadges={heroBadges}
-				automationHealthScore={automationHealthScore}
-				trendDays={trendDays}
-				trendTotal={trendTotal}
-				averageTrend={averageTrend}
-				trendPeak={trendPeak}
+				attentionCount={attentionCount}
+				abnormalConnections={abnormalConnections}
+				inactiveDomains={inactiveDomains}
+				inactiveMailboxes={inactiveMailboxes}
 			/>
 			<DashboardStatsRow
 				t={t}

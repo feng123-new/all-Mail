@@ -27,15 +27,14 @@ const loginPageI18n = {
     featureAutomationDescription: defineMessage('loginPage.featureAutomationDescription', '访问密钥、调用记录和资源边界在控制台里统一收口。', 'Keep API keys, request logs, and resource boundaries in one console.'),
     featureMailflowTitle: defineMessage('loginPage.featureMailflowTitle', '收发链路闭环', 'Mailflow stays end to end'),
     featureMailflowDescription: defineMessage('loginPage.featureMailflowDescription', '从接入到收件、发件和转发都保持在同一工作流里。', 'Keep onboarding, inbox, sending, and forwarding inside one workflow.'),
-    notice: defineMessage('loginPage.notice', '同一入口会自动兼容邮箱门户用户；如果管理员认证失败，系统会自动尝试门户登录。', 'The same entry point also supports mailbox-portal users. If admin auth fails, the system will automatically try portal login.'),
+    notice: defineMessage('loginPage.notice', '同一入口会自动兼容邮箱门户用户；只有管理员认证未通过时，系统才会尝试门户登录。', 'The same entry point supports mailbox-portal users. The portal path is attempted only after admin authentication does not succeed.'),
     formTitle: defineMessage('loginPage.formTitle', '登录管理控制台', 'Sign in to the admin console'),
-    formDescription: defineMessage('loginPage.formDescription', '优先走管理员认证；如果当前账号属于门户用户，系统会自动切换到门户工作台。', 'Admin auth runs first. If this account belongs to the portal, the system switches to the portal workspace automatically.'),
-    footer: defineMessage('loginPage.footer', '适用于管理员与运营人员，也兼容需要临时进入门户工作台的邮箱用户。', 'For admins and operators, with portal compatibility for mailbox users who need temporary access.'),
+    formDescription: defineMessage('loginPage.formDescription', '输入账号后先验证管理员身份；门户账号会自动进入邮箱工作台。启用 2FA 的管理员将在验证密码后看到动态码步骤。', 'Admin identity is checked first. Portal accounts move to the mailbox workspace automatically. Administrators with 2FA see the verification-code step after their password is accepted.'),
+    footer: defineMessage('loginPage.footer', '认证由服务器 Cookie 会话承载，浏览器不会保存管理员或门户密码。', 'Authentication uses server-managed cookie sessions; administrator and portal passwords are not stored by the browser.'),
     usernameLabel: defineMessage('loginPage.usernameLabel', '用户名或邮箱', 'Username or email'),
     usernameRequired: defineMessage('loginPage.usernameRequired', '请输入用户名或邮箱', 'Enter a username or email'),
     passwordLabel: defineMessage('loginPage.passwordLabel', '密码', 'Password'),
     passwordRequired: defineMessage('loginPage.passwordRequired', '请输入密码', 'Enter a password'),
-    otpPromptTitle: defineMessage('loginPage.otpPromptTitle', '如果账号启用了 2FA，下一步会要求输入 6 位验证码', 'If 2FA is enabled for this account, the next step asks for a 6-digit verification code'),
     loginUnavailable: defineMessage('loginPage.loginUnavailable', '当前无法完成登录', 'Unable to complete sign-in right now'),
     enterConsole: defineMessage('loginPage.enterConsole', '进入管理控制台', 'Enter the admin console'),
     initialPasswordWarning: defineMessage('loginPage.initialPasswordWarning', '这是首次初始化生成的临时密码，请先完成改密再继续使用系统', 'This is the initial temporary password. Change it before continuing to use the system.'),
@@ -188,14 +187,6 @@ const LoginPage: FC = () => {
                     <Form.Item name="password" label={t(loginPageI18n.passwordLabel)} rules={[{ required: true, message: t(loginPageI18n.passwordRequired) }]}>
                         <Input.Password prefix={<LockOutlined />} placeholder={t(loginPageI18n.passwordLabel)} autoComplete="current-password" />
                     </Form.Item>
-
-                    <Alert
-                        type="warning"
-                        showIcon
-                        icon={<SafetyCertificateOutlined />}
-                        title={t(loginPageI18n.otpPromptTitle)}
-                        style={marginBottom16Style}
-                    />
 
                     {formError ? (
                         <Alert
