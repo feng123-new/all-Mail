@@ -15,12 +15,10 @@ import {
 
 const workerDir = path.resolve(import.meta.dirname, '..');
 const repoRoot = path.resolve(workerDir, '..', '..', '..');
-const serverDir = path.join(repoRoot, 'server');
 const devVarsPath = path.join(workerDir, '.dev.vars');
 const devVarsExamplePath = path.join(workerDir, '.dev.vars.example');
 const wranglerConfigPath = path.join(workerDir, 'wrangler.jsonc');
 const candidateSecretFiles = [
-  path.join(serverDir, '.env'),
   path.join(repoRoot, '.env'),
 ];
 
@@ -175,10 +173,8 @@ async function main() {
   console.log('[allmail-edge deploy] Running worker quality checks...');
   run('npm', ['run', 'check']);
 
-  console.log('[allmail-edge deploy] Ensuring backend ingress endpoint exists...');
-  run('npx', ['tsx', 'scripts/ensure-ingress-endpoint.ts', '--key-id', devVars.get('INGRESS_KEY_ID') || 'allmail-edge-main'], {
-    cwd: serverDir,
-  });
+  console.log('[allmail-edge deploy] Backend ingress endpoints are owned by the Go initializer.');
+  console.log('[allmail-edge deploy] Run ./scripts/compose-up.sh with the matching INGRESS_IMPORT_KEY_ID before deploying this Worker.');
 
   requireCloudflareApiToken();
   ensureR2BucketExists(devVars.get('RAW_EMAIL_BUCKET_NAME'));

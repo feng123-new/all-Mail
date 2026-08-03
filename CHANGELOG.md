@@ -6,13 +6,32 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [2.0.1] - 2026-08-03
+
 ### Security
 
-- Restricted full external-mailbox credential export to authenticated `SUPER_ADMIN` sessions. The personal single-owner workflow still exports original saved credentials, while ordinary `ADMIN` sessions can no longer bulk-export them.
+- Restricted full external-mailbox credential export to authenticated `SUPER_ADMIN` sessions while preserving the original saved credentials for personal owner recovery and migration.
+- Added fail-closed provider egress resolution for HTTP, OAuth, explicit HTTP/SOCKS proxies, IMAP, and SMTP. Localhost, private, link-local, shared, multicast, unspecified, and reserved targets are rejected, and public DNS results are pinned before dialing to prevent DNS rebinding.
+
+### Fixed
+
+- Administrator and mailbox-portal cookies now use the configured `JWT_EXPIRES_IN` lifetime and matching expiration timestamp instead of a separate fixed two-hour duration.
+- Mailbox-portal session bootstrap now finishes and redirects to login when the API returns a resolved non-success envelope instead of remaining on an infinite loading indicator.
+- Cloudflare Worker deployment and doctor tooling no longer reference the removed Node `server/` directory or the retired `ensure-ingress-endpoint.ts` helper; ingress endpoint creation remains owned by the Go initializer.
 
 ### Changed
 
-- Replaced the Node-era `NODE_ENV` switch in the Go initializer and private Go API with `ALL_MAIL_RUNTIME_ENV`; `NODE_ENV` is now a rejected production variable.
+- Replaced the remaining Node-era `NODE_ENV` production selector with `ALL_MAIL_RUNTIME_ENV`; stale `NODE_ENV` entries are rejected by production preflight.
+- Documented the Cloudflare R2 raw-message bucket as external durable state, including lifecycle, backup, restore, and acceptance requirements when raw `.eml` recovery matters.
+- Generalized the release workflow so version, tag, changelog date, release notes, and release validation are derived from `VERSION` rather than being fixed to `v2.0.0`.
+
+### Upgrade notes
+
+- This patch does not add a database schema migration or rotate existing JWT, encryption, Redis, or database-role secrets.
+- Remove any manually supplied `NODE_ENV` entry before startup. Standard Compose injects `ALL_MAIL_RUNTIME_ENV=production` internally; operators should not add it to `.env`.
+- Back up PostgreSQL, all required secret/data volumes, and the R2 raw-message bucket when it is part of the recovery objective before upgrading.
 
 ## [2.0.0] - 2026-08-02
 
@@ -67,5 +86,6 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Rollback after initialization or migration requires restoring the database and volume backup captured for the target revision. Image-only rollback is not a safe default.
 - Follow [`docs/UPGRADE.md`](./docs/UPGRADE.md) and [`docs/BACKUP-RESTORE.md`](./docs/BACKUP-RESTORE.md).
 
-[Unreleased]: https://github.com/feng123-new/all-Mail/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/feng123-new/all-Mail/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/feng123-new/all-Mail/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/feng123-new/all-Mail/releases/tag/v2.0.0

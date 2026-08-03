@@ -30,11 +30,11 @@ Only `app` is published to the host. The public gateway serves the React SPA, he
 
 ```bash
 git fetch --tags --prune
-git switch --detach v2.0.0
+git switch --detach v2.0.1
 cat VERSION
 ```
 
-`VERSION` must print `2.0.0`.
+`VERSION` must print `2.0.1`.
 
 ## 2. Create the environment
 
@@ -65,11 +65,11 @@ The helper injects `VERSION`, the current Git commit, and the commit timestamp i
 ```bash
 ALL_MAIL_USE_PUBLISHED_IMAGE=1 \
 ALL_MAIL_GO_IMAGE=ghcr.io/feng123-new/all-mail \
-ALL_MAIL_IMAGE_TAG=2.0.0 \
+ALL_MAIL_IMAGE_TAG=2.0.1 \
 ./scripts/compose-up.sh
 ```
 
-Keep the `v2.0.0` checkout: Compose, migration files, environment contracts, and operational scripts are part of the release.
+Keep the `v2.0.1` checkout: Compose, migration files, environment contracts, and operational scripts are part of the release.
 
 ## 4. Understand startup
 
@@ -102,7 +102,7 @@ For an official image, every service must report:
 
 ```json
 {
-  "version": "2.0.0",
+  "version": "2.0.1",
   "commit": "<release commit>",
   "buildDate": "<UTC RFC3339 timestamp>",
   "goVersion": "go1.26.5"
@@ -175,6 +175,10 @@ The initializer never prints the password to logs. Browser code never stores or 
 - `redis`: `cache-network` only.
 
 The initializer-only master secret file is stored on the preserved physical volume `${COMPOSE_PROJECT_NAME}_legacy_runtime_data`. Long-running services receive only their matching read-only exports. See [`ENVIRONMENT.md`](./ENVIRONMENT.md) and [`SECURITY-BOUNDARIES.md`](./SECURITY-BOUNDARIES.md).
+
+## External R2 state
+
+When Cloudflare raw-message persistence is enabled, the R2 bucket is part of the recovery state but is not managed by Docker Compose. Configure its lifecycle and include it in backup/restore rehearsals as described in [`BACKUP-RESTORE.md`](./BACKUP-RESTORE.md).
 
 ## Next operations
 

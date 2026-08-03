@@ -44,7 +44,7 @@ Never include `.env`, database URL files, JWT/encryption/Redis secrets, OAuth cl
 
 The maintainer may ask you to:
 
-- reproduce on `v2.0.0` or a later stable patch;
+- reproduce on `v2.0.1` or a later stable patch;
 - validate `docker compose config --quiet`;
 - run the four runtime doctors;
 - follow the canonical upgrade, rollback, backup, or restore procedure;

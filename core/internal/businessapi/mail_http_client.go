@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	netproxy "golang.org/x/net/proxy"
 )
@@ -22,7 +21,10 @@ func (s *Server) providerClient() *http.Client {
 	if s.providerHTTPClient != nil {
 		return s.providerHTTPClient
 	}
-	return &http.Client{Timeout: s.cfg.ProviderTimeout}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DialContext = s.dialProviderContext
+	return &http.Client{Transport: transport, Timeout: s.cfg.ProviderTimeout}
 }
 
 func (s *Server) providerClientFor(account mailAccountCredentials) (*http.Client, error) {
@@ -31,6 +33,7 @@ func (s *Server) providerClientFor(account mailAccountCredentials) (*http.Client
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	transport.DialContext = s.dialProviderContext
 	if account.Proxy.Socks5 != "" {
 		proxyURL, err := url.Parse(account.Proxy.Socks5)
 		if err != nil {
@@ -41,7 +44,7 @@ func (s *Server) providerClientFor(account mailAccountCredentials) (*http.Client
 			password, _ := proxyURL.User.Password()
 			auth = &netproxy.Auth{User: proxyURL.User.Username(), Password: password}
 		}
-		dialer, err := netproxy.SOCKS5("tcp", proxyURL.Host, auth, &net.Dialer{Timeout: 20 * time.Second})
+		dialer, err := netproxy.SOCKS5("tcp", proxyURL.Host, auth, providerContextDialer{server: s})
 		if err != nil {
 			return nil, err
 		}
@@ -84,6 +87,9 @@ func normalizeProviderProxyConfig(socks5, httpProxy string) (providerProxyConfig
 		parsed, err := url.Parse(raw)
 		if err != nil || parsed.Host == "" {
 			return "", validationError(expected + " proxy must be an absolute URL")
+		}
+		if err := validateProviderHostLiteral(parsed.Hostname()); err != nil {
+			return "", validationError(expected + " proxy targets a blocked network address")
 		}
 		if expected == "socks5" && parsed.Port() == "" {
 			return "", validationError("socks5 proxy must include a port")

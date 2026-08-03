@@ -29,7 +29,7 @@ jobs:
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.conclusion == 'success' &&
-       contains(github.event.workflow_run.head_commit.message, '[release:v2.0.0]')) ||
+       contains(github.event.workflow_run.head_commit.message, '[release:v')) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
@@ -61,6 +61,8 @@ jobs:
       - name: Resolve and verify release identity
         id: metadata
         shell: bash
+        env:
+          TRIGGER_COMMIT_MESSAGE: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_commit.message || '' }}
         run: |
           set -euo pipefail
           version="$(tr -d '[:space:]' < VERSION)"
@@ -70,19 +72,26 @@ jobs:
           tag="v${version}"
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
 
-          test "$version" = "2.0.0"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           test "$package_version" = "$version"
-          grep -Fqx "## [${version}] - 2026-08-02" CHANGELOG.md
+          release_line_count="$(grep -Fc "## [${version}] - " CHANGELOG.md)"
+          test "$release_line_count" = "1"
+          release_line="$(grep -F "## [${version}] - " CHANGELOG.md)"
+          release_date="${release_line##* - }"
+          [[ "$release_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
           git fetch origin main --tags --force
           git merge-base --is-ancestor "$sha" origin/main
           if [[ "$GITHUB_EVENT_NAME" == "workflow_run" ]]; then
             test "$sha" = "${{ github.event.workflow_run.head_sha }}"
+            marker="[release:v${version}]"
+            [[ "$TRIGGER_COMMIT_MESSAGE" == *"$marker"* ]]
           fi
 
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
           printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
           printf 'build_date=%s\n' "$build_date" >> "$GITHUB_OUTPUT"
+          printf 'release_date=%s\n' "$release_date" >> "$GITHUB_OUTPUT"
           printf 'image=%s\n' "$image" >> "$GITHUB_OUTPUT"
 
       - name: Install frontend and Worker dependencies
@@ -100,7 +109,7 @@ jobs:
         run: |
           set -euo pipefail
           required=(
-            runtime-tests go-core web-lint-build worker-check production-dependency-audit docker-smoke release-gate
+            runtime-tests go-core web-lint-build worker-check production-dependency-audit docker-smoke release-gate cross-platform-release-builds
             environment-contract go-gateway-security compose-boundary
             security-boundary-contracts security-boundary-docker-smoke
             runtime-contract web-contract go-contract docker-bootstrap-flow
@@ -193,10 +202,11 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ steps.metadata.outputs.version }}
+          RELEASE_DATE: ${{ steps.metadata.outputs.release_date }}
         run: |
-          awk -v version="$VERSION" '
-            $0 == "## [" version "] - 2026-08-02" { found = 1 }
-            found && /^## \[/ && $0 != "## [" version "] - 2026-08-02" { exit }
+          awk -v version="$VERSION" -v release_date="$RELEASE_DATE" '
+            $0 == "## [" version "] - " release_date { found = 1 }
+            found && /^## \[/ && $0 != "## [" version "] - " release_date { exit }
             found { print }
           ' CHANGELOG.md > dist/release-notes.md
           test -s dist/release-notes.md
@@ -299,7 +309,7 @@ jobs:
           assets=(dist/*.tar.gz dist/*.zip dist/*.cdx.json dist/SHA256SUMS dist/version.json dist/image-digest.txt)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release view "$TAG" --json tagName,isDraft,isPrerelease \
-              --jq 'select(.tagName == "v2.0.0" and .isDraft == false and .isPrerelease == false)'
+              | jq -e --arg tag "$TAG" 'select(.tagName == $tag and .isDraft == false and .isPrerelease == false)'
             printf 'release %s already exists on the verified tag; continuing to branch cleanup\n' "$TAG"
           else
             gh release create "$TAG" \

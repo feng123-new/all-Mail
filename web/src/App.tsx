@@ -97,6 +97,7 @@ const MailboxSessionBootstrap: FC = () => {
 
         if (response.code !== 200) {
           clearAuth();
+          setIsCheckingSession(false);
           return;
         }
 

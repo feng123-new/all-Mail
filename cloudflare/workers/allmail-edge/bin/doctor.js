@@ -11,12 +11,8 @@ import {
 } from './config-utils.js';
 
 const workerDir = path.resolve(import.meta.dirname, '..');
-const repoRoot = path.resolve(workerDir, '..', '..', '..');
-const serverDir = path.join(repoRoot, 'server');
 const devVarsPath = path.join(workerDir, '.dev.vars');
 const wranglerConfigPath = path.join(workerDir, 'wrangler.jsonc');
-const serverEnvPath = path.join(serverDir, '.env');
-const rootEnvPath = path.join(repoRoot, '.env');
 const postDeploy = process.argv.includes('--postdeploy');
 
 function runCapture(command, args, cwd = workerDir) {
@@ -147,17 +143,7 @@ function main() {
     }
   }
 
-  if (existsSync(serverEnvPath) || existsSync(rootEnvPath)) {
-    const check = runCapture('npx', ['tsx', 'scripts/ensure-ingress-endpoint.ts', '--check', '--key-id', envEntries.get('INGRESS_KEY_ID') || 'allmail-edge-main'], serverDir);
-    if (check.ok) {
-      logResult('pass', 'Server ingress endpoint', 'ensure-ingress-endpoint --check passed');
-    } else {
-      failures.push('Server ingress endpoint check failed');
-      logResult('fail', 'Server ingress endpoint', check.stderr || check.stdout || 'Check failed');
-    }
-  } else {
-    logResult('skip', 'Server ingress endpoint', `Skipped because neither ${serverEnvPath} nor ${rootEnvPath} exists`);
-  }
+  logResult('pass', 'Backend ingress ownership', 'The Go initializer owns endpoint creation; this doctor does not invoke the retired server helper.');
 
   if (postDeploy && whoAmI.ok) {
     let workerHealthUrl = null;

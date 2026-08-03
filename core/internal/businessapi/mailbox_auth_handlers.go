@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	mailboxSessionCookieName   = "mailbox_token"
-	mailboxSessionCookieMaxAge = 2 * 60 * 60
-	mailboxPasswordHashCost    = 10
+	mailboxSessionCookieName = "mailbox_token"
+	mailboxPasswordHashCost  = 10
 )
 
 type mailboxLoginRequest struct {
@@ -453,11 +452,13 @@ func mailboxUserResponse(identity MailboxIdentity) map[string]any {
 }
 
 func (s *Server) setMailboxSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	maxAge, expires := s.sessionCookieLifetime()
 	http.SetCookie(w, &http.Cookie{
 		Name:     mailboxSessionCookieName,
 		Value:    token,
 		Path:     "/",
-		MaxAge:   mailboxSessionCookieMaxAge,
+		MaxAge:   maxAge,
+		Expires:  expires,
 		HttpOnly: true,
 		Secure:   s.secureSessionCookie(r),
 		SameSite: http.SameSiteLaxMode,

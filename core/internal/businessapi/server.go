@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -31,6 +32,7 @@ type Server struct {
 	replayProtector     ReplayProtector
 	oauthStateStore     OAuthStateStore
 	providerHTTPClient  *http.Client
+	providerDialContext func(context.Context, string, string) (net.Conn, error)
 	providerTokenSource func(context.Context, mailAccountCredentials) (string, error)
 	now                 func() time.Time
 	ownStore            bool

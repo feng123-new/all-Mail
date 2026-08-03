@@ -170,6 +170,12 @@ curl -H 'X-Forwarded-For: 203.0.113.99' \
 
 Those values must not be accepted as client identity.
 
+## Raw-email lifecycle and recovery
+
+`RAW_EMAIL_BUCKET` is external durable state. PostgreSQL stores the matching object key, but the complete RFC 822 message remains in R2. Configure a bucket lifecycle in Cloudflare that matches your retention policy, and include the bucket in backup/restore rehearsals whenever raw `.eml` recovery matters.
+
+Deleting a database row does not automatically prove that an R2 object was deleted, and deleting an R2 object leaves any stored database key unable to recover the original message. Monitor both sides and periodically reconcile object keys. See [`docs/BACKUP-RESTORE.md`](docs/BACKUP-RESTORE.md) for the canonical export and restore boundary.
+
 ## Troubleshooting
 
 ### Backend returns 401 or 403

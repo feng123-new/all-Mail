@@ -23,13 +23,14 @@ async function readReleaseFiles() {
   };
 }
 
-test("v2 release identity is canonical and dated", async () => {
+test("stable release identity is canonical and dated", async () => {
   const { version, packageMetadata, changelog } = await readReleaseFiles();
-  assert.equal(version, "2.0.0");
+  assert.match(version, /^\d+\.\d+\.\d+$/);
   assert.equal(packageMetadata.version, version);
-  assert.match(changelog, /^## \[2\.0\.0\] - 2026-08-02$/m);
-  assert.match(changelog, /^\[Unreleased\]: .*compare\/v2\.0\.0\.\.\.HEAD$/m);
-  assert.match(changelog, /^\[2\.0\.0\]: .*releases\/tag\/v2\.0\.0$/m);
+  const escapedVersion = version.replaceAll(".", "\\.");
+  assert.match(changelog, new RegExp(`^## \\[${escapedVersion}\\] - \\d{4}-\\d{2}-\\d{2}$`, "m"));
+  assert.match(changelog, new RegExp(`^\\[Unreleased\\]: .*compare\\/v${escapedVersion}\\.\\.\\.HEAD$`, "m"));
+  assert.match(changelog, new RegExp(`^\\[${escapedVersion}\\]: .*v${escapedVersion}$`, "m"));
 });
 
 test("Go binary and OCI image receive injected release metadata", async () => {
@@ -132,7 +133,11 @@ test("upgrade and restore docs cover the complete state set", async () => {
 test("release workflow gates publication and removes only merged maintenance branches", async () => {
   const workflow = await read(".github/workflows/release.yml");
   assert.match(workflow, /workflow_run:/);
-  assert.match(workflow, /\[release:v2\.0\.0\]/);
+  assert.ok(workflow.includes("contains(github.event.workflow_run.head_commit.message, '[release:v"));
+  assert.ok(workflow.includes('marker="[release:v${version}]"'));
+  assert.match(workflow, /release_date/);
+  assert.match(workflow, /cross-platform-release-builds/);
+  assert.doesNotMatch(workflow, /v2\.0\.0|2026-08-02/);
   assert.match(workflow, /gh release create/);
   assert.match(workflow, /ghcr\.io/);
   assert.match(workflow, /linux\/amd64,linux\/arm64/);

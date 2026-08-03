@@ -445,7 +445,7 @@ func TestIMAPFixtureLoginSelectFetchStoreDeleteExpunge(t *testing.T) {
 		t.Fatal(err)
 	}
 	useTLS := false
-	provider := imapSMTPProvider{}
+	provider := imapSMTPProvider{server: providerTestServer(http.DefaultTransport)}
 	account := mailAccountCredentials{
 		Email: "receiver@example.test", Provider: "QQ", AuthType: "APP_PASSWORD", Password: "fixture-password",
 		ProviderConfig: mailProviderConfig{IMAPHost: host, IMAPPort: port, IMAPTLS: &useTLS, Folders: map[string]string{"inbox": "INBOX"}},
@@ -486,6 +486,7 @@ func providerTestServer(transport http.RoundTripper) *Server {
 	return &Server{
 		cfg:                 config.GoBusinessAPIConfig{ProviderTimeout: 5 * time.Second},
 		providerHTTPClient:  &http.Client{Transport: transport, Timeout: 5 * time.Second},
+		providerDialContext: (&net.Dialer{Timeout: 20 * time.Second}).DialContext,
 		providerTokenSource: func(context.Context, mailAccountCredentials) (string, error) { return "fixture-access-token", nil },
 		now:                 time.Now,
 	}

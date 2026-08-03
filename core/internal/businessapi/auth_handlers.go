@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	adminSessionCookieName   = "token"
-	adminSessionCookieMaxAge = 2 * 60 * 60
-	adminPasswordHashCost    = 10
+	adminSessionCookieName = "token"
+	adminPasswordHashCost  = 10
 )
 
 type adminLoginRequest struct {
@@ -504,11 +503,13 @@ func (s *Server) signAdminSession(admin AdminAuthentication) (string, error) {
 }
 
 func (s *Server) setAdminSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	maxAge, expires := s.sessionCookieLifetime()
 	http.SetCookie(w, &http.Cookie{
 		Name:     adminSessionCookieName,
 		Value:    token,
 		Path:     "/",
-		MaxAge:   adminSessionCookieMaxAge,
+		MaxAge:   maxAge,
+		Expires:  expires,
 		HttpOnly: true,
 		Secure:   s.secureSessionCookie(r),
 		SameSite: http.SameSiteLaxMode,
