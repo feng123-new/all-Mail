@@ -15,7 +15,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
+import { type FC, useCallback, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ADMIN_NAVIGATION_GROUPS, getAdminRouteMeta } from '../app/navigation';
 import { authApi } from '../api';
@@ -49,10 +49,6 @@ const MainLayout: FC = () => {
   const sidebarWidth = desktopCollapsed
     ? shellMetrics.adminSidebarCollapsedWidth
     : shellMetrics.adminSidebarWidth;
-
-  useEffect(() => {
-    setMobileNavOpen(false);
-  }, [location.pathname]);
 
   const menuItems: MenuProps['items'] = useMemo(
     () => ADMIN_NAVIGATION_GROUPS.map((group) => ({
