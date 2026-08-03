@@ -31,7 +31,7 @@ export default defineConfig({
         target: devProxyTarget,
         changeOrigin: true,
       },
-      '/mail': {
+      '/mail/api': {
         target: devProxyTarget,
         changeOrigin: true,
       },
