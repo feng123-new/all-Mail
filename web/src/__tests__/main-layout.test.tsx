@@ -70,11 +70,34 @@ describe('MainLayout navigation', () => {
     const resourceView = renderMainLayout('zh-CN', '/domains');
     expect(await screen.findByText(/查看域名收发状态/)).toBeInTheDocument();
     expect(resourceView.container.querySelector('[data-workspace="resource"]')).toBeInTheDocument();
+    expect(screen.queryByText('转发执行链路')).not.toBeInTheDocument();
     resourceView.unmount();
 
     const flowView = renderMainLayout('zh-CN', '/forwarding-jobs');
     expect(await screen.findByText(/失败原因和下一次重试时间/)).toBeInTheDocument();
     expect(flowView.container.querySelector('[data-workspace="flow"]')).toBeInTheDocument();
+    expect(screen.getByText('转发执行链路')).toBeInTheDocument();
+  });
+
+  it('uses distinct inbound, forwarding, and outbound context on mail-flow routes', async () => {
+    useAuthStore.setState({
+      admin: { id: 1, username: 'root', role: 'SUPER_ADMIN' },
+      isAuthenticated: true,
+    });
+
+    const inboundView = renderMainLayout('zh-CN', '/domain-messages');
+    expect(await screen.findByText('入站邮件链路')).toBeInTheDocument();
+    expect(screen.getByText('已存储')).toBeInTheDocument();
+    inboundView.unmount();
+
+    const forwardingView = renderMainLayout('zh-CN', '/forwarding-jobs');
+    expect(await screen.findByText('转发执行链路')).toBeInTheDocument();
+    expect(screen.getByText('已跳过')).toBeInTheDocument();
+    forwardingView.unmount();
+
+    renderMainLayout('zh-CN', '/sending-configs');
+    expect(await screen.findByText('发信准备链路')).toBeInTheDocument();
+    expect(screen.getByText('已就绪')).toBeInTheDocument();
   });
 
   it('renders English navigation when the language is switched', async () => {

@@ -14,7 +14,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import type { ReactNode } from 'react';
-import type { WorkspaceKind } from '../components';
+import type { MailFlowSurface, WorkspaceKind } from '../components';
 import { mainLayoutI18n } from '../i18n/catalog/shell';
 import type { TranslationInput } from '../i18n/messages';
 
@@ -25,6 +25,7 @@ export interface AdminNavigationItem {
   title: TranslationInput;
   subtitle: TranslationInput;
   workspace: WorkspaceKind;
+  mailFlowSurface?: MailFlowSurface;
   superAdmin?: boolean;
 }
 
@@ -65,9 +66,24 @@ export const ADMIN_NAVIGATION_GROUPS: AdminNavigationGroup[] = [
     label: mainLayoutI18n.groups.mailFlow,
     workspace: 'flow',
     items: withWorkspace('flow', [
-      { key: '/domain-messages', icon: <MessageOutlined />, ...mainLayoutI18n.domainMessages },
-      { key: '/forwarding-jobs', icon: <SwapOutlined />, ...mainLayoutI18n.forwardingJobs },
-      { key: '/sending-configs', icon: <SendOutlined />, ...mainLayoutI18n.sendingConfigs },
+      {
+        key: '/domain-messages',
+        icon: <MessageOutlined />,
+        mailFlowSurface: 'inbound',
+        ...mainLayoutI18n.domainMessages,
+      },
+      {
+        key: '/forwarding-jobs',
+        icon: <SwapOutlined />,
+        mailFlowSurface: 'forwarding',
+        ...mainLayoutI18n.forwardingJobs,
+      },
+      {
+        key: '/sending-configs',
+        icon: <SendOutlined />,
+        mailFlowSurface: 'outbound',
+        ...mainLayoutI18n.sendingConfigs,
+      },
     ]),
   },
   {
