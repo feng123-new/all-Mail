@@ -26,6 +26,8 @@ export const mailboxLayoutI18n = {
   updatePasswordFirst: defineMessage('mailboxLayout.updatePasswordFirst', '需要先更新密码', 'Password update required'),
   updatePasswordHint: defineMessage('mailboxLayout.updatePasswordHint', '当前账号仍处于首次密码状态，建议先去设置中心更新密码。', 'This account is still using the initial password. Update it in Settings first.'),
   mailboxUser: defineMessage('mailboxLayout.mailboxUser', '邮箱用户', 'Mailbox user'),
+  openNavigation: defineMessage('mailboxLayout.openNavigation', '打开门户导航', 'Open portal navigation'),
+  closeNavigation: defineMessage('mailboxLayout.closeNavigation', '关闭门户导航', 'Close portal navigation'),
 } as const;
 
 export const mainLayoutI18n = {
@@ -35,8 +37,8 @@ export const mainLayoutI18n = {
     subtitle: defineMessage('mainLayout.menu.dashboard.subtitle', '总览连接健康度、域名邮箱运行态和自动化热度。', 'Review connection health, domain mailbox runtime state, and automation activity at a glance.'),
   },
   emails: {
-    label: defineMessage('mainLayout.menu.emails.label', '外部邮箱连接', 'External mailboxes'),
-    title: defineMessage('mainLayout.menu.emails.title', '外部邮箱连接', 'External mailboxes'),
+    label: defineMessage('mainLayout.menu.emails.label', '邮箱连接', 'Mailbox connections'),
+    title: defineMessage('mainLayout.menu.emails.title', '邮箱连接', 'Mailbox connections'),
     subtitle: defineMessage('mainLayout.menu.emails.subtitle', '管理 OAuth、IMAP / SMTP 与外部邮箱接入能力。', 'Manage OAuth, IMAP / SMTP, and external mailbox connectivity.'),
   },
   domains: {
@@ -55,8 +57,8 @@ export const mainLayoutI18n = {
     subtitle: defineMessage('mainLayout.menu.mailboxUsers.subtitle', '管理门户访问人、邮箱归属和登录状态。', 'Manage portal access, mailbox ownership, and sign-in state.'),
   },
   domainMessages: {
-    label: defineMessage('mainLayout.menu.domainMessages.label', '域名消息', 'Domain messages'),
-    title: defineMessage('mainLayout.menu.domainMessages.title', '域名消息', 'Domain messages'),
+    label: defineMessage('mainLayout.menu.domainMessages.label', '域名邮件', 'Domain messages'),
+    title: defineMessage('mainLayout.menu.domainMessages.title', '域名邮件', 'Domain messages'),
     subtitle: defineMessage('mainLayout.menu.domainMessages.subtitle', '追踪入站消息、路由结果与可见性。', 'Track inbound messages, routing results, and visibility.'),
   },
   forwardingJobs: {
@@ -80,8 +82,8 @@ export const mainLayoutI18n = {
     subtitle: defineMessage('mainLayout.menu.apiDocs.subtitle', '面向脚本、服务和集成方的调用入口。', 'The calling surface for scripts, services, and integrations.'),
   },
   operationLogs: {
-    label: defineMessage('mainLayout.menu.operationLogs.label', '操作日志', 'Operation logs'),
-    title: defineMessage('mainLayout.menu.operationLogs.title', '操作日志', 'Operation logs'),
+    label: defineMessage('mainLayout.menu.operationLogs.label', '审计日志', 'Audit logs'),
+    title: defineMessage('mainLayout.menu.operationLogs.title', '审计日志', 'Audit logs'),
     subtitle: defineMessage('mainLayout.menu.operationLogs.subtitle', '审计关键动作、调用轨迹与异常处理。', 'Audit key actions, request traces, and exception handling.'),
   },
   admins: {
@@ -94,11 +96,20 @@ export const mainLayoutI18n = {
     title: defineMessage('mainLayout.menu.settings.title', '系统设置', 'System settings'),
     subtitle: defineMessage('mainLayout.menu.settings.subtitle', '维护全局配置、安全与平台默认行为。', 'Maintain global configuration, security, and platform defaults.'),
   },
+  groups: {
+    overview: defineMessage('mainLayout.groups.overview', '概览', 'Overview'),
+    mailResources: defineMessage('mainLayout.groups.mailResources', '邮箱资源', 'Mail resources'),
+    mailFlow: defineMessage('mainLayout.groups.mailFlow', '邮件流', 'Mail flow'),
+    automation: defineMessage('mainLayout.groups.automation', '自动化与审计', 'Automation & audit'),
+    system: defineMessage('mainLayout.groups.system', '系统管理', 'System'),
+  },
   profile: defineMessage('mainLayout.profile', '个人设置', 'Personal settings'),
   logout: defineMessage('mainLayout.logout', '退出登录', 'Sign out'),
   expandSidebar: defineMessage('mainLayout.expandSidebar', '展开侧边栏', 'Expand sidebar'),
   collapseSidebar: defineMessage('mainLayout.collapseSidebar', '收起侧边栏', 'Collapse sidebar'),
-  controlPlane: defineMessage('mainLayout.controlPlane', '控制台', 'Control plane'),
+  openNavigation: defineMessage('mainLayout.openNavigation', '打开导航', 'Open navigation'),
+  closeNavigation: defineMessage('mainLayout.closeNavigation', '关闭导航', 'Close navigation'),
+  controlPlane: defineMessage('mainLayout.controlPlane', '邮件控制平面', 'Mail control plane'),
   navigation: defineMessage('mainLayout.navigation', '导航', 'Navigation'),
   adminWorkspace: defineMessage('mainLayout.adminWorkspace', '管理员工作区', 'Admin workspace'),
   superAdmin: defineMessage('mainLayout.superAdmin', '超级管理员', 'Super admin'),

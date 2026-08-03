@@ -3,57 +3,63 @@ import type { CSSProperties } from 'react';
 
 export const shellPalette = {
   primary: '#1d4ed8',
-  primarySoft: 'rgba(29, 78, 216, 0.10)',
+  primaryHover: '#1e40af',
+  primarySoft: 'rgba(29, 78, 216, 0.09)',
   accent: '#0f766e',
-  accentSoft: 'rgba(15, 118, 110, 0.10)',
-  ink: '#0f172a',
-  inkSoft: '#334155',
-  muted: '#64748b',
-  border: 'rgba(148, 163, 184, 0.18)',
-  borderStrong: 'rgba(100, 116, 139, 0.26)',
-  layoutBg: '#f3f6fa',
+  accentSoft: 'rgba(15, 118, 110, 0.09)',
+  ink: '#111827',
+  inkSoft: '#374151',
+  muted: '#6b7280',
+  mutedSoft: '#94a3b8',
+  border: 'rgba(148, 163, 184, 0.20)',
+  borderStrong: 'rgba(100, 116, 139, 0.30)',
+  layoutBg: '#f4f6f8',
   surface: '#ffffff',
   surfaceMuted: '#f8fafc',
-  sidebarBg: '#f6f8fb',
-  sidebarSurface: '#fbfcfe',
-  sidebarText: '#0f172a',
-  sidebarMuted: 'rgba(71, 85, 105, 0.78)',
+  surfaceStrong: '#eef2f7',
+  sidebarBg: '#f8fafc',
+  sidebarSurface: '#ffffff',
+  sidebarText: '#111827',
+  sidebarMuted: '#64748b',
   success: '#15803d',
   warning: '#b45309',
-  danger: '#dc2626',
+  danger: '#b91c1c',
+  info: '#1d4ed8',
 };
 
-export const fontFamilySans = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+export const fontFamilySans = "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 export const shellRadii = {
-  control: 10,
-  card: 16,
-  panel: 18,
-  hero: 18,
+  control: 8,
+  card: 12,
+  panel: 14,
+  hero: 14,
+  pill: 999,
 };
 
 export const shellMetrics = {
-  adminSidebarWidth: 220,
+  adminSidebarWidth: 248,
   adminSidebarCollapsedWidth: 76,
-  portalSidebarWidth: 224,
-  headerHeight: 60,
+  portalSidebarWidth: 248,
+  headerHeight: 64,
   shellPadding: 24,
   contentMargin: 24,
   pageGap: 20,
   contentMaxWidth: 1520,
-  portalContentMaxWidth: 1400,
-  cardPadding: 22,
+  portalContentMaxWidth: 1360,
+  cardPadding: 20,
   twoFactorQrSize: 180,
 };
 
 export const shellShadows = {
-  subtle: '0 1px 2px rgba(15, 23, 42, 0.04)',
-  medium: '0 8px 24px rgba(15, 23, 42, 0.06)',
-  strong: '0 16px 40px rgba(15, 23, 42, 0.08)',
-  brand: '0 10px 24px rgba(15, 23, 42, 0.08)',
+  subtle: '0 1px 2px rgba(15, 23, 42, 0.035)',
+  medium: '0 10px 28px rgba(15, 23, 42, 0.07)',
+  strong: '0 18px 48px rgba(15, 23, 42, 0.10)',
+  brand: '0 8px 18px rgba(29, 78, 216, 0.18)',
 };
 
 export const shellMotion = {
+  fast: '0.14s ease',
   standard: '0.2s ease',
 };
 
@@ -79,9 +85,10 @@ export const insetCardStyle: CSSProperties = {
 
 export const appTheme: ThemeConfig = {
   cssVar: { key: 'allmail' },
+  hashed: true,
   token: {
     colorPrimary: shellPalette.primary,
-    colorInfo: shellPalette.primary,
+    colorInfo: shellPalette.info,
     colorSuccess: shellPalette.success,
     colorWarning: shellPalette.warning,
     colorError: shellPalette.danger,
@@ -93,12 +100,16 @@ export const appTheme: ThemeConfig = {
     colorBgLayout: shellPalette.layoutBg,
     colorBgContainer: shellPalette.surface,
     colorBgElevated: shellPalette.surface,
+    colorFillAlter: shellPalette.surfaceMuted,
     borderRadius: shellRadii.control,
     borderRadiusLG: shellRadii.card,
+    borderRadiusSM: 6,
     fontFamily: fontFamilySans,
     boxShadowSecondary: shellShadows.medium,
     controlHeight: 38,
     controlHeightLG: 42,
+    controlHeightSM: 30,
+    lineHeight: 1.55,
   },
   components: {
     Layout: {
@@ -108,40 +119,74 @@ export const appTheme: ThemeConfig = {
       triggerBg: shellPalette.sidebarBg,
     },
     Menu: {
-      itemHeight: 42,
+      itemHeight: 40,
       itemMarginInline: 8,
+      itemMarginBlock: 2,
       itemBorderRadius: shellRadii.control,
       itemBg: 'transparent',
       itemColor: shellPalette.inkSoft,
-      itemHoverBg: 'rgba(15, 23, 42, 0.035)',
+      itemHoverBg: 'rgba(15, 23, 42, 0.04)',
+      itemHoverColor: shellPalette.ink,
       itemSelectedBg: shellPalette.primarySoft,
       itemSelectedColor: shellPalette.primary,
+      groupTitleColor: shellPalette.muted,
+      groupTitleFontSize: 11,
       subMenuItemBg: 'transparent',
     },
     Card: {
       headerBg: 'transparent',
+      headerFontSize: 15,
+      paddingLG: shellMetrics.cardPadding,
     },
     Button: {
       borderRadius: shellRadii.control,
       primaryShadow: 'none',
+      fontWeight: 600,
     },
     Table: {
-      headerBg: '#f8fafc',
+      headerBg: shellPalette.surfaceMuted,
+      headerColor: shellPalette.inkSoft,
       headerSplitColor: shellPalette.border,
-      rowHoverBg: hexToRgba(shellPalette.primary, 0.04),
+      rowHoverBg: hexToRgba(shellPalette.primary, 0.035),
+      borderColor: shellPalette.border,
+      cellPaddingBlock: 12,
+      cellPaddingInline: 14,
     },
     Input: {
       activeBorderColor: shellPalette.primary,
       hoverBorderColor: shellPalette.primary,
+      activeShadow: `0 0 0 2px ${hexToRgba(shellPalette.primary, 0.10)}`,
+    },
+    InputNumber: {
+      activeBorderColor: shellPalette.primary,
+      hoverBorderColor: shellPalette.primary,
+      activeShadow: `0 0 0 2px ${hexToRgba(shellPalette.primary, 0.10)}`,
     },
     Select: {
       optionSelectedBg: shellPalette.primarySoft,
+      activeBorderColor: shellPalette.primary,
+      hoverBorderColor: shellPalette.primary,
     },
     Tag: {
       defaultBg: shellPalette.surfaceMuted,
+      borderRadiusSM: 6,
     },
     Segmented: {
       itemSelectedBg: shellPalette.surface,
+      trackBg: shellPalette.surfaceStrong,
+    },
+    Modal: {
+      borderRadiusLG: shellRadii.panel,
+    },
+    Drawer: {
+      colorBgElevated: shellPalette.surface,
+    },
+    Tabs: {
+      itemSelectedColor: shellPalette.primary,
+      inkBarColor: shellPalette.primary,
+    },
+    Tooltip: {
+      borderRadius: shellRadii.control,
     },
   },
 };
