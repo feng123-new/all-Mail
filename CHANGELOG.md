@@ -6,7 +6,13 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 ## [Unreleased]
 
-No unreleased changes.
+### Security
+
+- Restricted full external-mailbox credential export to authenticated `SUPER_ADMIN` sessions. The personal single-owner workflow still exports original saved credentials, while ordinary `ADMIN` sessions can no longer bulk-export them.
+
+### Changed
+
+- Replaced the Node-era `NODE_ENV` switch in the Go initializer and private Go API with `ALL_MAIL_RUNTIME_ENV`; `NODE_ENV` is now a rejected production variable.
 
 ## [2.0.0] - 2026-08-02
 

@@ -96,7 +96,7 @@ done
   --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
   "${initializer_env[@]}" \
   -e DATABASE_URL= \
-  -e NODE_ENV=production \
+  -e ALL_MAIL_RUNTIME_ENV=production \
   -e ALL_MAIL_STATE_DIR=/var/lib/all-mail-state \
   -e ALL_MAIL_MIGRATION_DIR=/app/migrations \
   -e BOOTSTRAP_ADMIN_SECRET_FILE=/var/lib/all-mail/bootstrap-admin.env \

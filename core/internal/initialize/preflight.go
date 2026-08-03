@@ -31,6 +31,7 @@ var retiredEnvironmentVariables = []string{
 	"GO_JOBS_HEARTBEAT_SECONDS",
 	"LEGACY_API_INTERNAL_PORT",
 	"LEGACY_API_URL",
+	"NODE_ENV",
 	"POSTGRES_HOST",
 	"POSTGRES_INTERNAL_PORT",
 	"POSTGRES_PORT",
@@ -49,7 +50,7 @@ func validatePreflight(cfg Config) error {
 	if strings.TrimSpace(cfg.StateDir) == "" || filepath.Clean(cfg.StateDir) == string(filepath.Separator) {
 		return fmt.Errorf("unsafe runtime state directory %q", cfg.StateDir)
 	}
-	if strings.ToLower(strings.TrimSpace(cfg.Environment["NODE_ENV"])) != "production" {
+	if strings.ToLower(strings.TrimSpace(cfg.Environment["ALL_MAIL_RUNTIME_ENV"])) != "production" {
 		return nil
 	}
 	for _, name := range retiredEnvironmentVariables {

@@ -83,9 +83,9 @@ func LoadGoBusinessAPI() (GoBusinessAPIConfig, error) {
 	if err != nil {
 		return GoBusinessAPIConfig{}, err
 	}
-	runtimeEnvironment := env("NODE_ENV", "development")
+	runtimeEnvironment := env("ALL_MAIL_RUNTIME_ENV", "development")
 	if runtimeEnvironment != "development" && runtimeEnvironment != "test" && runtimeEnvironment != "production" {
-		return GoBusinessAPIConfig{}, errors.New("NODE_ENV must be development, test, or production")
+		return GoBusinessAPIConfig{}, errors.New("ALL_MAIL_RUNTIME_ENV must be development, test, or production")
 	}
 	jwtSecret, err := loadJWTSecretFile()
 	if err != nil {

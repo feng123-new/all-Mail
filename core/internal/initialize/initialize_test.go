@@ -66,7 +66,7 @@ func TestProductionPreflightRejectsWeakDatabasePassword(t *testing.T) {
 			Directory:   "/app/migrations",
 		},
 		StateDir:    "/var/lib/all-mail",
-		Environment: map[string]string{"NODE_ENV": "production"},
+		Environment: map[string]string{"ALL_MAIL_RUNTIME_ENV": "production"},
 	})
 	if err == nil {
 		t.Fatal("weak production database password was accepted")
@@ -83,8 +83,8 @@ func TestProductionPreflightRejectsRetiredVariable(t *testing.T) {
 				},
 				StateDir: "/var/lib/all-mail",
 				Environment: map[string]string{
-					"NODE_ENV": "production",
-					name:       "",
+					"ALL_MAIL_RUNTIME_ENV": "production",
+					name:                   "",
 				},
 			})
 			if err == nil {

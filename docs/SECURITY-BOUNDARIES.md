@@ -46,6 +46,10 @@ The PostgreSQL owner is initializer-only. `go-business-api`, forwarding, and ret
 
 Unsafe browser requests are rejected when `Origin` does not match the gateway-normalized scheme and host or when `Sec-Fetch-Site` reports `cross-site`. The gateway emits `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'`. Non-browser API clients without browser origin headers remain supported.
 
+## Credential export
+
+Full external-mailbox credential export is retained for owner-controlled migration and recovery. The route requires an authenticated `SUPER_ADMIN`; ordinary `ADMIN` sessions are rejected before any credential is decrypted or serialized. Single-account secret reveal continues to use the existing 2FA step-up flow.
+
 ## OAuth configuration
 
 Google client-secret documents are accepted only as uploaded or pasted JSON; the API cannot read administrator-selected server paths. OAuth scopes are canonical `minimal`, `send`, `manage`, or `full` profiles. Fresh configuration defaults to `minimal`; wider profiles require an explicit saved choice.

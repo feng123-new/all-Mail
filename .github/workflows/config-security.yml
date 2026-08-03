@@ -115,7 +115,8 @@ jobs:
           assert 'ENCRYPTION_KEY' not in forwarding_env
 
           go_business_env = services['go-business-api'].get('environment', {})
-          assert go_business_env.get('NODE_ENV') == 'production'
+          assert go_business_env.get('ALL_MAIL_RUNTIME_ENV') == 'production'
+          assert 'NODE_ENV' not in go_business_env
           assert go_business_env.get('DATABASE_URL_FILE') == '/var/lib/all-mail-database/api-url'
           assert 'DATABASE_URL' not in go_business_env
           assert go_business_env.get('ENCRYPTION_KEY_FILE') == '/var/lib/all-mail-encryption/encryption-key'

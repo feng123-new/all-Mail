@@ -74,7 +74,7 @@ and removes the combined file after successful export. This is upgrade compatibi
 
 ```bash
 (cd core && \
-  NODE_ENV=development \
+  ALL_MAIL_RUNTIME_ENV=development \
   PORT=3200 \
   DATABASE_URL='postgresql://allmail:<password>@127.0.0.1:15433/allmail' \
   REDIS_URL='redis://127.0.0.1:6380' \
