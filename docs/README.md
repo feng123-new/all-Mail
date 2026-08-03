@@ -6,16 +6,17 @@ The supported request path is the public Go `app` gateway forwarding owned busin
 
 The project is **source-available under the custom all-Mail Non-Commercial License**. It is not distributed under an OSI-approved open-source license. Use that wording consistently in public material.
 
-## Operator documentation
+## Operator and product documentation
 
 | Need | Canonical document |
 | --- | --- |
-| Install or deploy v2.0 | [`DEPLOY.md`](./DEPLOY.md) |
+| Install or deploy v2.1 | [`DEPLOY.md`](./DEPLOY.md) |
 | Upgrade to a new revision and decide when rollback is safe | [`UPGRADE.md`](./UPGRADE.md) |
 | Back up, restore, and rehearse recovery | [`BACKUP-RESTORE.md`](./BACKUP-RESTORE.md) |
 | Day-2 diagnosis and incident response | [`RUNBOOK.md`](./RUNBOOK.md) |
 | Environment, secret, volume, and network ownership | [`ENVIRONMENT.md`](./ENVIRONMENT.md) |
 | Browser, network, cache, database, and secret boundaries | [`SECURITY-BOUNDARIES.md`](./SECURITY-BOUNDARIES.md) |
+| Completed Frontend V3 PR #51–#59 execution record | [`FRONTEND-REFACTOR-PLAN.md`](./FRONTEND-REFACTOR-PLAN.md) |
 | Completed Go migration and schema compatibility | [`GO-MIGRATION.md`](./GO-MIGRATION.md) |
 | Method-aware route ownership and telemetry | [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md) |
 | Local Go API and React development | [`advanced-runtime.md`](./advanced-runtime.md) |
@@ -23,10 +24,11 @@ The project is **source-available under the custom all-Mail Non-Commercial Licen
 | Source-available release gate | [`source-available-release-checklist.md`](./source-available-release-checklist.md) |
 | Cloudflare Email Worker ingress | [`../CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) |
 
-The repository homepage is [`../README.md`](../README.md), the security reporting policy is [`../SECURITY.md`](../SECURITY.md), and support expectations are in [`../SUPPORT.md`](../SUPPORT.md).
+The repository homepage is [`../README.md`](../README.md), frontend developer boundaries are in [`../web/README.md`](../web/README.md), the security reporting policy is [`../SECURITY.md`](../SECURITY.md), and support expectations are in [`../SUPPORT.md`](../SUPPORT.md).
 
 ## Historical material
 
 - [`UPGRADE-RUNTIME-NAMES.md`](./UPGRADE-RUNTIME-NAMES.md) records the one-time migration-era service-name transition. It is not the current upgrade guide.
 - [`internal/runtime-migration-roadmap.md`](./internal/runtime-migration-roadmap.md) records the completed Go route migration.
 - [`internal/archive/2026-go-rewrite/`](./internal/archive/2026-go-rewrite/) contains archived plans and status snapshots retained for traceability.
+- [`internal/archive/FRONTEND-V3-SUPERSEDED-SPECS.md`](./internal/archive/FRONTEND-V3-SUPERSEDED-SPECS.md) records the superseded 2026-03/04 frontend specifications and points to the completed v2.1.0 source of truth.
