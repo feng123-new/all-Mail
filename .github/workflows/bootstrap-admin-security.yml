@@ -49,12 +49,23 @@ jobs:
           ./scripts/sanitize-runtime-env.sh npm --prefix web run build
       - name: Check frontend build budget
         run: ./scripts/sanitize-runtime-env.sh npm --prefix web run check:budget
-      - name: Install Playwright browser smoke dependency
+      - name: Install isolated Playwright browser smoke dependency
+        shell: bash
         run: |
-          ./scripts/sanitize-runtime-env.sh npm --prefix web install --no-save --no-package-lock @playwright/test@1.55.0
-          (cd web && ../scripts/sanitize-runtime-env.sh npx playwright install --with-deps chromium)
+          playwright_home="$RUNNER_TEMP/frontend-playwright"
+          mkdir -p "$playwright_home"
+          ./scripts/sanitize-runtime-env.sh npm --prefix "$playwright_home" install \
+            --no-save --no-package-lock --ignore-scripts @playwright/test@1.55.0
+          rm -rf web/node_modules/@playwright
+          ln -s "$playwright_home/node_modules/@playwright" web/node_modules/@playwright
+          (cd web && ../scripts/sanitize-runtime-env.sh \
+            "$playwright_home/node_modules/.bin/playwright" install --with-deps chromium)
       - name: Run frontend browser smoke
-        run: (cd web && ../scripts/sanitize-runtime-env.sh npm run test:browser)
+        shell: bash
+        run: |
+          playwright_home="$RUNNER_TEMP/frontend-playwright"
+          (cd web && ../scripts/sanitize-runtime-env.sh \
+            "$playwright_home/node_modules/.bin/playwright" test)
       - name: Upload frontend browser report
         if: always()
         uses: actions/upload-artifact@v7
