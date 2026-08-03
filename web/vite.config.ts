@@ -1,5 +1,5 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 const devProxyTarget = process.env.VITE_DEV_PROXY_TARGET || 'http://localhost:3002'
@@ -56,5 +56,6 @@ export default defineConfig({
     setupFiles: './src/test/setup.ts',
     css: false,
     testTimeout: 15000,
+    exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 })
