@@ -2,7 +2,7 @@
 
 `all-Mail` is a self-hosted email control plane for external provider mailboxes, domain mailboxes, signed inbound mail, outbound sending, mailbox portals, and automation APIs.
 
-**v2.0.1 is the current stable Go-only release; v2.0.0 was the first stable Go-only release.** Go owns the public gateway, private business API, schema initialization, migrations, authentication, provider operations, forwarding, retention, health/readiness, and runtime doctors. React is compiled into the shared runtime image; Node.js is a build tool only.
+**v2.1.0 is the current stable Go-only release; v2.0.0 was the first stable Go-only release.** Go owns the public gateway, private business API, schema initialization, migrations, authentication, provider operations, forwarding, retention, health/readiness, and runtime doctors. React is compiled into the shared runtime image; Node.js is a build tool only.
 
 > **License:** this repository is source-available under the custom all-Mail Non-Commercial License in [`LICENSE`](./LICENSE). It is not distributed under an OSI-approved open-source license. Commercial deployment, resale, hosted service, or paid-support use requires prior written permission.
 
@@ -13,6 +13,20 @@
 - signed Cloudflare Email Worker ingress with replay protection;
 - encrypted OAuth/provider credentials and least-privilege OAuth scope profiles;
 - API keys, allocation, mailbox reads, usage accounting, and audit logs.
+
+## Frontend V3 in v2.1.0
+
+The administrator console and mailbox portal now use one restrained mail-infrastructure control-plane system:
+
+- grouped administrator navigation for Overview, Mail resources, Mail flow, Automation and audit, and System;
+- responsive desktop and narrow-screen shells with current route context;
+- form-first authentication with server-triggered OTP instead of a permanent 2FA warning;
+- an explainable Dashboard based on direct risk counts rather than a client-generated `/100` score;
+- shared resource, mail-flow, security-boundary, and portal workspace primitives;
+- an Inbox-first mailbox portal that preserves forced password rotation and every existing URL;
+- production bundle budgets and mandatory desktop/mobile Chromium smoke.
+
+The completed execution record is [`docs/FRONTEND-REFACTOR-PLAN.md`](docs/FRONTEND-REFACTOR-PLAN.md).
 
 ## Stable runtime architecture
 
@@ -39,11 +53,11 @@ flowchart TD
 
 Only `app` is host-published. It has no PostgreSQL, Redis, JWT, encryption, OAuth, ingress, provider, bootstrap, or database-role credential.
 
-## Quick start from `v2.0.1`
+## Quick start from `v2.1.0`
 
 ```bash
 git fetch --tags --prune
-git switch --detach v2.0.1
+git switch --detach v2.1.0
 cp .env.example .env
 openssl rand -hex 24
 ```
@@ -61,7 +75,7 @@ Place the generated value in `POSTGRES_PASSWORD`, review the remaining operator 
 ```bash
 ALL_MAIL_USE_PUBLISHED_IMAGE=1 \
 ALL_MAIL_GO_IMAGE=ghcr.io/feng123-new/all-mail \
-ALL_MAIL_IMAGE_TAG=2.0.1 \
+ALL_MAIL_IMAGE_TAG=2.1.0 \
 ./scripts/compose-up.sh
 ```
 
@@ -85,7 +99,7 @@ docker compose exec -T worker-forwarding allmail doctor worker forwarding
 docker compose exec -T worker-retention allmail doctor worker retention
 ```
 
-Official `v2.0.1` processes report version `2.0.1`, the release commit, a UTC build timestamp, and Go 1.26.5.
+Official `v2.1.0` processes report version `2.1.0`, the release commit, a UTC build timestamp, and Go 1.26.5.
 
 ## First administrator login
 
@@ -101,11 +115,11 @@ After login, change the password and verify that `bootstrap-admin.env` was delet
 
 ## Release assets
 
-The `v2.0.1` GitHub Release contains checksummed Go binaries for Linux, macOS, and Windows. The release workflow also publishes:
+The `v2.1.0` GitHub Release contains checksummed Go binaries for Linux, macOS, and Windows. The release workflow also publishes:
 
 ```text
-ghcr.io/feng123-new/all-mail:2.0.1
-ghcr.io/feng123-new/all-mail:2.0
+ghcr.io/feng123-new/all-mail:2.1.0
+ghcr.io/feng123-new/all-mail:2.1
 ghcr.io/feng123-new/all-mail:2
 ghcr.io/feng123-new/all-mail:latest
 ```
@@ -127,6 +141,7 @@ Never run two revisions against one persisted state and never use `docker compos
 - browser unsafe writes require a valid same-origin boundary;
 - framing is denied and CSP restricts form/base/frame origins;
 - administrator and mailbox session versions revoke older JWTs after security changes;
+- browser authentication remains cookie-first and auth stores are not persisted;
 - API-key permissions are explicit and fail closed;
 - OAuth state and ingress replay protection require Redis in production;
 - the PostgreSQL owner is initializer-only;
@@ -145,6 +160,7 @@ Report vulnerabilities through [`SECURITY.md`](SECURITY.md), not a public issue.
 | Operations and recovery | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
 | Environment and secret ownership | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
 | Security boundaries | [`docs/SECURITY-BOUNDARIES.md`](docs/SECURITY-BOUNDARIES.md) |
+| Frontend V3 execution record | [`docs/FRONTEND-REFACTOR-PLAN.md`](docs/FRONTEND-REFACTOR-PLAN.md) |
 | Go/schema compatibility | [`docs/GO-MIGRATION.md`](docs/GO-MIGRATION.md) |
 | Route ownership | [`docs/ROUTE-OWNERSHIP.md`](docs/ROUTE-OWNERSHIP.md) |
 | Cloudflare ingress | [`CLOUDFLARE-DEPLOY.md`](CLOUDFLARE-DEPLOY.md) |
@@ -159,4 +175,4 @@ npm run dev:web
 npm run verify:release
 ```
 
-The full GitHub gate additionally runs real PostgreSQL and Redis integrations, race tests, `govulncheck`, Docker startup, bootstrap rotation, network/secret/database boundaries, SBOM checks, all runtime doctors, and the release gate.
+Frontend verification also enforces the production bundle budget. The release-required browser contract runs real desktop and mobile Chromium administrator and mailbox-portal flows. The full GitHub gate additionally runs real PostgreSQL and Redis integrations, race tests, `govulncheck`, Docker startup, bootstrap rotation, network/secret/database boundaries, SBOM checks, all runtime doctors, and the release gate.
