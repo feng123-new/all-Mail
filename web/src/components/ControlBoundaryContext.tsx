@@ -29,21 +29,25 @@ const controlBoundaryI18n = {
   ),
   apiDocsTitle: defineMessage('controlBoundary.apiDocs.title', '稳定调用契约', 'Stable API contract'),
   apiDocsDescription: defineMessage(
+    'controlBoundary.apiDocs.description',
     'control plane API 使用固定路由、认证边界、请求 ID 和错误语义；集成代码不应依赖页面文案或未记录的兼容路径。',
     'The control-plane API uses stable routes, authentication boundaries, request IDs, and error semantics. Integrations must not depend on page copy or undocumented compatibility paths.',
   ),
   auditTitle: defineMessage('controlBoundary.audit.title', '可追溯审计证据', 'Traceable audit evidence'),
   auditDescription: defineMessage(
+    'controlBoundary.audit.description',
     '审计视图围绕操作者、动作、请求 ID、响应状态和耗时组织；敏感值不会作为日志标签或列表内容暴露。',
     'Audit views are organized around actor, action, request ID, response status, and latency. Sensitive values are never exposed as log labels or list content.',
   ),
   adminsTitle: defineMessage('controlBoundary.admins.title', '管理员安全边界', 'Administrator security boundary'),
   adminsDescription: defineMessage(
+    'controlBoundary.admins.description',
     '角色、二次验证和会话版本共同决定后台访问；密码、角色或安全设置变化后，旧会话必须能够被撤销。',
     'Role, two-factor verification, and session version jointly govern administrator access. Password, role, or security changes must be able to revoke older sessions.',
   ),
   settingsTitle: defineMessage('controlBoundary.settings.title', '系统安全设置', 'System security settings'),
   settingsDescription: defineMessage(
+    'controlBoundary.settings.description',
     '系统设置优先处理当前账号安全和明确的运行默认值；任何敏感变更都必须经过权限、确认与服务端验证。',
     'System settings prioritize account security and explicit runtime defaults. Every sensitive change must pass authorization, confirmation, and server-side validation.',
   ),
