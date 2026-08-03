@@ -8,6 +8,51 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 No unreleased changes.
 
+## [2.1.0] - 2026-08-04
+
+### Highlights
+
+- Completed the Frontend V3 program across PR #51 through PR #59, giving the administrator console and mailbox portal one coherent mail-infrastructure control-plane design language.
+- Rebuilt the administrator and portal shells around grouped navigation, route context, responsive narrow-screen navigation, semantic surfaces, restrained operational state, and shared workspace primitives.
+- Made the mailbox portal Inbox-first while preserving mandatory password rotation, mailbox assignment enforcement, cookie-backed sessions, and every existing portal URL.
+
+### Security
+
+- Upgraded the transitive `fast-uri` production override and lockfile to `4.1.2`, the patched release for the host-confusion advisory affecting earlier 4.x versions. No audit exception was added.
+
+### Added
+
+- Shared data-workspace primitives for route framing, toolbars, section headings, semantic status badges, and bounded empty states.
+- Explicit mail-flow context for inbound delivery, forwarding execution, and outbound readiness without changing worker or provider state machines.
+- Explicit control-boundary context for API keys, API documentation, audit logs, administrator security, and system settings.
+- Route-specific mailbox-portal context for Inbox, Overview, and Settings.
+- Permanent Frontend V3 source contracts covering cookie-first authentication, Inbox-first routing, explainable Dashboard state, shared shell integration, responsive and reduced-motion foundations, and the prohibition on decorative operational gradients.
+- A production bundle budget for the largest JavaScript asset, total JavaScript, and total CSS.
+- Desktop Chromium (1440×900) and mobile Chromium (390×844) browser smoke for administrator login-to-Dashboard and portal login-to-Inbox flows, including failure traces and screenshot evidence.
+
+### Changed
+
+- Grouped administrator navigation into Overview, Mail resources, Mail flow, Automation and audit, and System without changing public URLs.
+- Replaced fixed generic shell labels with current route title and operational context.
+- Simplified the authentication entry surfaces so the form is primary and the OTP step appears only after the Go API returns an OTP challenge.
+- Replaced the client-generated weighted `/100` Dashboard score with direct counts for abnormal mailbox connections, inactive domains, and inactive domain mailboxes.
+- Standardized shared page headers, surfaces, metrics, table density, focus treatment, responsive spacing, and reduced-motion behavior.
+- Reordered portal navigation around Inbox, Overview, and Settings and changed authenticated `/mail` plus successful portal-login landing to `/mail/inbox`.
+- Tightened the Vite chunk warning threshold and added the bundle budget to normal release verification.
+
+### Fixed
+
+- Scoped the development proxy to `/mail/api` instead of `/mail`, so direct mailbox-portal SPA routes such as `/mail/login` and `/mail/inbox` are no longer swallowed by the backend proxy during local development and browser tests.
+- Isolated Playwright specifications from Vitest collection and isolated CI-only Playwright installation from application dependency metadata.
+- Removed an incomplete Frontend V3 translation descriptor that passed lint/tests but failed the TypeScript production build.
+
+### Compatibility and upgrade notes
+
+- This release adds no database schema migration and does not rotate JWT, encryption, Redis, database-role, ingress, OAuth, or provider credentials.
+- Public API routes, Go authorization, session revocation, route ownership, forwarding leases, sending behavior, Docker topology, and persistent volume layout remain compatible with v2.0.1.
+- Existing deployments may upgrade with the normal revision-based maintenance procedure. Back up PostgreSQL, the exact revision, required secret/data volumes, and R2 when raw-message recovery matters before changing revision.
+- The React bundle and Go binary/image are published together as one complete revision; do not mix the v2.1.0 SPA with an older private business API.
+
 ## [2.0.1] - 2026-08-03
 
 ### Security
@@ -86,6 +131,7 @@ No unreleased changes.
 - Rollback after initialization or migration requires restoring the database and volume backup captured for the target revision. Image-only rollback is not a safe default.
 - Follow [`docs/UPGRADE.md`](./docs/UPGRADE.md) and [`docs/BACKUP-RESTORE.md`](./docs/BACKUP-RESTORE.md).
 
-[Unreleased]: https://github.com/feng123-new/all-Mail/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/feng123-new/all-Mail/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/feng123-new/all-Mail/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/feng123-new/all-Mail/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/feng123-new/all-Mail/releases/tag/v2.0.0

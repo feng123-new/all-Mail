@@ -1,7 +1,7 @@
 {
   "name": "all-mail",
   "private": true,
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "all-Mail v2 source-available Docker-first Go email control plane",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {

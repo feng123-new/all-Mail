@@ -30,11 +30,11 @@ Only `app` is published to the host. The public gateway serves the React SPA, he
 
 ```bash
 git fetch --tags --prune
-git switch --detach v2.0.1
+git switch --detach v2.1.0
 cat VERSION
 ```
 
-`VERSION` must print `2.0.1`.
+`VERSION` must print `2.1.0`.
 
 ## 2. Create the environment
 
@@ -65,11 +65,11 @@ The helper injects `VERSION`, the current Git commit, and the commit timestamp i
 ```bash
 ALL_MAIL_USE_PUBLISHED_IMAGE=1 \
 ALL_MAIL_GO_IMAGE=ghcr.io/feng123-new/all-mail \
-ALL_MAIL_IMAGE_TAG=2.0.1 \
+ALL_MAIL_IMAGE_TAG=2.1.0 \
 ./scripts/compose-up.sh
 ```
 
-Keep the `v2.0.1` checkout: Compose, migration files, environment contracts, and operational scripts are part of the release.
+Keep the `v2.1.0` checkout: Compose, migration files, environment contracts, frontend assets, and operational scripts are part of the release.
 
 ## 4. Understand startup
 
@@ -102,7 +102,7 @@ For an official image, every service must report:
 
 ```json
 {
-  "version": "2.0.1",
+  "version": "2.1.0",
   "commit": "<release commit>",
   "buildDate": "<UTC RFC3339 timestamp>",
   "goVersion": "go1.26.5"
@@ -146,7 +146,19 @@ Unauthenticated Redis access must fail:
 ! docker compose exec -T redis redis-cli -p 6379 ping
 ```
 
-## 7. Complete first login
+## 7. Verify the Frontend V3 surfaces
+
+Use synthetic, non-secret test data:
+
+1. log in as an administrator and confirm the grouped navigation and current route context;
+2. confirm Dashboard shows direct risk counts rather than a `/100` client score;
+3. resize to a narrow viewport and confirm the navigation drawer remains usable;
+4. log in as a mailbox user and confirm the default landing route is `/mail/inbox`;
+5. confirm a mailbox user with `mustChangePassword` is still redirected to `/mail/settings`.
+
+The release-required CI already runs these administrator and portal flows in desktop and mobile Chromium, but deployment verification must still confirm the published image serves the matching SPA.
+
+## 8. Complete first login
 
 Retrieve the one-time credential only from the private API container:
 

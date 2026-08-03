@@ -21,6 +21,7 @@ This checklist is the release closure loop for `all-Mail`. The repository is sou
 
 - [ ] No password, token, `.env`, OAuth output, raw message, database URL, or runtime secret is committed or included in an artifact.
 - [ ] Portal passwords are never persisted, prefilled, placed in URLs, or logged.
+- [ ] Browser authentication remains cookie-first and frontend auth stores are not persisted.
 - [ ] Browser same-origin and framing protections pass.
 - [ ] Redis authentication, secret-volume isolation, database role isolation, and private-port checks pass.
 - [ ] The one-time bootstrap credential is removed after successful password rotation.
@@ -47,8 +48,10 @@ redis
 ## 5. Engineering verification
 
 - [ ] Go formatting, race tests, unit/integration tests, vet, build, and `govulncheck` pass.
-- [ ] Runtime contract tests pass.
-- [ ] React lint, tests, and production build pass.
+- [ ] Runtime and Frontend V3 source-contract tests pass.
+- [ ] React lint, unit tests, production build, and bundle budget pass.
+- [ ] Desktop and mobile Chromium administrator and mailbox-portal smoke pass.
+- [ ] Browser reports, traces, screenshots, and videos contain no live secrets or production message data.
 - [ ] Cloudflare Worker checks pass.
 - [ ] Production dependency audit passes.
 - [ ] Fresh, repeated, historical-ledger, malformed-schema, OAuth, API-key, forwarding, and retention database tests pass.
