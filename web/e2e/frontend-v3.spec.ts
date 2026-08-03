@@ -29,6 +29,10 @@ async function mockAdminControlPlane(page: Page) {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
 
+    if (!pathname.startsWith('/admin/')) {
+      await route.continue();
+      return;
+    }
     if (pathname === '/admin/auth/login') {
       await fulfillSuccess(route, { admin });
       return;
@@ -84,6 +88,10 @@ async function mockMailboxPortal(page: Page) {
   await page.route('**/mail/api/**', async (route) => {
     const pathname = new URL(route.request().url()).pathname;
 
+    if (!pathname.startsWith('/mail/api/')) {
+      await route.continue();
+      return;
+    }
     if (pathname === '/mail/api/login') {
       await fulfillSuccess(route, { mailboxUser });
       return;
