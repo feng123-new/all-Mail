@@ -1,6 +1,6 @@
 # Source-available release checklist
 
-This checklist is the release closure loop for `all-Mail`. The repository is source-available under the custom non-commercial license in [`../LICENSE`](../LICENSE); it is not distributed under an OSI-approved license.
+This checklist is the release closure loop for `all-Mail`. The repository is source-available under the custom non-commercial license in [`../LICENSE`](../LICENSE); it is not distributed under an OSI-approved open-source license.
 
 ## 1. Release identity
 
