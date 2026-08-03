@@ -50,6 +50,12 @@
   gap: 6px;
 }
 
+.mail-flow-context__state-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .mail-flow-context__arrow {
   color: var(--allmail-color-muted);
   font-size: 10px;
