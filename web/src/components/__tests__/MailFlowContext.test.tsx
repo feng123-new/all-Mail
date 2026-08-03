@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { I18nProvider } from '../../i18n';
 import MailFlowContext from '../MailFlowContext';
-import { getMailFlowStateTone } from '../MailFlowStatusBadge';
+import { getMailFlowStateTone } from '../mailFlow';
 
 describe('MailFlowContext', () => {
   it('maps runtime states to restrained semantic tones', () => {
