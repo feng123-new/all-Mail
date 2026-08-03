@@ -15,7 +15,7 @@ import {
   type MenuProps,
   Typography,
 } from 'antd';
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { mailboxPortalApi } from '../api';
 import { LanguageToggle, PageSurface } from '../components';
@@ -57,10 +57,6 @@ const MailboxLayout: React.FC = () => {
   const mustChangePassword = Boolean(mailboxUser?.mustChangePassword);
   const activeMeta = portalRouteMeta[location.pathname as keyof typeof portalRouteMeta]
     || mailboxLayoutI18n.mailboxPortal;
-
-  useEffect(() => {
-    setMobileNavOpen(false);
-  }, [location.pathname]);
 
   const menuItems: MenuProps['items'] = useMemo(
     () => portalNavigation.map((item) => ({
