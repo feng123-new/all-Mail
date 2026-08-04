@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -24,7 +25,7 @@ func TestCommandFromArgsRecognizesHelp(t *testing.T) {
 
 func TestUsageDocumentsRuntimeCommands(t *testing.T) {
 	for _, expected := range []string{
-		"allmail api",
+		"allmail api [--metrics-allowed-cidrs CIDRS]",
 		"allmail business-api",
 		"allmail routes",
 		"allmail version",
@@ -44,6 +45,32 @@ func TestUsageDocumentsRuntimeCommands(t *testing.T) {
 	for _, retired := range []string{"allmail jobs", "allmail doctor jobs"} {
 		if strings.Contains(usageText, retired) {
 			t.Fatalf("usage still documents retired command %q:\n%s", retired, usageText)
+		}
+	}
+}
+
+func TestLoadAPIConfigAppliesMetricsArgument(t *testing.T) {
+	t.Setenv("METRICS_ALLOWED_CIDRS", "127.0.0.1/32")
+	cfg, err := loadAPIConfig([]string{"--metrics-allowed-cidrs", "10.44.0.0/16"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AllowsMetrics(netip.MustParseAddr("10.44.2.9")) {
+		t.Fatalf("metrics prefixes = %v", cfg.MetricsAllowedCIDRs)
+	}
+	if cfg.AllowsMetrics(netip.MustParseAddr("127.0.0.1")) {
+		t.Fatalf("argument did not replace inherited metrics policy: %v", cfg.MetricsAllowedCIDRs)
+	}
+}
+
+func TestLoadAPIConfigRejectsUnknownOrUnsafeArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"--unknown"},
+		{"unexpected"},
+		{"--metrics-allowed-cidrs", "0.0.0.0/0"},
+	} {
+		if _, err := loadAPIConfig(args); err == nil {
+			t.Fatalf("loadAPIConfig(%v) unexpectedly succeeded", args)
 		}
 	}
 }
