@@ -31,6 +31,7 @@ const MailPortalLoginPage = lazy(() => import('./pages/mail-portal/login'));
 const MailPortalOverviewPage = lazy(() => import('./pages/mail-portal/overview'));
 const MailPortalInboxPage = lazy(() => import('./pages/mail-portal/inbox'));
 const MailPortalSettingsPage = lazy(() => import('./pages/mail-portal/settings'));
+const NotFoundPage = lazy(() => import('./pages/not-found'));
 
 const PageFallback: FC = () => (
   <div className="page-fallback">
@@ -133,7 +134,6 @@ const MailboxSessionBootstrap: FC = () => {
   return null;
 };
 
-// 路由守卫组件
 const ProtectedRoute: FC<{ children: ReactNode }> = ({ children }) => {
   const location = useLocation();
   const { isAuthenticated, admin } = useAuthStore();
@@ -154,7 +154,6 @@ const ProtectedRoute: FC<{ children: ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
-// 超级管理员路由守卫
 const SuperAdminRoute: FC<{ children: ReactNode }> = ({ children }) => {
   const { isAuthenticated, admin } = useAuthStore();
 
@@ -198,18 +197,13 @@ const AppShell: FC = () => {
   );
 
   return (
-    <ConfigProvider
-      locale={antdLocale}
-      theme={appTheme}
-    >
+    <ConfigProvider locale={antdLocale} theme={appTheme}>
       <AntApp>
         <BrowserRouter>
           <Routes>
-            {/* 登录页 */}
             <Route path="/login" element={withSuspense(<LoginPage />)} />
             <Route path="/mail/login" element={withSuspense(<MailPortalLoginPage />)} />
 
-            {/* 需要认证的页面 */}
             <Route
               path="/"
               element={
@@ -239,6 +233,7 @@ const AppShell: FC = () => {
                 }
               />
               <Route path="settings" element={withSuspense(<SettingsPage />)} />
+              <Route path="*" element={withSuspense(<NotFoundPage surface="admin" />)} />
             </Route>
 
             <Route
@@ -253,10 +248,10 @@ const AppShell: FC = () => {
               <Route path="overview" element={withSuspense(<MailPortalOverviewPage />)} />
               <Route path="inbox" element={withSuspense(<MailPortalInboxPage />)} />
               <Route path="settings" element={withSuspense(<MailPortalSettingsPage />)} />
+              <Route path="*" element={withSuspense(<NotFoundPage surface="portal" />)} />
             </Route>
 
-            {/* 404 重定向 */}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            <Route path="*" element={withSuspense(<NotFoundPage surface="public" />)} />
           </Routes>
         </BrowserRouter>
       </AntApp>

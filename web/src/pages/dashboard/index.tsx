@@ -3,7 +3,6 @@ import {
   type FC,
   lazy,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -12,6 +11,7 @@ import type { SimpleLineChartProps } from '../../components/charts';
 import { dashboardContract } from '../../contracts/admin/dashboard';
 import DashboardOverview from './DashboardOverview';
 import './DashboardOverview.mobile.css';
+import { resolveDashboardStats, resolveEmailStats } from './model';
 import {
   type ApiTrendItem,
   DASHBOARD_PROOF_FIXTURE,
@@ -189,36 +189,11 @@ const DashboardPage: FC = () => {
     };
   }, [chartsInView, chartsReady, isDegradedProof, trendDays]);
 
-  const safeEmailStats = useMemo<EmailStats>(
-    () => emailStats || {
-      total: 0,
-      active: 0,
-      error: 0,
-      providers: {},
-    },
-    [emailStats],
-  );
-
-  const statsData = useMemo<Stats>(
-    () => stats || {
-      apiKeys: { total: 0, active: 0, totalUsage: 0, todayActive: 0 },
-      domainMail: {
-        domains: 0,
-        activeDomains: 0,
-        mailboxes: 0,
-        activeMailboxes: 0,
-        inboundMessages: 0,
-        outboundMessages: 0,
-      },
-    },
-    [stats],
-  );
-
   return (
     <DashboardOverview
       proofVisible={isDegradedProof}
-      statsData={statsData}
-      emailStats={safeEmailStats}
+      statsData={resolveDashboardStats(stats)}
+      emailStats={resolveEmailStats(emailStats)}
       apiTrend={apiTrend}
       recentLogs={recentLogs}
       errorEmails={errorEmails}
