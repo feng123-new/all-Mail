@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,7 +23,7 @@ import (
 )
 
 const usageText = `Usage:
-  allmail api
+  allmail api [--metrics-allowed-cidrs CIDRS]
   allmail business-api
   allmail routes
   allmail version
@@ -50,7 +51,7 @@ func main() {
 
 	switch command {
 	case "api":
-		cfg, err := config.LoadAPI()
+		cfg, err := loadAPIConfig(os.Args[2:])
 		fatalIf(logger, err)
 		server, err := httpapi.New(cfg, logger)
 		fatalIf(logger, err)
@@ -131,6 +132,24 @@ func main() {
 	default:
 		fatal(logger, fmt.Errorf("unknown command %q; use api, business-api, routes, version, worker, init, migrate or doctor", command))
 	}
+}
+
+func loadAPIConfig(args []string) (config.APIConfig, error) {
+	flags := flag.NewFlagSet("allmail api", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	metricsAllowedCIDRs := flags.String("metrics-allowed-cidrs", "", "direct peer CIDRs allowed to scrape /metrics")
+	if err := flags.Parse(args); err != nil {
+		return config.APIConfig{}, fmt.Errorf("usage: allmail api [--metrics-allowed-cidrs CIDRS]: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return config.APIConfig{}, fmt.Errorf("usage: allmail api [--metrics-allowed-cidrs CIDRS]")
+	}
+	if *metricsAllowedCIDRs != "" {
+		if err := os.Setenv("METRICS_ALLOWED_CIDRS", *metricsAllowedCIDRs); err != nil {
+			return config.APIConfig{}, fmt.Errorf("set metrics access policy: %w", err)
+		}
+	}
+	return config.LoadAPI()
 }
 
 func writeVersion(output io.Writer, args []string) error {

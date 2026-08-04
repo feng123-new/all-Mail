@@ -12,6 +12,7 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Removed the undocumented frontend `VITE_API_BASE_URL` build override so administrator and mailbox requests always use relative same-origin paths through the public Go gateway.
 - Aligned the security support matrix with the current stable `2.1.x` line and documented `2.0.x` as limited compatibility support.
 - Pinned every third-party GitHub Action to an immutable full commit SHA while retaining readable release annotations and Dependabot maintenance.
+- Restricted `/metrics` to an explicit direct-peer CIDR allowlist that defaults to loopback, ignores forwarded identity headers, and rejects allow-all prefixes.
 
 ### Added
 
@@ -22,6 +23,8 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Added browser height budgets for the real desktop and mobile Dashboard after chart rendering.
 - Added a secret-safe production-host preflight for Bash, Python, Git, OpenSSL, Docker Engine, Compose v2, and daemon access.
 - Added a permanent CI supply-chain contract that rejects movable Action tags and incomplete deployment-host documentation.
+- Added an observability guide covering bounded Prometheus labels, health/readiness, runtime doctors, worker heartbeats, structured logs, privacy, and initial alerting.
+- Added Go regression coverage for default/custom metrics CIDRs, unsafe CIDR rejection, direct-peer authorization, malformed peers, and forwarded-header spoofing.
 
 ### Changed
 
@@ -30,6 +33,7 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Migrated the frontend to the React Router 8 package surface and kept the production client on relative same-origin requests.
 - Rebuilt Dashboard as a compact operator overview that combines posture, resource availability, mail flow, automation activity, prioritized actions, provider concentration, and recent operations.
 - Declared the supported production baseline as a single Linux host with Bash 4+, Python 3.9+, Git, OpenSSL, Docker Engine, and Docker Compose v2, and documented unsupported HA and multi-region modes.
+- Added `METRICS_ALLOWED_CIDRS` as a canonical gateway-owned operator variable without giving the public gateway any new database, Redis, provider, JWT, or encryption credential.
 
 ### Fixed
 

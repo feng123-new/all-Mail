@@ -19,16 +19,19 @@ The only non-template Compose substitutions are release/build launch controls: `
 
 ### Public gateway: `app`
 
-The public process receives only gateway and health configuration, including:
+The public process receives only gateway, metrics-access, and health configuration, including:
 
 ```text
 GO_BUSINESS_API_URL=http://go-business-api:3200
 TRUSTED_PROXY_CIDRS=
+METRICS_ALLOWED_CIDRS=127.0.0.1/32,::1/128
 READY_TIMEOUT_SECONDS=5
 SHUTDOWN_TIMEOUT_SECONDS=15
 ```
 
-It must not receive database, Redis, JWT, encryption, OAuth, ingress-signing, provider, or bootstrap secrets.
+`METRICS_ALLOWED_CIDRS` is evaluated against the direct TCP peer. Forwarded headers cannot grant metrics access, and allow-all CIDRs are rejected. It is independent from `TRUSTED_PROXY_CIDRS`; see [`OBSERVABILITY.md`](./OBSERVABILITY.md).
+
+The gateway must not receive database, Redis, JWT, encryption, OAuth, ingress-signing, provider, or bootstrap secrets.
 
 ### Private API: `go-business-api`
 
