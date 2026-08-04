@@ -42,9 +42,14 @@ The approved post-v2.1.0 stabilization program was executed sequentially from ve
 - verified route ownership, Go registration, authentication boundaries, Docker publication, and version identity;
 - kept compatibility aliases implemented but out of primary paths.
 
-### Release closeout
+### PR #69 — v2.1.1 release and repository closeout
 
 The sixth implementation stage was planned as PR #69. A duplicate plan branch consumed PR #69 after PR #64–#68 had already merged and was closed without merge. GitHub pull request numbers cannot be reused, so the actual v2.1.1 publication continued as PR #70 with the same approved scope and release marker.
+
+- set canonical version identity to 2.1.1;
+- converted completed Unreleased notes into the dated stable release entry;
+- retained the existing gated archive, SBOM, checksum, image, tag, Release, and branch-cleanup workflow;
+- preserved v2.1.0 upgrade and rollback compatibility.
 
 ## Verification record
 
