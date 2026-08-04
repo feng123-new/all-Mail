@@ -38,8 +38,20 @@ replace_once(
 )
 replace_once(
     providers,
-    "      folders: { junk: 'Spam' },",
-    "      folders: { junk: 'Junk email', sent: 'Sent Items' },",
+    """    providerConfigDefaults: createImapSmtpConfigDefaults({
+      imapHost: 'imap.mail.com',
+      smtpHost: 'smtp.mail.com',
+      smtpPort: 587,
+      smtpSecure: false,
+      folders: { junk: 'Spam' },
+    }),""",
+    """    providerConfigDefaults: createImapSmtpConfigDefaults({
+      imapHost: 'imap.mail.com',
+      smtpHost: 'smtp.mail.com',
+      smtpPort: 587,
+      smtpSecure: false,
+      folders: { junk: 'Junk email', sent: 'Sent Items' },
+    }),""",
 )
 replace_once(
     providers,
