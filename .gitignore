@@ -47,10 +47,7 @@ audit-output/
 # Local migration / operator snapshots
 allmail_outlook_migration_result.json
 
-# OAuth helper runtime files
-oauth-temp/config.env
-oauth-temp/runtime/*
-!oauth-temp/runtime/.gitkeep
+# Gmail OAuth helper runtime files
 gmail_oauth/gmail_oauth.env
 gmail_oauth/runtime/*
 !gmail_oauth/runtime/.gitkeep
