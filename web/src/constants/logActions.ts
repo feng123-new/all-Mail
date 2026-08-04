@@ -104,6 +104,11 @@ export const LOG_ACTION_OPTIONS: Array<{ value: LogAction; label: TranslationInp
     { value: LOG_ACTIONS.DOMAIN_POOL_RESET, label: LOG_ACTION_LABELS[LOG_ACTIONS.DOMAIN_POOL_RESET] },
 ];
 
+export const API_KEY_PERMISSION_ACTION_OPTIONS = LOG_ACTION_OPTIONS.filter(
+    (option) => option.value !== LOG_ACTIONS.ADMIN_REVEAL_EXTERNAL_SECRET_UNLOCK
+        && option.value !== LOG_ACTIONS.ADMIN_REVEAL_EXTERNAL_SECRET,
+);
+
 export function normalizeLogAction(action: string): LogAction | undefined {
     if (action in LOG_ACTION_LABELS) {
         return action as LogAction;

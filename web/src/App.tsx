@@ -1,6 +1,6 @@
 import { App as AntApp, ConfigProvider, Spin } from 'antd';
 import { type FC, lazy, type ReactElement, type ReactNode, Suspense, useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router';
 import { authContract } from './contracts/shared/auth';
 import { portalAccountContract } from './contracts/portal/account';
 import { I18nProvider, useI18n } from './i18n';

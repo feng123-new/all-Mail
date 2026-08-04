@@ -16,7 +16,7 @@ import {
   Typography,
 } from 'antd';
 import { type ReactNode, useCallback, useMemo, useState } from 'react';
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router';
 import { mailboxPortalApi } from '../api';
 import {
   LanguageToggle,

@@ -160,7 +160,7 @@ export const apiKeyApi = {
 			},
 			{
 				invalidatePrefixes: [
-					`/admin/api-keys/${id}/usage`,
+					`/admin/api-keys/${id}/allocation-stats`,
 					`/admin/api-keys/${id}/assigned-mailboxes`,
 				],
 			},
@@ -184,7 +184,7 @@ export const apiKeyApi = {
 			},
 			{
 				invalidatePrefixes: [
-					`/admin/api-keys/${id}/usage`,
+					`/admin/api-keys/${id}/allocation-stats`,
 					`/admin/api-keys/${id}/assigned-mailboxes`,
 				],
 			},
@@ -227,7 +227,6 @@ export const logsApi = {
 		page?: number;
 		pageSize?: number;
 		action?: string;
-		resource?: string;
 	}) => requestGet<ApiPagedList<T>>("/admin/dashboard/logs", { params }),
 
 	delete: (id: number) =>

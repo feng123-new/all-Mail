@@ -4,6 +4,9 @@
 # it is not a production topology or security model.
 services:
   postgres:
+    networks:
+      - database-network
+      - dev-host-network
     ports:
       - "127.0.0.1:${DEV_POSTGRES_PORT:-15433}:5432"
   redis:
@@ -14,5 +17,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - cache-network
+      - dev-host-network
     ports:
       - "127.0.0.1:${DEV_REDIS_PORT:-6380}:6379"
+
+networks:
+  dev-host-network:
+    driver: bridge

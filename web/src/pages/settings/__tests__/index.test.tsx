@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { authContract } from '../../../contracts/shared/auth';
@@ -59,5 +59,20 @@ describe('SettingsPage API usage localization', () => {
     await waitFor(() => expect(authContract.getTwoFactorStatus).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(authContract.getTwoFactorStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('provides password-manager autocomplete semantics', () => {
+    const { container } = render(
+      <I18nProvider initialLanguage="en-US" persist={false}>
+        <MemoryRouter>
+          <SettingsPage />
+        </MemoryRouter>
+      </I18nProvider>,
+    );
+
+    expect(screen.getByLabelText('Current password')).toHaveAttribute('autocomplete', 'current-password');
+    expect(screen.getByLabelText('New password')).toHaveAttribute('autocomplete', 'new-password');
+    expect(screen.getByLabelText('Confirm new password')).toHaveAttribute('autocomplete', 'new-password');
+    expect(container.querySelector('input[autocomplete="username"]')).toHaveValue('admin');
   });
 });

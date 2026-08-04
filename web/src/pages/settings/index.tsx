@@ -287,12 +287,22 @@ const SettingsPage: FC = () => {
                         onFinish={handleChangePassword}
                         style={styles.passwordForm}
                     >
+                        <input
+                            type="text"
+                            name="username"
+                            autoComplete="username"
+                            value={admin?.username ?? ''}
+                            readOnly
+                            aria-hidden="true"
+                            tabIndex={-1}
+                            style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+                        />
                         <Form.Item
                             name="oldPassword"
                             label={t(settingsPageI18n.currentPassword)}
                             rules={[{ required: true, message: t(settingsPageI18n.currentPasswordRequired) }]}
                         >
-                            <Input.Password prefix={<LockOutlined />} />
+                            <Input.Password autoComplete="current-password" prefix={<LockOutlined />} />
                         </Form.Item>
                         <Form.Item
                             name="newPassword"
@@ -302,7 +312,7 @@ const SettingsPage: FC = () => {
                                 { min: 8, message: t(settingsPageI18n.passwordMinLength) },
                             ]}
                         >
-                            <Input.Password prefix={<LockOutlined />} />
+                            <Input.Password autoComplete="new-password" prefix={<LockOutlined />} />
                         </Form.Item>
                         <Form.Item
                             name="confirmPassword"
@@ -318,7 +328,7 @@ const SettingsPage: FC = () => {
                                 }),
                             ]}
                         >
-                            <Input.Password prefix={<LockOutlined />} />
+                            <Input.Password autoComplete="new-password" prefix={<LockOutlined />} />
                         </Form.Item>
                         <Form.Item style={styles.noMarginBottom}>
                             <Button type="primary" htmlType="submit" loading={passwordLoading}>
@@ -391,12 +401,22 @@ const SettingsPage: FC = () => {
                                 {effectiveTwoFactorStatus.enabled ? (
                                     <SurfaceCard size="small" title={t(settingsPageI18n.disableTwoFactor)} tone="muted">
                                         <Form form={disable2FaForm} layout="vertical" onFinish={handleDisable2Fa}>
+                                            <input
+                                                type="text"
+                                                name="username"
+                                                autoComplete="username"
+                                                value={admin?.username ?? ''}
+                                                readOnly
+                                                aria-hidden="true"
+                                                tabIndex={-1}
+                                                style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+                                            />
                                             <Form.Item
                                                 name="password"
                                                 label={t(settingsPageI18n.currentPassword)}
                                                 rules={[{ required: true, message: t(settingsPageI18n.currentPasswordRequired) }]}
                                             >
-                                                <Input.Password prefix={<LockOutlined />} />
+                                                <Input.Password autoComplete="current-password" prefix={<LockOutlined />} />
                                             </Form.Item>
                                             <Form.Item
                                                 name="otp"
@@ -406,7 +426,7 @@ const SettingsPage: FC = () => {
                                                     { pattern: /^\d{6}$/, message: t(settingsPageI18n.enterSixDigitCode) },
                                                 ]}
                                             >
-                                                <Input maxLength={6} prefix={<SafetyCertificateOutlined />} />
+                                                <Input autoComplete="one-time-code" maxLength={6} prefix={<SafetyCertificateOutlined />} />
                                             </Form.Item>
                                             <Form.Item style={styles.noMarginBottom}>
                                                 <Button danger htmlType="submit" loading={twoFactorLoading}>

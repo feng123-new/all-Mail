@@ -1,5 +1,5 @@
 import { useState, type FC } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { Alert, Button, Form, Input, Modal, Space, Typography, message } from 'antd';
 import { ApiOutlined, CloudServerOutlined, LockOutlined, SafetyCertificateOutlined, SendOutlined, UserOutlined } from '@ant-design/icons';
 import { AuthSplitLayout } from '../../components';

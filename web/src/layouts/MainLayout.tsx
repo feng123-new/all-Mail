@@ -16,7 +16,7 @@ import {
   Typography,
 } from 'antd';
 import { type FC, useCallback, useMemo, useState } from 'react';
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router';
 import { ADMIN_NAVIGATION_GROUPS, getAdminRouteMeta } from '../app/navigation';
 import { authApi } from '../api';
 import {

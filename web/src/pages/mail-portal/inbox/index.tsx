@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { Alert, Button, Card, Col, Drawer, Empty, Form, Input, Row, Segmented, Select, Space, Spin, Switch, Tag, Typography, message as antdMessage } from 'antd';
 import { CopyOutlined, ReloadOutlined, SearchOutlined, SendOutlined } from '@ant-design/icons';
 import { PageHeader, SurfaceCard } from '../../../components';

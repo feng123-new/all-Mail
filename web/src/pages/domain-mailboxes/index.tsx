@@ -15,7 +15,7 @@ import {
 	Table,
 } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router";
 import { PageHeader, SurfaceCard } from "../../components";
 import { getHostedInternalProfileByProvisioningMode } from "../../constants/providers";
 import { domainMailboxesContract } from "../../contracts/admin/domainMailboxes";
