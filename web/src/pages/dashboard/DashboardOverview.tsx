@@ -1,5 +1,4 @@
 import {
-  ApiOutlined,
   ArrowRightOutlined,
   CheckCircleOutlined,
   CloudServerOutlined,
@@ -34,7 +33,6 @@ import {
 import {
   getProviderDefinition,
   PROVIDER_ORDER,
-  type EmailProvider,
 } from '../../constants/providers';
 import { useI18n } from '../../i18n';
 import { getProviderLabelMessage } from '../../i18n/catalog/providers';
