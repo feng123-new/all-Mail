@@ -1,0 +1,82 @@
+name: Materialize API-key routes
+
+on:
+  push:
+    branches: [agent/full-stack-consistency-audit]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/full-stack-consistency-audit
+          fetch-depth: 0
+
+      - name: Replace generated suffix loops with explicit method/path registrations
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('core/internal/businessapi/api_key_handlers.go')
+          source = path.read_text()
+          old = '''func (s *Server) registerAPIKeyRoutes(mux *http.ServeMux) {
+          \tmux.HandleFunc("GET /admin/api-keys", s.withAdministrator(s.listAPIKeys))
+          \tmux.HandleFunc("POST /admin/api-keys", s.withAdministrator(s.createAPIKey))
+          \tmux.HandleFunc("GET /admin/api-keys/{id}", s.withAdministrator(s.getAPIKey))
+          \tmux.HandleFunc("PUT /admin/api-keys/{id}", s.withAdministrator(s.updateAPIKey))
+          \tmux.HandleFunc("DELETE /admin/api-keys/{id}", s.withAdministrator(s.deleteAPIKey))
+          \tfor _, suffix := range []string{"allocation-stats", "usage"} {
+          \t\tmux.HandleFunc("GET /admin/api-keys/{id}/"+suffix, s.withAdministrator(s.apiKeyAllocationStats))
+          \t}
+          \tfor _, suffix := range []string{"allocation-reset", "reset-pool"} {
+          \t\tmux.HandleFunc("POST /admin/api-keys/{id}/"+suffix, s.withAdministrator(s.resetAPIKeyAllocation))
+          \t}
+          \tfor _, suffix := range []string{"assigned-mailboxes", "pool-emails"} {
+          \t\tmux.HandleFunc("GET /admin/api-keys/{id}/"+suffix, s.withAdministrator(s.getAssignedEmails))
+          \t\tmux.HandleFunc("PUT /admin/api-keys/{id}/"+suffix, s.withAdministrator(s.updateAssignedEmails))
+          \t}
+          }
+          '''
+          new = '''func (s *Server) registerAPIKeyRoutes(mux *http.ServeMux) {
+          \tmux.HandleFunc("GET /admin/api-keys", s.withAdministrator(s.listAPIKeys))
+          \tmux.HandleFunc("POST /admin/api-keys", s.withAdministrator(s.createAPIKey))
+          \tmux.HandleFunc("GET /admin/api-keys/{id}", s.withAdministrator(s.getAPIKey))
+          \tmux.HandleFunc("PUT /admin/api-keys/{id}", s.withAdministrator(s.updateAPIKey))
+          \tmux.HandleFunc("DELETE /admin/api-keys/{id}", s.withAdministrator(s.deleteAPIKey))
+          \tmux.HandleFunc("GET /admin/api-keys/{id}/allocation-stats", s.withAdministrator(s.apiKeyAllocationStats))
+          \tmux.HandleFunc("GET /admin/api-keys/{id}/usage", s.withAdministrator(s.apiKeyAllocationStats))
+          \tmux.HandleFunc("POST /admin/api-keys/{id}/allocation-reset", s.withAdministrator(s.resetAPIKeyAllocation))
+          \tmux.HandleFunc("POST /admin/api-keys/{id}/reset-pool", s.withAdministrator(s.resetAPIKeyAllocation))
+          \tmux.HandleFunc("GET /admin/api-keys/{id}/assigned-mailboxes", s.withAdministrator(s.getAssignedEmails))
+          \tmux.HandleFunc("PUT /admin/api-keys/{id}/assigned-mailboxes", s.withAdministrator(s.updateAssignedEmails))
+          \tmux.HandleFunc("GET /admin/api-keys/{id}/pool-emails", s.withAdministrator(s.getAssignedEmails))
+          \tmux.HandleFunc("PUT /admin/api-keys/{id}/pool-emails", s.withAdministrator(s.updateAssignedEmails))
+          }
+          '''
+          if old not in source:
+              raise SystemExit('expected API-key route registration block not found')
+          path.write_text(source.replace(old, new, 1))
+          PY
+          gofmt -w core/internal/businessapi/api_key_handlers.go
+          git diff --check
+
+      - name: Commit explicit registrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- core/internal/businessapi/api_key_handlers.go; then
+            echo 'API-key route registrations are already explicit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add core/internal/businessapi/api_key_handlers.go
+          git commit -m 'refactor(api): make API-key route contracts explicit'
+          git push origin HEAD:agent/full-stack-consistency-audit
