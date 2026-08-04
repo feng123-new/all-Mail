@@ -27,6 +27,8 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Added Go regression coverage for default/custom metrics CIDRs, unsafe CIDR rejection, direct-peer authorization, malformed peers, and forwarded-header spoofing.
 - Added scoped administrator, mailbox-portal, and public not-found surfaces with direct recovery actions.
 - Added permanent frontend request-lifecycle, session-cache, unknown-route, and Dashboard-model contracts and component tests.
+- Added a deterministic OpenAPI 3.1 document at `/openapi.json`, generated from `VERSION` and a reviewable canonical method/path/authentication inventory.
+- Added a permanent OpenAPI contract that verifies unique operations, canonical route ownership, production Go registration, authentication boundaries, Docker publication, and version identity.
 
 ### Changed
 
@@ -38,6 +40,7 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Added `METRICS_ALLOWED_CIDRS` as a canonical gateway-owned operator variable without giving the public gateway any new database, Redis, provider, JWT, or encryption credential.
 - Changed duplicate frontend GET handling from cancellation to shared in-flight Promises and isolated cached responses across administrator and mailbox session epochs.
 - Extracted Dashboard loading fallbacks into a pure model module without changing the operator overview JSX, styling, requests, or browser evidence.
+- Made frontend development, production builds, and the Docker Web Builder generate the same versioned OpenAPI artifact while keeping compatibility aliases out of the primary contract.
 
 ### Fixed
 
