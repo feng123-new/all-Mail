@@ -6,6 +6,9 @@ FROM node:24-bookworm-slim AS web-builder
 WORKDIR /src/web
 COPY web/package*.json ./
 RUN npm ci
+COPY VERSION /src/VERSION
+COPY config/openapi-routes.json /src/config/openapi-routes.json
+COPY scripts/generate-openapi.mjs /src/scripts/generate-openapi.mjs
 COPY web ./
 RUN npm run build
 
