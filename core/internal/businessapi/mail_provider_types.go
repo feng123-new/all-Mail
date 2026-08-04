@@ -233,6 +233,9 @@ func defaultProviderConfig(provider string) mailProviderConfig {
 		config.IMAPHost, config.SMTPHost = "imap.gmx.com", "mail.gmx.com"
 	case "MAILCOM":
 		config.IMAPHost, config.SMTPHost = "imap.mail.com", "smtp.mail.com"
+		config.SMTPPort = 587
+		config.SMTPSecure = boolPointer(false)
+		config.Folders["junk"], config.Folders["sent"] = "Junk email", "Sent Items"
 	case "YANDEX":
 		config.IMAPHost, config.SMTPHost = "imap.yandex.com", "smtp.yandex.com"
 	case "OUTLOOK":

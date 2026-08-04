@@ -482,6 +482,23 @@ func TestIMAPFixtureLoginSelectFetchStoreDeleteExpunge(t *testing.T) {
 	}
 }
 
+func TestMailComProviderDefaults(t *testing.T) {
+	config := defaultProviderConfig("MAILCOM")
+	if config.IMAPHost != "imap.mail.com" || config.IMAPPort != 993 || config.IMAPTLS == nil || !*config.IMAPTLS {
+		t.Fatalf("Mail.com IMAP defaults = %#v", config)
+	}
+	if config.SMTPHost != "smtp.mail.com" || config.SMTPPort != 587 || config.SMTPSecure == nil || *config.SMTPSecure {
+		t.Fatalf("Mail.com SMTP defaults = %#v", config)
+	}
+	if config.Folders["sent"] != "Sent Items" || config.Folders["junk"] != "Junk email" {
+		t.Fatalf("Mail.com folder defaults = %#v", config.Folders)
+	}
+	provider, authType, ok := importTokenProfile("MAILCOM_IMAP_SMTP")
+	if !ok || provider != "MAILCOM" || authType != "APP_PASSWORD" {
+		t.Fatalf("Mail.com import profile = %q/%q/%v", provider, authType, ok)
+	}
+}
+
 func providerTestServer(transport http.RoundTripper) *Server {
 	return &Server{
 		cfg:                 config.GoBusinessAPIConfig{ProviderTimeout: 5 * time.Second},

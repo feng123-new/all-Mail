@@ -6,7 +6,14 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 ## [Unreleased]
 
-No unreleased changes.
+### Changed
+
+- Documented that Mail.com direct access requires a Premium account and manual POP3/IMAP activation.
+- Aligned Mail.com API/import defaults with the reviewed frontend preset: IMAP 993 over TLS and SMTP 587 over STARTTLS.
+
+### Fixed
+
+- Corrected Mail.com folder mappings to the provider names `Sent Items` and `Junk email` so sent and junk mailbox views do not depend on generic folder guesses.
 
 ## [2.1.1] - 2026-08-04
 
