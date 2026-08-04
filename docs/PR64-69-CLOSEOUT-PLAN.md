@@ -4,6 +4,8 @@ Status: completed on 2026-08-04.
 
 The approved post-v2.1.0 stabilization program was executed sequentially from verified `main` while preserving the six-service Go-only topology, public routes, authorization, database schema, durable secrets, provider formats, forwarding semantics, and v2.1.0 persisted-state compatibility.
 
+The program must not introduce a database migration, durable-secret rotation, public route removal, authorization weakening, provider credential-format change, or service/network/volume topology change. Every stage uses squash merge after exact-head verification.
+
 ## Completed sequence
 
 ### PR #64 — release governance and plan
