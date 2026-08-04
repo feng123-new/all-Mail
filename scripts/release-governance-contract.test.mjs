@@ -20,8 +20,14 @@ test('security and support target the canonical stable minor line', async () => 
     read('SUPPORT.md'),
   ]);
   const line = stableMinor(version);
-  assert.match(security, new RegExp(`\\| \\`${line.replaceAll('.', '\\.') }\\` \\| Supported stable line \\|`));
-  assert.match(support, new RegExp(`latest stable \\`${line.replaceAll('.', '\\.') }\\` release`));
+  assert.ok(
+    security.includes(`| \`${line}\` | Supported stable line |`),
+    `SECURITY.md does not support ${line}`,
+  );
+  assert.ok(
+    support.includes(`latest stable \`${line}\` release`),
+    `SUPPORT.md does not target ${line}`,
+  );
   assert.doesNotMatch(security, /\| `2\.0\.x` \| Supported \|/);
 });
 
@@ -37,7 +43,7 @@ test('post-v2.1 changes and the approved closeout sequence remain documented', a
     'compact operator overview',
     'browser height budgets',
   ]) {
-    assert.match(changelog, new RegExp(phrase.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+    assert.ok(changelog.toLowerCase().includes(phrase.toLowerCase()), `missing changelog phrase: ${phrase}`);
   }
 
   for (let pr = 64; pr <= 69; pr += 1) {
