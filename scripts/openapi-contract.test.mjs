@@ -10,7 +10,8 @@ import {
 } from './generate-openapi.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const readJSON = async (relativePath) => JSON.parse(await readFile(path.join(root, relativePath), 'utf8'));
+const read = (relativePath) => readFile(path.join(root, relativePath), 'utf8');
+const readJSON = async (relativePath) => JSON.parse(await read(relativePath));
 
 const compatibilityAliases = new Set([
   '/api/get-email',
@@ -118,9 +119,20 @@ test('generated OpenAPI 3.1 document matches VERSION and authentication boundari
   assert.deepEqual(reparsed.paths['/ingress/domain-mail/receive'].post.security, [{ IngressKeyId: [], IngressSignature: [] }]);
 });
 
-test('frontend build publishes the deterministic OpenAPI document', async () => {
-  const packageJSON = await readJSON('web/package.json');
+test('frontend and Docker builds publish the deterministic OpenAPI document', async () => {
+  const [packageJSON, dockerfile, gitignore, documentation] = await Promise.all([
+    readJSON('web/package.json'),
+    read('Dockerfile'),
+    read('.gitignore'),
+    read('docs/API-CONTRACT.md'),
+  ]);
+
   assert.match(packageJSON.scripts['generate:openapi'], /generate-openapi\.mjs --output public\/openapi\.json/);
   assert.match(packageJSON.scripts.build, /^npm run generate:openapi && /);
   assert.match(packageJSON.scripts.dev, /^npm run generate:openapi && /);
+  assert.match(dockerfile, /COPY VERSION \/src\/VERSION/);
+  assert.match(dockerfile, /COPY config\/openapi-routes\.json \/src\/config\/openapi-routes\.json/);
+  assert.match(dockerfile, /COPY scripts\/generate-openapi\.mjs \/src\/scripts\/generate-openapi\.mjs/);
+  assert.match(gitignore, /web\/public\/openapi\.json/);
+  assert.match(documentation, /\/openapi\.json/);
 });
