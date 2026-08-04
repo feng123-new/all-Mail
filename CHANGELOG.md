@@ -1,94 +1,86 @@
 # Changelog
 
-All notable changes to `all-Mail` are documented here. The project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and uses semantic versioning for stable releases.
+All notable changes to `all-Mail` are documented here. The project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
-`all-Mail` is source-available under the custom non-commercial license in [`LICENSE`](./LICENSE); it is not distributed under an OSI-approved open-source license.
+`all-Mail` is source-available under the custom all-Mail Non-Commercial License in [`LICENSE`](./LICENSE); it is not distributed under an OSI-approved open-source license.
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [2.1.1] - 2026-08-04
+
+### Highlights
+
+- Completed the approved PR #64–#69 stabilization and release-closeout program after v2.1.0.
+- Preserved the six-service Go-only topology, all public routes, current authorization, persistent state, provider formats, forwarding semantics, and secret layout.
+- Published a deterministic OpenAPI 3.1 contract, protected operational metrics, hardened CI supply-chain inputs, and stabilized frontend request lifecycle behavior.
+
 ### Security
 
-- Removed the undocumented production `RESEND_API_BASE_URL` shell override; the supported Compose topology fixes the forwarding provider endpoint to `https://api.resend.com`.
-- Removed the undocumented frontend `VITE_API_BASE_URL` build override so administrator and mailbox requests always use relative same-origin paths through the public Go gateway.
-- Aligned the security support matrix with the current stable `2.1.x` line and documented `2.0.x` as limited compatibility support.
-- Pinned every third-party GitHub Action to an immutable full commit SHA while retaining readable release annotations and Dependabot maintenance.
+- Removed undocumented production endpoint and frontend API-base overrides so provider egress and browser requests remain owned by canonical deployment policy.
+- Aligned the security support matrix with the stable 2.1.x line.
+- Pinned third-party GitHub Actions to immutable commit SHAs and added a permanent movable-tag rejection contract.
 - Restricted `/metrics` to an explicit direct-peer CIDR allowlist that defaults to loopback, ignores forwarded identity headers, and rejects allow-all prefixes.
 
 ### Added
 
-- Added a permanent full-stack consistency contract covering environment ownership, resolved Compose configuration, React routes and navigation, frontend requests, Go method/path handlers, route ownership, page visibility, repository hygiene, and dependency reproducibility.
-- Added Cookie/OTP fixture coverage for the local Gmail OAuth helper and method-aware coverage for every public Go business route.
-- Added the canonical PR #64–#69 stabilization and v2.1.1 closeout plan.
-- Added narrow-workspace, navigation, API-key permission, allocation-cache, and audit-log regression coverage.
-- Added browser height budgets for the real desktop and mobile Dashboard after chart rendering.
-- Added a secret-safe production-host preflight for Bash, Python, Git, OpenSSL, Docker Engine, Compose v2, and daemon access.
-- Added a permanent CI supply-chain contract that rejects movable Action tags and incomplete deployment-host documentation.
-- Added an observability guide covering bounded Prometheus labels, health/readiness, runtime doctors, worker heartbeats, structured logs, privacy, and initial alerting.
-- Added Go regression coverage for default/custom metrics CIDRs, unsafe CIDR rejection, direct-peer authorization, malformed peers, and forwarded-header spoofing.
-- Added scoped administrator, mailbox-portal, and public not-found surfaces with direct recovery actions.
-- Added permanent frontend request-lifecycle, session-cache, unknown-route, and Dashboard-model contracts and component tests.
-- Added a deterministic OpenAPI 3.1 document at `/openapi.json`, generated from `VERSION` and a reviewable canonical method/path/authentication inventory.
-- Added a permanent OpenAPI contract that verifies unique operations, canonical route ownership, production Go registration, authentication boundaries, Docker publication, and version identity.
+- A canonical PR #64–#69 stabilization plan with compatibility, verification, rollback, and completion requirements.
+- A secret-safe production-host preflight for Bash, Python, Git, OpenSSL, Docker Engine, Compose v2, and daemon access.
+- An observability guide covering bounded Prometheus labels, readiness, runtime doctors, worker heartbeats, structured logs, privacy, and initial alerts.
+- Scoped administrator, mailbox-portal, and public not-found recovery surfaces.
+- Permanent frontend request-lifecycle, session-cache, unknown-route, and Dashboard-model contracts.
+- A generated same-origin `/openapi.json` OpenAPI 3.1 document backed by a reviewable method/path/authentication inventory and CI drift checks.
 
 ### Changed
 
-- Registered API-key allocation, usage, reset, and mailbox-assignment routes explicitly so frontend/backend method and path compatibility can be verified statically.
-- Migrated the optional Gmail OAuth helper to the current administrator Cookie session, server-driven OTP challenge, mandatory password-rotation guard, safe account verification, and canonical Google `manage` scopes.
-- Migrated the frontend to the React Router 8 package surface and kept the production client on relative same-origin requests.
-- Rebuilt Dashboard as a compact operator overview that combines posture, resource availability, mail flow, automation activity, prioritized actions, provider concentration, and recent operations.
-- Declared the supported production baseline as a single Linux host with Bash 4+, Python 3.9+, Git, OpenSSL, Docker Engine, and Docker Compose v2, and documented unsupported HA and multi-region modes.
-- Added `METRICS_ALLOWED_CIDRS` as a canonical gateway-owned operator variable without giving the public gateway any new database, Redis, provider, JWT, or encryption credential.
-- Changed duplicate frontend GET handling from cancellation to shared in-flight Promises and isolated cached responses across administrator and mailbox session epochs.
-- Extracted Dashboard loading fallbacks into a pure model module without changing the operator overview JSX, styling, requests, or browser evidence.
-- Made frontend development, production builds, and the Docker Web Builder generate the same versioned OpenAPI artifact while keeping compatibility aliases out of the primary contract.
+- Migrated the frontend to React Router 8 and kept all production browser requests relative and same-origin.
+- Rebuilt Dashboard as a compact operator overview with posture, resources, mail flow, automation trend, prioritized actions, provider concentration, and recent activity.
+- Changed duplicate frontend GET handling from cancellation to shared in-flight Promises and isolated cached responses across administrator and mailbox identity epochs.
+- Extracted Dashboard loading fallbacks into a pure model module without changing the verified desktop/mobile composition.
+- Declared the supported production baseline as a single Linux host and documented unsupported HA, Kubernetes, multi-region, automatic-failover, and concurrent-revision modes.
+- Generated the same versioned OpenAPI artifact in development, frontend production builds, and the final Docker image while excluding compatibility aliases from primary paths.
 
 ### Fixed
 
+- Corrected API-key permission presentation, allocation cache invalidation, audit-log request typing, responsive tables, and narrow-workspace navigation.
 - Isolated loopback development dependencies on a dedicated host bridge.
-- Corrected API-key permission presentation, allocation cache invalidation, audit-log request typing, and responsive table behavior.
-- Bounded Dashboard provider, error-sample, and activity density on desktop and mobile.
-- Prevented an older in-flight GET from repopulating cache after a write invalidation or identity transition.
-- Replaced the global unknown-route redirect to Dashboard with scope-aware 404 recovery.
+- Bounded Dashboard provider, connection-error, and activity density on desktop and mobile.
+- Prevented stale in-flight GET responses from repopulating cache after writes or authentication transitions.
+- Replaced the global unknown-route redirect with scope-aware 404 handling.
 
-### Compatibility
+### Compatibility and upgrade notes
 
-- These unreleased changes add no database migration, durable-secret rotation, public route removal, authorization change, provider credential-format change, or production service/network/volume topology change.
+- No database migration or durable-secret rotation is introduced.
+- No public route, authorization, provider credential format, forwarding state machine, service, network, volume, or persisted-state topology is changed.
+- Existing v2.1.0 deployments can upgrade with the normal revision-based procedure after backing up PostgreSQL, the exact revision, required volumes, and external R2 state when it is part of the recovery objective.
+- Do not run concurrent revisions against one persisted deployment and do not use `docker compose down -v` during normal upgrade or recovery.
 
 ## [2.1.0] - 2026-08-04
 
 ### Highlights
 
-- Completed the Frontend V3 program across PR #51 through PR #59, giving the administrator console and mailbox portal one coherent mail-infrastructure control-plane design language.
-- Rebuilt administrator and portal shells around grouped navigation, route context, responsive navigation, semantic surfaces, and shared workspace primitives.
-- Made the mailbox portal Inbox-first while preserving mandatory password rotation, mailbox assignment enforcement, cookie-backed sessions, and every existing portal URL.
+- Completed Frontend V3 across PR #51 through PR #59.
+- Rebuilt administrator and mailbox-portal shells around grouped navigation, route context, responsive composition, semantic workspaces, and cookie-first sessions.
+- Made the mailbox portal Inbox-first while preserving forced password rotation and existing URLs.
 
 ### Security
 
-- Upgraded the transitive `fast-uri` production override and lockfile to `4.1.2` without adding an audit exception.
+- Upgraded the transitive `fast-uri` override to the patched 4.1.2 release.
 
 ### Added
 
 - Shared resource, mail-flow, control-boundary, and portal workspace primitives.
-- Permanent source contracts for cookie-first authentication, Inbox-first routing, explainable Dashboard state, responsive behavior, reduced motion, and restrained operational styling.
-- Production JavaScript/CSS bundle budgets and desktop/mobile Chromium administrator and mailbox-portal smoke flows.
+- Frontend source, bundle-budget, desktop Chromium, and mobile Chromium regression gates.
 
 ### Changed
 
-- Replaced the client-generated weighted `/100` Dashboard score with direct risk counts.
-- Grouped administrator navigation into Overview, Mail resources, Mail flow, Automation and audit, and System.
-- Simplified login so the OTP step appears only after a server challenge.
-- Reordered mailbox portal navigation around Inbox, Overview, and Settings.
+- Replaced the client-generated `/100` Dashboard score with direct risk counts.
+- Simplified login so OTP appears only after a server challenge.
 
-### Fixed
+### Compatibility
 
-- Scoped the development proxy to `/mail/api` so portal SPA routes remain React-owned.
-- Isolated Playwright specifications and CI-only browser dependencies from application dependency metadata.
-- Removed an incomplete translation descriptor that passed lint/tests but failed the TypeScript production build.
-
-### Compatibility and upgrade notes
-
-- No database schema migration or credential rotation is introduced.
-- Public routes, Go authorization, route ownership, forwarding leases, sending behavior, Docker topology, and v2.0.1 persistent state remain compatible.
+- No database migration or credential rotation was introduced.
 
 ## [2.0.1] - 2026-08-03
 
@@ -99,20 +91,12 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 ### Fixed
 
-- Aligned administrator and mailbox-portal Cookie lifetime with `JWT_EXPIRES_IN`.
-- Fixed mailbox-portal session bootstrap completion on non-success envelopes.
-- Removed Cloudflare Worker tooling references to the retired Node server tree.
+- Aligned session-cookie lifetime with `JWT_EXPIRES_IN`.
+- Fixed mailbox-portal bootstrap completion and removed Worker references to the retired Node tree.
 
-### Changed
+### Compatibility
 
-- Replaced the final Node-era `NODE_ENV` selector with `ALL_MAIL_RUNTIME_ENV`.
-- Documented R2 raw-message lifecycle, backup, restore, and recovery boundaries.
-- Generalized release publication from canonical `VERSION` metadata.
-
-### Compatibility and upgrade notes
-
-- No database migration or durable-secret rotation is introduced.
-- Remove stale `NODE_ENV` configuration before startup and back up PostgreSQL, required volumes, and R2 when it is part of the recovery objective.
+- No database migration or durable-secret rotation was introduced.
 
 ## [2.0.0] - 2026-08-02
 
@@ -120,40 +104,18 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 - Completed the production cutover to a Go-only runtime.
 - Established the six-service Compose topology: `app`, `go-business-api`, `worker-forwarding`, `worker-retention`, `postgres`, and `redis`.
-- Added canonical version identity across source, package metadata, binary, OCI image, tag, release assets, and changelog.
-
-### Added
-
-- Private Go ownership for authentication, administration, mailbox/domain/ingress/provider/sending/portal/external APIs.
-- Immutable schema adoption and migration ledgers with drift, checksum, and unknown-state rejection.
-- Durable forwarding leases, retry state, retention cleanup, runtime doctors, and method-aware route ownership.
-- Canonical OAuth permission profiles and least-privilege defaults.
-- Cross-platform Linux, macOS, and Windows release archives, SBOM, checksums, GHCR image, and GitHub Release publication.
-- Upgrade, rollback, backup, restore, runbook, environment, and security-boundary documentation.
-
-### Changed
-
-- Made `app` a credential-free public gateway and SPA host.
-- Split PostgreSQL runtime access across generated API, forwarding, and retention identities.
-- Added authenticated Redis and least-privilege read-only runtime secret exports.
-- Added durable session revocation and explicit fail-closed API-key permissions.
+- Added canonical version identity, cross-platform archives, SBOM, checksums, GHCR publication, and GitHub Release automation.
 
 ### Security
 
-- Added browser same-origin enforcement, trusted-proxy normalization, CSP, clickjacking protection, login lockout, replay protection, provider network controls, encrypted credentials, and database/network/secret isolation.
-- Added race, vulnerability, dependency, integration, Docker, bootstrap, SBOM, security-boundary, and release gates.
+- Added cookie-first sessions, durable revocation, same-origin enforcement, trusted-proxy normalization, login lockout, replay protection, encrypted credentials, least-privilege database identities, authenticated Redis, network isolation, and secret-volume separation.
 
 ### Removed
 
-- Removed the Node/Fastify/Prisma production runtime, legacy jobs runtime, migration proxy mode, duplicate API images, production default passwords, raw secret fallbacks, and direct database/cache access from the public gateway.
+- Removed the Node/Fastify/Prisma production runtime and retired migration/job paths.
 
-### Upgrade notes
-
-- Back up PostgreSQL, the exact revision, `.env`, required secret/data volumes, and external R2 state before upgrading.
-- Stop the old revision before starting the new revision; concurrent revisions against one persisted state are unsupported.
-- Rollback after initialization or migration requires the matching database and volume backup.
-
-[Unreleased]: https://github.com/feng123-new/all-Mail/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/feng123-new/all-Mail/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/feng123-new/all-Mail/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/feng123-new/all-Mail/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/feng123-new/all-Mail/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/feng123-new/all-Mail/releases/tag/v2.0.0
