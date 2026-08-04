@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"vite\"",
-    "build": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"tsc -b && vite build\"",
+    "generate:openapi": "node ../scripts/generate-openapi.mjs --output public/openapi.json",
+    "dev": "npm run generate:openapi && node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"vite\"",
+    "build": "npm run generate:openapi && node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"tsc -b && vite build\"",
     "check:budget": "node ./scripts/check-build-budget.mjs",
     "lint": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"eslint .\"",
     "preview": "node --disable-warning=UNDICI-EHPA ./scripts/run-clean-node.mjs \"vite preview\"",
