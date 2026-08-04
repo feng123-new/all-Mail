@@ -1,0 +1,34 @@
+name: Apply Mail.com compatibility patch
+
+on:
+  push:
+    branches:
+      - agent/mailcom-compatibility
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    if: github.event.head_commit.message == 'chore: bootstrap Mail.com compatibility patch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: agent/mailcom-compatibility
+          fetch-depth: 0
+
+      - name: Apply focused compatibility patch
+        run: |
+          python3 scripts/apply_mailcom_compatibility_patch.py
+          gofmt -w core/internal/businessapi/mail_provider_types.go core/internal/businessapi/mail_provider_integration_test.go
+          git diff --check
+
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(provider): align Mail.com compatibility guidance"
+          git push origin HEAD:agent/mailcom-compatibility
