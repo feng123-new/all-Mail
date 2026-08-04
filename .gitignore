@@ -4,6 +4,7 @@ node_modules/
 
 # Build outputs
 web/dist/
+web/public/openapi.json
 cloudflare/workers/allmail-edge/dist/
 **/dist/
 /public/
