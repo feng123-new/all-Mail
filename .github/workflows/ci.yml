@@ -21,10 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .node-version
 
@@ -38,7 +38,7 @@ jobs:
 
       - name: Upload runtime test log
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: runtime-test-log
           path: ${{ runner.temp }}/runtime-tests.log
@@ -77,10 +77,10 @@ jobs:
         working-directory: core
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: .go-version
           cache-dependency-path: |
@@ -100,7 +100,7 @@ jobs:
 
       - name: Upload Go formatting diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: gofmt-diagnostics
           path: |
@@ -118,7 +118,7 @@ jobs:
 
       - name: Upload Go race-test diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: go-race-test-log
           path: ${{ runner.temp }}/go-race-tests.log
@@ -277,10 +277,10 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -306,10 +306,10 @@ jobs:
         working-directory: cloudflare/workers/allmail-edge
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -326,10 +326,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .node-version
 
@@ -343,7 +343,7 @@ jobs:
 
       - name: Upload production audit log
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: production-audit-log
           path: ${{ runner.temp }}/production-audit.log
@@ -357,7 +357,7 @@ jobs:
       POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Prepare default env file
         run: cp .env.example .env
@@ -377,7 +377,7 @@ jobs:
 
       - name: Upload Docker diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: docker-smoke-diagnostics
           path: |
@@ -434,7 +434,7 @@ jobs:
           '
 
       - name: Generate final image SBOM
-        uses: anchore/sbom-action@v0.24.0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: all-mail-go:local
           format: cyclonedx-json
@@ -459,7 +459,7 @@ jobs:
           PY
 
       - name: Upload final image SBOM
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: all-mail-go-cyclonedx
           path: ${{ runner.temp }}/all-mail-go.cdx.json
