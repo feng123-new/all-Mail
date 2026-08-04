@@ -1,0 +1,269 @@
+name: Full-stack consistency audit
+
+on:
+  push:
+    branches: [agent/full-stack-consistency-audit]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-stack-consistency-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-contracts:
+    name: static-contracts
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Resolve canonical Compose model
+        shell: bash
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose config --format json > "$RUNNER_TEMP/allmail-compose.json"
+
+      - name: Run repository, environment, route, and feature audit
+        env:
+          ALLMAIL_AUDIT_COMPOSE_JSON: ${{ runner.temp }}/allmail-compose.json
+        run: ./scripts/sanitize-runtime-env.sh node scripts/full-stack-consistency-audit.mjs
+
+      - name: Verify patch cleanliness
+        run: git diff --check
+
+      - name: Upload consistency inventories
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-stack-consistency-report
+          path: audit-output
+          if-no-files-found: error
+
+  reproducibility:
+    name: reproducibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            cloudflare/workers/allmail-edge/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+
+      - name: Install exact frontend and Worker dependencies
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+          ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge ci
+
+      - name: Reject dependency metadata drift
+        shell: bash
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix web install --package-lock-only --ignore-scripts
+          ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install --package-lock-only --ignore-scripts
+          (cd core && go mod tidy)
+          git diff --exit-code -- \
+            web/package-lock.json \
+            cloudflare/workers/allmail-edge/package-lock.json \
+            core/go.mod \
+            core/go.sum
+
+      - name: Run complete release verification
+        run: ./scripts/sanitize-runtime-env.sh npm run verify:release
+
+      - name: Install isolated Playwright browser dependency
+        shell: bash
+        run: |
+          playwright_home="$RUNNER_TEMP/frontend-playwright"
+          mkdir -p "$playwright_home"
+          ./scripts/sanitize-runtime-env.sh npm --prefix "$playwright_home" install \
+            --no-save --no-package-lock --ignore-scripts @playwright/test@1.55.0
+          rm -rf web/node_modules/@playwright
+          ln -s "$playwright_home/node_modules/@playwright" web/node_modules/@playwright
+          (cd web && ../scripts/sanitize-runtime-env.sh \
+            "$playwright_home/node_modules/.bin/playwright" install --with-deps chromium)
+
+      - name: Run desktop and mobile browser smoke
+        shell: bash
+        run: |
+          playwright_home="$RUNNER_TEMP/frontend-playwright"
+          (cd web && ../scripts/sanitize-runtime-env.sh \
+            "$playwright_home/node_modules/.bin/playwright" test)
+
+      - name: Reject generated tracked-file drift
+        shell: bash
+        run: |
+          git diff --check
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=normal)"
+
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-stack-browser-evidence
+          path: |
+            web/playwright-report
+            web/test-results
+          if-no-files-found: warn
+
+  live-stack:
+    name: live-stack
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Prepare canonical environment
+        run: cp .env.example .env
+
+      - name: Validate and start complete stack
+        shell: bash
+        run: |
+          set +e
+          docker compose config --quiet
+          ./scripts/compose-up.sh 2>&1 | tee "$RUNNER_TEMP/full-stack-start.log"
+          status=${PIPESTATUS[0]}
+          docker compose ps -a --no-trunc > "$RUNNER_TEMP/full-stack-ps.txt" 2>&1 || true
+          docker compose logs --no-color --timestamps > "$RUNNER_TEMP/full-stack-compose.log" 2>&1 || true
+          exit "$status"
+
+      - name: Verify service topology and exposure
+        shell: bash
+        run: |
+          expected=$'app\ngo-business-api\npostgres\nredis\nworker-forwarding\nworker-retention'
+          actual="$(docker compose config --services | sort)"
+          test "$actual" = "$expected"
+          test -n "$(docker compose port app 3002)"
+          for service_port in \
+            'go-business-api 3200' \
+            'postgres 5432' \
+            'redis 6379'; do
+            set -- $service_port
+            if docker compose port "$1" "$2" >/dev/null 2>&1; then
+              echo "private service port is published: $1:$2"
+              exit 1
+            fi
+          done
+
+      - name: Verify SPA, API ownership, and security headers
+        shell: bash
+        run: |
+          for path in / /login /dashboard /mail/login /mail/inbox /mail/settings; do
+            headers="$RUNNER_TEMP/$(printf '%s' "$path" | tr '/' '_').headers"
+            body="$RUNNER_TEMP/$(printf '%s' "$path" | tr '/' '_').body"
+            curl --fail --silent --show-error --dump-header "$headers" \
+              --output "$body" "http://127.0.0.1:3002$path"
+            grep -qi '<!doctype html' "$body"
+            grep -qi '^X-Frame-Options: DENY' "$headers"
+            grep -qi '^Content-Security-Policy:' "$headers"
+          done
+
+          probe_owned_route() {
+            local method="$1" path="$2" expected="$3"
+            local headers="$RUNNER_TEMP/route-$(printf '%s' "$path" | tr '/?' '--').headers"
+            local status
+            status=$(curl --request "$method" --silent --show-error \
+              --output /dev/null --dump-header "$headers" --write-out '%{http_code}' \
+              "http://127.0.0.1:3002$path")
+            test "$status" = "$expected"
+            grep -qi '^X-All-Mail-Route-Owner: go-business-api' "$headers"
+          }
+          probe_owned_route GET /admin/auth/me 401
+          probe_owned_route GET /admin/dashboard/stats 401
+          probe_owned_route GET /admin/emails 401
+          probe_owned_route GET /admin/domains 401
+          probe_owned_route GET /admin/forwarding-jobs 401
+          probe_owned_route GET /mail/api/session 401
+          probe_owned_route POST /mail/api/send 401
+          probe_owned_route GET '/api/messages/text?email=probe@example.test' 401
+
+      - name: Verify runtime identity and doctors
+        shell: bash
+        run: |
+          for service in app go-business-api worker-forwarding worker-retention; do
+            docker compose exec -T "$service" allmail version --json \
+              | tee "$RUNNER_TEMP/version-$service.json"
+            jq -e '.version == "2.1.0" and .commit != "unknown" and (.goVersion | startswith("go"))' \
+              "$RUNNER_TEMP/version-$service.json" >/dev/null
+          done
+          docker compose exec -T app allmail doctor api
+          docker compose exec -T go-business-api allmail doctor business-api
+          docker compose exec -T worker-forwarding allmail doctor worker forwarding
+          docker compose exec -T worker-retention allmail doctor worker retention
+
+      - name: Verify public gateway remains credential-free
+        shell: bash
+        run: |
+          app_env="$RUNNER_TEMP/app-env.txt"
+          docker compose exec -T app env | sort > "$app_env"
+          if grep -E '^(DATABASE|POSTGRES|REDIS|JWT|ENCRYPTION|OAUTH|INGRESS|ADMIN_PASSWORD|ALL_MAIL_.*DATABASE).*=' "$app_env"; then
+            echo 'public app received a forbidden private credential or state endpoint'
+            exit 1
+          fi
+          docker compose exec -T app sh -lc '
+            for command in node nodejs npm npx pnpm prisma psql redis-cli; do
+              if command -v "$command" >/dev/null 2>&1; then
+                echo "forbidden runtime command found: $command"
+                exit 1
+              fi
+            done
+          '
+
+      - name: Capture final diagnostics
+        if: always()
+        shell: bash
+        run: |
+          docker compose ps -a --no-trunc > "$RUNNER_TEMP/full-stack-final-ps.txt" 2>&1 || true
+          docker compose logs --no-color --timestamps > "$RUNNER_TEMP/full-stack-final-compose.log" 2>&1 || true
+
+      - name: Stop and verify disposable environment cleanup
+        if: always()
+        shell: bash
+        run: |
+          project="$(docker compose ls --format json | jq -r '.[] | select(.Name == "all-mail") | .Name' | head -n1)"
+          docker compose down -v --remove-orphans
+          if [[ -n "$project" ]]; then
+            test -z "$(docker ps -aq --filter "label=com.docker.compose.project=$project")"
+            test -z "$(docker network ls -q --filter "label=com.docker.compose.project=$project")"
+            test -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$project")"
+          fi
+
+      - name: Upload live-stack diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-stack-live-diagnostics
+          path: |
+            ${{ runner.temp }}/full-stack-start.log
+            ${{ runner.temp }}/full-stack-ps.txt
+            ${{ runner.temp }}/full-stack-compose.log
+            ${{ runner.temp }}/full-stack-final-ps.txt
+            ${{ runner.temp }}/full-stack-final-compose.log
+            ${{ runner.temp }}/version-*.json
+          if-no-files-found: warn
