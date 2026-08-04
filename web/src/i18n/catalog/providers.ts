@@ -166,10 +166,10 @@ const providers: Record<
   },
   MAILCOM: {
     label: m('provider.mailcom.label', 'Mail.com', 'Mail.com'),
-    description: m('provider.mailcom.description', 'Mail.com 使用标准 IMAP / SMTP 接入，适合通用的国际邮箱场景。', 'Mail.com uses standard IMAP / SMTP and fits general international mailbox scenarios.'),
+    description: m('provider.mailcom.description', 'Mail.com 使用标准 IMAP / SMTP 接入；仅 Premium 账号在手动开启协议访问后可用。', 'Mail.com uses standard IMAP / SMTP; only Premium accounts can connect after protocol access is enabled manually.'),
     emailPlaceholder: m('provider.mailcom.emailPlaceholder', 'example@mail.com', 'example@mail.com'),
     addButtonLabel: m('provider.mailcom.addButtonLabel', '添加 Mail.com', 'Add Mail.com'),
-    classificationNote: m('provider.mailcom.classificationNote', 'Mail.com 属于标准 IMAP / SMTP provider，需确认账号支持 IMAP/SMTP。', 'Mail.com is a standard IMAP / SMTP provider, but the account must support IMAP/SMTP.'),
+    classificationNote: m('provider.mailcom.classificationNote', '免费账号不能直连；Premium 账号还必须先在网页设置中开启 POP3/IMAP。', 'Free accounts cannot connect directly; Premium accounts must also enable POP3/IMAP in web settings first.'),
   },
   YANDEX: {
     label: m('provider.yandex.label', 'Yandex', 'Yandex'),
@@ -308,11 +308,11 @@ const profiles: Record<
   },
   'mailcom-imap-smtp': {
     label: m('profile.mailcom.label', 'Mail.com IMAP / SMTP', 'Mail.com IMAP / SMTP'),
-    description: m('profile.mailcom.description', 'Mail.com 使用标准 IMAP / SMTP 接入，适合常见的国外通用邮箱场景。', 'Mail.com uses standard IMAP / SMTP and fits common international general-purpose mailbox scenarios.'),
+    description: m('profile.mailcom.description', 'Mail.com 通过标准 IMAP / SMTP 接入，但官方仅向 Premium 账号开放协议访问。', 'Mail.com connects through standard IMAP / SMTP, but the provider exposes protocol access only to Premium accounts.'),
     summaryHint: m('profile.mailcom.summaryHint', '主分类：IMAP / SMTP；服务商：Mail.com', 'Primary family: IMAP / SMTP; provider: Mail.com'),
     secretLabel: m('profile.mailcom.secretLabel', 'Mail.com 密码', 'Mail.com password'),
     secretPlaceholder: m('profile.mailcom.secretPlaceholder', 'Mail.com Password', 'Mail.com Password'),
-    secretHelpText: m('profile.mailcom.secretHelpText', '请确认账号支持 IMAP/SMTP 功能后再接入。', 'Confirm that the account supports IMAP/SMTP before connecting.'),
+    secretHelpText: m('profile.mailcom.secretHelpText', '仅 Premium 账号可使用 IMAP/SMTP；请先在网页端开启 POP3/IMAP，再填写完整邮箱地址和登录密码。', 'Only Premium accounts can use IMAP/SMTP. Enable POP3/IMAP in web settings first, then enter the full email address and login password.'),
   },
   'yandex-imap-smtp': {
     label: m('profile.yandex.label', 'Yandex IMAP / SMTP', 'Yandex IMAP / SMTP'),

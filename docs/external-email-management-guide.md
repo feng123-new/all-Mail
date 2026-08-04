@@ -1,6 +1,6 @@
 # 外部邮箱管理区使用说明
 
-> 适用范围：后台 `邮箱管理` 页面中接入的 Outlook / Gmail / QQ / 163 / 126 / iCloud / Yahoo / Zoho / 阿里邮箱 / Amazon WorkMail / Fastmail / AOL / GMX / Mail.com / Yandex / Custom IMAP / SMTP 账号。
+> 适用范围：后台 `邮箱管理` 页面中接入的 Outlook / Gmail / QQ / 163 / 126 / iCloud / Yahoo / Zoho / 阿里邮箱 / Amazon WorkMail / Fastmail / AOL / GMX / Mail.com / Yandex / Custom IMAP / SMTP 账号。Mail.com 指 `mail.com` 服务，不是 Mail.ru。
 
 ## 1. 这块和域名邮箱不是一回事
 
@@ -39,13 +39,25 @@
 - 发送邮件：支持
 - 常见模式：`APP_PASSWORD`
 
-### Amazon WorkMail / Fastmail / AOL / GMX / Mail.com / Yandex
+### Mail.com
+
+- 读取收件箱：支持，但仅限 Mail.com Premium 账号
+- 读取已发送：支持，官方文件夹名为 `Sent Items`
+- 读取垃圾箱：支持，官方文件夹名为 `Junk email`
+- 发送邮件：支持
+- 常见模式：`APP_PASSWORD`（这里实际填写 Mail.com 登录密码）
+- 使用前必须在 Mail.com 网页端进入 `Email → Settings → POP3 & IMAP`，开启第三方协议访问
+- 当前预设：IMAP `imap.mail.com:993` + SSL/TLS；SMTP `smtp.mail.com:587` + STARTTLS
+- Mail.com 官方也允许 SMTP `465` + SSL/TLS，但 all-Mail 默认统一使用 `587` + STARTTLS
+- 免费 Mail.com 账号不具备 IMAP/SMTP 能力，无法通过 all-Mail 直连
+
+### Amazon WorkMail / Fastmail / AOL / GMX / Yandex
 
 - 读取收件箱：支持
 - 读取已发送：支持
 - 发送邮件：支持
 - 常见模式：`APP_PASSWORD`
-- 说明：Amazon WorkMail 通常需要补充区域相关的 IMAP / SMTP 主机；GMX / Mail.com 更常见的 SMTP 端口是 `587` + STARTTLS。
+- 说明：Amazon WorkMail 通常需要补充区域相关的 IMAP / SMTP 主机；GMX 更常见的 SMTP 端口是 `587` + STARTTLS。
 
 ### Custom IMAP / SMTP
 
@@ -149,7 +161,8 @@ curl -X POST http://127.0.0.1:3002/admin/emails/12/send \
 
 ## 6. 发送能力判断
 
-- Gmail / QQ / 163 / 126 / iCloud / Yahoo / Zoho / 阿里邮箱 / Fastmail / AOL / GMX / Mail.com / Yandex 这类账号通常可以直接完成收发闭环
+- Gmail / QQ / 163 / 126 / iCloud / Yahoo / Zoho / 阿里邮箱 / Fastmail / AOL / GMX / Yandex 这类账号通常可以直接完成收发闭环
+- Mail.com 只有 Premium 账号在网页端开启 POP3/IMAP 后才能完成收发闭环
 - Outlook 是否能发，取决于 OAuth 配置和授权范围
 - Amazon WorkMail 和 Custom IMAP / SMTP 是否可用，取决于你填写的服务器主机、端口和密码是否正确
 - 如果账号不支持发件，界面会保留收件相关能力，但隐藏或禁用发送入口
