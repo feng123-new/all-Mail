@@ -25,6 +25,8 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Added a permanent CI supply-chain contract that rejects movable Action tags and incomplete deployment-host documentation.
 - Added an observability guide covering bounded Prometheus labels, health/readiness, runtime doctors, worker heartbeats, structured logs, privacy, and initial alerting.
 - Added Go regression coverage for default/custom metrics CIDRs, unsafe CIDR rejection, direct-peer authorization, malformed peers, and forwarded-header spoofing.
+- Added scoped administrator, mailbox-portal, and public not-found surfaces with direct recovery actions.
+- Added permanent frontend request-lifecycle, session-cache, unknown-route, and Dashboard-model contracts and component tests.
 
 ### Changed
 
@@ -34,12 +36,16 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Rebuilt Dashboard as a compact operator overview that combines posture, resource availability, mail flow, automation activity, prioritized actions, provider concentration, and recent operations.
 - Declared the supported production baseline as a single Linux host with Bash 4+, Python 3.9+, Git, OpenSSL, Docker Engine, and Docker Compose v2, and documented unsupported HA and multi-region modes.
 - Added `METRICS_ALLOWED_CIDRS` as a canonical gateway-owned operator variable without giving the public gateway any new database, Redis, provider, JWT, or encryption credential.
+- Changed duplicate frontend GET handling from cancellation to shared in-flight Promises and isolated cached responses across administrator and mailbox session epochs.
+- Extracted Dashboard loading fallbacks into a pure model module without changing the operator overview JSX, styling, requests, or browser evidence.
 
 ### Fixed
 
 - Isolated loopback development dependencies on a dedicated host bridge.
 - Corrected API-key permission presentation, allocation cache invalidation, audit-log request typing, and responsive table behavior.
 - Bounded Dashboard provider, error-sample, and activity density on desktop and mobile.
+- Prevented an older in-flight GET from repopulating cache after a write invalidation or identity transition.
+- Replaced the global unknown-route redirect to Dashboard with scope-aware 404 recovery.
 
 ### Compatibility
 
