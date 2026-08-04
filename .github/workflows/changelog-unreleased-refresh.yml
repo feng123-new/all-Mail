@@ -3,13 +3,17 @@ name: Populate unreleased changelog
 on:
   push:
     branches: [agent/changelog-drift-guard]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   refresh:
-    if: github.actor != 'github-actions[bot]'
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      (github.event_name == 'push' || github.head_ref == 'agent/changelog-drift-guard')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout metadata branch
