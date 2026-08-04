@@ -42,6 +42,7 @@ Thumbs.db
 .sisyphus/
 .tmp-emails-page.png
 __pycache__/
+audit-output/
 
 # Local migration / operator snapshots
 allmail_outlook_migration_result.json
