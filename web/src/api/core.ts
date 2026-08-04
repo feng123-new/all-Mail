@@ -66,7 +66,8 @@ export const api = axios.create({
     },
 });
 
-const pendingGetControllers = new Map<string, AbortController>();
+let requestRuntimeEpoch = 0;
+const pendingGetRequests = new Map<string, Promise<ApiResponse<unknown>>>();
 const getResponseCache = new Map<string, { expiresAt: number; value: ApiResponse<unknown> }>();
 const REQUEST_ID_HEADER = 'X-Request-Id';
 
@@ -92,23 +93,24 @@ const buildGetRequestKey = (url: string, config?: AxiosRequestConfig): string =>
     return `${url}?${paramsKey}`;
 };
 
+export const resetApiRuntimeState = (): void => {
+    requestRuntimeEpoch += 1;
+    getResponseCache.clear();
+    pendingGetRequests.clear();
+};
+
 const invalidateGetCache = (prefixes?: string[]) => {
     if (!prefixes || prefixes.length === 0) {
         return;
     }
 
+    requestRuntimeEpoch += 1;
     for (const key of Array.from(getResponseCache.keys())) {
         if (prefixes.some((prefix) => key.startsWith(prefix))) {
             getResponseCache.delete(key);
         }
     }
-
-    for (const [key, controller] of Array.from(pendingGetControllers.entries())) {
-        if (prefixes.some((prefix) => key.startsWith(prefix))) {
-            controller.abort();
-            pendingGetControllers.delete(key);
-        }
-    }
+    pendingGetRequests.clear();
 };
 
 const createClientRequestId = (): string => `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -244,6 +246,18 @@ api.interceptors.response.use(
     }
 );
 
+useAuthStore.subscribe((state, previousState) => {
+    if (state.admin !== previousState.admin || state.isAuthenticated !== previousState.isAuthenticated) {
+        resetApiRuntimeState();
+    }
+});
+
+useMailboxAuthStore.subscribe((state, previousState) => {
+    if (state.mailboxUser !== previousState.mailboxUser || state.isAuthenticated !== previousState.isAuthenticated) {
+        resetApiRuntimeState();
+    }
+});
+
 export const requestGet = <T>(url: string, config?: RequestGetConfig): ApiResult<T> => {
     const { dedupe = true, cacheMs = 0, ...axiosConfig } = config || {};
     const requestKey = buildGetRequestKey(url, axiosConfig);
@@ -258,21 +272,20 @@ export const requestGet = <T>(url: string, config?: RequestGetConfig): ApiResult
         }
     }
 
-    let controller: AbortController | null = null;
+    const requestEpoch = requestRuntimeEpoch;
+    const pendingKey = `${requestEpoch}:${requestKey}`;
     if (dedupe) {
-        const previousController = pendingGetControllers.get(requestKey);
-        if (previousController) {
-            previousController.abort();
+        const pending = pendingGetRequests.get(pendingKey);
+        if (pending) {
+            return pending as ApiResult<T>;
         }
-        controller = new AbortController();
-        pendingGetControllers.set(requestKey, controller);
-        axiosConfig.signal = controller.signal;
     }
 
-    return api
+    let resultPromise: ApiResult<T>;
+    resultPromise = api
         .get<unknown, ApiResponse<T>>(url, axiosConfig)
         .then((response) => {
-            if (cacheMs > 0) {
+            if (cacheMs > 0 && requestEpoch === requestRuntimeEpoch) {
                 getResponseCache.set(requestKey, {
                     expiresAt: Date.now() + cacheMs,
                     value: response as ApiResponse<unknown>,
@@ -281,10 +294,15 @@ export const requestGet = <T>(url: string, config?: RequestGetConfig): ApiResult
             return response;
         })
         .finally(() => {
-            if (controller && pendingGetControllers.get(requestKey) === controller) {
-                pendingGetControllers.delete(requestKey);
+            if (pendingGetRequests.get(pendingKey) === resultPromise) {
+                pendingGetRequests.delete(pendingKey);
             }
         });
+
+    if (dedupe) {
+        pendingGetRequests.set(pendingKey, resultPromise as Promise<ApiResponse<unknown>>);
+    }
+    return resultPromise;
 };
 
 export const requestPost = <TResponse, TBody = unknown>(
