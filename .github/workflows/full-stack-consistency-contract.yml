@@ -38,6 +38,12 @@ jobs:
       - name: Install exact frontend parser dependencies
         run: ./scripts/sanitize-runtime-env.sh npm --prefix web ci
 
+      - name: Fetch stable release tags
+        run: git fetch origin --tags --force
+
+      - name: Verify release-to-main changelog state
+        run: ./scripts/sanitize-runtime-env.sh node --test scripts/unreleased-changelog-contract.test.mjs
+
       - name: Resolve canonical Compose model
         shell: bash
         run: |
