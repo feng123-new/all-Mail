@@ -281,8 +281,7 @@ export const requestGet = <T>(url: string, config?: RequestGetConfig): ApiResult
         }
     }
 
-    let resultPromise: ApiResult<T>;
-    resultPromise = api
+    const resultPromise: ApiResult<T> = api
         .get<unknown, ApiResponse<T>>(url, axiosConfig)
         .then((response) => {
             if (cacheMs > 0 && requestEpoch === requestRuntimeEpoch) {
