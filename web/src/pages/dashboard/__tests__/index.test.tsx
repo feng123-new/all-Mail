@@ -15,27 +15,32 @@ vi.mock('../../../contracts/admin/dashboard', () => ({
 }));
 
 vi.mock('../../../components/charts', () => ({
-  SimpleLineChart: ({ data }: { data: Array<{ count: number }> }) => <div data-testid="mock-line-chart">{data.length}</div>,
+  SimpleLineChart: ({ data }: { data: Array<{ count: number }> }) => (
+    <div data-testid="mock-line-chart">{data.length}</div>
+  ),
 }));
 
 import { dashboardContract } from '../../../contracts/admin/dashboard';
 
 describe('DashboardPage proof scenario', () => {
-  it('renders degraded-data proof mode without live contract calls', async () => {
+  it('renders the compact degraded-data operator overview without live contract calls', async () => {
     render(
-      <MemoryRouter
-        initialEntries={['/dashboard?proof=degraded-data']}
-      >
+      <MemoryRouter initialEntries={['/dashboard?proof=degraded-data']}>
         <DashboardPage />
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('本地证据场景 · 降级数据')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '运行概况' })).toBeInTheDocument();
+    expect(screen.getByText('本地证据场景 · 降级数据')).toBeInTheDocument();
     expect(screen.getByText('待处理项')).toBeInTheDocument();
-    expect(screen.getByText('15')).toBeInTheDocument();
-    expect(screen.getByText(/5 类服务商正在承载当前邮箱池|3 类服务商正在承载当前邮箱池/)).toBeInTheDocument();
+    expect(screen.getByText('15 项需要处理')).toBeInTheDocument();
+    expect(screen.getByText('待办与健康')).toBeInTheDocument();
+    expect(screen.getByText('3 类服务商正在承载当前邮箱池')).toBeInTheDocument();
     expect(screen.getByText('outlook-hot-01@example.com')).toBeInTheDocument();
     expect(await screen.findByTestId('mock-line-chart')).toHaveTextContent('7');
+    expect(screen.queryByText('先处理风险，再进入对象页')).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/\s*100/)).not.toBeInTheDocument();
+
     expect(dashboardContract.getStats).not.toHaveBeenCalled();
     expect(dashboardContract.getApiTrend).not.toHaveBeenCalled();
     expect(dashboardContract.getLogs).not.toHaveBeenCalled();
@@ -46,20 +51,20 @@ describe('DashboardPage proof scenario', () => {
   it('renders direct, explainable English operating state in proof mode', async () => {
     render(
       <I18nProvider initialLanguage="en-US" persist={false}>
-        <MemoryRouter
-          initialEntries={['/dashboard?proof=degraded-data']}
-        >
+        <MemoryRouter initialEntries={['/dashboard?proof=degraded-data']}>
           <DashboardPage />
         </MemoryRouter>
       </I18nProvider>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument();
-    expect(screen.getByText('Operational priorities')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Operating overview' })).toBeInTheDocument();
+    expect(screen.getByText('Live operations overview')).toBeInTheDocument();
     expect(screen.getByText('Items requiring attention')).toBeInTheDocument();
+    expect(screen.getByText('15 items require attention')).toBeInTheDocument();
+    expect(screen.getByText('Action queue and health')).toBeInTheDocument();
     expect(screen.getByText('Provider breakdown')).toBeInTheDocument();
     expect(screen.queryByText('Automation health score')).not.toBeInTheDocument();
-    expect(screen.queryByText(/\/ 100/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/\s*100/)).not.toBeInTheDocument();
     expect(screen.queryByText('控制台概览')).not.toBeInTheDocument();
   });
 });

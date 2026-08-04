@@ -54,19 +54,31 @@ test('frontend v3 keeps cookie-first authentication and inbox-first portal routi
   }
 });
 
-test('frontend v3 keeps explainable dashboard and server-driven OTP behavior', async () => {
-  const [dashboard, priorityHero, login] = await Promise.all([
+test('frontend v3 keeps a compact explainable dashboard and server-driven OTP behavior', async () => {
+  const [dashboard, overview, overviewCss, login] = await Promise.all([
     read('web/src/pages/dashboard/index.tsx'),
-    read('web/src/pages/dashboard/DashboardPriorityHero.tsx'),
+    read('web/src/pages/dashboard/DashboardOverview.tsx'),
+    read('web/src/pages/dashboard/DashboardOverview.css'),
     read('web/src/pages/login/index.tsx'),
   ]);
 
-  assert.match(dashboard, /DashboardPriorityHero/);
+  assert.match(dashboard, /DashboardOverview/);
+  assert.doesNotMatch(dashboard, /DashboardPriorityHero|DashboardStatsRow|DashboardPageHeader/);
   assert.doesNotMatch(dashboard, /automationHealthScore|healthScoreValue|\/\s*100/);
-  assert.match(priorityHero, /attentionCount/);
-  assert.match(priorityHero, /abnormalConnections/);
-  assert.match(priorityHero, /inactiveDomains/);
-  assert.match(priorityHero, /inactiveMailboxes/);
+
+  assert.match(overview, /attentionCount/);
+  assert.match(overview, /emailStats\.error/);
+  assert.match(overview, /inactiveDomains/);
+  assert.match(overview, /inactiveMailboxes/);
+  assert.match(overview, /dashboard-overview__summary-grid/);
+  assert.match(overview, /dashboard-overview__content-grid/);
+  assert.match(overview, /errorEmails\.slice\(0,\s*3\)/);
+  assert.match(overview, /activeProviderRows/);
+  assert.doesNotMatch(overview, /healthScore|\/\s*100/);
+
+  assert.match(overviewCss, /grid-template-columns:\s*minmax\(300px,\s*0\.82fr\)\s+minmax\(0,\s*1\.55fr\)/);
+  assert.match(overviewCss, /@media\s*\(max-width:\s*940px\)/);
+  assert.match(overviewCss, /@media\s*\(max-width:\s*520px\)/);
 
   assert.match(login, /OTP_REQUIRED/);
   assert.doesNotMatch(login, /otpPromptTitle|always-visible|常驻.*2FA/i);
@@ -96,9 +108,10 @@ test('frontend v3 shared workspaces remain wired into both product shells', asyn
 });
 
 test('frontend v3 enforces responsive, focus-visible, and reduced-motion foundations', async () => {
-  const [indexCss, workspaceCss] = await Promise.all([
+  const [indexCss, workspaceCss, dashboardCss] = await Promise.all([
     read('web/src/index.css'),
     read('web/src/components/DataWorkspace.css'),
+    read('web/src/pages/dashboard/DashboardOverview.css'),
   ]);
 
   assert.match(indexCss, /:focus-visible/);
@@ -107,6 +120,9 @@ test('frontend v3 enforces responsive, focus-visible, and reduced-motion foundat
   assert.match(indexCss, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   assert.match(indexCss, /min-width:\s*320px/);
   assert.match(workspaceCss, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(dashboardCss, /@media\s*\(max-width:\s*760px\)/);
+  assert.match(dashboardCss, /@media\s*\(max-width:\s*520px\)/);
+  assert.match(dashboardCss, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
 });
 
 test('frontend v3 operational context avoids decorative gradients', async () => {
@@ -115,6 +131,7 @@ test('frontend v3 operational context avoids decorative gradients', async () => 
     'web/src/components/MailFlowContext.css',
     'web/src/components/ControlBoundaryContext.css',
     'web/src/components/PortalWorkspaceContext.css',
+    'web/src/pages/dashboard/DashboardOverview.css',
   ];
 
   for (const cssFile of cssFiles) {
@@ -139,7 +156,9 @@ test('frontend v3 browser and bundle regression gates are present', async () => 
   assert.equal(webMetadata.scripts['check:budget'], 'node ./scripts/check-build-budget.mjs');
   assert.match(playwrightConfig, /Desktop Chromium/);
   assert.match(playwrightConfig, /Mobile Chromium/);
-  assert.match(browserSpec, /administrator login reaches the explainable dashboard/);
+  assert.match(browserSpec, /administrator login reaches the compact operator overview/);
+  assert.match(browserSpec, /dashboard-overview__summary-grid/);
+  assert.match(browserSpec, /dashboard-overview__provider-row/);
   assert.match(browserSpec, /portal login reaches the inbox-first workspace/);
   assert.match(bootstrapWorkflow, /Check frontend build budget/);
   assert.match(bootstrapWorkflow, /Install isolated Playwright browser smoke dependency/);
