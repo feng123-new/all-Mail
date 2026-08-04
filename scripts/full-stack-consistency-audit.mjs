@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = process.cwd();
 const outputDir = path.join(root, 'audit-output');
@@ -25,9 +26,10 @@ const findings = [];
 const inventories = {
   trackedFiles: trackedFiles.length,
   frontendApiCalls: [],
-  backendRouteLiterals: [],
+  backendRoutes: [],
   frontendRoutes: [],
   navigationRoutes: [],
+  routeOwnership: [],
   environment: {},
   pageCoverage: [],
 };
@@ -40,38 +42,28 @@ async function read(relativePath) {
   return readFile(path.join(root, relativePath), 'utf8');
 }
 
-function isProductionSource(file) {
-  if (/(_test\.go|\.test\.[cm]?[jt]sx?|\/__tests__\/|\/test\/|\/tests\/|\/e2e\/)/.test(file)) {
-    return false;
-  }
-  return (
-    /^core\/.*\.go$/.test(file)
-    || /^web\/src\/.*\.[cm]?[jt]sx?$/.test(file)
-    || /^cloudflare\/workers\/.*\.[cm]?[jt]s$/.test(file)
-    || /^scripts\/.*\.mjs$/.test(file)
-  );
-}
-
 function lineNumber(source, index) {
   return source.slice(0, index).split('\n').length;
 }
 
-function collectMatches(source, regex) {
-  const matches = [];
-  for (const match of source.matchAll(regex)) {
-    matches.push(match);
-  }
-  return matches;
+function sorted(values) {
+  return [...values].sort();
+}
+
+function sameStrings(left, right) {
+  return JSON.stringify(sorted(left)) === JSON.stringify(sorted(right));
 }
 
 function normalizeRoute(route) {
-  return route
-    .replace(/\\\$\{[^}]+\}/g, ':param')
+  return String(route)
+    .trim()
+    .replace(/\{\$\}/g, '')
     .replace(/\{[^}]+\}/g, ':param')
+    .replace(/\$\{[^}]+\}/g, ':param')
     .replace(/:[A-Za-z_][A-Za-z0-9_]*/g, ':param')
     .replace(/\?.*$/, '')
-    .replace(/\/+$/, '')
-    || '/';
+    .replace(/\/+/g, '/')
+    .replace(/\/$/, '') || '/';
 }
 
 function routeShape(route) {
@@ -81,39 +73,70 @@ function routeShape(route) {
     .map((segment) => (segment === ':param' || segment === '*' ? ':param' : segment));
 }
 
-function routesCompatible(frontendRoute, backendRoute) {
-  const front = routeShape(frontendRoute);
-  const back = routeShape(backendRoute);
-  if (front.length !== back.length) return false;
-  return front.every((segment, index) => {
-    const peer = back[index];
+function routesCompatible(leftRoute, rightRoute) {
+  const left = routeShape(leftRoute);
+  const right = routeShape(rightRoute);
+  if (left.length !== right.length) return false;
+  return left.every((segment, index) => {
+    const peer = right[index];
     return segment === peer || segment === ':param' || peer === ':param';
   });
 }
 
-function collectEnvironmentNames(value, output = new Set()) {
-  if (Array.isArray(value)) {
-    for (const item of value) collectEnvironmentNames(item, output);
-    return output;
-  }
-  if (value && typeof value === 'object') {
-    for (const [key, item] of Object.entries(value)) {
-      if (/^[A-Z][A-Z0-9_]+$/.test(key)) output.add(key);
-      collectEnvironmentNames(item, output);
-    }
-    return output;
-  }
-  if (typeof value === 'string' && /^[A-Z][A-Z0-9_]+$/.test(value)) {
-    output.add(value);
-  }
-  return output;
+function joinRoute(parent, child) {
+  if (!child) return normalizeRoute(parent || '/');
+  if (child.startsWith('/')) return normalizeRoute(child);
+  if (!parent || parent === '/') return normalizeRoute(`/${child}`);
+  return normalizeRoute(`${parent}/${child}`);
 }
 
-// Repository hygiene and source completeness.
+function isTestFile(file) {
+  return /(?:_test\.go|\.test\.[cm]?[jt]sx?|\/__tests__\/|\/e2e\/|\/test\/|\/tests\/)/.test(file);
+}
+
+function isApplicationSource(file) {
+  if (isTestFile(file)) return false;
+  return (
+    /^core\/.*\.go$/.test(file)
+    || /^web\/src\/.*\.[cm]?[jt]sx?$/.test(file)
+    || /^cloudflare\/workers\/allmail-edge\/src\/.*\.[cm]?[jt]s$/.test(file)
+  );
+}
+
+function getPropertyName(node, ts) {
+  if (!node?.name) return '';
+  if (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) return node.name.text;
+  return '';
+}
+
+function expressionToString(node, ts) {
+  if (!node) return null;
+  if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return node.text;
+  }
+  if (ts.isTemplateExpression(node)) {
+    let value = node.head.text;
+    for (const span of node.templateSpans) {
+      value += ':param';
+      value += span.literal.text;
+    }
+    return value;
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = expressionToString(node.left, ts);
+    const right = expressionToString(node.right, ts);
+    if (left === null && right === null) return null;
+    return `${left ?? ':param'}${right ?? ':param'}`;
+  }
+  if (ts.isParenthesizedExpression(node)) return expressionToString(node.expression, ts);
+  return ':param';
+}
+
+// Repository hygiene.
 const forbiddenTrackedPatterns = [
   { pattern: /(^|\/)\.env$/, label: 'tracked runtime .env file' },
   { pattern: /(^|\/)node_modules\//, label: 'tracked node_modules content' },
-  { pattern: /(^|\/)dist(-ssr)?\//, label: 'tracked build output' },
+  { pattern: /(^|\/)dist(?:-ssr)?\//, label: 'tracked build output' },
   { pattern: /(^|\/)coverage\//, label: 'tracked coverage output' },
   { pattern: /(^|\/)\.DS_Store$/, label: 'tracked macOS metadata' },
   { pattern: /(^|\/)(?:tmp|temp)\//i, label: 'tracked temporary directory' },
@@ -135,31 +158,38 @@ for (const file of trackedFiles) {
   }
 }
 
-const debugPatterns = [
-  { regex: /\bdebugger\s*;/g, message: 'debugger statement remains in production source' },
-  { regex: /\bconsole\.(?:log|debug|trace)\s*\(/g, message: 'console debugging remains in production source' },
-  { regex: /(?:TODO|FIXME|XXX|HACK)(?:\([^)]*\))?\s*:/gi, message: 'unfinished-work marker remains in production source' },
-  { regex: /(?:not implemented|not yet implemented|unimplemented)/gi, message: 'not-implemented path remains in production source' },
-  { regex: /http\.StatusNotImplemented|\b501\b/g, message: 'HTTP 501 path remains in production source' },
-  { regex: /panic\(\s*["'`](?:TODO|FIXME|not implemented)/gi, message: 'placeholder panic remains in production source' },
+const secretPatterns = [
+  { regex: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/, label: 'private key material' },
+  { regex: /\bAKIA[0-9A-Z]{16}\b/, label: 'AWS access key identifier' },
+  { regex: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/, label: 'GitHub token' },
+  { regex: /\bsk-[A-Za-z0-9_-]{32,}\b/, label: 'API secret token' },
 ];
 
-for (const file of trackedFiles.filter(isProductionSource)) {
+for (const file of trackedFiles.filter((item) => !/package-lock\.json$|go\.sum$|\.md$/.test(item))) {
+  const source = await read(file);
+  for (const rule of secretPatterns) {
+    if (rule.regex.test(source)) {
+      addFinding('error', 'secret-hygiene', `tracked ${rule.label} detected`, file);
+    }
+  }
+}
+
+// Production completeness markers. Operator CLIs and audit scripts are excluded:
+// console output is their supported interface, not browser debugging residue.
+for (const file of trackedFiles.filter(isApplicationSource)) {
   const source = await read(file);
   if (/^(?:<{7}|={7}|>{7})/m.test(source)) {
     addFinding('error', 'repository-hygiene', 'unresolved merge marker', file);
   }
-  for (const rule of debugPatterns) {
-    const matches = collectMatches(source, rule.regex);
-    for (const match of matches.slice(0, 10)) {
-      addFinding(
-        rule.message.includes('unfinished') || rule.message.includes('not-implemented') || rule.message.includes('501')
-          ? 'warning'
-          : 'error',
-        'source-completeness',
-        rule.message,
-        `${file}:${lineNumber(source, match.index ?? 0)}`,
-      );
+  for (const match of source.matchAll(/(?:TODO|FIXME|XXX|HACK)(?:\([^)]*\))?\s*:/gi)) {
+    addFinding('error', 'source-completeness', 'unfinished-work marker remains in production source', `${file}:${lineNumber(source, match.index ?? 0)}`);
+  }
+  for (const match of source.matchAll(/(?:http\.StatusNotImplemented|\bstatus\s*:\s*501\b|panic\(\s*["'`](?:TODO|FIXME|not implemented))/gi)) {
+    addFinding('error', 'source-completeness', 'explicit unimplemented production path remains', `${file}:${lineNumber(source, match.index ?? 0)}`);
+  }
+  if (/^web\/src\//.test(file)) {
+    for (const match of source.matchAll(/\bdebugger\s*;|\bconsole\.(?:log|debug|trace)\s*\(/g)) {
+      addFinding('error', 'source-completeness', 'browser debugging statement remains', `${file}:${lineNumber(source, match.index ?? 0)}`);
     }
   }
 }
@@ -180,10 +210,10 @@ if (!changelog.includes(`## [${version}]`)) {
   addFinding('error', 'version-identity', 'CHANGELOG has no section for VERSION', version);
 }
 if (!readme.includes(`v${version}`)) {
-  addFinding('warning', 'version-identity', 'README does not mention the current stable version', version);
+  addFinding('error', 'version-identity', 'README does not identify the current stable version', version);
 }
 
-// Environment inventory and drift checks.
+// Environment ownership and Compose drift.
 const envExample = await read('.env.example');
 const envExampleKeys = new Set(
   envExample
@@ -191,23 +221,37 @@ const envExampleKeys = new Set(
     .map((line) => line.match(/^([A-Z][A-Z0-9_]*)=/)?.[1])
     .filter(Boolean),
 );
-
-let runtimeManifest = {};
-try {
-  runtimeManifest = JSON.parse(await read('config/runtime-env.json'));
-} catch (error) {
-  addFinding('error', 'environment-contract', 'config/runtime-env.json is missing or invalid JSON', String(error));
+const runtimeManifest = JSON.parse(await read('config/runtime-env.json'));
+const manifestKeys = new Set(runtimeManifest.variables.map(({ name }) => name));
+if (!sameStrings(envExampleKeys, manifestKeys)) {
+  addFinding('error', 'environment-contract', '.env.example and config/runtime-env.json disagree', {
+    templateOnly: sorted([...envExampleKeys].filter((key) => !manifestKeys.has(key))),
+    manifestOnly: sorted([...manifestKeys].filter((key) => !envExampleKeys.has(key))),
+  });
 }
-const manifestKeys = collectEnvironmentNames(runtimeManifest);
 
 const composeSource = await read('docker-compose.yml');
 const composeInterpolationKeys = new Set(
-  collectMatches(composeSource, /\$\{([A-Z][A-Z0-9_]*)/g).map((match) => match[1]),
+  [...composeSource.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)].map((match) => match[1]),
 );
+const launchOnlyComposeKeys = new Set([
+  'ALL_MAIL_GO_IMAGE',
+  'ALL_MAIL_IMAGE_TAG',
+  'ALL_MAIL_VERSION',
+  'ALL_MAIL_COMMIT',
+  'ALL_MAIL_BUILD_DATE',
+]);
+for (const key of composeInterpolationKeys) {
+  if (!envExampleKeys.has(key) && !launchOnlyComposeKeys.has(key)) {
+    addFinding('error', 'environment-contract', 'production Compose exposes an undocumented operator interpolation', key);
+  }
+}
 
 let composeModel = {};
 const composeJsonPath = process.env.ALLMAIL_AUDIT_COMPOSE_JSON;
-if (composeJsonPath) {
+if (!composeJsonPath) {
+  addFinding('error', 'compose-contract', 'ALLMAIL_AUDIT_COMPOSE_JSON was not supplied to the scanner');
+} else {
   try {
     composeModel = JSON.parse(await readFile(composeJsonPath, 'utf8'));
   } catch (error) {
@@ -215,94 +259,58 @@ if (composeJsonPath) {
   }
 }
 
-const composeServiceEnvironmentKeys = new Set();
-for (const service of Object.values(composeModel.services ?? {})) {
-  for (const key of Object.keys(service.environment ?? {})) {
-    composeServiceEnvironmentKeys.add(key);
-  }
-}
-
-const processEnvironmentKeys = new Set();
-for (const file of trackedFiles.filter((item) => /\.(?:go|mjs|cjs|js|ts|tsx|sh)$/.test(item))) {
-  const source = await read(file);
-  for (const match of source.matchAll(/process\.env(?:\.([A-Z][A-Z0-9_]*)|\[['"]([A-Z][A-Z0-9_]*)['"]\])/g)) {
-    processEnvironmentKeys.add(match[1] ?? match[2]);
-  }
-  for (const match of source.matchAll(/(?:os\.(?:Getenv|LookupEnv)|(?:must|required|optional)?Env(?:String|Bool|Int|Duration)?|getenv)\s*\(\s*["'`]([A-Z][A-Z0-9_]*)["'`]/gi)) {
-    processEnvironmentKeys.add(match[1]);
-  }
-}
-
-const knownInternalEnvironment = new Set([
-  'ALL_MAIL_VERSION',
-  'ALL_MAIL_COMMIT',
-  'ALL_MAIL_BUILD_DATE',
-  'CI',
-  'GITHUB_ACTIONS',
-  'GITHUB_EVENT_NAME',
-  'GITHUB_HEAD_REF',
-  'GITHUB_REF',
-  'GITHUB_REPOSITORY',
-  'GITHUB_SHA',
-  'GITHUB_WORKSPACE',
-  'HOME',
-  'HOSTNAME',
-  'NODE_OPTIONS',
-  'PATH',
-  'PWD',
-  'RUNNER_TEMP',
-  'TEMP',
-  'TMP',
-  'TMPDIR',
-  'USER',
-]);
-
-for (const key of composeInterpolationKeys) {
-  if (!envExampleKeys.has(key) && !knownInternalEnvironment.has(key)) {
-    addFinding('warning', 'environment-contract', 'Compose interpolation is not documented in .env.example', key);
-  }
-}
-for (const key of envExampleKeys) {
-  if (!manifestKeys.has(key)) {
-    addFinding('warning', 'environment-contract', '.env.example key is absent from runtime-env manifest', key);
-  }
-}
-for (const key of composeServiceEnvironmentKeys) {
-  if (!manifestKeys.has(key) && !knownInternalEnvironment.has(key)) {
-    addFinding('warning', 'environment-contract', 'resolved service environment key is absent from runtime-env manifest', key);
-  }
-}
-for (const key of processEnvironmentKeys) {
-  if (!manifestKeys.has(key) && !envExampleKeys.has(key) && !knownInternalEnvironment.has(key)) {
-    addFinding('warning', 'environment-contract', 'source reads an environment key outside the canonical manifest/template', key);
-  }
-}
-
-inventories.environment = {
-  envExampleKeys: [...envExampleKeys].sort(),
-  manifestKeys: [...manifestKeys].sort(),
-  composeInterpolationKeys: [...composeInterpolationKeys].sort(),
-  composeServiceEnvironmentKeys: [...composeServiceEnvironmentKeys].sort(),
-  processEnvironmentKeys: [...processEnvironmentKeys].sort(),
+const expectedServiceEnvironment = {
+  app: [
+    'PORT', 'ALL_MAIL_STATIC_DIR', 'GO_BUSINESS_API_URL', 'TRUSTED_PROXY_CIDRS',
+    'GO_BUSINESS_QUERY_TIMEOUT_SECONDS', 'MAIL_PROVIDER_TIMEOUT_SECONDS',
+    'READY_TIMEOUT_SECONDS', 'SHUTDOWN_TIMEOUT_SECONDS',
+  ],
+  'go-business-api': [
+    'ALL_MAIL_RUNTIME_ENV', 'PORT', 'DATABASE_URL_FILE', 'REDIS_URL',
+    'REDIS_PASSWORD_FILE', 'JWT_SECRET_FILE', 'ENCRYPTION_KEY_FILE',
+    'JWT_EXPIRES_IN', 'ADMIN_LOGIN_MAX_ATTEMPTS', 'ADMIN_LOGIN_LOCK_MINUTES',
+    'ADMIN_2FA_WINDOW', 'BOOTSTRAP_ADMIN_SECRET_FILE', 'INGRESS_ALLOWED_SKEW_SECONDS',
+    'GO_BUSINESS_QUERY_TIMEOUT_SECONDS', 'MAIL_PROVIDER_TIMEOUT_SECONDS',
+    'READY_TIMEOUT_SECONDS', 'SHUTDOWN_TIMEOUT_SECONDS',
+  ],
+  'worker-forwarding': [
+    'ALL_MAIL_STATE_DIR', 'ENCRYPTION_KEY_FILE', 'DATABASE_URL_FILE',
+    'FORWARDING_WORKER_INTERVAL_SECONDS', 'FORWARDING_WORKER_BATCH_SIZE',
+    'FORWARDING_RUN_TIMEOUT_SECONDS', 'FORWARDING_LEASE_SECONDS',
+    'RESEND_API_BASE_URL', 'WORKER_HEARTBEAT_SECONDS',
+    'WORKER_HEARTBEAT_MAX_AGE_SECONDS', 'READY_TIMEOUT_SECONDS',
+    'SHUTDOWN_TIMEOUT_SECONDS',
+  ],
+  'worker-retention': [
+    'ALL_MAIL_STATE_DIR', 'DATABASE_URL_FILE', 'API_LOG_RETENTION_DAYS',
+    'API_LOG_CLEANUP_INTERVAL_MINUTES', 'API_LOG_CLEANUP_RETRY_SECONDS',
+    'API_LOG_CLEANUP_TIMEOUT_SECONDS', 'API_LOG_CLEANUP_BATCH_SIZE',
+    'API_LOG_CLEANUP_MAX_BATCHES', 'WORKER_HEARTBEAT_SECONDS',
+    'WORKER_HEARTBEAT_MAX_AGE_SECONDS', 'READY_TIMEOUT_SECONDS',
+    'SHUTDOWN_TIMEOUT_SECONDS',
+  ],
+  postgres: ['POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB'],
+  redis: [],
 };
 
-// Compose topology and exposure.
-const expectedServices = [
-  'app',
-  'go-business-api',
-  'worker-forwarding',
-  'worker-retention',
-  'postgres',
-  'redis',
-].sort();
+const expectedServices = Object.keys(expectedServiceEnvironment).sort();
 const actualServices = Object.keys(composeModel.services ?? {}).sort();
-if (JSON.stringify(actualServices) !== JSON.stringify(expectedServices)) {
+if (!sameStrings(actualServices, expectedServices)) {
   addFinding('error', 'compose-contract', 'resolved long-running service set drifted', {
     expectedServices,
     actualServices,
   });
 }
-for (const [serviceName, service] of Object.entries(composeModel.services ?? {})) {
+for (const serviceName of expectedServices) {
+  const service = composeModel.services?.[serviceName];
+  if (!service) continue;
+  const actualEnvironment = Object.keys(service.environment ?? {});
+  if (!sameStrings(actualEnvironment, expectedServiceEnvironment[serviceName])) {
+    addFinding('error', 'environment-contract', `resolved ${serviceName} environment ownership drifted`, {
+      expected: sorted(expectedServiceEnvironment[serviceName]),
+      actual: sorted(actualEnvironment),
+    });
+  }
   if (serviceName !== 'app' && Array.isArray(service.ports) && service.ports.length > 0) {
     addFinding('error', 'compose-contract', 'private service publishes a host port', {
       service: serviceName,
@@ -310,93 +318,235 @@ for (const [serviceName, service] of Object.entries(composeModel.services ?? {})
     });
   }
 }
-
-// Frontend route and navigation consistency.
-const appSources = trackedFiles.filter((file) => /^web\/src\/.*\.[tj]sx?$/.test(file));
-for (const file of appSources) {
-  const source = await read(file);
-  for (const match of source.matchAll(/<Route\b[^>]*\bpath=["']([^"']+)["']/g)) {
-    inventories.frontendRoutes.push({ file, line: lineNumber(source, match.index ?? 0), path: match[1] });
-  }
-  if (/navigation/i.test(file)) {
-    for (const match of source.matchAll(/(?:path|to|key)\s*:\s*["'](\/(?!\/)[^"']+)["']/g)) {
-      inventories.navigationRoutes.push({ file, line: lineNumber(source, match.index ?? 0), path: match[1] });
-    }
-  }
-}
-const frontendRouteStrings = new Set(inventories.frontendRoutes.map((item) => item.path));
-for (const item of inventories.navigationRoutes) {
-  const leaf = item.path.replace(/^\//, '');
-  if (!frontendRouteStrings.has(item.path) && !frontendRouteStrings.has(leaf)) {
-    addFinding('warning', 'frontend-routing', 'navigation target has no directly matching React route literal', item);
-  }
+if (composeModel.services?.['worker-forwarding']?.environment?.RESEND_API_BASE_URL !== 'https://api.resend.com') {
+  addFinding('error', 'environment-contract', 'production forwarding endpoint is not the canonical fixed Resend URL', composeModel.services?.['worker-forwarding']?.environment?.RESEND_API_BASE_URL);
 }
 
-// Frontend API call inventory.
-const requestMethodMap = {
-  requestGet: 'GET',
-  requestPost: 'POST',
-  requestPut: 'PUT',
-  requestDelete: 'DELETE',
-  requestPatch: 'PATCH',
-};
-for (const file of appSources.filter((item) => /^web\/src\/(?:api|contracts)\//.test(item))) {
-  const source = await read(file);
-  const routeRegex = /([`'"])(\/(?:admin|api|mail\/api|oauth|ingress)(?:\\.|(?!\1)[\s\S])*?)\1/g;
-  for (const match of source.matchAll(routeRegex)) {
-    const start = match.index ?? 0;
-    const prefix = source.slice(Math.max(0, start - 600), start);
-    let method = 'UNKNOWN';
-    let nearest = -1;
-    for (const [functionName, httpMethod] of Object.entries(requestMethodMap)) {
-      const position = prefix.lastIndexOf(functionName);
-      if (position > nearest) {
-        nearest = position;
-        method = httpMethod;
-      }
-    }
-    inventories.frontendApiCalls.push({
-      file,
-      line: lineNumber(source, start),
-      method,
-      path: normalizeRoute(match[2]),
-      literal: match[2],
-    });
-  }
-}
-
-// Backend route literal inventory. Route registration can compose prefixes, so
-// mismatches are warnings unless a route has no compatible literal anywhere.
+const knownInternalGoEnvironment = new Set([
+  ...Object.values(expectedServiceEnvironment).flat(),
+  'DATABASE_URL',
+  'ALL_MAIL_MIGRATION_DIR',
+  'ALL_MAIL_EXPORT_ENCRYPTION_KEY_FILE',
+  'ALL_MAIL_EXPORT_JWT_SECRET_FILE',
+  'ALL_MAIL_EXPORT_REDIS_PASSWORD_FILE',
+  'ALL_MAIL_EXPORT_API_DATABASE_URL_FILE',
+  'ALL_MAIL_EXPORT_FORWARDING_DATABASE_URL_FILE',
+  'ALL_MAIL_EXPORT_RETENTION_DATABASE_URL_FILE',
+]);
+const productionGoEnvironment = new Set();
 for (const file of trackedFiles.filter((item) => /^core\/.*\.go$/.test(item) && !item.endsWith('_test.go'))) {
   const source = await read(file);
-  const routeRegex = /([`"])(\/(?:admin|api|mail\/api|oauth|ingress)(?:\\.|(?!\1)[\s\S])*?)\1/g;
-  for (const match of source.matchAll(routeRegex)) {
-    inventories.backendRouteLiterals.push({
+  for (const match of source.matchAll(/(?:os\.(?:Getenv|LookupEnv)|\benv(?:Int)?|\bgetenv)\s*\(\s*["'`]([A-Z][A-Z0-9_]*)["'`]/g)) {
+    productionGoEnvironment.add(match[1]);
+  }
+}
+for (const key of productionGoEnvironment) {
+  if (!envExampleKeys.has(key) && !knownInternalGoEnvironment.has(key)) {
+    addFinding('error', 'environment-contract', 'Go runtime reads an environment key outside the canonical operator/internal ownership sets', key);
+  }
+}
+
+inventories.environment = {
+  operatorKeys: sorted(envExampleKeys),
+  composeInterpolationKeys: sorted(composeInterpolationKeys),
+  launchOnlyComposeKeys: sorted(launchOnlyComposeKeys),
+  productionGoEnvironment: sorted(productionGoEnvironment),
+  serviceEnvironment: Object.fromEntries(
+    Object.entries(composeModel.services ?? {}).map(([name, service]) => [name, sorted(Object.keys(service.environment ?? {}))]),
+  ),
+};
+
+// Load TypeScript only after the exact frontend dependency tree has been installed.
+let ts;
+try {
+  const tsModule = await import(pathToFileURL(path.join(root, 'web/node_modules/typescript/lib/typescript.js')).href);
+  ts = tsModule.default ?? tsModule;
+} catch (error) {
+  addFinding('error', 'frontend-contract', 'TypeScript compiler API is unavailable; run npm --prefix web ci before the scan', String(error));
+}
+
+if (ts) {
+  const parseTS = async (file) => {
+    const source = await read(file);
+    return {
+      source,
+      sourceFile: ts.createSourceFile(
+        file,
+        source,
+        ts.ScriptTarget.Latest,
+        true,
+        file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      ),
+    };
+  };
+
+  // React route tree and navigation targets.
+  const appFile = 'web/src/App.tsx';
+  const { source: appSource, sourceFile: appAST } = await parseTS(appFile);
+  const collectReactRoutes = (node, parentRoute = '') => {
+    const opening = ts.isJsxElement(node)
+      ? node.openingElement
+      : ts.isJsxSelfClosingElement(node)
+        ? node
+        : null;
+    let nextParent = parentRoute;
+    if (opening && opening.tagName.getText(appAST) === 'Route') {
+      const pathAttribute = opening.attributes.properties.find(
+        (attribute) => ts.isJsxAttribute(attribute) && attribute.name.text === 'path',
+      );
+      if (pathAttribute && ts.isJsxAttribute(pathAttribute)) {
+        let route = null;
+        const initializer = pathAttribute.initializer;
+        if (initializer && ts.isStringLiteral(initializer)) route = initializer.text;
+        if (initializer && ts.isJsxExpression(initializer)) route = expressionToString(initializer.expression, ts);
+        if (route && route !== '*') {
+          const fullPath = joinRoute(parentRoute, route);
+          inventories.frontendRoutes.push({
+            file: appFile,
+            line: appAST.getLineAndCharacterOfPosition(opening.getStart(appAST)).line + 1,
+            path: fullPath,
+          });
+          nextParent = fullPath;
+        }
+      }
+    }
+    ts.forEachChild(node, (child) => collectReactRoutes(child, nextParent));
+  };
+  collectReactRoutes(appAST);
+
+  const navigationFile = 'web/src/app/navigation.tsx';
+  const { sourceFile: navigationAST } = await parseTS(navigationFile);
+  const visitNavigation = (node) => {
+    if (ts.isPropertyAssignment(node) && getPropertyName(node, ts) === 'key') {
+      const value = expressionToString(node.initializer, ts);
+      if (value?.startsWith('/')) {
+        inventories.navigationRoutes.push({
+          file: navigationFile,
+          line: navigationAST.getLineAndCharacterOfPosition(node.getStart(navigationAST)).line + 1,
+          path: normalizeRoute(value),
+        });
+      }
+    }
+    ts.forEachChild(node, visitNavigation);
+  };
+  visitNavigation(navigationAST);
+
+  const frontendRouteSet = new Set(inventories.frontendRoutes.map(({ path: route }) => normalizeRoute(route)));
+  for (const navigationRoute of inventories.navigationRoutes) {
+    if (!frontendRouteSet.has(normalizeRoute(navigationRoute.path))) {
+      addFinding('error', 'frontend-routing', 'navigation target has no matching React route', navigationRoute);
+    }
+  }
+
+  // Actual frontend request-helper calls, excluding tests and request implementation internals.
+  const requestMethods = new Map([
+    ['requestGet', 'GET'],
+    ['requestPost', 'POST'],
+    ['requestPut', 'PUT'],
+    ['requestPatch', 'PATCH'],
+    ['requestDelete', 'DELETE'],
+  ]);
+  const axiosMethods = new Map([
+    ['get', 'GET'],
+    ['post', 'POST'],
+    ['put', 'PUT'],
+    ['patch', 'PATCH'],
+    ['delete', 'DELETE'],
+  ]);
+  const frontendContractFiles = trackedFiles.filter((file) =>
+    /^web\/src\/(?:api|contracts)\/.*\.[tj]sx?$/.test(file)
+    && !isTestFile(file)
+    && file !== 'web/src/api/core.ts',
+  );
+
+  for (const file of frontendContractFiles) {
+    const { sourceFile } = await parseTS(file);
+    const visit = (node) => {
+      if (ts.isCallExpression(node) && node.arguments.length > 0) {
+        let method = null;
+        if (ts.isIdentifier(node.expression)) {
+          method = requestMethods.get(node.expression.text) ?? null;
+        } else if (
+          ts.isPropertyAccessExpression(node.expression)
+          && ts.isIdentifier(node.expression.expression)
+          && node.expression.expression.text === 'api'
+        ) {
+          method = axiosMethods.get(node.expression.name.text) ?? null;
+        }
+        if (method) {
+          const rawRoute = expressionToString(node.arguments[0], ts);
+          if (rawRoute?.startsWith('/')) {
+            inventories.frontendApiCalls.push({
+              file,
+              line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
+              method,
+              path: normalizeRoute(rawRoute),
+              literal: rawRoute,
+            });
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+}
+
+// Go ServeMux method-aware routes.
+for (const file of trackedFiles.filter((item) => /^core\/.*\.go$/.test(item) && !item.endsWith('_test.go'))) {
+  const source = await read(file);
+  for (const match of source.matchAll(/\.(?:HandleFunc|Handle)\(\s*["`]([A-Z]+)\s+(\/[^"`]+)["`]/g)) {
+    inventories.backendRoutes.push({
       file,
       line: lineNumber(source, match.index ?? 0),
+      method: match[1],
       path: normalizeRoute(match[2]),
       literal: match[2],
     });
   }
+}
+
+const ownershipManifest = JSON.parse(await read('config/route-ownership.json'));
+inventories.routeOwnership = ownershipManifest.routes;
+
+function ownershipMatches(call, route) {
+  const methods = route.methods ?? [];
+  if (methods.length > 0 && !methods.includes(call.method) && !(call.method === 'GET' && methods.includes('HEAD'))) {
+    return false;
+  }
+  if (route.match === 'exact') return normalizeRoute(call.path) === normalizeRoute(route.path);
+  if (route.match === 'prefix') {
+    const prefix = normalizeRoute(route.path);
+    return normalizeRoute(call.path) === prefix || normalizeRoute(call.path).startsWith(`${prefix}/`);
+  }
+  return false;
 }
 
 const uniqueFrontendCalls = [];
-const frontendCallKeys = new Set();
+const seenFrontendCalls = new Set();
 for (const call of inventories.frontendApiCalls) {
   const key = `${call.method} ${call.path}`;
-  if (!frontendCallKeys.has(key)) {
-    frontendCallKeys.add(key);
+  if (!seenFrontendCalls.has(key)) {
+    seenFrontendCalls.add(key);
     uniqueFrontendCalls.push(call);
   }
 }
 for (const call of uniqueFrontendCalls) {
-  if (!inventories.backendRouteLiterals.some((route) => routesCompatible(call.path, route.path))) {
-    addFinding('warning', 'frontend-backend-contract', 'frontend API call has no compatible Go route literal', call);
+  const matchingHandler = inventories.backendRoutes.some(
+    (route) => route.method === call.method && routesCompatible(call.path, route.path),
+  );
+  if (!matchingHandler) {
+    addFinding('error', 'frontend-backend-contract', 'frontend request has no matching Go method/path handler', call);
+  }
+  const owned = ownershipManifest.routes.some(
+    (route) => route.owner === 'go-business-api' && ownershipMatches(call, route),
+  );
+  if (!owned) {
+    addFinding('error', 'route-ownership', 'frontend request is absent from the canonical Go business route ownership contract', call);
   }
 }
 
-// Page-level test visibility. Route-level tests can still cover a page, so gaps
-// are warnings for review rather than blockers.
+// Page-level regression visibility.
 const routeTestCorpus = (
   await Promise.all(
     trackedFiles
@@ -406,37 +556,22 @@ const routeTestCorpus = (
 ).join('\n');
 for (const file of trackedFiles.filter((item) => /^web\/src\/pages\/.*\/index\.tsx$/.test(item))) {
   const directory = path.posix.dirname(file);
-  const localTests = trackedFiles.filter((item) => item.startsWith(`${directory}/`) && /(?:\.test\.[tj]sx?|\/__tests__\/)/.test(item));
-  const routeHint = `/${directory.split('/').slice(3).join('/')}`;
-  const coveredByRouteTest = routeTestCorpus.includes(routeHint);
+  const localTests = trackedFiles.filter(
+    (item) => item.startsWith(`${directory}/`) && /(?:\.test\.[tj]sx?|\/__tests__\/)/.test(item),
+  );
+  const pageName = directory.split('/').at(-1);
+  const coveredByRouteTest = pageName ? routeTestCorpus.includes(pageName) : false;
   inventories.pageCoverage.push({ file, localTests, coveredByRouteTest });
   if (localTests.length === 0 && !coveredByRouteTest) {
-    addFinding('warning', 'feature-coverage', 'page has no local or obvious route-level test reference', file);
+    addFinding('warning', 'feature-coverage', 'page has no local or obvious route-level regression reference', file);
   }
 }
 
-// Secret-like tracked content. These are deliberately high-confidence patterns.
-const secretPatterns = [
-  { regex: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/, label: 'private key material' },
-  { regex: /\bAKIA[0-9A-Z]{16}\b/, label: 'AWS access key identifier' },
-  { regex: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/, label: 'GitHub token' },
-  { regex: /\bsk-[A-Za-z0-9_-]{32,}\b/, label: 'API secret token' },
-];
-for (const file of trackedFiles.filter((item) => !/package-lock\.json$|go\.sum$|\.md$/.test(item))) {
-  const source = await read(file);
-  for (const rule of secretPatterns) {
-    if (rule.regex.test(source)) {
-      addFinding('error', 'secret-hygiene', `tracked ${rule.label} detected`, file);
-    }
-  }
-}
-
-// Summaries.
 const severityRank = { error: 0, warning: 1, info: 2 };
-findings.sort((a, b) => {
-  const rank = severityRank[a.severity] - severityRank[b.severity];
+findings.sort((left, right) => {
+  const rank = severityRank[left.severity] - severityRank[right.severity];
   if (rank !== 0) return rank;
-  return `${a.category}:${a.message}`.localeCompare(`${b.category}:${b.message}`);
+  return `${left.category}:${left.message}`.localeCompare(`${right.category}:${right.message}`);
 });
 
 const summary = {
@@ -444,9 +579,9 @@ const summary = {
   commit: run('git', ['rev-parse', 'HEAD']).trim(),
   generatedAt: new Date().toISOString(),
   totals: {
-    error: findings.filter((item) => item.severity === 'error').length,
-    warning: findings.filter((item) => item.severity === 'warning').length,
-    info: findings.filter((item) => item.severity === 'info').length,
+    error: findings.filter(({ severity }) => severity === 'error').length,
+    warning: findings.filter(({ severity }) => severity === 'warning').length,
+    info: findings.filter(({ severity }) => severity === 'info').length,
   },
   findings,
   inventories,
@@ -480,16 +615,15 @@ const markdown = [
   '## Inventory summary',
   '',
   `- Tracked files: ${inventories.trackedFiles}`,
-  `- Frontend API call literals: ${inventories.frontendApiCalls.length}`,
-  `- Go route literals: ${inventories.backendRouteLiterals.length}`,
-  `- React route literals: ${inventories.frontendRoutes.length}`,
-  `- Navigation route literals: ${inventories.navigationRoutes.length}`,
+  `- Frontend API calls: ${inventories.frontendApiCalls.length}`,
+  `- Go method/path handlers: ${inventories.backendRoutes.length}`,
+  `- React routes: ${inventories.frontendRoutes.length}`,
+  `- Navigation routes: ${inventories.navigationRoutes.length}`,
+  `- Operator environment keys: ${inventories.environment.operatorKeys?.length ?? 0}`,
   `- Page entrypoints reviewed: ${inventories.pageCoverage.length}`,
   '',
 ].join('\n');
-await writeFile(path.join(outputDir, 'full-stack-consistency-report.md'), markdown);
 
-console.log(markdown);
-if (summary.totals.error > 0) {
-  process.exitCode = 1;
-}
+await writeFile(path.join(outputDir, 'full-stack-consistency-report.md'), markdown);
+process.stdout.write(`${markdown}\n`);
+if (summary.totals.error > 0) process.exitCode = 1;
