@@ -1,0 +1,46 @@
+name: Full-stack consistency contract
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-stack-consistency-contract-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  consistency-contract:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Resolve canonical Compose model
+        shell: bash
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose config --format json > "$RUNNER_TEMP/allmail-compose.json"
+
+      - name: Run repository, environment, route, and feature audit
+        env:
+          ALLMAIL_AUDIT_COMPOSE_JSON: ${{ runner.temp }}/allmail-compose.json
+        run: ./scripts/sanitize-runtime-env.sh node scripts/full-stack-consistency-audit.mjs
+
+      - name: Upload consistency inventories
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-stack-consistency-contract-report
+          path: audit-output
+          if-no-files-found: error
