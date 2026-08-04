@@ -13,6 +13,8 @@ cp .env.example .env
 
 `POSTGRES_PASSWORD` must be explicitly configured. JWT, encryption, and Redis authentication secrets may be left blank or absent from operator input because the initializer creates durable values.
 
+The only non-template Compose substitutions are release/build launch controls: `ALL_MAIL_GO_IMAGE`, `ALL_MAIL_IMAGE_TAG`, `ALL_MAIL_VERSION`, `ALL_MAIL_COMMIT`, and `ALL_MAIL_BUILD_DATE`. They select or identify the complete application revision; they do not change business behavior or secret ownership.
+
 ## Process ownership
 
 ### Public gateway: `app`
@@ -50,9 +52,12 @@ Receives provider egress, forwarding policy, and read-only files for:
 ```text
 DATABASE_URL_FILE=/var/lib/all-mail-database/forwarding-url
 ENCRYPTION_KEY_FILE=/var/lib/all-mail-secrets/encryption-key
+RESEND_API_BASE_URL=https://api.resend.com
 ```
 
-It receives no JWT or Redis credential.
+The Resend base URL is fixed by the supported production Compose topology. It is not an operator `.env` setting, so an undeclared shell variable cannot silently redirect production delivery. Go tests and isolated source-development fixtures may still inject a local endpoint directly into the loader.
+
+The forwarding worker receives no JWT or Redis credential.
 
 ### `worker-retention`
 
@@ -184,5 +189,7 @@ scripts/*.test.mjs
 docs/ENVIRONMENT.md
 relevant Go loader and tests
 ```
+
+The full-stack consistency contract additionally resolves the production Compose model and compares its service environment ownership, operator interpolation, frontend requests, Go handlers, route ownership, tracked-file hygiene, and regression visibility.
 
 Do not add hidden aliases, raw secret fallbacks, blanket proxy trust, or a direct database/cache path for `app`.

@@ -109,7 +109,10 @@ services:
       FORWARDING_WORKER_BATCH_SIZE: ${FORWARDING_WORKER_BATCH_SIZE:-10}
       FORWARDING_RUN_TIMEOUT_SECONDS: ${FORWARDING_RUN_TIMEOUT_SECONDS:-120}
       FORWARDING_LEASE_SECONDS: ${FORWARDING_LEASE_SECONDS:-180}
-      RESEND_API_BASE_URL: ${RESEND_API_BASE_URL:-https://api.resend.com}
+      # The production provider endpoint is internal Compose policy, not an
+      # undocumented operator override. Tests may still inject a local endpoint
+      # directly into the Go loader outside the supported production topology.
+      RESEND_API_BASE_URL: https://api.resend.com
       WORKER_HEARTBEAT_SECONDS: ${WORKER_HEARTBEAT_SECONDS:-15}
       WORKER_HEARTBEAT_MAX_AGE_SECONDS: ${WORKER_HEARTBEAT_MAX_AGE_SECONDS:-90}
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}

@@ -1,0 +1,108 @@
+name: Full-stack consistency contract
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-stack-consistency-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  consistency-contract:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install exact frontend parser dependencies
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+
+      - name: Resolve canonical Compose model
+        shell: bash
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose config --format json > "$RUNNER_TEMP/allmail-compose.json"
+
+      - name: Run repository, environment, route, and feature audit
+        env:
+          ALLMAIL_AUDIT_COMPOSE_JSON: ${{ runner.temp }}/allmail-compose.json
+        run: ./scripts/sanitize-runtime-env.sh node scripts/full-stack-consistency-audit.mjs
+
+      - name: Verify Gmail OAuth helper compatibility
+        run: |
+          python3 -m py_compile gmail_oauth/gmail_oauth_auto.py gmail_oauth/admin_client.py
+          python3 -m unittest discover -s gmail_oauth -p 'test_*.py'
+
+      - name: Upload consistency inventories
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-stack-consistency-contract-report
+          path: audit-output
+          if-no-files-found: error
+
+  dependency-reproducibility:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            cloudflare/workers/allmail-edge/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            core/go.mod
+            core/go.sum
+
+      - name: Install exact JavaScript dependency trees
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+          ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge ci
+
+      - name: Regenerate dependency metadata without changing versions
+        run: |
+          ./scripts/sanitize-runtime-env.sh npm --prefix web install --package-lock-only --ignore-scripts
+          ./scripts/sanitize-runtime-env.sh npm --prefix cloudflare/workers/allmail-edge install --package-lock-only --ignore-scripts
+          (cd core && go mod tidy)
+
+      - name: Reject lockfile or Go module drift
+        shell: bash
+        run: |
+          git diff --check
+          git diff --exit-code -- \
+            web/package-lock.json \
+            cloudflare/workers/allmail-edge/package-lock.json \
+            core/go.mod \
+            core/go.sum

@@ -34,7 +34,13 @@ npm ci
 npm run dev
 ```
 
-By default the frontend talks to the backend through the root deployment or `VITE_DEV_PROXY_TARGET` in `.env.example`. Only `/mail/api` is proxied; `/mail/login`, `/mail/inbox`, `/mail/overview`, and `/mail/settings` remain React SPA routes.
+The production client always uses relative, same-origin API paths through the public Go gateway. There is no production `VITE_API_BASE_URL` override. Local Vite development may point its proxy at another all-Mail gateway with the single documented variable in `web/.env.example`:
+
+```text
+VITE_DEV_PROXY_TARGET=http://localhost:3002
+```
+
+Only `/mail/api` is proxied; `/mail/login`, `/mail/inbox`, `/mail/overview`, and `/mail/settings` remain React SPA routes.
 
 ## Verification
 
@@ -61,6 +67,7 @@ npm run verify:release
 
 - preserve existing public URLs and Go business contracts;
 - keep browser authentication cookie-first and never persist bearer credentials or passwords in browser storage;
+- keep browser API requests relative and same-origin; use the documented development proxy rather than a production API-base override;
 - use the shared design tokens, responsive shells, workspace contexts, and page primitives;
 - cover loading, empty, error, disabled, hover, focus-visible, reduced-motion, and narrow-screen states;
 - keep administrator and mailbox portal experiences visually related while preserving their different density and task priorities;

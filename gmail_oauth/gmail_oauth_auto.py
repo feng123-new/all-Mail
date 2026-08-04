@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import getpass
 import hashlib
 import json
 import secrets
@@ -14,11 +15,13 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
+from admin_client import AdminAPIError, AdminSession
+
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "gmail_oauth.env"
 RUNTIME_DIR = ROOT / "runtime"
 CERT_DIR = RUNTIME_DIR / "certs"
-DEFAULT_SCOPES = "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify https://mail.google.com/"
+DEFAULT_SCOPES = "openid email profile https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
@@ -90,25 +93,6 @@ def post_form(url: str, data: dict[str, str]) -> tuple[int, dict]:
         except json.JSONDecodeError:
             parsed = {"raw": payload}
         return error.code, parsed
-
-
-def request_json(
-    url: str,
-    method: str = "GET",
-    data: dict | None = None,
-    headers: dict[str, str] | None = None,
-) -> dict:
-    payload = json.dumps(data).encode() if data is not None else None
-    request_headers = {"Content-Type": "application/json"} if data is not None else {}
-    if headers:
-        request_headers.update(headers)
-    request = Request(url, data=payload, headers=request_headers, method=method)
-    try:
-        with urlopen(request, timeout=60) as response:
-            return json.loads(response.read().decode())
-    except HTTPError as error:
-        body = error.read().decode()
-        raise SystemExit(f"HTTP {error.code} for {method} {url}\n{body}")
 
 
 def build_code_verifier() -> str:
@@ -260,12 +244,9 @@ def fetch_gmail_messages(
         return json.loads(response.read().decode())
 
 
-def find_existing_email(base_url: str, token: str, email: str) -> dict | None:
+def find_existing_email(session: AdminSession, email: str) -> dict | None:
     query = urlencode({"page": 1, "pageSize": 20, "keyword": email})
-    response = request_json(
-        f"{base_url}/admin/emails?{query}",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    response = session.request_json(f"/admin/emails?{query}")
     items = response.get("data", {}).get("list", [])
     target = email.strip().lower()
     for item in items:
@@ -275,10 +256,10 @@ def find_existing_email(base_url: str, token: str, email: str) -> dict | None:
 
 
 def create_email_account(
-    base_url: str, token: str, payload: dict[str, str | None]
+    session: AdminSession, payload: dict[str, str | None]
 ) -> dict:
-    return request_json(
-        f"{base_url}/admin/emails",
+    return session.request_json(
+        "/admin/emails",
         method="POST",
         data={
             "email": payload["email"],
@@ -288,15 +269,16 @@ def create_email_account(
             "clientSecret": payload["clientSecret"],
             "refreshToken": payload["refreshToken"],
         },
-        headers={"Authorization": f"Bearer {token}"},
     )["data"]
 
 
 def update_email_account(
-    base_url: str, token: str, email_id: int, payload: dict[str, str | None]
+    session: AdminSession,
+    email_id: int,
+    payload: dict[str, str | None],
 ) -> dict:
-    return request_json(
-        f"{base_url}/admin/emails/{email_id}",
+    return session.request_json(
+        f"/admin/emails/{email_id}",
         method="PUT",
         data={
             "email": payload["email"],
@@ -308,8 +290,29 @@ def update_email_account(
             "password": None,
             "status": "ACTIVE",
         },
-        headers={"Authorization": f"Bearer {token}"},
     )["data"]
+
+
+def login_admin_session(
+    session: AdminSession,
+    username: str,
+    password: str,
+) -> dict:
+    try:
+        admin = session.login(username, password)
+    except AdminAPIError as error:
+        if error.code != "OTP_REQUIRED":
+            raise
+        otp = getpass.getpass("Administrator OTP (6 digits): ").strip()
+        if len(otp) != 6 or not otp.isdigit():
+            raise SystemExit("Administrator OTP must contain exactly 6 digits")
+        admin = session.login(username, password, otp=otp)
+
+    if bool(admin.get("mustChangePassword")):
+        raise SystemExit(
+            "The administrator must change the temporary password in the browser before the Gmail helper can update mailboxes"
+        )
+    return admin
 
 
 def maybe_auto_update_mailbox(
@@ -331,88 +334,84 @@ def maybe_auto_update_mailbox(
     if not (admin_base_url and admin_username and admin_password):
         return None
 
-    base_url = admin_base_url.rstrip("/")
-    login = request_json(
-        f"{base_url}/admin/auth/login",
-        method="POST",
-        data={"username": admin_username, "password": admin_password},
-    )
-    token = login["data"]["token"]
-    existing_exact = find_existing_email(base_url, token, str(payload["email"]))
+    session = AdminSession(admin_base_url)
+    try:
+        admin = login_admin_session(session, admin_username, admin_password)
+        existing_exact = find_existing_email(session, str(payload["email"]))
 
-    action = "updated_exact_email"
-    if existing_exact:
-        email_id = int(existing_exact["id"])
-        update_response = update_email_account(base_url, token, email_id, payload)
-    else:
-        if not target_email_id:
+        action = "updated_exact_email"
+        if existing_exact:
+            email_id = int(existing_exact["id"])
+            update_response = update_email_account(session, email_id, payload)
+        elif not target_email_id:
             action = "created_new_email"
-            update_response = create_email_account(base_url, token, payload)
+            update_response = create_email_account(session, payload)
             email_id = int(update_response["id"])
         else:
             email_id = int(target_email_id)
-            target_detail = request_json(
-                f"{base_url}/admin/emails/{email_id}",
-                headers={"Authorization": f"Bearer {token}"},
+            target_detail = session.request_json(
+                f"/admin/emails/{email_id}"
             )["data"]
             target_email = str(target_detail.get("email", "")).strip().lower()
             payload_email = str(payload["email"]).strip().lower()
 
             if target_email == payload_email:
                 action = "updated_target_id"
-                update_response = update_email_account(
-                    base_url, token, email_id, payload
-                )
+                update_response = update_email_account(session, email_id, payload)
             elif allow_target_replace:
                 action = "replaced_target_id"
-                update_response = update_email_account(
-                    base_url, token, email_id, payload
-                )
+                update_response = update_email_account(session, email_id, payload)
             else:
                 action = "created_new_email"
-                update_response = create_email_account(base_url, token, payload)
+                update_response = create_email_account(session, payload)
                 email_id = int(update_response["id"])
 
-    summary: dict[str, object] = {
-        "updated": True,
-        "action": action,
-        "emailId": email_id,
-        "email": update_response["email"],
-        "status": update_response["status"],
-        "updatedAt": update_response.get("updatedAt"),
-    }
-
-    detail = request_json(
-        f"{base_url}/admin/emails/{email_id}?secrets=true",
-        headers={"Authorization": f"Bearer {token}"},
-    )["data"]
-    summary["verify"] = {
-        "email": detail["email"],
-        "provider": detail["provider"],
-        "authType": detail["authType"],
-        "clientId": detail["clientId"],
-        "clientSecretLength": len(detail.get("clientSecret") or ""),
-        "refreshTokenLength": len(detail.get("refreshToken") or ""),
-        "status": detail["status"],
-    }
-
-    if not skip_fetch_check:
-        fetch_response = request_json(
-            f"{base_url}/admin/emails/{email_id}/mails?mailbox={mailbox}",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        summary["fetch"] = {
-            "mailbox": mailbox,
-            "method": fetch_response["data"].get("method"),
-            "count": fetch_response["data"].get("count"),
-            "firstSubject": (
-                (fetch_response["data"].get("messages") or [{}])[0].get("subject")
-                if fetch_response["data"].get("messages")
-                else None
-            ),
+        summary: dict[str, object] = {
+            "updated": True,
+            "action": action,
+            "emailId": email_id,
+            "email": update_response["email"],
+            "status": update_response["status"],
+            "updatedAt": update_response.get("updatedAt"),
+            "administrator": {
+                "id": admin.get("id"),
+                "username": admin.get("username"),
+                "role": admin.get("role"),
+                "twoFactorEnabled": bool(admin.get("twoFactorEnabled")),
+            },
         }
 
-    return summary
+        detail = session.request_json(f"/admin/emails/{email_id}")["data"]
+        summary["verify"] = {
+            "email": detail["email"],
+            "provider": detail["provider"],
+            "authType": detail["authType"],
+            "clientId": detail.get("clientId"),
+            "status": detail["status"],
+            "credentialWriteRequested": {
+                "clientSecret": bool(payload.get("clientSecret")),
+                "refreshToken": bool(payload.get("refreshToken")),
+            },
+        }
+
+        if not skip_fetch_check:
+            fetch_response = session.request_json(
+                f"/admin/emails/{email_id}/mails?mailbox={mailbox}"
+            )
+            summary["fetch"] = {
+                "mailbox": mailbox,
+                "method": fetch_response["data"].get("method"),
+                "count": fetch_response["data"].get("count"),
+                "firstSubject": (
+                    (fetch_response["data"].get("messages") or [{}])[0].get("subject")
+                    if fetch_response["data"].get("messages")
+                    else None
+                ),
+            }
+
+        return summary
+    except AdminAPIError as error:
+        raise SystemExit(error.describe()) from error
 
 
 class CallbackCapture:

@@ -30,7 +30,6 @@ npm-debug.log*
 
 # Runtime artifacts
 .sisyphus
-oauth-temp
 gmail_oauth
 web/.env
 

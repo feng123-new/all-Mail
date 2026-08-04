@@ -54,13 +54,11 @@ export interface MutationConfig extends AxiosRequestConfig {
 
 type ApiResult<T = unknown> = Promise<ApiResponse<T>>;
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-
 export const MAILBOX_PORTAL_PREFIX = '/mail/api';
 export const LONG_RUNNING_CHECK_TIMEOUT_MS = 180000;
 
 export const api = axios.create({
-    baseURL: API_BASE_URL,
+    baseURL: '',
     timeout: 30000,
     withCredentials: true,
     headers: {
