@@ -62,6 +62,14 @@ func (w *statusResponseWriter) Unwrap() http.ResponseWriter {
 func (s *Server) observeRoutes(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		route := s.routes.Match(r.Method, r.URL.Path)
+		if route.ID == "system-metrics" {
+			peer, err := remoteAddress(r.RemoteAddr)
+			if err != nil || !s.cfg.AllowsMetrics(peer) {
+				http.NotFound(w, r)
+				return
+			}
+		}
+
 		s.routeMetrics.begin(route)
 		startedAt := time.Now()
 
