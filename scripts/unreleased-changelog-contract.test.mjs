@@ -46,7 +46,10 @@ test('main changes after the stable tag are represented in Unreleased', async (c
   const head = git('rev-parse', 'HEAD');
   if (head === stableCommit) return;
 
-  const changedFiles = git('diff', '--name-only', `${stableTag}...HEAD`)
+  // Compare the two trees directly. A pull-request checkout can contain only the
+  // synthetic merge commit plus fetched tag objects, so a three-dot diff may
+  // have no locally available merge base even though both trees are valid.
+  const changedFiles = git('diff', '--name-only', stableTag, 'HEAD')
     .split(/\r?\n/)
     .filter(Boolean);
   if (changedFiles.length === 0) return;
