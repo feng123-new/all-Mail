@@ -50,6 +50,6 @@ test('post-v2.1 changes and the approved closeout sequence remain documented', a
     assert.match(plan, new RegExp(`### PR #${pr} `));
   }
   assert.match(plan, /v2\.1\.1/);
-  assert.match(plan, /no database migration/i);
+  assert.match(plan, /must not introduce a database migration/i);
   assert.match(plan, /squash merge/i);
 });
