@@ -3,7 +3,6 @@ node_modules/
 **/node_modules/
 
 # Build outputs
-server/dist/
 web/dist/
 cloudflare/workers/allmail-edge/dist/
 **/dist/
