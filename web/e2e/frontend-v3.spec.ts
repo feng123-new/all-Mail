@@ -151,16 +151,20 @@ test('administrator login reaches the compact operator overview', async ({ page 
   await expect(page.getByText('/ 100')).toHaveCount(0);
   await expect(page.locator('.dashboard-overview__provider-row')).toHaveCount(3);
   await expect(page.locator('.dashboard-overview__error-row')).toHaveCount(3);
+  await expect(page.getByRole('img', { name: 'API 调用趋势图' })).toBeVisible();
 
   const summaryColumns = await page
     .locator('.dashboard-overview__summary-grid')
     .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length);
+  const pageHeight = await page.evaluate(() => document.documentElement.scrollHeight);
 
   if (testInfo.project.name === 'Mobile Chromium') {
     await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible();
     expect(summaryColumns).toBe(1);
+    expect(pageHeight).toBeLessThan(3200);
   } else {
     expect(summaryColumns).toBe(2);
+    expect(pageHeight).toBeLessThan(1800);
   }
 
   await testInfo.attach('administrator-dashboard', {
