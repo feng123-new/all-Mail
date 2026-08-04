@@ -11,6 +11,7 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Removed the undocumented production `RESEND_API_BASE_URL` shell override; the supported Compose topology fixes the forwarding provider endpoint to `https://api.resend.com`.
 - Removed the undocumented frontend `VITE_API_BASE_URL` build override so administrator and mailbox requests always use relative same-origin paths through the public Go gateway.
 - Aligned the security support matrix with the current stable `2.1.x` line and documented `2.0.x` as limited compatibility support.
+- Pinned every third-party GitHub Action to an immutable full commit SHA while retaining readable release annotations and Dependabot maintenance.
 
 ### Added
 
@@ -19,6 +20,8 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Added the canonical PR #64–#69 stabilization and v2.1.1 closeout plan.
 - Added narrow-workspace, navigation, API-key permission, allocation-cache, and audit-log regression coverage.
 - Added browser height budgets for the real desktop and mobile Dashboard after chart rendering.
+- Added a secret-safe production-host preflight for Bash, Python, Git, OpenSSL, Docker Engine, Compose v2, and daemon access.
+- Added a permanent CI supply-chain contract that rejects movable Action tags and incomplete deployment-host documentation.
 
 ### Changed
 
@@ -26,6 +29,7 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 - Migrated the optional Gmail OAuth helper to the current administrator Cookie session, server-driven OTP challenge, mandatory password-rotation guard, safe account verification, and canonical Google `manage` scopes.
 - Migrated the frontend to the React Router 8 package surface and kept the production client on relative same-origin requests.
 - Rebuilt Dashboard as a compact operator overview that combines posture, resource availability, mail flow, automation activity, prioritized actions, provider concentration, and recent operations.
+- Declared the supported production baseline as a single Linux host with Bash 4+, Python 3.9+, Git, OpenSSL, Docker Engine, and Docker Compose v2, and documented unsupported HA and multi-region modes.
 
 ### Fixed
 

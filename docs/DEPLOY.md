@@ -4,7 +4,7 @@ This is the canonical installation and deployment guide for the stable Go-only r
 
 ## Supported production topology
 
-Docker Compose is the supported production topology. The long-running service set is exactly:
+Docker Compose on a single Linux host is the supported production topology. The long-running service set is exactly:
 
 ```text
 app
@@ -19,12 +19,28 @@ redis
 
 Only `app` is published to the host. The public gateway serves the React SPA, health endpoints, metrics, and the business proxy. It receives no PostgreSQL, Redis, JWT, encryption, OAuth, ingress-signing, provider, bootstrap, or runtime database-role credential.
 
+Active-active replicas, Kubernetes, multi-region operation, automatic PostgreSQL/Redis failover, and concurrent revisions against one persisted state are not currently supported deployment modes.
+
 ## Requirements
 
-- Docker Engine with the Compose v2 plugin;
-- Git for a source checkout and immutable tag selection;
+The production helper uses Linux shell and host tooling as part of the supported deployment contract:
+
+- a supported Linux host with Bash 4 or newer;
+- Python 3.9 or newer for resolved Compose model processing;
+- Git for source checkout and immutable tag selection;
+- OpenSSL for operator-generated PostgreSQL passwords;
+- Docker Engine with the Docker Compose v2 plugin (`docker compose`);
+- permission for the current user to access the Docker daemon;
 - enough storage for PostgreSQL, Redis, images, logs, and verified backups;
 - Go 1.26.5 and Node.js 24 only when developing or building outside Docker.
+
+Run the non-secret host capability check before creating `.env`:
+
+```bash
+bash scripts/host-preflight.sh
+```
+
+The preflight prints tool versions and Docker availability only. It does not source `.env` or inspect passwords, tokens, database URLs, or generated runtime secrets. CI may set `ALL_MAIL_PREFLIGHT_SKIP_DAEMON=1` when it is validating the script contract without a production Docker daemon.
 
 ## 1. Select the release
 
@@ -32,6 +48,7 @@ Only `app` is published to the host. The public gateway serves the React SPA, he
 git fetch --tags --prune
 git switch --detach v2.1.0
 cat VERSION
+bash scripts/host-preflight.sh
 ```
 
 `VERSION` must print `2.1.0`.

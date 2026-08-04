@@ -21,8 +21,8 @@ jobs:
       run:
         working-directory: core
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: .go-version
           cache-dependency-path: |
@@ -34,8 +34,8 @@ jobs:
   web-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .node-version
           cache: npm
@@ -68,7 +68,7 @@ jobs:
             "$playwright_home/node_modules/.bin/playwright" test)
       - name: Upload frontend browser report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: frontend-browser-report
           path: |
@@ -79,8 +79,8 @@ jobs:
   runtime-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .node-version
       - name: Verify secret, route and session contracts
@@ -103,7 +103,7 @@ jobs:
     env:
       POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Prepare canonical environment
         run: cp .env.example .env
       - name: Seed the pre-rename physical runtime-secret volume
@@ -132,7 +132,7 @@ jobs:
           docker compose logs --no-color --timestamps > "$RUNNER_TEMP/bootstrap-docker.log" 2>&1 || true
       - name: Upload bootstrap Docker diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: bootstrap-admin-docker-diagnostics
           path: |
