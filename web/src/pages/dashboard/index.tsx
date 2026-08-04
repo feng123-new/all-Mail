@@ -11,6 +11,7 @@ import { useSearchParams } from 'react-router';
 import type { SimpleLineChartProps } from '../../components/charts';
 import { dashboardContract } from '../../contracts/admin/dashboard';
 import DashboardOverview from './DashboardOverview';
+import './DashboardOverview.mobile.css';
 import {
   type ApiTrendItem,
   DASHBOARD_PROOF_FIXTURE,
