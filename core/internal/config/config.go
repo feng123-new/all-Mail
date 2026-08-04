@@ -15,6 +15,7 @@ type APIConfig struct {
 	Port                 int
 	StaticDir            string
 	TrustedProxyCIDRs    []netip.Prefix
+	MetricsAllowedCIDRs  []netip.Prefix
 	ReadyTimeout         time.Duration
 	BusinessQueryTimeout time.Duration
 	ProviderTimeout      time.Duration
@@ -81,10 +82,15 @@ func LoadAPI() (APIConfig, error) {
 	if err != nil {
 		return APIConfig{}, err
 	}
+	metricsAllowedCIDRs, err := parseMetricsAllowedCIDRs(env("METRICS_ALLOWED_CIDRS", "127.0.0.1/32,::1/128"))
+	if err != nil {
+		return APIConfig{}, err
+	}
 	cfg := APIConfig{
 		Port:                 port,
 		StaticDir:            env("ALL_MAIL_STATIC_DIR", "/app/public"),
 		TrustedProxyCIDRs:    trustedProxyCIDRs,
+		MetricsAllowedCIDRs:  metricsAllowedCIDRs,
 		ReadyTimeout:         time.Duration(readySeconds) * time.Second,
 		BusinessQueryTimeout: time.Duration(businessQuerySeconds) * time.Second,
 		ProviderTimeout:      time.Duration(providerSeconds) * time.Second,
@@ -302,7 +308,19 @@ func (c APIConfig) Address() string {
 }
 
 func (c APIConfig) TrustsProxy(address netip.Addr) bool {
-	for _, prefix := range c.TrustedProxyCIDRs {
+	return addressAllowed(c.TrustedProxyCIDRs, address)
+}
+
+func (c APIConfig) AllowsMetrics(address netip.Addr) bool {
+	return addressAllowed(c.MetricsAllowedCIDRs, address)
+}
+
+func addressAllowed(prefixes []netip.Prefix, address netip.Addr) bool {
+	if !address.IsValid() {
+		return false
+	}
+	address = address.Unmap()
+	for _, prefix := range prefixes {
 		if prefix.Contains(address) {
 			return true
 		}
@@ -327,6 +345,21 @@ func loadEncryptionKeyFile() (string, error) {
 }
 
 func parseTrustedProxyCIDRs(raw string) ([]netip.Prefix, error) {
+	return parseCIDRs("TRUSTED_PROXY_CIDRS", raw)
+}
+
+func parseMetricsAllowedCIDRs(raw string) ([]netip.Prefix, error) {
+	prefixes, err := parseCIDRs("METRICS_ALLOWED_CIDRS", raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(prefixes) == 0 {
+		return nil, errors.New("METRICS_ALLOWED_CIDRS must contain at least one CIDR")
+	}
+	return prefixes, nil
+}
+
+func parseCIDRs(name, raw string) ([]netip.Prefix, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, nil
@@ -340,11 +373,11 @@ func parseTrustedProxyCIDRs(raw string) ([]netip.Prefix, error) {
 		}
 		prefix, err := netip.ParsePrefix(value)
 		if err != nil {
-			return nil, fmt.Errorf("TRUSTED_PROXY_CIDRS contains invalid CIDR %q: %w", value, err)
+			return nil, fmt.Errorf("%s contains invalid CIDR %q: %w", name, value, err)
 		}
 		prefix = prefix.Masked()
 		if prefix.Bits() == 0 {
-			return nil, fmt.Errorf("TRUSTED_PROXY_CIDRS must not trust all addresses with %q", value)
+			return nil, fmt.Errorf("%s must not allow all addresses with %q", name, value)
 		}
 		if _, ok := seen[prefix]; ok {
 			continue
