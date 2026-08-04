@@ -6,6 +6,7 @@ node_modules/
 web/dist/
 cloudflare/workers/allmail-edge/dist/
 **/dist/
+/public/
 
 # Environment files (contain secrets)
 .env
@@ -66,5 +67,6 @@ docs/screenshots/*
 .all-mail-runtime/
 
 # OpenCode / local mailbox-ops artifacts
+/.omo/
 docs/opencode-all-mail-ops.md
 tools/

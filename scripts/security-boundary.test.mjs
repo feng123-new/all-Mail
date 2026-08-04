@@ -104,10 +104,17 @@ test('Redis requires the initializer-managed password file', async () => {
   assert.doesNotMatch(redis, /--protected-mode no/);
 });
 
-test('development Redis is loopback-only and explicitly not the production auth model', async () => {
+test('development dependencies use a host bridge with loopback-only ports', async () => {
   const overlay = await read('docker-compose.dev.yml');
+  const postgres = serviceSection(overlay, 'postgres', 'redis');
+  const redis = serviceSection(overlay, 'redis', null);
+
+  assert.match(postgres, /database-network[\s\S]*dev-host-network/);
+  assert.match(postgres, /127\.0\.0\.1:\$\{DEV_POSTGRES_PORT:-15433\}:5432/);
+  assert.match(redis, /cache-network[\s\S]*dev-host-network/);
   assert.match(overlay, /entrypoint:\s*\[\]/);
   assert.match(overlay, /command:\s*\["redis-server", "--appendonly", "yes", "--port", "6379"\]/);
   assert.match(overlay, /127\.0\.0\.1:\$\{DEV_REDIS_PORT:-6380\}:6379/);
+  assert.match(overlay, /dev-host-network:[\s\S]*driver: bridge/);
   assert.match(overlay, /not a production topology or security model/i);
 });
