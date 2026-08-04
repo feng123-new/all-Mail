@@ -26,6 +26,7 @@ jobs:
       - name: Apply focused compatibility patch
         run: |
           python3 scripts/apply_mailcom_compatibility_patch.py
+          rm -f docs/.mailcom-pr-bootstrap-marker
           gofmt -w core/internal/businessapi/mail_provider_types.go core/internal/businessapi/mail_provider_integration_test.go
           git diff --check
 
