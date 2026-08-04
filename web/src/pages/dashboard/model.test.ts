@@ -20,7 +20,7 @@ describe('dashboard model fallbacks', () => {
       total: 3,
       active: 2,
       error: 1,
-      providers: { gmail: 3 },
+      providers: { GMAIL: 3 },
     };
     const stats: Stats = {
       apiKeys: { total: 1, active: 1, totalUsage: 5, todayActive: 1 },
