@@ -1,0 +1,15 @@
+.not-found-page {
+  display: grid;
+  min-height: min(70vh, 720px);
+  place-items: center;
+  padding: var(--space-6, 24px);
+}
+
+.not-found-page .ant-result {
+  max-width: 640px;
+}
+
+.not-found-description {
+  margin: 0 0 16px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.65));
+}
