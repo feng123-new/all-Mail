@@ -31,6 +31,7 @@ No unreleased changes.
 - Scoped administrator, mailbox-portal, and public not-found recovery surfaces.
 - Permanent frontend request-lifecycle, session-cache, unknown-route, and Dashboard-model contracts.
 - A generated same-origin `/openapi.json` OpenAPI 3.1 document backed by a reviewable method/path/authentication inventory and CI drift checks.
+- Desktop and mobile browser height budgets that prevent the Dashboard from regressing into an unbounded card wall after the real chart renders.
 
 ### Changed
 
