@@ -132,7 +132,7 @@ async function mockMailboxPortal(page: Page) {
   });
 }
 
-test('administrator login reaches the explainable dashboard', async ({ page }, testInfo) => {
+test('administrator login reaches the compact operator overview', async ({ page }, testInfo) => {
   await mockAdminControlPlane(page);
   await page.goto('/login');
 
@@ -142,12 +142,25 @@ test('administrator login reaches the explainable dashboard', async ({ page }, t
 
   await expect(page).toHaveURL(/\/dashboard$/);
   await page.goto('/dashboard?proof=degraded-data');
+  await expect(page.getByRole('heading', { name: '运行概况' })).toBeVisible();
   await expect(page.getByText('待处理项')).toBeVisible();
+  await expect(page.getByText('15 项需要处理')).toBeVisible();
+  await expect(page.getByText('待办与健康')).toBeVisible();
   await expect(page.getByText('异常邮箱连接')).toBeVisible();
+  await expect(page.getByText('先处理风险，再进入对象页')).toHaveCount(0);
   await expect(page.getByText('/ 100')).toHaveCount(0);
+  await expect(page.locator('.dashboard-overview__provider-row')).toHaveCount(3);
+  await expect(page.locator('.dashboard-overview__error-row')).toHaveCount(3);
+
+  const summaryColumns = await page
+    .locator('.dashboard-overview__summary-grid')
+    .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length);
 
   if (testInfo.project.name === 'Mobile Chromium') {
     await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible();
+    expect(summaryColumns).toBe(1);
+  } else {
+    expect(summaryColumns).toBe(2);
   }
 
   await testInfo.attach('administrator-dashboard', {
