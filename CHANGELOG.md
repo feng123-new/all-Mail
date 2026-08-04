@@ -6,7 +6,24 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 ## [Unreleased]
 
-No unreleased changes.
+### Security
+
+- Removed the undocumented production `RESEND_API_BASE_URL` shell override; the supported Compose topology now fixes the forwarding provider endpoint to `https://api.resend.com`.
+- Removed the undocumented frontend `VITE_API_BASE_URL` build override so administrator and mailbox requests always use relative same-origin paths through the public Go gateway.
+
+### Added
+
+- Added a permanent full-stack consistency contract covering environment ownership, resolved Compose configuration, React routes and navigation, frontend requests, Go method/path handlers, route ownership, page regression visibility, repository hygiene, and dependency reproducibility.
+- Added Cookie/OTP fixture coverage for the local Gmail OAuth helper and method-aware coverage for every public Go business route.
+
+### Changed
+
+- Registered API-key allocation, usage, reset, and mailbox-assignment routes explicitly so frontend/backend method and path compatibility can be verified statically.
+- Migrated the optional Gmail OAuth helper to the current administrator Cookie session, server-driven OTP challenge, mandatory password-rotation guard, safe account verification, and canonical Google `manage` scopes.
+
+### Compatibility
+
+- These unreleased changes add no database migration, durable-secret rotation, public route removal, authorization change, provider credential-format change, or production service/network/volume topology change.
 
 ## [2.1.0] - 2026-08-04
 
