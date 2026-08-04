@@ -35,6 +35,29 @@ test('the production template matches the canonical manifest', async () => {
   assert.match(template, /\.\/scripts\/compose-up\.sh/);
 });
 
+test('production Compose interpolation is limited to the operator template and release launch controls', async () => {
+  const [template, compose] = await Promise.all([
+    read('.env.example'),
+    read('docker-compose.yml'),
+  ]);
+  const operatorKeys = new Set(parseEnvKeys(template));
+  const launchOnlyKeys = new Set([
+    'ALL_MAIL_GO_IMAGE',
+    'ALL_MAIL_IMAGE_TAG',
+    'ALL_MAIL_VERSION',
+    'ALL_MAIL_COMMIT',
+    'ALL_MAIL_BUILD_DATE',
+  ]);
+  const interpolated = new Set(
+    [...compose.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)].map((match) => match[1]),
+  );
+  const undocumented = [...interpolated]
+    .filter((name) => !operatorKeys.has(name) && !launchOnlyKeys.has(name))
+    .sort();
+  assert.deepEqual(undocumented, []);
+  assert.doesNotMatch(compose, /\$\{RESEND_API_BASE_URL/);
+});
+
 test('production Compose contains only Go runtimes and private state services', async () => {
   const compose = await read('docker-compose.yml');
   for (const service of ['app', 'go-business-api', 'worker-forwarding', 'worker-retention', 'postgres', 'redis']) {
@@ -54,6 +77,10 @@ test('production Compose contains only Go runtimes and private state services', 
   assert.match(business, /JWT_SECRET_FILE: \/var\/lib\/all-mail-secrets\/jwt-secret/);
   assert.match(business, /ENCRYPTION_KEY_FILE: \/var\/lib\/all-mail-encryption\/encryption-key/);
   assert.doesNotMatch(business, /\n\s+JWT_SECRET:|\n\s+ENCRYPTION_KEY:/);
+
+  const forwarding = serviceSection(compose, 'worker-forwarding', 'worker-retention');
+  assert.match(forwarding, /RESEND_API_BASE_URL: https:\/\/api\.resend\.com/);
+  assert.doesNotMatch(forwarding, /\$\{RESEND_API_BASE_URL/);
 
   assert.match(compose, /runtime_secrets_data:[\s\S]*name: "\$\{COMPOSE_PROJECT_NAME:-all-mail\}_legacy_runtime_data"/);
   assert.doesNotMatch(serviceSection(compose, 'postgres', null), /\n\s+ports:/);
