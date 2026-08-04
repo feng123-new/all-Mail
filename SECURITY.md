@@ -6,11 +6,12 @@
 
 | Version | Security support |
 | --- | --- |
-| `2.0.x` | Supported |
-| `< 2.0.0` | Unsupported; reproduce against the latest `2.0.x` release before reporting |
+| `2.1.x` | Supported stable line |
+| `2.0.x` | Limited compatibility support; reproduce on the latest `2.1.x` release when possible |
+| `< 2.0.0` | Unsupported; reproduce against the latest `2.1.x` release before reporting |
 | Unreleased commits | Best effort; not a stable deployment target |
 
-Security fixes are released from the current stable line. Historical pre-Go and migration-era revisions do not receive patches.
+Security fixes are released from the current stable `2.1.x` line. Historical pre-Go and migration-era revisions do not receive patches. A report that also affects `2.0.x` may be assessed for upgrade guidance, but the supported remediation target is the latest stable `2.1.x` release.
 
 ## Report a vulnerability privately
 
@@ -48,7 +49,7 @@ Reports are especially useful for:
 - signed ingress validation, replay protection, mailbox routing, and message persistence;
 - forwarding, outbound sending, provider calls, and secret decryption;
 - PostgreSQL role isolation, Redis authentication, Docker networks, secret volumes, and private ports;
-- trusted-proxy identity, browser same-origin enforcement, CSP, and clickjacking protection;
+- trusted-proxy identity, browser same-origin enforcement, CSP, clickjacking protection, and metrics exposure;
 - migration, backup, restore, or rollback behavior that can expose or corrupt protected data;
 - secrets, tokens, mailbox content, or personal data committed to the repository or emitted in logs.
 
