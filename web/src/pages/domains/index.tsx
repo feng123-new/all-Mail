@@ -19,7 +19,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { type FC, useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { PageHeader, SurfaceCard } from "../../components";
 import { domainsContract } from "../../contracts/admin/domains";
 import { useI18n } from "../../i18n";

@@ -56,7 +56,7 @@ import {
 } from '../../styles/common';
 import { getErrorMessage } from '../../utils/error';
 import { requestData } from '../../utils/request';
-import { LOG_ACTION_OPTIONS } from '../../constants/logActions';
+import { API_KEY_PERMISSION_ACTION_OPTIONS } from '../../constants/logActions';
 import dayjs from 'dayjs';
 
 const { Text, Paragraph } = Typography;
@@ -259,7 +259,7 @@ const ApiKeysPage = () => {
 
     const permissionActionOptions = useMemo(
         () =>
-            LOG_ACTION_OPTIONS.map((item) => ({
+            API_KEY_PERMISSION_ACTION_OPTIONS.map((item) => ({
                 value: item.value,
                 label: t(item.label),
             })),
@@ -578,6 +578,7 @@ const ApiKeysPage = () => {
             title: t(adminI18n.apiKeys.name),
             dataIndex: 'name',
             key: 'name',
+            width: 160,
             render: (name, record) => (
                 <Space>
                     <Text strong>{name}</Text>
@@ -791,8 +792,7 @@ const ApiKeysPage = () => {
                     rowKey="id"
                     loading={loading}
                     pagination={tablePagination}
-                    virtual
-                    scroll={{ y: 560, x: 1200 }}
+                    scroll={{ x: 1000 }}
                 />
             </SurfaceCard>
 

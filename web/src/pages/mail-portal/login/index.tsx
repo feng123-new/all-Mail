@@ -1,7 +1,7 @@
 import { LockOutlined, MailOutlined, SafetyCertificateOutlined, SendOutlined, UserOutlined } from '@ant-design/icons';
 import { Alert, Button, Form, Input, Modal, message, Space, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router';
 import { AuthSplitLayout } from '../../../components';
 import { portalAccountContract } from '../../../contracts/portal/account';
 import { useI18n } from '../../../i18n';

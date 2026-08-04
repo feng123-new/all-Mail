@@ -44,7 +44,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router";
 import { PageHeader, SurfaceCard } from "../../components";
 import {
 	EMAIL_AUTH_TYPE_OPTIONS,

@@ -96,13 +96,17 @@ test('frontend v3 shared workspaces remain wired into both product shells', asyn
 });
 
 test('frontend v3 enforces responsive, focus-visible, and reduced-motion foundations', async () => {
-  const indexCss = await read('web/src/index.css');
+  const [indexCss, workspaceCss] = await Promise.all([
+    read('web/src/index.css'),
+    read('web/src/components/DataWorkspace.css'),
+  ]);
 
   assert.match(indexCss, /:focus-visible/);
   assert.match(indexCss, /@media\s*\(max-width:\s*1023px\)/);
   assert.match(indexCss, /@media\s*\(max-width:\s*520px\)/);
   assert.match(indexCss, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   assert.match(indexCss, /min-width:\s*320px/);
+  assert.match(workspaceCss, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
 });
 
 test('frontend v3 operational context avoids decorative gradients', async () => {

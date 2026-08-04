@@ -24,7 +24,7 @@ import {
 } from "antd";
 import type { ComponentType } from "react";
 import { type ReactNode, Suspense } from "react";
-import { createSearchParams, Link } from "react-router-dom";
+import { createSearchParams, Link } from "react-router";
 import { PageHeader, StatCard, SurfaceCard } from "../../components";
 import type { SimpleLineChartProps } from "../../components/charts";
 import {

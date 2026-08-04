@@ -1,6 +1,6 @@
 import type { FC, ReactNode } from 'react';
 import { Breadcrumb, Typography } from 'antd';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 const { Title, Text } = Typography;
 

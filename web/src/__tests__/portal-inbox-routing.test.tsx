@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { portalAccountContract } from '../contracts/portal/account';
 import { useAuthStore } from '../stores/authStore';

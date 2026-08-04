@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FC } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router';
 import { Alert, Button, Col, Empty, Row, Space, Spin, Tag, Typography } from 'antd';
 import { InboxOutlined, MailOutlined, SendOutlined, SettingOutlined, ArrowRightOutlined, CopyOutlined } from '@ant-design/icons';
 import { PageHeader, StatCard, SurfaceCard } from '../../../components';

@@ -14,7 +14,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import type { SimpleLineChartProps } from "../../components/charts";
 import { PROVIDER_ORDER } from "../../constants/providers";
 import { dashboardContract } from "../../contracts/admin/dashboard";
