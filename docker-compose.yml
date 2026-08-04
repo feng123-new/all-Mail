@@ -25,7 +25,7 @@ x-go-runtime: &go-runtime
 services:
   app:
     <<: *go-runtime
-    command: ["api"]
+    command: ["api", "--metrics-allowed-cidrs", "${METRICS_ALLOWED_CIDRS:-127.0.0.1/32,::1/128}"]
     ports:
       - "${APP_PUBLISH_HOST:-127.0.0.1}:${APP_PORT:-3002}:3000"
     environment:
@@ -33,7 +33,6 @@ services:
       ALL_MAIL_STATIC_DIR: /app/public
       GO_BUSINESS_API_URL: http://go-business-api:3200
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
-      METRICS_ALLOWED_CIDRS: ${METRICS_ALLOWED_CIDRS:-127.0.0.1/32,::1/128}
       GO_BUSINESS_QUERY_TIMEOUT_SECONDS: 10
       MAIL_PROVIDER_TIMEOUT_SECONDS: ${MAIL_PROVIDER_TIMEOUT_SECONDS:-300}
       READY_TIMEOUT_SECONDS: ${READY_TIMEOUT_SECONDS:-5}
