@@ -30,6 +30,11 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: Install exact frontend parser dependencies
         run: ./scripts/sanitize-runtime-env.sh npm --prefix web ci
 
@@ -44,6 +49,11 @@ jobs:
         env:
           ALLMAIL_AUDIT_COMPOSE_JSON: ${{ runner.temp }}/allmail-compose.json
         run: ./scripts/sanitize-runtime-env.sh node scripts/full-stack-consistency-audit.mjs
+
+      - name: Verify Gmail OAuth helper compatibility
+        run: |
+          python3 -m py_compile gmail_oauth/gmail_oauth_auto.py gmail_oauth/admin_client.py
+          python3 -m unittest discover -s gmail_oauth -p 'test_*.py'
 
       - name: Upload consistency inventories
         if: always()
