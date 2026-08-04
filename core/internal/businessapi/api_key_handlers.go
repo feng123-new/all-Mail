@@ -42,16 +42,14 @@ func (s *Server) registerAPIKeyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/api-keys/{id}", s.withAdministrator(s.getAPIKey))
 	mux.HandleFunc("PUT /admin/api-keys/{id}", s.withAdministrator(s.updateAPIKey))
 	mux.HandleFunc("DELETE /admin/api-keys/{id}", s.withAdministrator(s.deleteAPIKey))
-	for _, suffix := range []string{"allocation-stats", "usage"} {
-		mux.HandleFunc("GET /admin/api-keys/{id}/"+suffix, s.withAdministrator(s.apiKeyAllocationStats))
-	}
-	for _, suffix := range []string{"allocation-reset", "reset-pool"} {
-		mux.HandleFunc("POST /admin/api-keys/{id}/"+suffix, s.withAdministrator(s.resetAPIKeyAllocation))
-	}
-	for _, suffix := range []string{"assigned-mailboxes", "pool-emails"} {
-		mux.HandleFunc("GET /admin/api-keys/{id}/"+suffix, s.withAdministrator(s.getAssignedEmails))
-		mux.HandleFunc("PUT /admin/api-keys/{id}/"+suffix, s.withAdministrator(s.updateAssignedEmails))
-	}
+	mux.HandleFunc("GET /admin/api-keys/{id}/allocation-stats", s.withAdministrator(s.apiKeyAllocationStats))
+	mux.HandleFunc("GET /admin/api-keys/{id}/usage", s.withAdministrator(s.apiKeyAllocationStats))
+	mux.HandleFunc("POST /admin/api-keys/{id}/allocation-reset", s.withAdministrator(s.resetAPIKeyAllocation))
+	mux.HandleFunc("POST /admin/api-keys/{id}/reset-pool", s.withAdministrator(s.resetAPIKeyAllocation))
+	mux.HandleFunc("GET /admin/api-keys/{id}/assigned-mailboxes", s.withAdministrator(s.getAssignedEmails))
+	mux.HandleFunc("PUT /admin/api-keys/{id}/assigned-mailboxes", s.withAdministrator(s.updateAssignedEmails))
+	mux.HandleFunc("GET /admin/api-keys/{id}/pool-emails", s.withAdministrator(s.getAssignedEmails))
+	mux.HandleFunc("PUT /admin/api-keys/{id}/pool-emails", s.withAdministrator(s.updateAssignedEmails))
 }
 
 func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request, _ Admin) {
