@@ -6,6 +6,10 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserved email-first Outlook vendor imports (`email----password----clientId----refreshToken`) as IMAP OAuth instead of misclassifying their `M.*` refresh tokens as Microsoft Graph credentials.
+
 ## [2.1.2] - 2026-08-05
 
 ### Highlights
