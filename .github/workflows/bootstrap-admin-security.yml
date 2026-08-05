@@ -101,6 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [go-contract, web-contract, runtime-contract]
     env:
+      COMPOSE_PROJECT_NAME: all-mail-rehearsal
       POSTGRES_PASSWORD: ci-postgres-password-0123456789abcdef
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -109,9 +110,10 @@ jobs:
       - name: Seed the pre-rename physical runtime-secret volume
         shell: bash
         run: |
-          docker volume create all-mail_legacy_runtime_data
+          legacy_volume="${COMPOSE_PROJECT_NAME}_legacy_runtime_data"
+          docker volume create "$legacy_volume"
           docker run --rm \
-            -v all-mail_legacy_runtime_data:/state \
+            -v "$legacy_volume:/state" \
             postgres:16-alpine \
             sh -lc 'printf preserved > /state/pre-rename-volume-marker'
       - name: Start canonical stack
@@ -124,6 +126,11 @@ jobs:
       - name: Verify bootstrap, session rotation and migrated API paths
         shell: bash
         run: bash scripts/bootstrap-admin-docker-smoke.sh
+      - name: Rehearse destructive backup and restore in the isolated CI project
+        shell: bash
+        env:
+          ALL_MAIL_ALLOW_DESTRUCTIVE_REHEARSAL: "1"
+        run: bash scripts/backup-restore-rehearsal.sh
       - name: Capture Docker diagnostics
         if: always()
         shell: bash
@@ -139,6 +146,8 @@ jobs:
             ${{ runner.temp }}/bootstrap-docker-start.log
             ${{ runner.temp }}/bootstrap-docker-ps.txt
             ${{ runner.temp }}/bootstrap-docker.log
+            ${{ runner.temp }}/all-mail-restore-rehearsal/restore-rehearsal-report.txt
+            ${{ runner.temp }}/all-mail-restore-rehearsal/SHA256SUMS
           if-no-files-found: warn
       - name: Stop stack
         if: always()
