@@ -25,19 +25,51 @@ test('browser writes and framing use explicit same-origin boundaries', async () 
   assert.match(business, /CSRF_ORIGIN_INVALID/);
 });
 
-test('OAuth inputs are JSON-only and defaults are least privilege', async () => {
-  const [handler, template, web] = await Promise.all([
+test('OAuth inputs are JSON-only and profile defaults are least privilege', async () => {
+  const [handler, scopes, template, web, profileModel, guide] = await Promise.all([
     read('core/internal/businessapi/mail_oauth_handlers.go'),
+    read('core/internal/oauthscope/scopes.go'),
     read('.env.example'),
     read('web/src/pages/emails/index.tsx'),
+    read('web/src/pages/emails/oauthProfiles.ts'),
+    read('docs/external-email-management-guide.md'),
   ]);
   assert.doesNotMatch(handler, /json:"filePath"|os\.Open\(/);
-  for (const content of [template, web]) {
-    assert.match(content, /gmail\.readonly/);
-    assert.doesNotMatch(content, /GOOGLE_OAUTH_SCOPES=.*gmail\.modify.*mail\.google\.com/);
-  }
+  assert.match(handler, /ScopeProfile/);
+  assert.match(handler, /scopeProfile and scopes are mutually exclusive/);
+  assert.match(template, /GOOGLE_OAUTH_SCOPES=.*gmail\.readonly/);
+  assert.doesNotMatch(template, /GOOGLE_OAUTH_SCOPES=.*gmail\.modify.*mail\.google\.com/);
   assert.match(template, /MICROSOFT_OAUTH_SCOPES=.*Mail\.Read(?:\s|$)/);
   assert.doesNotMatch(template, /MICROSOFT_OAUTH_SCOPES=.*(?:Contacts|Calendars|MailboxSettings)\.ReadWrite/);
+
+  for (const profile of ['minimal', 'send', 'manage', 'full']) {
+    assert.match(scopes, new RegExp(`\\b${profile[0].toUpperCase()}${profile.slice(1)}\\b`));
+    assert.match(profileModel, new RegExp(`${profile}:`));
+    assert.ok(guide.includes(`| \`${profile}\` |`));
+  }
+  for (const canonicalScope of [
+    'gmail.readonly',
+    'gmail.send',
+    'gmail.modify',
+    'https://mail.google.com/',
+    'Mail.Read',
+    'Mail.Send',
+    'Mail.ReadWrite',
+    'Contacts.ReadWrite',
+    'Calendars.ReadWrite',
+    'MailboxSettings.ReadWrite',
+  ]) {
+    assert.match(scopes, new RegExp(canonicalScope.replaceAll('.', '\\.')));
+    assert.match(profileModel, new RegExp(canonicalScope.replaceAll('.', '\\.')));
+  }
+
+  assert.match(web, /name="gmailOAuthScopeProfile"/);
+  assert.match(web, /name="outlookOAuthScopeProfile"/);
+  assert.match(web, /scopeProfile: normalizeOAuthScopeProfile/);
+  assert.doesNotMatch(web, /scopes: values\.(?:gmail|outlook)OAuthScopes/);
+  assert.match(web, /oauthReauthorizationNotice/);
+  assert.match(guide, /默认始终是最小权限的 `minimal`/);
+  assert.doesNotMatch(guide, /当前默认会申请[\s\S]{0,300}Mail\.ReadWrite/);
 });
 
 test('retired local OAuth helper is absent', async () => {

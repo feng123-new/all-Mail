@@ -21,6 +21,7 @@ The project is **source-available under the custom all-Mail Non-Commercial Licen
 | Method-aware route ownership and telemetry | [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md) |
 | Local Go API and React development | [`advanced-runtime.md`](./advanced-runtime.md) |
 | External mailbox operations | [`external-email-management-guide.md`](./external-email-management-guide.md) |
+| Provider evidence, live-canary boundaries, and account-tier caveats | [`PROVIDER-VALIDATION.md`](./PROVIDER-VALIDATION.md) |
 | Source-available release gate | [`source-available-release-checklist.md`](./source-available-release-checklist.md) |
 | Cloudflare Email Worker ingress | [`../CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) |
 

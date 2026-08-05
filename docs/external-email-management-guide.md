@@ -22,7 +22,7 @@
 
 - 读取收件箱：支持
 - 读取已发送：支持
-- 发送邮件：支持
+- 发送邮件：Gmail App Password 模式支持；OAuth 模式取决于权限档位是否为 `send`、`manage` 或 `full`
 - 常见模式：`GOOGLE_OAUTH` 或 `APP_PASSWORD`
 
 ### QQ
@@ -71,45 +71,48 @@
 
 - 读取收件箱：支持
 - 读取已发送：支持
-- 发送邮件：取决于 OAuth scope 是否包含 `Mail.Send`
+- 发送邮件：取决于 OAuth 权限档位是否包含 `Mail.Send`
+- 修改或删除邮件：取决于 OAuth 权限档位是否包含 `Mail.ReadWrite`
 
-如果老账号缺少 `Mail.Send` scope，重新走一次 Outlook OAuth 授权即可。
+如果已有账号缺少所需权限，先在 OAuth 配置中选择更高档位，再重新走一次 Outlook OAuth 授权。仅保存新档位不会让旧 refresh token 自动获得新权限。
 
-#### Outlook 默认 scopes 为什么现在改成 Graph-only
+### OAuth 权限档位
 
-all-Mail 当前默认会申请下面这组 **Microsoft Graph** scopes：
+Gmail 和 Outlook 使用同一套四档权限模型，默认始终是最小权限的 `minimal`：
+
+| 档位 | 读取邮件 | 发送邮件 | 修改 / 删除邮件 | 扩展权限 |
+| --- | --- | --- | --- | --- |
+| `minimal` | 支持 | 不支持 | 不支持 | 无 |
+| `send` | 支持 | 支持 | 不支持 | 无 |
+| `manage` | 支持 | 支持 | 支持 | 无 |
+| `full` | 支持 | 支持 | 支持 | Gmail provider-wide；或 Microsoft 联系人、日历和邮箱设置 |
+
+后台会同时显示：
+
+- 当前保存的权限档位；
+- 该档位实际申请的 scopes；
+- 读取、发信、管理和扩展能力是否可用；
+- 提高档位后必须重新授权的提示。
+
+#### Outlook 为什么只使用 Microsoft Graph scopes
+
+当前默认 `minimal` 档位实际申请：
 
 ```text
 offline_access openid profile email
 https://graph.microsoft.com/User.Read
-https://graph.microsoft.com/Mail.ReadWrite
-https://graph.microsoft.com/Mail.Send
+https://graph.microsoft.com/Mail.Read
+```
+
+`send` 增加 `Mail.Send`，`manage` 改为 `Mail.ReadWrite` 并保留 `Mail.Send`，`full` 才额外增加：
+
+```text
 https://graph.microsoft.com/Contacts.ReadWrite
 https://graph.microsoft.com/Calendars.ReadWrite
 https://graph.microsoft.com/MailboxSettings.ReadWrite
 ```
 
-逐项对应关系如下：
-
-- `offline_access`：保证 refresh token 可用，避免频繁重新登录
-- `openid profile email`：授权完成后识别当前账号身份
-- `User.Read`：读取 `/me` 基础信息，校验当前 Outlook 账号归属
-- `Mail.ReadWrite`：读取和管理邮件内容
-- `Mail.Send`：支持直接发信
-- `Contacts.ReadWrite`：给联系人同步、自动补全等能力预留
-- `Calendars.ReadWrite`：给日历/会议能力预留
-- `MailboxSettings.ReadWrite`：给邮箱设置、自动回复、时区等能力预留
-
-`https://outlook.office.com/IMAP.AccessAsUser.All` **不再出现在同一个默认 scope 字符串里**，因为它和 `https://graph.microsoft.com/*` 不属于同一个资源；把两类资源混到一次授权请求里，会触发 Microsoft 的 scope 兼容性错误。
-
-如果你确实要用 Outlook IMAP OAuth，请单独申请：
-
-```text
-offline_access openid profile email
-https://outlook.office.com/IMAP.AccessAsUser.All
-```
-
-不要把这条 IMAP scope 和上面的 Graph scopes 混在同一次授权请求里。
+`https://outlook.office.com/IMAP.AccessAsUser.All` 与 `https://graph.microsoft.com/*` 不属于同一个资源，不能和 Graph scopes 混在同一次授权请求里。若确实需要 Outlook IMAP OAuth，应单独完成 IMAP consent；它不属于后台这四个 Graph 权限档位。
 
 ## 4. 后台操作路径
 
@@ -161,7 +164,7 @@ curl -X POST http://127.0.0.1:3002/admin/emails/12/send \
 
 ## 6. 发送能力判断
 
-- Gmail / QQ / 163 / 126 / iCloud / Yahoo / Zoho / 阿里邮箱 / Fastmail / AOL / GMX / Yandex 这类账号通常可以直接完成收发闭环
+- Gmail OAuth 是否能发信取决于所选权限档位；Gmail App Password 与 QQ / 163 / 126 / iCloud / Yahoo / Zoho / 阿里邮箱 / Fastmail / AOL / GMX / Yandex 的 IMAP/SMTP 模式通常可以完成收发闭环
 - Mail.com 只有 Premium 账号在网页端开启 POP3/IMAP 后才能完成收发闭环
 - Outlook 是否能发，取决于 OAuth 配置和授权范围
 - Amazon WorkMail 和 Custom IMAP / SMTP 是否可用，取决于你填写的服务器主机、端口和密码是否正确
@@ -173,6 +176,8 @@ curl -X POST http://127.0.0.1:3002/admin/emails/12/send \
 - 验证示例统一使用 `recipient@example.com` 这类占位地址
 - 如果你需要记录自己环境里的验证结果，建议保存在私有 runbook，而不是公开仓库
 
-## OAuth permission profiles
+## 8. Provider 验证证据
 
-The management API accepts four canonical profiles: `minimal` (identity plus read), `send` (read plus send), `manage` (mail modification plus send), and `full` (provider-wide or optional extension permissions). New Gmail and Microsoft configurations default to `minimal`. Pasted Google client-secret JSON is parsed in memory; server filesystem paths are intentionally unsupported.
+公开 CI 使用 Mock、协议 fixture 和合成数据库数据，不保存真实第三方邮箱凭据，也不等同于每个 Provider 的实时账号验证。各 Provider 的证据边界、Mail.com Premium 条件和个人部署 canary 步骤见 [`PROVIDER-VALIDATION.md`](./PROVIDER-VALIDATION.md)。
+
+Google client-secret JSON 只在请求内存中解析；服务器文件路径输入被明确禁用。

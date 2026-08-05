@@ -6,14 +6,47 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-08-05
+
+### Highlights
+
+- Closed the post-v2.1.1 personal-deployment patch line without adding multi-tenant, high-availability, database, secret, route, or topology changes.
+- Published the reviewed Mail.com compatibility correction, explicit OAuth permission profiles, stronger Linux host preflight, truthful provider-evidence guidance, and an automated synthetic backup/restore rehearsal.
+
+### Security
+
+- Kept new Gmail and Outlook OAuth configurations fail-closed at the `minimal` read-only profile while making `send`, `manage`, and `full` consent explicit.
+- Extended the secret-safe production-host preflight to reject an unsafe Redis `vm.overcommit_memory` policy and insufficient memory, disk, or inode capacity without reading `.env` or runtime secrets.
+- Preserved the existing direct-peer, database-role, provider-egress, session, ingress-signature, and secret-volume boundaries.
+
+### Added
+
+- Bilingual OAuth profile and effective-capability presentation for Gmail and Outlook, including the exact canonical scopes and a required reauthorization warning when permissions are broadened.
+- A provider-validation evidence policy that distinguishes source/protocol/integration tests from operator-owned live-account canaries for all supported external providers.
+- A guarded destructive CI rehearsal that dumps and restores PostgreSQL, archives and verifies the complete local state-volume set, preserves secret hashes, validates synthetic domain/message/API-key data, and reruns all runtime doctors.
+- Host preflight regression tests for Redis memory policy, capacity thresholds, Docker capabilities, and upgrade-safe application-port warnings.
+
 ### Changed
 
-- Documented that Mail.com direct access requires a Premium account and manual POP3/IMAP activation.
-- Aligned Mail.com API/import defaults with the reviewed frontend preset: IMAP 993 over TLS and SMTP 587 over STARTTLS.
+- Replaced raw Gmail and Outlook scope editing in the administrator mailbox flow with the canonical `minimal`, `send`, `manage`, and `full` profiles already enforced by the Go backend.
+- Updated deployment, provider, backup, support, and upgrade documentation for the v2.1.2 personal single-host release boundary.
+- Documented public CI as implementation evidence rather than proof that every third-party provider currently accepts every account, tier, region, or anti-abuse condition.
 
 ### Fixed
 
-- Corrected Mail.com folder mappings to the provider names `Sent Items` and `Junk email` so sent and junk mailbox views do not depend on generic folder guesses.
+- Documented that Mail.com direct access requires a Premium account and manual POP3/IMAP activation.
+- Aligned Mail.com API/import defaults with IMAP 993 over TLS and SMTP 587 over STARTTLS.
+- Corrected Mail.com folder mappings to `Sent Items` and `Junk email`.
+- Removed contradictory Outlook documentation that described broad Graph permissions as the default while the backend correctly defaulted to `minimal`.
+- Added the Redis host requirement that was previously visible only as a runtime warning during Docker smoke.
+
+### Compatibility and upgrade notes
+
+- No database migration or durable-secret rotation is introduced.
+- No public route, authorization, provider credential format, forwarding state machine, service, network, volume, or persisted-state topology is changed.
+- Existing v2.1.1 deployments can upgrade with the normal revision-based procedure after backing up PostgreSQL, the exact revision, required volumes, and external R2 state when it is part of the recovery objective.
+- Changing an OAuth profile does not expand an existing refresh token; reauthorize the affected mailbox before relying on new send, manage, or full capabilities.
+- Do not run concurrent revisions against one persisted deployment and do not use `docker compose down -v` during normal upgrade or recovery.
 
 ## [2.1.1] - 2026-08-04
 
@@ -122,7 +155,8 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 - Removed the Node/Fastify/Prisma production runtime and retired migration/job paths.
 
-[Unreleased]: https://github.com/feng123-new/all-Mail/compare/v2.1.1...HEAD
+[Unreleased]: https://github.com/feng123-new/all-Mail/compare/v2.1.2...HEAD
+[2.1.2]: https://github.com/feng123-new/all-Mail/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/feng123-new/all-Mail/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/feng123-new/all-Mail/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/feng123-new/all-Mail/compare/v2.0.0...v2.0.1
