@@ -89,6 +89,113 @@ func (p imapSMTPProvider) Fetch(ctx context.Context, account mailAccountCredenti
 	}, nil
 }
 
+func (p imapSMTPProvider) ListSummaries(ctx context.Context, account mailAccountCredentials, mailbox string, limit int) (providerSummaryResult, error) {
+	client, folder, err := p.connectIMAP(ctx, account, mailbox)
+	if err != nil {
+		return providerSummaryResult{}, err
+	}
+	defer client.Logout()
+	selected, err := client.Select(folder, false)
+	if err != nil {
+		return providerSummaryResult{}, providerFailure("MAILBOX_SELECT_FAILED", err)
+	}
+	if selected.Messages == 0 {
+		return providerSummaryResult{Email: account.Email, Mailbox: mailbox, ResolvedMailbox: folder, Messages: []providerMessageSummary{}, Method: "IMAP", Provider: account.Provider}, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	start := uint32(1)
+	if selected.Messages > uint32(limit) {
+		start = selected.Messages - uint32(limit) + 1
+	}
+	sequence := new(imap.SeqSet)
+	sequence.AddRange(start, selected.Messages)
+	messages := make(chan *imap.Message, limit)
+	errCh := make(chan error, 1)
+	go func() { errCh <- client.Fetch(sequence, []imap.FetchItem{imap.FetchEnvelope, imap.FetchUid}, messages) }()
+	result := make([]providerMessageSummary, 0, limit)
+	var lastUID uint32
+	for message := range messages {
+		if message == nil {
+			continue
+		}
+		if message.Uid > lastUID {
+			lastUID = message.Uid
+		}
+		item := providerMessageSummary{ID: fmt.Sprintf("uid:%d", message.Uid)}
+		if message.Envelope != nil {
+			item.Subject = message.Envelope.Subject
+			item.Date = message.Envelope.Date.UTC().Format(time.RFC3339Nano)
+			item.From = formatIMAPAddresses(message.Envelope.From)
+			item.To = formatIMAPAddresses(message.Envelope.To)
+		}
+		result = append(result, item)
+	}
+	if err := <-errCh; err != nil {
+		return providerSummaryResult{}, providerFailure("MAILBOX_FETCH_FAILED", err)
+	}
+	reverseProviderSummaries(result)
+	return providerSummaryResult{
+		Email: account.Email, Mailbox: mailbox, ResolvedMailbox: folder, Count: len(result), Messages: result,
+		MailboxCheckpoint: map[string]any{"uidValidity": selected.UidValidity, "lastUid": lastUID},
+		Method:            "IMAP", Provider: account.Provider,
+	}, nil
+}
+
+func (p imapSMTPProvider) GetMessage(ctx context.Context, account mailAccountCredentials, mailbox, messageID string) (providerMessage, error) {
+	uid, err := parseProviderUID(messageID)
+	if err != nil {
+		return providerMessage{}, validationError("messageId must contain an IMAP UID value")
+	}
+	client, folder, err := p.connectIMAP(ctx, account, mailbox)
+	if err != nil {
+		return providerMessage{}, err
+	}
+	defer client.Logout()
+	stopCancellation := context.AfterFunc(ctx, func() { _ = client.Terminate() })
+	defer stopCancellation()
+	selected, err := client.Select(folder, false)
+	if err != nil {
+		return providerMessage{}, providerFailure("MAILBOX_SELECT_FAILED", err)
+	}
+	if expected, ok := mailboxUIDValidity(account.MailboxStatus, mailbox); ok && selected.UidValidity != 0 && expected != selected.UidValidity {
+		return providerMessage{}, &requestError{Status: http.StatusConflict, Code: "IMAP_MAILBOX_RESYNC_REQUIRED"}
+	}
+	uidSet := new(imap.SeqSet)
+	uidSet.AddNum(uid)
+	section := &imap.BodySectionName{Peek: true}
+	messages := make(chan *imap.Message, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.UidFetch(uidSet, []imap.FetchItem{imap.FetchEnvelope, imap.FetchUid, section.FetchItem()}, messages)
+	}()
+	var result *providerMessage
+	for message := range messages {
+		if message == nil || message.Uid != uid {
+			continue
+		}
+		item := providerMessage{ID: fmt.Sprintf("uid:%d", message.Uid)}
+		if message.Envelope != nil {
+			item.Subject = message.Envelope.Subject
+			item.Date = message.Envelope.Date.UTC().Format(time.RFC3339Nano)
+			item.From = formatIMAPAddresses(message.Envelope.From)
+			item.To = formatIMAPAddresses(message.Envelope.To)
+		}
+		if body := message.GetBody(section); body != nil {
+			item.Text, item.HTML = parseIMAPBody(body)
+		}
+		result = &item
+	}
+	if err := <-errCh; err != nil {
+		return providerMessage{}, providerFailure("MAILBOX_FETCH_FAILED", err)
+	}
+	if result == nil {
+		return providerMessage{}, &requestError{Status: http.StatusNotFound, Code: "MAIL_MESSAGE_NOT_FOUND"}
+	}
+	return *result, nil
+}
+
 func (p imapSMTPProvider) Delete(ctx context.Context, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error) {
 	client, folder, err := p.connectIMAP(ctx, account, mailbox)
 	if err != nil {
@@ -421,6 +528,12 @@ func formatIMAPAddresses(addresses []*imap.Address) string {
 }
 
 func reverseProviderMessages(messages []providerMessage) {
+	for left, right := 0, len(messages)-1; left < right; left, right = left+1, right-1 {
+		messages[left], messages[right] = messages[right], messages[left]
+	}
+}
+
+func reverseProviderSummaries(messages []providerMessageSummary) {
 	for left, right := 0, len(messages)-1; left < right; left, right = left+1, right-1 {
 		messages[left], messages[right] = messages[right], messages[left]
 	}

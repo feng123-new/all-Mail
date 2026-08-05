@@ -197,7 +197,20 @@ export const emailApi = {
 	) =>
 		requestGet<{ messages: T[] }>(`/admin/emails/${id}/mails`, {
 			params: { mailbox, markAsSeen },
+				timeout: LONG_RUNNING_CHECK_TIMEOUT_MS,
+			}),
+
+	viewMailDetail: <T = Record<string, unknown>>(
+		id: number,
+		mailbox: string,
+		messageId: string,
+		signal?: AbortSignal,
+	) =>
+		requestGet<T>(`/admin/emails/${id}/mails/detail`, {
+			params: { mailbox, messageId },
 			timeout: LONG_RUNNING_CHECK_TIMEOUT_MS,
+			dedupe: false,
+			signal,
 		}),
 
 	deleteSelectedMails: <T = Record<string, unknown>>(

@@ -51,7 +51,7 @@ func (p gmailMailProvider) Fetch(ctx context.Context, account mailAccountCredent
 	}
 	messages := make([]providerMessage, 0, len(list.Messages))
 	for _, reference := range list.Messages {
-		message, err := p.getMessage(ctx, token, reference.ID, account)
+		message, err := p.getMessage(ctx, token, reference.ID, account, false)
 		if err != nil {
 			return providerFetchResult{}, err
 		}
@@ -66,6 +66,63 @@ func (p gmailMailProvider) Fetch(ctx context.Context, account mailAccountCredent
 		Method:          "GMAIL_API",
 		Provider:        account.Provider,
 	}, nil
+}
+
+func (p gmailMailProvider) ListSummaries(ctx context.Context, account mailAccountCredentials, mailbox string, limit int) (providerSummaryResult, error) {
+	token, err := p.server.refreshProviderAccessToken(ctx, account)
+	if err != nil {
+		return providerSummaryResult{}, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	label := gmailLabel(mailbox)
+	endpoint := fmt.Sprintf(
+		"https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=%s&maxResults=%d",
+		url.QueryEscape(label),
+		limit,
+	)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return providerSummaryResult{}, providerFailure("MAILBOX_REQUEST_INVALID", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := p.server.doProviderRequest(account, request)
+	if err != nil {
+		return providerSummaryResult{}, providerFailure("MAILBOX_FETCH_FAILED", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return providerSummaryResult{}, providerHTTPFailure("MAILBOX_FETCH_FAILED", response)
+	}
+	var list gmailMessageList
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&list); err != nil {
+		return providerSummaryResult{}, providerFailure("MAILBOX_RESPONSE_INVALID", err)
+	}
+	messages := make([]providerMessageSummary, 0, len(list.Messages))
+	for _, reference := range list.Messages {
+		message, err := p.getMessageSummary(ctx, token, reference.ID, account)
+		if err != nil {
+			return providerSummaryResult{}, err
+		}
+		messages = append(messages, message)
+	}
+	return providerSummaryResult{
+		Email: account.Email, Mailbox: mailbox, ResolvedMailbox: label, Count: len(messages), Messages: messages,
+		Method: "GMAIL_API", Provider: account.Provider,
+	}, nil
+}
+
+func (p gmailMailProvider) GetMessage(ctx context.Context, account mailAccountCredentials, _ string, messageID string) (providerMessage, error) {
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return providerMessage{}, validationError("messageId must contain a non-empty value")
+	}
+	token, err := p.server.refreshProviderAccessToken(ctx, account)
+	if err != nil {
+		return providerMessage{}, err
+	}
+	return p.getMessage(ctx, token, messageID, account, true)
 }
 
 func (p gmailMailProvider) Delete(ctx context.Context, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error) {
@@ -215,7 +272,7 @@ func (p gmailMailProvider) Send(ctx context.Context, account mailAccountCredenti
 	}, nil
 }
 
-func (p gmailMailProvider) getMessage(ctx context.Context, token, id string, account mailAccountCredentials) (providerMessage, error) {
+func (p gmailMailProvider) getMessage(ctx context.Context, token, id string, account mailAccountCredentials, missingAsNotFound bool) (providerMessage, error) {
 	endpoint := "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + url.PathEscape(id) + "?format=full"
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -227,6 +284,9 @@ func (p gmailMailProvider) getMessage(ctx context.Context, token, id string, acc
 		return providerMessage{}, providerFailure("MAILBOX_FETCH_FAILED", err)
 	}
 	defer response.Body.Close()
+	if missingAsNotFound && response.StatusCode == http.StatusNotFound {
+		return providerMessage{}, &requestError{Status: http.StatusNotFound, Code: "MAIL_MESSAGE_NOT_FOUND"}
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return providerMessage{}, providerHTTPFailure("MAILBOX_FETCH_FAILED", response)
 	}
@@ -251,6 +311,41 @@ func (p gmailMailProvider) getMessage(ctx context.Context, token, id string, acc
 		Text:    text,
 		HTML:    html,
 		Date:    date,
+	}, nil
+}
+
+func (p gmailMailProvider) getMessageSummary(ctx context.Context, token, id string, account mailAccountCredentials) (providerMessageSummary, error) {
+	endpoint := "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + url.PathEscape(id) + "?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return providerMessageSummary{}, providerFailure("MAILBOX_REQUEST_INVALID", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := p.server.doProviderRequest(account, request)
+	if err != nil {
+		return providerMessageSummary{}, providerFailure("MAILBOX_FETCH_FAILED", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return providerMessageSummary{}, &requestError{Status: http.StatusNotFound, Code: "MAIL_MESSAGE_NOT_FOUND"}
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return providerMessageSummary{}, providerHTTPFailure("MAILBOX_FETCH_FAILED", response)
+	}
+	var payload gmailMessagePayload
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&payload); err != nil {
+		return providerMessageSummary{}, providerFailure("MAILBOX_RESPONSE_INVALID", err)
+	}
+	headers := make(map[string]string)
+	for _, header := range payload.Payload.Headers {
+		headers[strings.ToLower(header.Name)] = header.Value
+	}
+	date := headers["date"]
+	if parsed, err := mail.ParseDate(date); err == nil {
+		date = parsed.UTC().Format(time.RFC3339Nano)
+	}
+	return providerMessageSummary{
+		ID: payload.ID, From: headers["from"], To: headers["to"], Subject: headers["subject"], Date: date,
 	}, nil
 }
 

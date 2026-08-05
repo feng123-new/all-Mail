@@ -30,4 +30,18 @@ describe("emailApi", () => {
 			},
 		);
 	});
+
+	it("uses the provider timeout when viewing one message", () => {
+		emailApi.viewMailDetail(30, "INBOX", "uid:42");
+
+		expect(coreMocks.requestGet).toHaveBeenCalledWith(
+			"/admin/emails/30/mails/detail",
+			{
+				params: { mailbox: "INBOX", messageId: "uid:42" },
+				timeout: 180_000,
+				dedupe: false,
+				signal: undefined,
+			},
+		);
+	});
 });

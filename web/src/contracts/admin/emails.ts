@@ -13,6 +13,7 @@ export const emailsContract = {
   import: emailApi.import,
   export: emailApi.export,
   viewMails: emailApi.viewMails,
+  viewMailDetail: emailApi.viewMailDetail,
   clearMailbox: emailApi.clearMailbox,
   deleteSelectedMails: emailApi.deleteSelectedMails,
   batchFetchMailboxes: emailApi.batchFetchMailboxes,

@@ -862,8 +862,8 @@ interface MailItem {
 	from: string;
 	to: string;
 	subject: string;
-	text: string;
-	html: string;
+	text?: string;
+	html?: string;
 	date: string;
 }
 
@@ -1292,9 +1292,13 @@ const EmailsPage: FC = () => {
 		useState<EmailAccount | null>(null);
 	const [currentMailbox, setCurrentMailbox] = useState<MailboxName>("INBOX");
 	const [emailDetailVisible, setEmailDetailVisible] = useState(false);
+	const [emailDetailLoading, setEmailDetailLoading] = useState(false);
 	const [selectedMailDetail, setSelectedMailDetail] = useState<MailItem | null>(
 		null,
 	);
+	const latestMailDetailRequestIdRef = useRef(0);
+	const latestMailListRequestIdRef = useRef(0);
+	const mailDetailAbortControllerRef = useRef<AbortController | null>(null);
 	const [selectedMailIds, setSelectedMailIds] = useState<string[]>([]);
 	const [mailListPage, setMailListPage] = useState(1);
 	const [mailListPageSize, setMailListPageSize] = useState(10);
@@ -1531,6 +1535,10 @@ const EmailsPage: FC = () => {
 		setRowRevealVisible(false);
 		setRowRevealedAccountLoginPassword(null);
 		setRowRevealExpiresAt(null);
+	}, []);
+
+	useEffect(() => {
+		return () => mailDetailAbortControllerRef.current?.abort();
 	}, []);
 
 	useEffect(() => {
@@ -3205,16 +3213,22 @@ const EmailsPage: FC = () => {
 			showSuccessToast: boolean = false,
 			markAsSeen: boolean = false,
 		) => {
+			const requestId = ++latestMailListRequestIdRef.current;
 			setMailLoading(true);
+			setSelectedMailIds([]);
+			setMailList([]);
+			setMailListPage(1);
 			const result = await requestData<{ messages: MailItem[] }>(
 				() => emailsContract.viewMails(emailId, mailbox, markAsSeen),
 				t(emailsPageI18n.fetchMailFailed),
 			);
+			if (requestId !== latestMailListRequestIdRef.current) {
+				return;
+			}
 			if (result) {
 				const messages = result.messages || [];
 				const latestMessage = messages[0];
 				const now = new Date().toISOString();
-				setSelectedMailIds([]);
 				setMailList(messages);
 				patchMailboxStatusForEmail(emailId, mailbox, {
 					latestMessageId: latestMessage?.id || null,
@@ -3485,9 +3499,53 @@ const EmailsPage: FC = () => {
 		setBatchClearLoading(false);
 	}, [batchClearMailbox, buildBatchActionPayload, fetchData, t]);
 
-	const handleViewEmailDetail = (record: MailItem) => {
+	const closeMailDetail = () => {
+		latestMailDetailRequestIdRef.current += 1;
+		mailDetailAbortControllerRef.current?.abort();
+		mailDetailAbortControllerRef.current = null;
+		setEmailDetailVisible(false);
+		setEmailDetailLoading(false);
+		setSelectedMailDetail(null);
+	};
+
+	const closeMailboxModal = () => {
+		latestMailListRequestIdRef.current += 1;
+		setMailLoading(false);
+		setSelectedMailIds([]);
+		setMailList([]);
+		setMailModalVisible(false);
+		closeMailDetail();
+	};
+
+	const handleViewEmailDetail = async (record: MailItem) => {
+		if (!currentEmailId) {
+			return;
+		}
+		const requestId = ++latestMailDetailRequestIdRef.current;
+		mailDetailAbortControllerRef.current?.abort();
+		const controller = new AbortController();
+		mailDetailAbortControllerRef.current = controller;
 		setSelectedMailDetail(record);
 		setEmailDetailVisible(true);
+		setEmailDetailLoading(true);
+		const result = await requestData<MailItem>(
+			() =>
+				emailsContract.viewMailDetail(
+					currentEmailId,
+					currentMailbox,
+					record.id,
+					controller.signal,
+				),
+			t(emailsPageI18n.fetchMailFailed),
+		);
+		if (requestId !== latestMailDetailRequestIdRef.current) {
+			return;
+		}
+		if (result) {
+			setSelectedMailDetail(result);
+		}
+		mailDetailAbortControllerRef.current = null;
+		setEmailDetailLoading(false);
 	};
 
 	const handleSendMail = async () => {
@@ -5744,10 +5802,7 @@ const EmailsPage: FC = () => {
 						mailbox: t(MAILBOX_LABELS[currentMailbox]),
 					})}
 					open={mailModalVisible}
-					onCancel={() => {
-						setSelectedMailIds([]);
-						setMailModalVisible(false);
-					}}
+					onCancel={closeMailboxModal}
 					footer={null}
 					destroyOnHidden
 					width={1000}
@@ -5784,6 +5839,7 @@ const EmailsPage: FC = () => {
 						<Checkbox
 							checked={allMailsSelected}
 							indeterminate={selectedMailIds.length > 0 && !allMailsSelected}
+							disabled={mailLoading}
 							onChange={(event) => toggleSelectAllMails(event.target.checked)}
 						>
 							{t(emailsInlineI18n["emails.mailbox.selectAllCurrentList"])}
@@ -5811,11 +5867,17 @@ const EmailsPage: FC = () => {
 								mailbox: t(MAILBOX_LABELS[currentMailbox]),
 							})}
 							onConfirm={handleClearMailbox}
-							disabled={clearMailboxDisabled || currentMailbox === "SENT"}
+							disabled={
+								mailLoading || clearMailboxDisabled || currentMailbox === "SENT"
+							}
 						>
 							<Button
 								danger
-								disabled={clearMailboxDisabled || currentMailbox === "SENT"}
+								disabled={
+									mailLoading ||
+									clearMailboxDisabled ||
+									currentMailbox === "SENT"
+								}
 							>
 								{t(emailsInlineI18n["emails.mailbox.clearButton"])}
 							</Button>
@@ -5867,6 +5929,7 @@ const EmailsPage: FC = () => {
 										<Space wrap>
 											<Checkbox
 												checked={selectedMailIds.includes(item.id)}
+												disabled={mailLoading}
 												onChange={(event) =>
 													toggleMailSelection(item.id, event.target.checked)
 												}
@@ -5876,7 +5939,8 @@ const EmailsPage: FC = () => {
 											<Button
 												type="primary"
 												size="small"
-												onClick={() => handleViewEmailDetail(item)}
+												disabled={mailLoading}
+												onClick={() => void handleViewEmailDetail(item)}
 											>
 												{t(emailsInlineI18n["emails.mailbox.viewMessage"])}
 											</Button>
@@ -5928,13 +5992,14 @@ const EmailsPage: FC = () => {
 						t(emailsInlineI18n["emails.mailDetail.noSubject"])
 					}
 					open={emailDetailVisible}
-					onCancel={() => setEmailDetailVisible(false)}
+					onCancel={closeMailDetail}
 					footer={null}
 					destroyOnHidden
 					width={900}
 					styles={{ body: { padding: "16px 24px" } }}
 				>
-					<Space orientation="vertical" style={fullWidthStyle} size={12}>
+					<Spin spinning={emailDetailLoading}>
+						<Space orientation="vertical" style={fullWidthStyle} size={12}>
 						<Text>
 							<strong>
 								{t(emailsInlineI18n["emails.mailDetail.sender"])}：
@@ -5960,7 +6025,8 @@ const EmailsPage: FC = () => {
 								{renderPlainTextWithLinks(selectedMailDetail.text)}
 							</div>
 						) : null}
-					</Space>
+						</Space>
+					</Spin>
 				</Modal>
 			)}
 

@@ -65,6 +65,21 @@ func TestGmailProviderMockMessagesListGetSendDelete(t *testing.T) {
 	if fetched.Count != 1 || fetched.Messages[0].ID != "gmail-message-1" || fetched.Messages[0].Text != "fixture body" {
 		t.Fatalf("Gmail fetch = %#v", fetched)
 	}
+	summaries, err := provider.ListSummaries(ctx, account, "INBOX", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summaries.Count != 1 || summaries.Messages[0].ID != "gmail-message-1" || summaries.Messages[0].Subject != "fixture subject" {
+		t.Fatalf("Gmail summaries = %#v", summaries)
+	}
+	encodedSummaries, err := json.Marshal(summaries)
+	if err != nil || strings.Contains(string(encodedSummaries), `"text"`) || strings.Contains(string(encodedSummaries), `"html"`) {
+		t.Fatalf("Gmail summaries contain message bodies: %s, %v", encodedSummaries, err)
+	}
+	detail, err := provider.GetMessage(ctx, account, "INBOX", "gmail-message-1")
+	if err != nil || detail.Text != "fixture body" {
+		t.Fatalf("Gmail detail = %#v, %v", detail, err)
+	}
 	sent, err := provider.Send(ctx, account, providerSendInput{FromEmail: account.Email, To: []string{"to@example.test"}, Subject: "subject", Text: "body"})
 	if err != nil {
 		t.Fatal(err)
@@ -82,9 +97,37 @@ func TestGmailProviderMockMessagesListGetSendDelete(t *testing.T) {
 	assertProviderRequests(t, requests, []string{
 		"GET /gmail/v1/users/me/messages?labelIds=INBOX&maxResults=2",
 		"GET /gmail/v1/users/me/messages/gmail-message-1?format=full",
+		"GET /gmail/v1/users/me/messages?labelIds=INBOX&maxResults=2",
+		"GET /gmail/v1/users/me/messages/gmail-message-1?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date",
+		"GET /gmail/v1/users/me/messages/gmail-message-1?format=full",
 		"POST /gmail/v1/users/me/messages/send",
 		"POST /gmail/v1/users/me/messages/gmail-message-1/trash",
 	})
+}
+
+func TestGmailDetailNotFoundPreservesPublicFetchFailure(t *testing.T) {
+	transport := providerRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/gmail/v1/users/me/messages" {
+			return providerJSONResponse(http.StatusOK, `{"messages":[{"id":"missing-message"}]}`), nil
+		}
+		if request.URL.Path == "/gmail/v1/users/me/messages/missing-message" {
+			return providerJSONResponse(http.StatusNotFound, `{"error":"missing"}`), nil
+		}
+		return nil, fmt.Errorf("unexpected Gmail request %s", request.URL.String())
+	})
+	provider := gmailMailProvider{server: providerTestServer(transport)}
+	account := mailAccountCredentials{Email: "receiver@example.test", Provider: "GMAIL", AuthType: "GOOGLE_OAUTH"}
+
+	_, err := provider.Fetch(context.Background(), account, "INBOX", 1)
+	var requestErr *requestError
+	if !errors.As(err, &requestErr) || requestErr.Status != http.StatusBadGateway || requestErr.Code != "MAILBOX_FETCH_FAILED" {
+		t.Fatalf("public Gmail fetch missing error = %#v", err)
+	}
+
+	_, err = provider.GetMessage(context.Background(), account, "INBOX", "missing-message")
+	if !errors.As(err, &requestErr) || requestErr.Status != http.StatusNotFound || requestErr.Code != "MAIL_MESSAGE_NOT_FOUND" {
+		t.Fatalf("admin Gmail detail missing error = %#v", err)
+	}
 }
 
 func TestGraphProviderMockMessagesAndSendMail(t *testing.T) {
@@ -97,6 +140,8 @@ func TestGraphProviderMockMessagesAndSendMail(t *testing.T) {
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/v1.0/me/mailFolders/inbox/messages":
 			return providerJSONResponse(http.StatusOK, `{"value":[{"id":"graph-message-1","subject":"fixture subject","bodyPreview":"fixture body","body":{"contentType":"text","content":"fixture body"},"from":{"emailAddress":{"name":"Sender","address":"sender@example.test"}},"toRecipients":[{"emailAddress":{"name":"Receiver","address":"receiver@example.test"}}],"receivedDateTime":"2026-07-31T00:00:00Z"}]}`), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/v1.0/me/messages/graph-message-1":
+			return providerJSONResponse(http.StatusOK, `{"id":"graph-message-1","subject":"fixture subject","bodyPreview":"fixture body","body":{"contentType":"text","content":"fixture body"},"from":{"emailAddress":{"name":"Sender","address":"sender@example.test"}},"toRecipients":[{"emailAddress":{"name":"Receiver","address":"receiver@example.test"}}],"receivedDateTime":"2026-07-31T00:00:00Z"}`), nil
 		case request.Method == http.MethodPost && request.URL.Path == "/v1.0/me/sendMail":
 			var payload struct {
 				SaveToSentItems bool `json:"saveToSentItems"`
@@ -124,6 +169,17 @@ func TestGraphProviderMockMessagesAndSendMail(t *testing.T) {
 	if fetched.Count != 1 || fetched.Messages[0].ID != "graph-message-1" || fetched.Messages[0].Text != "fixture body" {
 		t.Fatalf("Graph fetch = %#v", fetched)
 	}
+	summaries, err := provider.ListSummaries(ctx, account, "INBOX", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summaries.Count != 1 || summaries.Messages[0].ID != "graph-message-1" || summaries.Messages[0].Subject != "fixture subject" {
+		t.Fatalf("Graph summaries = %#v", summaries)
+	}
+	detail, err := provider.GetMessage(ctx, account, "INBOX", "graph-message-1")
+	if err != nil || detail.Text != "fixture body" {
+		t.Fatalf("Graph detail = %#v, %v", detail, err)
+	}
 	if _, err := provider.Send(ctx, account, providerSendInput{FromEmail: account.Email, To: []string{"to@example.test"}, Subject: "subject", Text: "body"}); err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +188,8 @@ func TestGraphProviderMockMessagesAndSendMail(t *testing.T) {
 	}
 	assertProviderRequests(t, requests, []string{
 		"GET /v1.0/me/mailFolders/inbox/messages?$top=5&$orderby=receivedDateTime%20desc&$select=id,subject,bodyPreview,body,from,toRecipients,receivedDateTime",
+		"GET /v1.0/me/mailFolders/inbox/messages?$top=5&$orderby=receivedDateTime%20desc&$select=id,subject,from,toRecipients,receivedDateTime",
+		"GET /v1.0/me/messages/graph-message-1?$select=id,subject,bodyPreview,body,from,toRecipients,receivedDateTime",
 		"POST /v1.0/me/sendMail",
 		"DELETE /v1.0/me/messages/graph-message-1",
 	})
@@ -460,6 +518,14 @@ func TestIMAPFixtureLoginSelectFetchStoreDeleteExpunge(t *testing.T) {
 	if fetched.Count != 1 || fetched.Messages[0].ID != "uid:42" {
 		t.Fatalf("IMAP fetch = %#v", fetched)
 	}
+	summaries, err := provider.ListSummaries(ctx, account, "INBOX", 1)
+	if err != nil || summaries.Count != 1 || summaries.Messages[0].ID != "uid:42" || summaries.Messages[0].Subject != "Fixture subject" {
+		t.Fatalf("IMAP summaries = %#v, %v", summaries, err)
+	}
+	detail, err := provider.GetMessage(ctx, account, "INBOX", "uid:42")
+	if err != nil || detail.Text != "Fixture body\r\n" {
+		t.Fatalf("IMAP detail = %#v, %v", detail, err)
+	}
 	deleted, err := provider.Delete(ctx, account, "INBOX", []string{"uid:42"})
 	if err != nil {
 		t.Fatal(err)
@@ -475,10 +541,23 @@ func TestIMAPFixtureLoginSelectFetchStoreDeleteExpunge(t *testing.T) {
 		t.Fatalf("stale IMAP delete error = %#v", err)
 	}
 	commands := strings.ToUpper(strings.Join(fixture.Commands(), "\n"))
-	for _, expected := range []string{"LOGIN", "SELECT INBOX", "FETCH", "UID STORE", "\\DELETED", "EXPUNGE"} {
+	for _, expected := range []string{"LOGIN", "SELECT INBOX", "FETCH", "UID FETCH", "UID STORE", "\\DELETED", "EXPUNGE"} {
 		if !strings.Contains(commands, expected) {
 			t.Fatalf("IMAP commands missing %q:\n%s", expected, commands)
 		}
+	}
+	var metadataOnlyFetch, detailBodyFetch bool
+	for _, command := range fixture.Commands() {
+		upper := strings.ToUpper(command)
+		if strings.HasPrefix(upper, "FETCH ") && !strings.Contains(upper, "BODY") {
+			metadataOnlyFetch = true
+		}
+		if strings.HasPrefix(upper, "UID FETCH ") && strings.Contains(upper, "BODY.PEEK") {
+			detailBodyFetch = true
+		}
+	}
+	if !metadataOnlyFetch || !detailBodyFetch {
+		t.Fatalf("IMAP summary/detail commands = %s", commands)
 	}
 }
 
@@ -598,8 +677,18 @@ func (fixture *imapFixture) serve(connection net.Conn) {
 		case "FETCH":
 			message := "From: Sender <sender@example.test>\r\nTo: Receiver <receiver@example.test>\r\nSubject: Fixture subject\r\nDate: Fri, 31 Jul 2026 00:00:00 +0000\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nFixture body\r\n"
 			envelope := "(\"Fri, 31 Jul 2026 00:00:00 +0000\" \"Fixture subject\" ((\"Sender\" NIL \"sender\" \"example.test\")) ((\"Sender\" NIL \"sender\" \"example.test\")) ((\"Sender\" NIL \"sender\" \"example.test\")) ((\"Receiver\" NIL \"receiver\" \"example.test\")) NIL NIL NIL \"<fixture@example.test>\")"
-			_, _ = fmt.Fprintf(connection, "* 1 FETCH (UID 42 ENVELOPE %s BODY[] {%d}\r\n%s)\r\n%s OK FETCH completed\r\n", envelope, len(message), message, tag)
+			if strings.Contains(strings.ToUpper(line), "BODY") {
+				_, _ = fmt.Fprintf(connection, "* 1 FETCH (UID 42 ENVELOPE %s BODY[] {%d}\r\n%s)\r\n%s OK FETCH completed\r\n", envelope, len(message), message, tag)
+			} else {
+				_, _ = fmt.Fprintf(connection, "* 1 FETCH (UID 42 ENVELOPE %s)\r\n%s OK FETCH completed\r\n", envelope, tag)
+			}
 		case "UID":
+			if len(parts) >= 3 && strings.ToUpper(parts[2]) == "FETCH" {
+				message := "From: Sender <sender@example.test>\r\nTo: Receiver <receiver@example.test>\r\nSubject: Fixture subject\r\nDate: Fri, 31 Jul 2026 00:00:00 +0000\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nFixture body\r\n"
+				envelope := "(\"Fri, 31 Jul 2026 00:00:00 +0000\" \"Fixture subject\" ((\"Sender\" NIL \"sender\" \"example.test\")) ((\"Sender\" NIL \"sender\" \"example.test\")) ((\"Sender\" NIL \"sender\" \"example.test\")) ((\"Receiver\" NIL \"receiver\" \"example.test\")) NIL NIL NIL \"<fixture@example.test>\")"
+				_, _ = fmt.Fprintf(connection, "* 1 FETCH (UID 42 ENVELOPE %s BODY[] {%d}\r\n%s)\r\n%s OK FETCH completed\r\n", envelope, len(message), message, tag)
+				break
+			}
 			if len(parts) < 3 || strings.ToUpper(parts[2]) != "STORE" {
 				fixture.recordError(fmt.Errorf("unexpected UID command %q", line))
 				return

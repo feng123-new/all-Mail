@@ -1,12 +1,12 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import EmailsPage from '..';
-import { I18nProvider } from '../../../i18n';
-import { useAuthStore } from '../../../stores/authStore';
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { I18nProvider } from "../../../i18n";
+import { useAuthStore } from "../../../stores/authStore";
+import EmailsPage from "..";
 
-vi.mock('../../../contracts/admin/emails', () => ({
+vi.mock("../../../contracts/admin/emails", () => ({
 	emailsContract: {
 		getList: vi.fn(),
 		getGroups: vi.fn(),
@@ -22,6 +22,7 @@ vi.mock('../../../contracts/admin/emails', () => ({
 		import: vi.fn(),
 		export: vi.fn(),
 		viewMails: vi.fn(),
+		viewMailDetail: vi.fn(),
 		clearMailbox: vi.fn(),
 		deleteSelectedMails: vi.fn(),
 		batchFetchMailboxes: vi.fn(),
@@ -39,7 +40,7 @@ vi.mock('../../../contracts/admin/emails', () => ({
 	},
 }));
 
-import { emailsContract } from '../../../contracts/admin/emails';
+import { emailsContract } from "../../../contracts/admin/emails";
 
 function ok<T>(data: T) {
 	return Promise.resolve({ code: 200, data });
@@ -70,31 +71,32 @@ function buildCapabilitySummary(
 function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 	return {
 		id: 1,
-		email: 'ops@example.com',
-		provider: 'QQ',
-		authType: 'APP_PASSWORD',
+		email: "ops@example.com",
+		provider: "QQ",
+		authType: "APP_PASSWORD",
 		hasStoredPassword: true,
 		hasStoredAccountLoginPassword: true,
 		capabilitySummary: buildCapabilitySummary(),
 		clientId: null,
-		status: 'ACTIVE',
+		status: "ACTIVE",
 		groupId: null,
 		group: null,
 		lastCheckAt: null,
 		mailboxStatus: null,
 		errorMessage: null,
-		createdAt: '2026-04-02T00:00:00.000Z',
+		createdAt: "2026-04-02T00:00:00.000Z",
 		...overrides,
 	};
 }
 
-	describe('EmailsPage login password button', () => {
+describe("EmailsPage login password button", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		useAuthStore.setState({
 			admin: {
 				id: 1,
-				username: 'admin',
-				role: 'ADMIN',
+				username: "admin",
+				role: "ADMIN",
 				twoFactorEnabled: true,
 			},
 			isAuthenticated: true,
@@ -106,20 +108,20 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 				GMAIL: {
 					configured: false,
 					redirectUri: null,
-					source: 'none',
+					source: "none",
 					clientId: null,
 					scopes: null,
-					scopeProfile: 'minimal',
+					scopeProfile: "minimal",
 					tenant: null,
 					hasClientSecret: false,
 				},
 				OUTLOOK: {
 					configured: false,
 					redirectUri: null,
-					source: 'none',
+					source: "none",
 					clientId: null,
 					scopes: null,
-					scopeProfile: 'minimal',
+					scopeProfile: "minimal",
 					tenant: null,
 					hasClientSecret: false,
 				},
@@ -127,87 +129,29 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 		);
 	});
 
-	it('renders a blue login password button when a stored account login password exists', async () => {
+	it("renders a blue login password button when a stored account login password exists", async () => {
 		vi.mocked(emailsContract.getList).mockReturnValue(
 			ok({ list: [buildRow()], total: 1 }) as never,
 		);
 
 		render(
-			<MemoryRouter
-			>
+			<MemoryRouter>
 				<EmailsPage />
 			</MemoryRouter>,
 		);
 
-		await screen.findByText('ops@example.com');
-		const passwordButton = screen.getByRole('button', { name: /登录密码/ });
-		expect(passwordButton).toHaveClass('ant-btn-primary');
+		await screen.findByText("ops@example.com");
+		const passwordButton = screen.getByRole("button", { name: /登录密码/ });
+		expect(passwordButton).toHaveClass("ant-btn-primary");
 	}, 20000);
 
-	it('clicking the login password button shows the missing-account-password message and skips unlock', async () => {
-		vi.mocked(emailsContract.getList).mockReturnValue(
-			ok({
-				list: [buildRow({ hasStoredAccountLoginPassword: false, email: 'nopass@example.com' })],
-				total: 1,
-			}) as never,
-		);
-
-		render(
-			<MemoryRouter
-			>
-				<EmailsPage />
-			</MemoryRouter>,
-		);
-
-		await screen.findByText('nopass@example.com');
-		await userEvent.click(screen.getByRole('button', { name: /登录密码/ }));
-
-		const noPasswordHints = await screen.findAllByText('该账号暂无已存储的账号登录密码，可在启用 2FA 后进入编辑页补录');
-		expect(noPasswordHints.length).toBeGreaterThan(0);
-		expect(emailsContract.revealUnlock).not.toHaveBeenCalled();
-	});
-
-	it('clicking a blue login password button without 2FA warns before unlock', async () => {
-		useAuthStore.setState({
-			admin: {
-				id: 1,
-				username: 'admin',
-				role: 'ADMIN',
-				twoFactorEnabled: false,
-			},
-			isAuthenticated: true,
-		});
-		vi.mocked(emailsContract.getList).mockReturnValue(
-			ok({ list: [buildRow({ email: 'twofa@example.com' })], total: 1 }) as never,
-		);
-
-		render(
-			<MemoryRouter
-			>
-				<EmailsPage />
-			</MemoryRouter>,
-		);
-
-		await screen.findByText('twofa@example.com');
-		await userEvent.click(screen.getByRole('button', { name: /登录密码/ }));
-
-		await waitFor(() => {
-			expect(screen.getByText('请先在设置页启用 2FA，再查看已存储的密钥')).toBeInTheDocument();
-		});
-		expect(emailsContract.revealUnlock).not.toHaveBeenCalled();
-	});
-
-	it('allows oauth rows to expose stored account login passwords', async () => {
+	it("clicking the login password button shows the missing-account-password message and skips unlock", async () => {
 		vi.mocked(emailsContract.getList).mockReturnValue(
 			ok({
 				list: [
 					buildRow({
-						email: 'oauth@example.com',
-						provider: 'OUTLOOK',
-						authType: 'MICROSOFT_OAUTH',
-						hasStoredPassword: false,
-						hasStoredAccountLoginPassword: true,
-						capabilitySummary: buildCapabilitySummary({ usesOAuth: true, refreshToken: true }),
+						hasStoredAccountLoginPassword: false,
+						email: "nopass@example.com",
 					}),
 				],
 				total: 1,
@@ -215,35 +159,152 @@ function buildRow(overrides: Partial<Record<string, unknown>> = {}) {
 		);
 
 		render(
-			<MemoryRouter
-			>
+			<MemoryRouter>
 				<EmailsPage />
 			</MemoryRouter>,
 		);
 
-		await screen.findByText('oauth@example.com');
-		const passwordButton = screen.getByRole('button', { name: /登录密码/ });
-		expect(passwordButton).toHaveClass('ant-btn-primary');
+		await screen.findByText("nopass@example.com");
+		await userEvent.click(screen.getByRole("button", { name: /登录密码/ }));
+
+		const noPasswordHints = await screen.findAllByText(
+			"该账号暂无已存储的账号登录密码，可在启用 2FA 后进入编辑页补录",
+		);
+		expect(noPasswordHints.length).toBeGreaterThan(0);
+		expect(emailsContract.revealUnlock).not.toHaveBeenCalled();
 	});
 
-	it('renders clean English list controls for the mailbox table', async () => {
+	it("clicking a blue login password button without 2FA warns before unlock", async () => {
+		useAuthStore.setState({
+			admin: {
+				id: 1,
+				username: "admin",
+				role: "ADMIN",
+				twoFactorEnabled: false,
+			},
+			isAuthenticated: true,
+		});
 		vi.mocked(emailsContract.getList).mockReturnValue(
-			ok({ list: [buildRow({ email: 'english@example.com' })], total: 1 }) as never,
+			ok({
+				list: [buildRow({ email: "twofa@example.com" })],
+				total: 1,
+			}) as never,
+		);
+
+		render(
+			<MemoryRouter>
+				<EmailsPage />
+			</MemoryRouter>,
+		);
+
+		await screen.findByText("twofa@example.com");
+		await userEvent.click(screen.getByRole("button", { name: /登录密码/ }));
+
+		await waitFor(() => {
+			expect(
+				screen.getByText("请先在设置页启用 2FA，再查看已存储的密钥"),
+			).toBeInTheDocument();
+		});
+		expect(emailsContract.revealUnlock).not.toHaveBeenCalled();
+	});
+
+	it("allows oauth rows to expose stored account login passwords", async () => {
+		vi.mocked(emailsContract.getList).mockReturnValue(
+			ok({
+				list: [
+					buildRow({
+						email: "oauth@example.com",
+						provider: "OUTLOOK",
+						authType: "MICROSOFT_OAUTH",
+						hasStoredPassword: false,
+						hasStoredAccountLoginPassword: true,
+						capabilitySummary: buildCapabilitySummary({
+							usesOAuth: true,
+							refreshToken: true,
+						}),
+					}),
+				],
+				total: 1,
+			}) as never,
+		);
+
+		render(
+			<MemoryRouter>
+				<EmailsPage />
+			</MemoryRouter>,
+		);
+
+		await screen.findByText("oauth@example.com");
+		const passwordButton = screen.getByRole("button", { name: /登录密码/ });
+		expect(passwordButton).toHaveClass("ant-btn-primary");
+	});
+
+	it("renders clean English list controls for the mailbox table", async () => {
+		vi.mocked(emailsContract.getList).mockReturnValue(
+			ok({
+				list: [buildRow({ email: "english@example.com" })],
+				total: 1,
+			}) as never,
 		);
 
 		render(
 			<I18nProvider initialLanguage="en-US" persist={false}>
-				<MemoryRouter
-				>
+				<MemoryRouter>
 					<EmailsPage />
 				</MemoryRouter>
 			</I18nProvider>,
 		);
 
-		expect(await screen.findByRole('heading', { name: 'External mailboxes' })).toBeInTheDocument();
-		expect(await screen.findByText('english@example.com')).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: /Add mailbox/ })).toBeInTheDocument();
-		expect(await screen.findByRole('button', { name: /Check connection/ })).toBeInTheDocument();
-		expect(screen.queryByText('检查连接')).not.toBeInTheDocument();
+		expect(
+			await screen.findByRole("heading", { name: "External mailboxes" }),
+		).toBeInTheDocument();
+		expect(await screen.findByText("english@example.com")).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: /Add mailbox/ }),
+		).toBeInTheDocument();
+		expect(
+			await screen.findByRole("button", { name: /Check connection/ }),
+		).toBeInTheDocument();
+		expect(screen.queryByText("检查连接")).not.toBeInTheDocument();
+	});
+
+	it("clears stale messages while switching mailboxes", async () => {
+		vi.mocked(emailsContract.getList).mockReturnValue(
+			ok({ list: [buildRow()], total: 1 }) as never,
+		);
+		vi.mocked(emailsContract.viewMails)
+			.mockReturnValueOnce(
+				ok({
+					messages: [
+						{
+							id: "uid:42",
+							from: "sender@example.test",
+							to: "ops@example.com",
+							subject: "Inbox fixture subject",
+							date: "2026-08-06T00:00:00Z",
+						},
+					],
+				}) as never,
+			)
+			.mockReturnValueOnce(new Promise(() => {}) as never);
+
+		render(
+			<MemoryRouter>
+				<EmailsPage />
+			</MemoryRouter>,
+		);
+
+		await screen.findByText("ops@example.com");
+		await userEvent.click(screen.getByRole("button", { name: "收件箱" }));
+		expect(
+			await screen.findByText("Inbox fixture subject"),
+		).toBeInTheDocument();
+
+		await userEvent.click(screen.getByRole("tab", { name: "已发送" }));
+		await waitFor(() => {
+			expect(
+				screen.queryByText("Inbox fixture subject"),
+			).not.toBeInTheDocument();
+		});
 	});
 });

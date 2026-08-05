@@ -94,6 +94,7 @@ func (s *Server) registerMailAccountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/emails/import", s.withAdministrator(s.importMailAccounts))
 	mux.HandleFunc("GET /admin/emails/export", s.withSuperAdministrator(s.exportMailAccounts))
 	mux.HandleFunc("GET /admin/emails/{id}/mails", s.withAdministratorProvider(s.fetchMailAccountMessages))
+	mux.HandleFunc("GET /admin/emails/{id}/mails/detail", s.withAdministratorProvider(s.getMailAccountMessage))
 	mux.HandleFunc("POST /admin/emails/{id}/mails/delete", s.withAdministratorProvider(s.deleteMailAccountMessages))
 	mux.HandleFunc("POST /admin/emails/{id}/send", s.withAdministratorProvider(s.sendMailAccountMessage))
 	mux.HandleFunc("POST /admin/emails/{id}/clear", s.withAdministratorProvider(s.clearMailAccountMailbox))
@@ -329,12 +330,50 @@ func (s *Server) fetchMailAccountMessages(w http.ResponseWriter, r *http.Request
 		s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "EMAIL_DISABLED"})
 		return
 	}
-	result, err := s.fetchAccountMailbox(r.Context(), account, mailbox, limit, markAsSeen)
+	result, err := s.listAccountMailboxSummaries(r.Context(), account, mailbox, limit, markAsSeen)
 	if err != nil {
 		s.writeRequestError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": result})
+}
+
+func (s *Server) getMailAccountMessage(w http.ResponseWriter, r *http.Request, _ Admin) {
+	store, err := s.managementStore()
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	id, err := parsePositivePathID(r, "id")
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	mailbox, err := validateMailboxName(r.URL.Query().Get("mailbox"), true)
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	messageID := strings.TrimSpace(r.URL.Query().Get("messageId"))
+	if messageID == "" || len(messageID) > 2048 {
+		s.writeRequestError(w, r, validationError("messageId must contain between 1 and 2048 bytes"))
+		return
+	}
+	account, err := s.loadProviderMailAccount(r.Context(), store, id)
+	if err != nil {
+		s.writeStoreError(w, r, "load mail account", err)
+		return
+	}
+	if account.Status == "DISABLED" {
+		s.writeRequestError(w, r, &requestError{Status: http.StatusForbidden, Code: "EMAIL_DISABLED"})
+		return
+	}
+	message, err := s.getAccountMailboxMessage(r.Context(), account, mailbox, messageID)
+	if err != nil {
+		s.writeRequestError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": message})
 }
 
 func (s *Server) deleteMailAccountMessages(w http.ResponseWriter, r *http.Request, _ Admin) {
@@ -372,7 +411,7 @@ func (s *Server) deleteMailAccountMessages(w http.ResponseWriter, r *http.Reques
 		s.writeRequestError(w, r, err)
 		return
 	}
-	remaining, err := s.fetchAccountMailbox(r.Context(), account, mailbox, 100, true)
+	remaining, err := s.listAccountMailboxSummaries(r.Context(), account, mailbox, 100, true)
 	if err != nil {
 		s.writeRequestError(w, r, err)
 		return
@@ -568,7 +607,7 @@ func (s *Server) batchMailAccountOperation(w http.ResponseWriter, r *http.Reques
 		mailboxResults := make([]any, 0, len(mailboxes))
 		mailboxSuccesses := 0
 		for _, mailbox := range mailboxes {
-			result, err := s.fetchAccountMailbox(r.Context(), account, mailbox, 100, false)
+			result, err := s.listAccountMailboxSummaries(r.Context(), account, mailbox, 100, false)
 			if err != nil {
 				mailboxResults = append(mailboxResults, map[string]any{
 					"mailbox": mailbox, "status": "error", "code": requestErrorCode(err, "MAILBOX_FETCH_FAILED"),

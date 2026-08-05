@@ -49,6 +49,14 @@ type providerMessage struct {
 	Date    string `json:"date"`
 }
 
+type providerMessageSummary struct {
+	ID      string `json:"id"`
+	From    string `json:"from"`
+	To      string `json:"to"`
+	Subject string `json:"subject"`
+	Date    string `json:"date"`
+}
+
 type providerFetchResult struct {
 	Email             string            `json:"email"`
 	Mailbox           string            `json:"mailbox"`
@@ -58,6 +66,17 @@ type providerFetchResult struct {
 	MailboxCheckpoint map[string]any    `json:"mailboxCheckpoint,omitempty"`
 	Method            string            `json:"method"`
 	Provider          string            `json:"provider"`
+}
+
+type providerSummaryResult struct {
+	Email             string                   `json:"email"`
+	Mailbox           string                   `json:"mailbox"`
+	ResolvedMailbox   string                   `json:"resolvedMailbox,omitempty"`
+	Count             int                      `json:"count"`
+	Messages          []providerMessageSummary `json:"messages"`
+	MailboxCheckpoint map[string]any           `json:"mailboxCheckpoint,omitempty"`
+	Method            string                   `json:"method"`
+	Provider          string                   `json:"provider"`
 }
 
 type providerDeleteResult struct {
@@ -92,6 +111,11 @@ type mailProvider interface {
 	Delete(ctx context.Context, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error)
 	Clear(ctx context.Context, account mailAccountCredentials, mailbox string) (providerDeleteResult, error)
 	Send(ctx context.Context, account mailAccountCredentials, input providerSendInput) (providerSendResult, error)
+}
+
+type providerMailboxReader interface {
+	ListSummaries(ctx context.Context, account mailAccountCredentials, mailbox string, limit int) (providerSummaryResult, error)
+	GetMessage(ctx context.Context, account mailAccountCredentials, mailbox, messageID string) (providerMessage, error)
 }
 
 var supportedEmailProviders = map[string]struct{}{

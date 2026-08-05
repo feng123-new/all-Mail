@@ -49,25 +49,7 @@ func (p graphMailProvider) Fetch(ctx context.Context, account mailAccountCredent
 	}
 	messages := make([]providerMessage, 0, len(payload.Value))
 	for _, item := range payload.Value {
-		from := formatGraphAddress(item.From.EmailAddress.Name, item.From.EmailAddress.Address)
-		to := make([]string, 0, len(item.ToRecipients))
-		for _, recipient := range item.ToRecipients {
-			to = append(to, formatGraphAddress(recipient.EmailAddress.Name, recipient.EmailAddress.Address))
-		}
-		message := providerMessage{
-			ID:      item.ID,
-			From:    from,
-			To:      strings.Join(to, ", "),
-			Subject: item.Subject,
-			Text:    item.BodyPreview,
-			Date:    item.ReceivedDateTime,
-		}
-		if strings.EqualFold(item.Body.ContentType, "html") {
-			message.HTML = item.Body.Content
-		} else if item.Body.Content != "" {
-			message.Text = item.Body.Content
-		}
-		messages = append(messages, message)
+		messages = append(messages, graphProviderMessage(item))
 	}
 	return providerFetchResult{
 		Email:           account.Email,
@@ -78,6 +60,80 @@ func (p graphMailProvider) Fetch(ctx context.Context, account mailAccountCredent
 		Method:          "GRAPH_API",
 		Provider:        account.Provider,
 	}, nil
+}
+
+func (p graphMailProvider) ListSummaries(ctx context.Context, account mailAccountCredentials, mailbox string, limit int) (providerSummaryResult, error) {
+	token, err := p.server.refreshProviderAccessToken(ctx, account)
+	if err != nil {
+		return providerSummaryResult{}, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	folder := graphFolder(mailbox)
+	endpoint := fmt.Sprintf(
+		"https://graph.microsoft.com/v1.0/me/mailFolders/%s/messages?$top=%d&$orderby=receivedDateTime%%20desc&$select=id,subject,from,toRecipients,receivedDateTime",
+		url.PathEscape(folder),
+		limit,
+	)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return providerSummaryResult{}, providerFailure("MAILBOX_REQUEST_INVALID", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := p.server.doProviderRequest(account, request)
+	if err != nil {
+		return providerSummaryResult{}, providerFailure("MAILBOX_FETCH_FAILED", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return providerSummaryResult{}, providerHTTPFailure("MAILBOX_FETCH_FAILED", response)
+	}
+	var payload graphMessageList
+	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&payload); err != nil {
+		return providerSummaryResult{}, providerFailure("MAILBOX_RESPONSE_INVALID", err)
+	}
+	messages := make([]providerMessageSummary, 0, len(payload.Value))
+	for _, item := range payload.Value {
+		messages = append(messages, graphMessageSummary(item))
+	}
+	return providerSummaryResult{
+		Email: account.Email, Mailbox: mailbox, ResolvedMailbox: folder, Count: len(messages), Messages: messages,
+		Method: "GRAPH_API", Provider: account.Provider,
+	}, nil
+}
+
+func (p graphMailProvider) GetMessage(ctx context.Context, account mailAccountCredentials, _ string, messageID string) (providerMessage, error) {
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return providerMessage{}, validationError("messageId must contain a non-empty value")
+	}
+	token, err := p.server.refreshProviderAccessToken(ctx, account)
+	if err != nil {
+		return providerMessage{}, err
+	}
+	endpoint := "https://graph.microsoft.com/v1.0/me/messages/" + url.PathEscape(messageID) + "?$select=id,subject,bodyPreview,body,from,toRecipients,receivedDateTime"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return providerMessage{}, providerFailure("MAILBOX_REQUEST_INVALID", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := p.server.doProviderRequest(account, request)
+	if err != nil {
+		return providerMessage{}, providerFailure("MAILBOX_FETCH_FAILED", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return providerMessage{}, &requestError{Status: http.StatusNotFound, Code: "MAIL_MESSAGE_NOT_FOUND"}
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return providerMessage{}, providerHTTPFailure("MAILBOX_FETCH_FAILED", response)
+	}
+	var payload graphMessage
+	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&payload); err != nil {
+		return providerMessage{}, providerFailure("MAILBOX_RESPONSE_INVALID", err)
+	}
+	return graphProviderMessage(payload), nil
 }
 
 func (p graphMailProvider) Delete(ctx context.Context, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error) {
@@ -226,29 +282,56 @@ func (p graphMailProvider) Send(ctx context.Context, account mailAccountCredenti
 }
 
 type graphMessageList struct {
-	NextLink string `json:"@odata.nextLink"`
-	Value    []struct {
-		ID               string `json:"id"`
-		Subject          string `json:"subject"`
-		BodyPreview      string `json:"bodyPreview"`
-		ReceivedDateTime string `json:"receivedDateTime"`
-		Body             struct {
-			ContentType string `json:"contentType"`
-			Content     string `json:"content"`
-		} `json:"body"`
-		From struct {
-			EmailAddress struct {
-				Name    string `json:"name"`
-				Address string `json:"address"`
-			} `json:"emailAddress"`
-		} `json:"from"`
-		ToRecipients []struct {
-			EmailAddress struct {
-				Name    string `json:"name"`
-				Address string `json:"address"`
-			} `json:"emailAddress"`
-		} `json:"toRecipients"`
-	} `json:"value"`
+	NextLink string         `json:"@odata.nextLink"`
+	Value    []graphMessage `json:"value"`
+}
+
+type graphMessage struct {
+	ID               string `json:"id"`
+	Subject          string `json:"subject"`
+	BodyPreview      string `json:"bodyPreview"`
+	ReceivedDateTime string `json:"receivedDateTime"`
+	Body             struct {
+		ContentType string `json:"contentType"`
+		Content     string `json:"content"`
+	} `json:"body"`
+	From struct {
+		EmailAddress struct {
+			Name    string `json:"name"`
+			Address string `json:"address"`
+		} `json:"emailAddress"`
+	} `json:"from"`
+	ToRecipients []struct {
+		EmailAddress struct {
+			Name    string `json:"name"`
+			Address string `json:"address"`
+		} `json:"emailAddress"`
+	} `json:"toRecipients"`
+}
+
+func graphMessageSummary(item graphMessage) providerMessageSummary {
+	to := make([]string, 0, len(item.ToRecipients))
+	for _, recipient := range item.ToRecipients {
+		to = append(to, formatGraphAddress(recipient.EmailAddress.Name, recipient.EmailAddress.Address))
+	}
+	return providerMessageSummary{
+		ID: item.ID, From: formatGraphAddress(item.From.EmailAddress.Name, item.From.EmailAddress.Address),
+		To: strings.Join(to, ", "), Subject: item.Subject, Date: item.ReceivedDateTime,
+	}
+}
+
+func graphProviderMessage(item graphMessage) providerMessage {
+	summary := graphMessageSummary(item)
+	message := providerMessage{
+		ID: summary.ID, From: summary.From, To: summary.To, Subject: summary.Subject,
+		Text: item.BodyPreview, Date: summary.Date,
+	}
+	if strings.EqualFold(item.Body.ContentType, "html") {
+		message.HTML = item.Body.Content
+	} else if item.Body.Content != "" {
+		message.Text = item.Body.Content
+	}
+	return message
 }
 
 func graphFolder(mailbox string) string {

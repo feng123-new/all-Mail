@@ -65,6 +65,53 @@ func (s *Server) fetchAccountMailbox(ctx context.Context, account mailAccountCre
 	return result, nil
 }
 
+func (s *Server) listAccountMailboxSummaries(ctx context.Context, account mailAccountCredentials, mailbox string, limit int, markAsSeen bool) (providerSummaryResult, error) {
+	modes, err := mailAccountFetchModes(account)
+	if err != nil {
+		return providerSummaryResult{}, err
+	}
+	var result providerSummaryResult
+	var fetchErr error
+	for _, mode := range modes {
+		reader := s.mailboxReaderForMode(mode)
+		result, fetchErr = reader.ListSummaries(ctx, account, mailbox, limit)
+		if fetchErr == nil {
+			break
+		}
+	}
+	store, storeErr := s.managementStore()
+	if storeErr != nil {
+		return providerSummaryResult{}, storeErr
+	}
+	databaseCtx, cancelDatabase := s.databaseContext(context.WithoutCancel(ctx))
+	defer cancelDatabase()
+	if fetchErr != nil {
+		_ = store.updateMailAccountHealth(databaseCtx, account.ID, false, boundedProviderError(fetchErr))
+		return providerSummaryResult{}, fetchErr
+	}
+	syncMessages := make([]providerMessage, 0, len(result.Messages))
+	for _, message := range result.Messages {
+		syncMessages = append(syncMessages, providerMessage{
+			ID: message.ID, From: message.From, To: message.To, Subject: message.Subject, Date: message.Date,
+		})
+	}
+	if _, err := store.updateMailboxSyncState(databaseCtx, account.ID, mailbox, syncMessages, result.MailboxCheckpoint, markAsSeen); err != nil {
+		return providerSummaryResult{}, err
+	}
+	if err := store.updateMailAccountHealth(databaseCtx, account.ID, true, ""); err != nil {
+		return providerSummaryResult{}, err
+	}
+	return result, nil
+}
+
+func (s *Server) getAccountMailboxMessage(ctx context.Context, account mailAccountCredentials, mailbox, messageID string) (providerMessage, error) {
+	mode, err := mailAccountDeleteMode(account, []string{messageID})
+	if err != nil {
+		return providerMessage{}, err
+	}
+	return s.mailboxReaderForMode(mode).GetMessage(ctx, account, mailbox, messageID)
+}
+
 func (s *Server) deleteAccountMessages(ctx context.Context, account mailAccountCredentials, mailbox string, messageIDs []string) (providerDeleteResult, error) {
 	mode, err := mailAccountDeleteMode(account, messageIDs)
 	if err != nil {
@@ -117,6 +164,17 @@ func (s *Server) clearAccountMailbox(ctx context.Context, account mailAccountCre
 }
 
 func (s *Server) providerForMode(mode string) mailProvider {
+	switch mode {
+	case providerModeGraph:
+		return graphMailProvider{server: s}
+	case providerModeGmail:
+		return gmailMailProvider{server: s}
+	default:
+		return imapSMTPProvider{server: s}
+	}
+}
+
+func (s *Server) mailboxReaderForMode(mode string) providerMailboxReader {
 	switch mode {
 	case providerModeGraph:
 		return graphMailProvider{server: s}
