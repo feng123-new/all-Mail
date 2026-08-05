@@ -268,12 +268,16 @@ func parseEmailFirstImportedMailAccount(parts []string) (importedMailAccount, er
 		}, nil
 	}
 	if len(parts) >= 4 {
+		providerConfig := defaultProviderConfig(provider)
+		if provider == "OUTLOOK" {
+			providerConfig.ReadMode = "IMAP_ONLY"
+		}
 		result := importedMailAccount{
 			Email: email, Provider: provider, AuthType: oauthAuthType(provider),
 			AccountLoginPassword: optionalStringPointer(parts[1]),
 			ClientID:             optionalStringPointer(parts[2]),
 			RefreshToken:         optionalStringPointer(parts[3]),
-			ProviderConfig:       defaultProviderConfig(provider),
+			ProviderConfig:       providerConfig,
 		}
 		if len(parts) > 4 {
 			result.ClientSecret = optionalStringPointer(parts[4])
