@@ -31,7 +31,10 @@ The production helper uses Linux shell and host tooling as part of the supported
 - OpenSSL for operator-generated PostgreSQL passwords;
 - Docker Engine with the Docker Compose v2 plugin (`docker compose`);
 - permission for the current user to access the Docker daemon;
-- enough storage for PostgreSQL, Redis, images, logs, and verified backups;
+- Redis-compatible Linux memory policy with `vm.overcommit_memory=1`;
+- at least 1 GiB of currently available memory, 4 GiB of free space on the selected filesystem, and 10,000 free inodes; 2 GiB or more memory is recommended when building locally;
+- the selected application listener, `127.0.0.1:3002` by default, either free for a fresh install or confirmed to belong to the currently running all-Mail revision during an upgrade;
+- enough additional storage for PostgreSQL growth, Redis AOF, images, logs, and verified backups;
 - Go 1.26.5 and Node.js 24 only when developing or building outside Docker.
 
 Run the non-secret host capability check before creating `.env`:
@@ -40,18 +43,38 @@ Run the non-secret host capability check before creating `.env`:
 bash scripts/host-preflight.sh
 ```
 
-The preflight prints tool versions and Docker availability only. It does not source `.env` or inspect passwords, tokens, database URLs, or generated runtime secrets. CI may set `ALL_MAIL_PREFLIGHT_SKIP_DAEMON=1` when it is validating the script contract without a production Docker daemon.
+The preflight does not source `.env` or inspect passwords, tokens, database URLs, or generated runtime secrets. It verifies Linux, Bash/Python/Git/OpenSSL/Docker/Compose, Docker daemon access and storage driver, Redis memory-overcommit policy, available memory, free disk space, free inodes, and the default application port. An occupied port is a warning rather than an automatic failure because a verified in-place upgrade may still have the previous all-Mail revision running.
+
+The default hard thresholds are 1 GiB available memory, 4 GiB free disk, and 10,000 free inodes. These non-secret command-only controls may be used for a larger host policy or isolated CI fixture:
+
+```text
+ALL_MAIL_PREFLIGHT_MIN_MEMORY_MIB
+ALL_MAIL_PREFLIGHT_MIN_DISK_MIB
+ALL_MAIL_PREFLIGHT_MIN_INODES
+ALL_MAIL_PREFLIGHT_APP_HOST
+ALL_MAIL_PREFLIGHT_APP_PORT
+ALL_MAIL_PREFLIGHT_CHECK_PATH
+```
+
+`ALL_MAIL_PREFLIGHT_SKIP_DAEMON=1`, `ALL_MAIL_PREFLIGHT_SKIP_KERNEL=1`, and `ALL_MAIL_PREFLIGHT_SKIP_PORT=1` exist only for isolated contract testing or a manually verified upgrade condition. Do not use them to conceal an unknown production-host state.
+
+To persist the Redis kernel requirement on a systemd Linux host:
+
+```bash
+printf 'vm.overcommit_memory = 1\n' | sudo tee /etc/sysctl.d/99-all-mail.conf
+sudo sysctl --system
+```
 
 ## 1. Select the release
 
 ```bash
 git fetch --tags --prune
-git switch --detach v2.1.0
+git switch --detach v2.1.2
 cat VERSION
 bash scripts/host-preflight.sh
 ```
 
-`VERSION` must print `2.1.0`.
+`VERSION` must print `2.1.2`.
 
 ## 2. Create the environment
 
@@ -82,11 +105,11 @@ The helper injects `VERSION`, the current Git commit, and the commit timestamp i
 ```bash
 ALL_MAIL_USE_PUBLISHED_IMAGE=1 \
 ALL_MAIL_GO_IMAGE=ghcr.io/feng123-new/all-mail \
-ALL_MAIL_IMAGE_TAG=2.1.0 \
+ALL_MAIL_IMAGE_TAG=2.1.2 \
 ./scripts/compose-up.sh
 ```
 
-Keep the `v2.1.0` checkout: Compose, migration files, environment contracts, frontend assets, and operational scripts are part of the release.
+Keep the `v2.1.2` checkout: Compose, migration files, environment contracts, frontend assets, and operational scripts are part of the release.
 
 ## 4. Understand startup
 
@@ -119,7 +142,7 @@ For an official image, every service must report:
 
 ```json
 {
-  "version": "2.1.0",
+  "version": "2.1.2",
   "commit": "<release commit>",
   "buildDate": "<UTC RFC3339 timestamp>",
   "goVersion": "go1.26.5"

@@ -253,3 +253,18 @@ Do not declare recovery complete until the exact revision, four binary version o
 ## Restore rehearsal
 
 Run rehearsals under a separate host or isolated Docker context. Never connect the rehearsal deployment to real inbound routes, production provider callbacks, or production sending credentials. Record the rehearsal date, backup identifier, restore duration, checks performed, and any manual step that should be automated before the next release.
+
+### Required synthetic CI rehearsal
+
+The release-required `Bootstrap administrator security` workflow now runs `scripts/backup-restore-rehearsal.sh` after its synthetic administrator, API-key, domain, mailbox, and inbound-message fixtures have been created. The script:
+
+1. refuses to run unless `CI=true`, `ALL_MAIL_ALLOW_DESTRUCTIVE_REHEARSAL=1`, and the resolved Compose project name contains `rehearsal`;
+2. creates and lists a custom-format PostgreSQL dump;
+3. archives the master, bootstrap, forwarding, business-API, Redis-secret, database-URL, and Redis-data volumes;
+4. generates and verifies `SHA256SUMS`;
+5. destroys only the isolated rehearsal project's volumes;
+6. restores the volume archives and PostgreSQL dump;
+7. runs `compose-up.sh`, all four runtime doctors, readiness, fixture-count checks, secret-hash continuity, and bootstrap-credential retirement checks;
+8. uploads a non-secret restore acceptance report with the workflow diagnostics.
+
+This automated rehearsal deliberately excludes real provider credentials, production ingress, and external R2 objects. It proves the repository's local state-set procedure with synthetic data; operators must still rehearse any production R2 bucket and external integration state in their own isolated environment. Do not run the destructive CI helper against a normal project by bypassing its guards.

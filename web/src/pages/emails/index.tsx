@@ -118,6 +118,14 @@ import {
 } from "../../utils/mailContent";
 import { requestData } from "../../utils/request";
 import { emailsInlineI18n } from "./inlineMessages";
+import {
+	getOAuthProfileCapabilities,
+	getOAuthProfileScopes,
+	normalizeOAuthScopeProfile,
+	OAUTH_SCOPE_PROFILES,
+	type OAuthProvider,
+	type OAuthScopeProfile,
+} from "./oauthProfiles";
 
 const emailsPageI18n = {
 	fetchStrategyGraphFirstVerbose: defineMessage(
@@ -375,6 +383,71 @@ const emailsPageI18n = {
 		"emails.oauthSource.none",
 		"未配置",
 		"Not configured",
+	),
+	oauthScopeProfileLabel: defineMessage(
+		"emails.oauth.scopeProfileLabel",
+		"OAuth 权限档位",
+		"OAuth permission profile",
+	),
+	oauthScopeProfileRequired: defineMessage(
+		"emails.oauth.scopeProfileRequired",
+		"请选择 OAuth 权限档位",
+		"Select an OAuth permission profile",
+	),
+	oauthProfileMinimal: defineMessage(
+		"emails.oauth.profile.minimal",
+		"minimal · 只读",
+		"minimal · read only",
+	),
+	oauthProfileSend: defineMessage(
+		"emails.oauth.profile.send",
+		"send · 读取与发信",
+		"send · read and send",
+	),
+	oauthProfileManage: defineMessage(
+		"emails.oauth.profile.manage",
+		"manage · 管理邮件与发信",
+		"manage · manage mail and send",
+	),
+	oauthProfileFull: defineMessage(
+		"emails.oauth.profile.full",
+		"full · Provider 扩展权限",
+		"full · provider-wide extensions",
+	),
+	oauthProfileStatus: defineMessage(
+		"emails.oauth.profileStatus",
+		"权限档位：{profile}",
+		"Permission profile: {profile}",
+	),
+	oauthEffectiveScopesLabel: defineMessage(
+		"emails.oauth.effectiveScopesLabel",
+		"实际申请的 Scopes",
+		"Effective requested scopes",
+	),
+	oauthCapabilityRead: defineMessage(
+		"emails.oauth.capability.read",
+		"读取邮件",
+		"Read mail",
+	),
+	oauthCapabilitySend: defineMessage(
+		"emails.oauth.capability.send",
+		"发送邮件",
+		"Send mail",
+	),
+	oauthCapabilityManage: defineMessage(
+		"emails.oauth.capability.manage",
+		"修改 / 删除邮件",
+		"Modify / delete mail",
+	),
+	oauthCapabilityExtended: defineMessage(
+		"emails.oauth.capability.extended",
+		"联系人 / 日历等扩展权限",
+		"Contacts / calendar extensions",
+	),
+	oauthReauthorizationNotice: defineMessage(
+		"emails.oauth.reauthorizationNotice",
+		"提高权限档位只会更新后续授权请求；已有邮箱必须重新完成 OAuth 授权，新权限才会生效。默认 minimal 保持最小权限。",
+		"A broader profile changes future authorization requests only. Existing mailboxes must complete OAuth authorization again before the new permissions take effect. minimal remains the least-privilege default.",
 	),
 	clientSecretStored: defineMessage(
 		"emails.clientSecretStored",
@@ -922,6 +995,58 @@ const renderCapabilityMatrix = (
 	</Space>
 );
 
+const renderOAuthProfileSummary = (
+	provider: OAuthProvider,
+	profile: OAuthScopeProfile,
+	t: (
+		source: TranslationInput,
+		params?: Record<string, number | string>,
+	) => string,
+) => {
+	const capabilities = getOAuthProfileCapabilities(profile);
+	const capabilityRows: Array<[TranslationInput, boolean]> = [
+		[emailsPageI18n.oauthCapabilityRead, capabilities.readMail],
+		[emailsPageI18n.oauthCapabilitySend, capabilities.sendMail],
+		[emailsPageI18n.oauthCapabilityManage, capabilities.manageMail],
+		[emailsPageI18n.oauthCapabilityExtended, capabilities.extendedAccess],
+	];
+
+	return (
+		<Alert
+			showIcon
+			type="info"
+			style={marginBottom12Style}
+			title={t(emailsPageI18n.oauthProfileStatus, {
+				profile: t(OAUTH_SCOPE_PROFILE_LABELS[profile]),
+			})}
+			description={
+				<Space orientation="vertical" size="small" style={fullWidthStyle}>
+					<Space wrap>
+						{capabilityRows.map(([label, supported]) => (
+							<Tag
+								key={typeof label === "string" ? label : label.key}
+								color={supported ? "success" : "default"}
+							>
+								{t(label)}：
+								{supported
+									? t(emailsPageI18n.capabilitySupported)
+									: t(emailsPageI18n.capabilityUnsupported)}
+							</Tag>
+						))}
+					</Space>
+					<Text strong>{t(emailsPageI18n.oauthEffectiveScopesLabel)}</Text>
+					<Text code copyable>
+						{getOAuthProfileScopes(provider, profile)}
+					</Text>
+					<Text type="secondary">
+						{t(emailsPageI18n.oauthReauthorizationNotice)}
+					</Text>
+				</Space>
+			}
+		/>
+	);
+};
+
 const toOptionalNumber = (value: unknown): number | undefined => {
 	if (value === undefined || value === null || value === "") {
 		return undefined;
@@ -1030,6 +1155,7 @@ interface OAuthProviderStatus {
 	source: "database" | "environment" | "none";
 	clientId: string | null;
 	scopes: string | null;
+	scopeProfile: OAuthScopeProfile;
 	tenant: string | null;
 	hasClientSecret: boolean;
 }
@@ -1067,11 +1193,14 @@ interface OAuthAuthorizationStatusResult {
 	result?: OAuthCompletionPayload;
 }
 
-const DEFAULT_GOOGLE_OAUTH_SCOPES =
-	"openid email profile https://www.googleapis.com/auth/gmail.readonly";
-const DEFAULT_OUTLOOK_OAUTH_SCOPES =
-	"offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.Read";
 const DEFAULT_OUTLOOK_OAUTH_TENANT = "consumers";
+
+const OAUTH_SCOPE_PROFILE_LABELS: Record<OAuthScopeProfile, TranslationInput> = {
+	minimal: emailsPageI18n.oauthProfileMinimal,
+	send: emailsPageI18n.oauthProfileSend,
+	manage: emailsPageI18n.oauthProfileManage,
+	full: emailsPageI18n.oauthProfileFull,
+};
 
 const EMPTY_OAUTH_PROVIDER_STATUS: OAuthProviderStatus = {
 	configured: false,
@@ -1079,6 +1208,7 @@ const EMPTY_OAUTH_PROVIDER_STATUS: OAuthProviderStatus = {
 	source: "none",
 	clientId: null,
 	scopes: null,
+	scopeProfile: "minimal",
 	tenant: null,
 	hasClientSecret: false,
 };
@@ -1087,7 +1217,7 @@ const getGoogleOAuthFormDefaults = (status: OAuthProviderStatus) => ({
 	gmailOAuthCallbackUri: status.redirectUri || "",
 	gmailOAuthClientId: status.clientId || "",
 	gmailOAuthClientSecret: "",
-	gmailOAuthScopes: status.scopes || DEFAULT_GOOGLE_OAUTH_SCOPES,
+	gmailOAuthScopeProfile: normalizeOAuthScopeProfile(status.scopeProfile),
 	gmailOAuthJsonText: "",
 });
 
@@ -1096,7 +1226,7 @@ const getOutlookOAuthFormDefaults = (status: OAuthProviderStatus) => ({
 	outlookOAuthClientId: status.clientId || "",
 	outlookOAuthClientSecret: "",
 	outlookOAuthTenant: status.tenant || DEFAULT_OUTLOOK_OAUTH_TENANT,
-	outlookOAuthScopes: status.scopes || DEFAULT_OUTLOOK_OAUTH_SCOPES,
+	outlookOAuthScopeProfile: normalizeOAuthScopeProfile(status.scopeProfile),
 });
 
 const EmailsPage: FC = () => {
@@ -1251,6 +1381,14 @@ const EmailsPage: FC = () => {
 			})),
 		[t],
 	);
+	const oauthScopeProfileOptions = useMemo(
+		() =>
+			OAUTH_SCOPE_PROFILES.map((profile) => ({
+				value: profile,
+				label: t(OAUTH_SCOPE_PROFILE_LABELS[profile]),
+			})),
+		[t],
+	);
 
 	// Group-related state
 	const [groups, setGroups] = useState<EmailGroup[]>([]);
@@ -1267,6 +1405,12 @@ const EmailsPage: FC = () => {
 	const selectedAuthType =
 		(Form.useWatch("authType", form) as EmailAuthType | undefined) ||
 		getDefaultAuthType(selectedProvider);
+	const selectedGoogleOAuthScopeProfile = normalizeOAuthScopeProfile(
+		Form.useWatch("gmailOAuthScopeProfile", form) as string | undefined,
+	);
+	const selectedOutlookOAuthScopeProfile = normalizeOAuthScopeProfile(
+		Form.useWatch("outlookOAuthScopeProfile", form) as string | undefined,
+	);
 	const isOutlookProvider = selectedProvider === "OUTLOOK";
 	const isGmailProvider = selectedProvider === "GMAIL";
 	const isGmailAppPassword =
@@ -1931,11 +2075,11 @@ const EmailsPage: FC = () => {
 				{ name: "outlookOAuthClientId", errors: [] },
 				{ name: "outlookOAuthClientSecret", errors: [] },
 				{ name: "outlookOAuthTenant", errors: [] },
-				{ name: "outlookOAuthScopes", errors: [] },
+				{ name: "outlookOAuthScopeProfile", errors: [] },
 				{ name: "gmailOAuthCallbackUri", errors: [] },
 				{ name: "gmailOAuthClientId", errors: [] },
 				{ name: "gmailOAuthClientSecret", errors: [] },
-				{ name: "gmailOAuthScopes", errors: [] },
+				{ name: "gmailOAuthScopeProfile", errors: [] },
 				{ name: "gmailOAuthJsonText", errors: [] },
 			]);
 			form.setFieldsValue({
@@ -2431,9 +2575,9 @@ const EmailsPage: FC = () => {
 					gmailOAuthCallbackUri: result.redirectUri,
 					gmailOAuthClientId: result.clientId,
 					gmailOAuthClientSecret: result.clientSecret,
-					gmailOAuthScopes:
-						form.getFieldValue("gmailOAuthScopes") ||
-						DEFAULT_GOOGLE_OAUTH_SCOPES,
+					gmailOAuthScopeProfile: normalizeOAuthScopeProfile(
+						form.getFieldValue("gmailOAuthScopeProfile"),
+					),
 				});
 				message.success(
 					t(providerSetupI18n["emails.google.importedClientSecret"], {
@@ -2472,7 +2616,6 @@ const EmailsPage: FC = () => {
 			const values = form.getFieldsValue([
 				"gmailOAuthCallbackUri",
 				"gmailOAuthJsonText",
-				"gmailOAuthScopes",
 			]);
 			setGoogleParseLoading(true);
 			const result = await requestData<GoogleClientSecretParseResult>(
@@ -2489,9 +2632,9 @@ const EmailsPage: FC = () => {
 					gmailOAuthCallbackUri: result.redirectUri,
 					gmailOAuthClientId: result.clientId,
 					gmailOAuthClientSecret: result.clientSecret,
-					gmailOAuthScopes:
-						form.getFieldValue("gmailOAuthScopes") ||
-						DEFAULT_GOOGLE_OAUTH_SCOPES,
+					gmailOAuthScopeProfile: normalizeOAuthScopeProfile(
+						form.getFieldValue("gmailOAuthScopeProfile"),
+					),
 				});
 				if (showSuccessMessage) {
 					message.success(
@@ -2518,7 +2661,7 @@ const EmailsPage: FC = () => {
 				"gmailOAuthCallbackUri",
 				"gmailOAuthClientId",
 				"gmailOAuthClientSecret",
-				"gmailOAuthScopes",
+				"gmailOAuthScopeProfile",
 			]);
 			setGoogleSaveLoading(true);
 			const result = await requestData<OAuthProviderStatus>(
@@ -2527,7 +2670,9 @@ const EmailsPage: FC = () => {
 						redirectUri: values.gmailOAuthCallbackUri,
 						clientId: values.gmailOAuthClientId,
 						clientSecret: values.gmailOAuthClientSecret || undefined,
-						scopes: values.gmailOAuthScopes,
+						scopeProfile: normalizeOAuthScopeProfile(
+							values.gmailOAuthScopeProfile,
+						),
 					}),
 				t(providerSetupI18n["emails.google.saveConfigFailed"]),
 			);
@@ -2550,7 +2695,7 @@ const EmailsPage: FC = () => {
 				"outlookOAuthClientId",
 				"outlookOAuthClientSecret",
 				"outlookOAuthTenant",
-				"outlookOAuthScopes",
+				"outlookOAuthScopeProfile",
 			]);
 			setOutlookSaveLoading(true);
 			const result = await requestData<OAuthProviderStatus>(
@@ -2560,7 +2705,9 @@ const EmailsPage: FC = () => {
 						clientId: values.outlookOAuthClientId,
 						clientSecret: values.outlookOAuthClientSecret || undefined,
 						tenant: values.outlookOAuthTenant,
-						scopes: values.outlookOAuthScopes,
+						scopeProfile: normalizeOAuthScopeProfile(
+							values.outlookOAuthScopeProfile,
+						),
 					}),
 				t(providerSetupI18n["emails.microsoft.saveConfigFailed"]),
 			);
@@ -4392,6 +4539,17 @@ const EmailsPage: FC = () => {
 												? t(emailsPageI18n.clientSecretStored)
 												: t(emailsPageI18n.clientSecretMissing)}
 										</Tag>
+										<Tag color="purple">
+											{t(emailsPageI18n.oauthProfileStatus, {
+												profile: t(
+													OAUTH_SCOPE_PROFILE_LABELS[
+														normalizeOAuthScopeProfile(
+															oauthProviderStatuses.OUTLOOK.scopeProfile,
+														)
+													],
+												),
+											})}
+										</Tag>
 									</div>
 									<Text type="secondary">
 										{t(emailsPageI18n.outlookOAuthFieldsSummary)}
@@ -4461,15 +4619,22 @@ const EmailsPage: FC = () => {
 									/>
 								</Form.Item>
 								<Form.Item
-									name="outlookOAuthScopes"
-									label={t(providerSetupI18n["emails.outlook.scopesLabel"])}
-									extra={t(providerSetupI18n["emails.outlook.scopesExtra"])}
+									name="outlookOAuthScopeProfile"
+									label={t(emailsPageI18n.oauthScopeProfileLabel)}
+									rules={[
+										{
+											required: true,
+											message: t(emailsPageI18n.oauthScopeProfileRequired),
+										},
+									]}
 								>
-									<TextArea
-										rows={3}
-										placeholder={DEFAULT_OUTLOOK_OAUTH_SCOPES}
-									/>
+									<Select options={oauthScopeProfileOptions} />
 								</Form.Item>
+								{renderOAuthProfileSummary(
+									"OUTLOOK",
+									selectedOutlookOAuthScopeProfile,
+									t,
+								)}
 								<Space wrap style={marginBottom12Style}>
 									<Button
 										type="primary"
@@ -4720,6 +4885,17 @@ const EmailsPage: FC = () => {
 														? t(emailsPageI18n.clientSecretStored)
 														: t(emailsPageI18n.clientSecretMissing)}
 												</Tag>
+												<Tag color="purple">
+													{t(emailsPageI18n.oauthProfileStatus, {
+														profile: t(
+															OAUTH_SCOPE_PROFILE_LABELS[
+																normalizeOAuthScopeProfile(
+																	oauthProviderStatuses.GMAIL.scopeProfile,
+																)
+															],
+														),
+													})}
+												</Tag>
 											</div>
 											<Text type="secondary">
 												{t(emailsPageI18n.googleOAuthFieldsSummary)}
@@ -4821,14 +4997,22 @@ const EmailsPage: FC = () => {
 											/>
 										</Form.Item>
 										<Form.Item
-											name="gmailOAuthScopes"
-											label={t(providerSetupI18n["emails.google.scopesLabel"])}
+											name="gmailOAuthScopeProfile"
+											label={t(emailsPageI18n.oauthScopeProfileLabel)}
+											rules={[
+												{
+													required: true,
+													message: t(emailsPageI18n.oauthScopeProfileRequired),
+												},
+											]}
 										>
-											<TextArea
-												rows={3}
-												placeholder={DEFAULT_GOOGLE_OAUTH_SCOPES}
-											/>
+											<Select options={oauthScopeProfileOptions} />
 										</Form.Item>
+										{renderOAuthProfileSummary(
+											"GMAIL",
+											selectedGoogleOAuthScopeProfile,
+											t,
+										)}
 										<Space wrap style={marginBottom12Style}>
 											<Button
 												type="primary"

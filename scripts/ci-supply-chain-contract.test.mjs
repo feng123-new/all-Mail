@@ -35,15 +35,27 @@ test('production host preflight is documented and secret-safe', async () => {
     read('docs/DEPLOY.md'),
   ]);
 
-  for (const command of ['git', 'python3', 'openssl', 'docker']) {
+  for (const command of ['uname', 'git', 'python3', 'openssl', 'awk', 'df', 'docker']) {
     assert.match(script, new RegExp(`require_command ${command}`));
   }
   assert.match(script, /docker compose version/);
   assert.match(script, /BASH_VERSINFO/);
   assert.match(script, /ALL_MAIL_PREFLIGHT_SKIP_DAEMON/);
+  assert.match(script, /ALL_MAIL_PREFLIGHT_SKIP_KERNEL/);
+  assert.match(script, /ALL_MAIL_PREFLIGHT_SKIP_PORT/);
+  assert.match(script, /vm\.overcommit_memory must be 1/);
+  assert.match(script, /MemAvailable/);
+  assert.match(script, /disk-available-mib/);
+  assert.match(script, /inodes-available/);
+  assert.match(script, /socket\.getaddrinfo/);
+  assert.match(script, /docker-storage-driver/);
   assert.doesNotMatch(script, /cat\s+.*\.env|source\s+.*\.env|POSTGRES_PASSWORD|JWT_SECRET|ENCRYPTION_KEY/);
 
   assert.match(deploy, /bash scripts\/host-preflight\.sh/);
+  assert.match(deploy, /vm\.overcommit_memory/);
+  assert.match(deploy, /1 GiB/);
+  assert.match(deploy, /4 GiB/);
+  assert.match(deploy, /10,000/);
   for (const requirement of ['Bash 4', 'Python 3.9', 'OpenSSL', 'Docker Compose v2']) {
     assert.match(deploy, new RegExp(requirement.replaceAll('.', '\\.')));
   }
