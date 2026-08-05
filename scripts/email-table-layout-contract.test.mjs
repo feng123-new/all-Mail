@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+const genericSource = readFileSync(
+  new URL("../web/src/components/DataWorkspace.css", import.meta.url),
+  "utf8",
+);
 const overrideSource = readFileSync(
   new URL("../web/src/components/ExternalMailboxTable.css", import.meta.url),
   "utf8",
@@ -28,8 +32,9 @@ test("external mailbox overrides load after the generic workspace table styles",
 });
 
 test("external mailbox table uses the page viewport instead of a fixed nested layer", () => {
+  assert.doesNotMatch(genericSource, /external-mailbox-table-min-width|1640px/);
   assert.match(overrideSource, externalMailboxScope);
-  assert.doesNotMatch(overrideSource, /1640px/);
+  assert.doesNotMatch(overrideSource, /1640px|overflow-x:\s*auto/);
   assert.match(overrideSource, /overflow-x:\s*hidden\s*!important/);
   assert.match(overrideSource, /max-height:\s*none\s*!important/);
   assert.match(overrideSource, /overflow-y:\s*visible\s*!important/);
