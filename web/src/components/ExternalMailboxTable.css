@@ -1,0 +1,486 @@
+/*
+ * External mailbox list density and responsiveness.
+ *
+ * DataWorkspace.css contains the generic resource-table treatment. This file
+ * is imported afterwards and intentionally overrides the previous fixed
+ * 1640px mailbox contract. The table now participates in normal page zoom and
+ * page scrolling, keeps one viewport rather than nested horizontal layers,
+ * and progressively removes low-priority columns when space is constrained.
+ */
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9)) {
+  --external-mailbox-selection-width: 42px;
+  --external-mailbox-status-width: 64px;
+  --external-mailbox-date-width: 116px;
+  --external-mailbox-actions-width: 174px;
+  min-width: 0;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  :is(.ant-table-container, .ant-table-content) {
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  :is(.ant-table-header, .ant-table-body) {
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-header {
+  overflow-y: visible !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-body {
+  max-height: none !important;
+  overflow-y: visible !important;
+  scrollbar-gutter: auto;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  :is(.ant-table-header, .ant-table-body)
+  > table {
+  width: 100% !important;
+  min-width: 0 !important;
+  table-layout: fixed !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  :is(col.ant-table-cell-scrollbar, .ant-table-cell-scrollbar) {
+  display: none !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  col:nth-child(1) {
+  width: var(--external-mailbox-selection-width) !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  col:nth-child(2) {
+  width: 24% !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  col:nth-child(3) {
+  width: 16% !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  col:nth-child(4) {
+  width: 14% !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  col:nth-child(5) {
+  width: 12% !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  col:nth-child(6) {
+  width: var(--external-mailbox-status-width) !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  :is(col:nth-child(7), col:nth-child(8)) {
+  width: var(--external-mailbox-date-width) !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  col:nth-child(9) {
+  width: var(--external-mailbox-actions-width) !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-thead
+  > tr
+  > th {
+  padding: 9px 10px;
+  background: #f8fafc;
+  font-size: 10.5px;
+  letter-spacing: 0.025em;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td {
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr:hover
+  > td {
+  background: rgba(239, 246, 255, 0.55);
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(2)
+  .ant-typography:first-child {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px !important;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(2)
+  > div
+  > div:nth-child(2) {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 10.5px !important;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(3)
+  > div {
+  min-width: 0;
+  gap: 4px !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(3)
+  > div
+  > .ant-space {
+  min-width: 0;
+  gap: 4px !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(3)
+  .ant-tag {
+  max-width: 100%;
+  margin-inline-end: 0;
+  padding-inline: 5px;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(3)
+  > div
+  > div:last-child {
+  display: none;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(4)
+  .ant-tag {
+  display: block;
+  max-width: 100%;
+  margin-inline-end: 0;
+  overflow: hidden;
+  font-size: 10.5px;
+  line-height: 22px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(5)
+  > div {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(6) {
+  text-align: center;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(6)
+  .ant-tag {
+  margin-inline-end: 0;
+  padding-inline: 6px;
+  font-size: 10.5px;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > :is(td:nth-child(7), td:nth-child(8)) {
+  overflow: hidden;
+  color: #475569;
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(9)
+  > div {
+  min-width: 0;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(9)
+  .ant-space {
+  width: 100%;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px !important;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(9)
+  .ant-space-item {
+  min-width: 0;
+}
+
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(9)
+  :is(.ant-space-item, .ant-space-item > span)
+  > .ant-btn,
+.workspace-frame--resource
+  .ant-table-wrapper:has(
+    .ant-table-thead > tr > th.ant-table-selection-column:first-child
+  ):has(.ant-table-thead > tr > th:nth-child(9))
+  .ant-table-tbody
+  > tr
+  > td:nth-child(9)
+  .ant-space-item
+  > .ant-btn {
+  width: 100%;
+  height: 24px;
+  padding-inline: 3px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 22px;
+}
+
+@media (max-width: 1600px) {
+  .workspace-frame--resource
+    .ant-table-wrapper:has(
+      .ant-table-thead > tr > th.ant-table-selection-column:first-child
+    ):has(.ant-table-thead > tr > th:nth-child(9))
+    :is(col:nth-child(5), th:nth-child(5), td:nth-child(5), col:nth-child(8), th:nth-child(8), td:nth-child(8)) {
+    display: none !important;
+  }
+
+  .workspace-frame--resource
+    .ant-table-wrapper:has(
+      .ant-table-thead > tr > th.ant-table-selection-column:first-child
+    ):has(.ant-table-thead > tr > th:nth-child(9))
+    col:nth-child(2) {
+    width: 30% !important;
+  }
+
+  .workspace-frame--resource
+    .ant-table-wrapper:has(
+      .ant-table-thead > tr > th.ant-table-selection-column:first-child
+    ):has(.ant-table-thead > tr > th:nth-child(9))
+    col:nth-child(3) {
+    width: 21% !important;
+  }
+
+  .workspace-frame--resource
+    .ant-table-wrapper:has(
+      .ant-table-thead > tr > th.ant-table-selection-column:first-child
+    ):has(.ant-table-thead > tr > th:nth-child(9))
+    col:nth-child(4) {
+    width: 18% !important;
+  }
+}
+
+@media (max-width: 1220px) {
+  .workspace-frame--resource
+    .ant-table-wrapper:has(
+      .ant-table-thead > tr > th.ant-table-selection-column:first-child
+    ):has(.ant-table-thead > tr > th:nth-child(9))
+    :is(col:nth-child(4), th:nth-child(4), td:nth-child(4), col:nth-child(7), th:nth-child(7), td:nth-child(7)) {
+    display: none !important;
+  }
+
+  .workspace-frame--resource
+    .ant-table-wrapper:has(
+      .ant-table-thead > tr > th.ant-table-selection-column:first-child
+    ):has(.ant-table-thead > tr > th:nth-child(9))
+    col:nth-child(2) {
+    width: 42% !important;
+  }
+
+  .workspace-frame--resource
+    .ant-table-wrapper:has(
+      .ant-table-thead > tr > th.ant-table-selection-column:first-child
+    ):has(.ant-table-thead > tr > th:nth-child(9))
+    col:nth-child(3) {
+    width: 31% !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .workspace-frame--resource
+    .ant-table-wrapper:has(
+      .ant-table-thead > tr > th.ant-table-selection-column:first-child
+    ):has(.ant-table-thead > tr > th:nth-child(9))
+    :is(col:nth-child(3), th:nth-child(3), td:nth-child(3)) {
+    display: none !important;
+  }
+
+  .workspace-frame--resource
+    .ant-table-wrapper:has(
+      .ant-table-thead > tr > th.ant-table-selection-column:first-child
+    ):has(.ant-table-thead > tr > th:nth-child(9))
+    col:nth-child(2) {
+    width: auto !important;
+  }
+
+  .workspace-frame--resource
+    .ant-table-wrapper:has(
+      .ant-table-thead > tr > th.ant-table-selection-column:first-child
+    ):has(.ant-table-thead > tr > th:nth-child(9)) {
+    --external-mailbox-actions-width: 150px;
+  }
+}

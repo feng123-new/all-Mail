@@ -51,6 +51,7 @@ const MainLayout: FC = () => {
   const displayName = admin?.username?.trim() || t(mainLayoutI18n.admin);
   const avatarText = displayName.charAt(0).toUpperCase();
   const routeMeta = getAdminRouteMeta(location.pathname);
+  const pageSurfaceMaxWidth = routeMeta.key === '/emails' ? 1920 : 1520;
   const desktopCollapsed = !isNarrow && collapsed;
   const sidebarWidth = desktopCollapsed
     ? shellMetrics.adminSidebarCollapsedWidth
@@ -201,7 +202,7 @@ const MainLayout: FC = () => {
         </Header>
 
         <Content className="app-shell__content">
-          <PageSurface>
+          <PageSurface maxWidth={pageSurfaceMaxWidth}>
             <WorkspaceFrame kind={routeMeta.workspace}>
               {routeMeta.mailFlowSurface ? (
                 <MailFlowContext surface={routeMeta.mailFlowSurface} />

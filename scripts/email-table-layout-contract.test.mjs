@@ -2,62 +2,67 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const source = readFileSync(
+const genericSource = readFileSync(
   new URL("../web/src/components/DataWorkspace.css", import.meta.url),
+  "utf8",
+);
+const overrideSource = readFileSync(
+  new URL("../web/src/components/ExternalMailboxTable.css", import.meta.url),
+  "utf8",
+);
+const executableOverrideSource = overrideSource.replace(/\/\*[\s\S]*?\*\//g, "");
+const workspaceSource = readFileSync(
+  new URL("../web/src/components/DataWorkspace.tsx", import.meta.url),
+  "utf8",
+);
+const shellSource = readFileSync(
+  new URL("../web/src/layouts/MainLayout.tsx", import.meta.url),
   "utf8",
 );
 
 const externalMailboxScope =
   /\.workspace-frame--resource[\s\S]*?ant-table-selection-column:first-child[\s\S]*?th:nth-child\(9\)/;
 
-test("external mailbox table has a scoped bounded layout contract", () => {
-  assert.match(source, externalMailboxScope);
-  assert.match(source, /--external-mailbox-table-min-width:\s*1640px/);
-  assert.match(source, /overflow-x:\s*auto/);
-  assert.match(
-    source,
-    /width:\s*max\(100%, var\(--external-mailbox-table-min-width\)\)\s*!important/,
-  );
-  assert.match(source, /table-layout:\s*fixed\s*!important/);
+test("external mailbox overrides load after the generic workspace table styles", () => {
+  const genericImport = workspaceSource.indexOf("./DataWorkspace.css");
+  const mailboxImport = workspaceSource.indexOf("./ExternalMailboxTable.css");
 
-  const expectedColumnWidths = new Map([
-    [1, 44],
-    [2, 330],
-    [3, 230],
-    [4, 180],
-    [5, 210],
-    [6, 88],
-    [7, 156],
-    [8, 156],
-    [9, 246],
-  ]);
-
-  for (const [column, width] of expectedColumnWidths) {
-    assert.match(
-      source,
-      new RegExp(
-        `col:nth-child\\(${column}\\)[\\s\\S]{0,900}?width:\\s*${width}px\\s*!important`,
-      ),
-    );
-  }
+  assert.notEqual(genericImport, -1);
+  assert.notEqual(mailboxImport, -1);
+  assert.ok(mailboxImport > genericImport);
 });
 
-test("long mailbox metadata is clipped instead of overlapping adjacent cells", () => {
+test("external mailbox table uses the page viewport instead of a fixed nested layer", () => {
+  assert.doesNotMatch(genericSource, /external-mailbox-table-min-width|1640px/);
+  assert.match(executableOverrideSource, externalMailboxScope);
+  assert.doesNotMatch(executableOverrideSource, /1640px|overflow-x:\s*auto/);
+  assert.match(executableOverrideSource, /overflow-x:\s*hidden\s*!important/);
+  assert.match(executableOverrideSource, /max-height:\s*none\s*!important/);
+  assert.match(executableOverrideSource, /overflow-y:\s*visible\s*!important/);
+  assert.match(executableOverrideSource, /width:\s*100%\s*!important/);
+  assert.match(executableOverrideSource, /min-width:\s*0\s*!important/);
+  assert.match(executableOverrideSource, /table-layout:\s*fixed\s*!important/);
   assert.match(
-    source,
-    /td:nth-child\(2\)[\s\S]{0,700}?text-overflow:\s*ellipsis/,
+    executableOverrideSource,
+    /ant-table-cell-scrollbar[\s\S]{0,180}?display:\s*none\s*!important/,
   );
-  assert.match(source, /-webkit-line-clamp:\s*2/);
+  assert.match(shellSource, /routeMeta\.key === '\/emails' \? 1920 : 1520/);
+  assert.match(shellSource, /<PageSurface maxWidth=\{pageSurfaceMaxWidth\}>/);
+});
+
+test("external mailbox rows stay dense and responsive without horizontal scrolling", () => {
+  assert.match(executableOverrideSource, /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(executableOverrideSource, /height:\s*24px/);
+  assert.match(executableOverrideSource, /text-overflow:\s*ellipsis/);
+  assert.match(executableOverrideSource, /@media \(max-width:\s*1600px\)/);
+  assert.match(executableOverrideSource, /@media \(max-width:\s*1220px\)/);
+  assert.match(executableOverrideSource, /@media \(max-width:\s*820px\)/);
   assert.match(
-    source,
-    /td:nth-child\(3\)[\s\S]{0,1800}?div:last-child[\s\S]{0,120}?display:\s*none/,
+    executableOverrideSource,
+    /col:nth-child\(5\)[\s\S]{0,180}?th:nth-child\(5\)[\s\S]{0,180}?td:nth-child\(5\)[\s\S]{0,220}?display:\s*none\s*!important/,
   );
   assert.match(
-    source,
-    /td:nth-child\(4\)[\s\S]{0,700}?text-overflow:\s*ellipsis/,
-  );
-  assert.match(
-    source,
-    /td:nth-child\(5\)[\s\S]{0,700}?word-break:\s*normal\s*!important/,
+    executableOverrideSource,
+    /col:nth-child\(8\)[\s\S]{0,180}?th:nth-child\(8\)[\s\S]{0,180}?td:nth-child\(8\)[\s\S]{0,220}?display:\s*none\s*!important/,
   );
 });

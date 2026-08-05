@@ -1,6 +1,7 @@
 import type { FC, ReactNode } from 'react';
 import { InboxOutlined } from '@ant-design/icons';
 import './DataWorkspace.css';
+import './ExternalMailboxTable.css';
 
 export type WorkspaceKind =
   | 'overview'
