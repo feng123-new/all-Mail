@@ -294,13 +294,7 @@ test('external mailbox list uses one fluid page viewport', async ({ page }, test
     );
     const bodyStyle = getComputedStyle(body);
     const actionCell = actionButtons[0]?.closest<HTMLElement>('td') ?? null;
-    const actionGrid = actionCell
-      ? Array.from(actionCell.querySelectorAll<HTMLElement>('div')).find((candidate) => {
-          const candidateStyle = getComputedStyle(candidate);
-          return candidateStyle.display === 'grid'
-            && candidate.querySelectorAll('button').length >= 3;
-        }) ?? null
-      : null;
+    const actionGrid = actionCell?.querySelector<HTMLElement>('.ant-space') ?? null;
 
     return {
       containerClientWidth: container.clientWidth,
