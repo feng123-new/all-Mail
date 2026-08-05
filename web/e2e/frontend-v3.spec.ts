@@ -278,7 +278,9 @@ test('external mailbox list uses one fluid page viewport', async ({ page }, test
   const metrics = await table.evaluate((element) => {
     const container = element.querySelector<HTMLElement>('.ant-table-container');
     const body = element.querySelector<HTMLElement>('.ant-table-body');
-    const firstRow = element.querySelector<HTMLElement>('.ant-table-tbody > tr');
+    const firstRow = element.querySelector<HTMLElement>(
+      '.ant-table-tbody > tr.ant-table-row',
+    );
 
     if (!container || !body || !firstRow) {
       throw new Error('external mailbox table structure is incomplete');
@@ -291,7 +293,14 @@ test('external mailbox list uses one fluid page viewport', async ({ page }, test
       containerRect.left,
     );
     const bodyStyle = getComputedStyle(body);
-    const actionGrid = actionButtons[0]?.closest<HTMLElement>('.ant-space') ?? null;
+    const actionCell = actionButtons[0]?.closest<HTMLElement>('td') ?? null;
+    const actionGrid = actionCell
+      ? Array.from(actionCell.querySelectorAll<HTMLElement>('div')).find((candidate) => {
+          const candidateStyle = getComputedStyle(candidate);
+          return candidateStyle.display === 'grid'
+            && candidate.querySelectorAll('button').length >= 3;
+        }) ?? null
+      : null;
 
     return {
       containerClientWidth: container.clientWidth,
@@ -302,7 +311,10 @@ test('external mailbox list uses one fluid page viewport', async ({ page }, test
       furthestActionEdge,
       containerRight: containerRect.right,
       actionGridColumns: actionGrid
-        ? getComputedStyle(actionGrid).gridTemplateColumns.split(' ').length
+        ? getComputedStyle(actionGrid).gridTemplateColumns
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean).length
         : 0,
       documentClientWidth: document.documentElement.clientWidth,
       documentScrollWidth: document.documentElement.scrollWidth,
