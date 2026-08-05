@@ -42,6 +42,10 @@ test("external mailbox table uses the page viewport instead of a fixed nested la
   assert.match(executableOverrideSource, /width:\s*100%\s*!important/);
   assert.match(executableOverrideSource, /min-width:\s*0\s*!important/);
   assert.match(executableOverrideSource, /table-layout:\s*fixed\s*!important/);
+  assert.match(
+    executableOverrideSource,
+    /ant-table-cell-scrollbar[\s\S]{0,180}?display:\s*none\s*!important/,
+  );
   assert.match(shellSource, /routeMeta\.key === '\/emails' \? 1920 : 1520/);
   assert.match(shellSource, /<PageSurface maxWidth=\{pageSurfaceMaxWidth\}>/);
 });
