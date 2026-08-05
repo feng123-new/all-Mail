@@ -20,7 +20,7 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Verify and apply the staged patch
+      - name: Verify and apply non-workflow release files
         shell: bash
         run: |
           set -euo pipefail
@@ -37,20 +37,24 @@ jobs:
           echo "a9559dad9f686931ee7ba64d19375408685ce671a77114c328d828e7782f41ac  $RUNNER_TEMP/v2.1.2.patch" \
             | sha256sum --check -
 
-          git apply --check "$RUNNER_TEMP/v2.1.2.patch"
-          git apply --index "$RUNNER_TEMP/v2.1.2.patch"
-          git rm .github/workflows/source-export.yml
+          exclusions=(
+            --exclude=.github/workflows/bootstrap-admin-security.yml
+            --exclude=.github/workflows/source-export.yml
+          )
+          git apply --check "${exclusions[@]}" "$RUNNER_TEMP/v2.1.2.patch"
+          git apply --index "${exclusions[@]}" "$RUNNER_TEMP/v2.1.2.patch"
           git rm -r .github/v2.1.2-patch
 
           test "$(tr -d '[:space:]' < VERSION)" = "2.1.2"
           test "$(node -p "require('./package.json').version")" = "2.1.2"
           git diff --cached --check
+          test -z "$(git diff --cached --name-only -- '.github/workflows')"
 
-      - name: Commit the final release patch
+      - name: Commit the non-workflow release files
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "release: publish all-Mail v2.1.2"
+          git commit -m "release: prepare all-Mail v2.1.2"
           git push origin "HEAD:${GITHUB_HEAD_REF}"
