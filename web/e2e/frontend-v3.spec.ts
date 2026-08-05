@@ -279,21 +279,19 @@ test('external mailbox list uses one fluid page viewport', async ({ page }, test
     const container = element.querySelector<HTMLElement>('.ant-table-container');
     const body = element.querySelector<HTMLElement>('.ant-table-body');
     const firstRow = element.querySelector<HTMLElement>('.ant-table-tbody > tr');
-    const actionButtons = firstRow
-      ? Array.from(firstRow.querySelectorAll<HTMLElement>('td:last-child button'))
-      : [];
 
     if (!container || !body || !firstRow) {
       throw new Error('external mailbox table structure is incomplete');
     }
 
+    const actionButtons = Array.from(firstRow.querySelectorAll<HTMLElement>('button'));
     const containerRect = container.getBoundingClientRect();
     const furthestActionEdge = actionButtons.reduce(
       (right, button) => Math.max(right, button.getBoundingClientRect().right),
       containerRect.left,
     );
     const bodyStyle = getComputedStyle(body);
-    const actionGrid = firstRow.querySelector<HTMLElement>('td:last-child .ant-space');
+    const actionGrid = actionButtons[0]?.closest<HTMLElement>('.ant-space') ?? null;
 
     return {
       containerClientWidth: container.clientWidth,
