@@ -9,7 +9,7 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 ### Fixed
 
 - Preserved email-first Outlook vendor imports (`email----password----clientId----refreshToken`) as IMAP OAuth instead of misclassifying their `M.*` refresh tokens as Microsoft Graph credentials.
-- Rebalanced the external-mailbox table with bounded column sizing, compact connection metadata, truncated long group/client identifiers, and synchronized horizontal overflow so imported accounts no longer overlap or inflate each row.
+- Reworked the external-mailbox table into a fluid, full-width desktop workspace with natural page scrolling, compact three-column actions, responsive low-priority column hiding, and no nested horizontal scrollbar.
 
 ## [2.1.2] - 2026-08-05
 
