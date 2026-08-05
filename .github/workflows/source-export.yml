@@ -40,7 +40,7 @@ jobs:
           git apply --check "$RUNNER_TEMP/v2.1.2.patch"
           git apply --index "$RUNNER_TEMP/v2.1.2.patch"
           git rm .github/workflows/source-export.yml
-          git rm --recursive .github/v2.1.2-patch
+          git rm -r .github/v2.1.2-patch
 
           test "$(tr -d '[:space:]' < VERSION)" = "2.1.2"
           test "$(node -p "require('./package.json').version")" = "2.1.2"
