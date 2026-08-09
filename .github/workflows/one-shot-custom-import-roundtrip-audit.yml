@@ -6,7 +6,7 @@ on:
       - fix/custom-imap-export-roundtrip
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   realistic-import-ui-audit:
@@ -31,38 +31,10 @@ jobs:
       - name: Checkout audit branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Apply custom IMAP/SMTP export-token fix
-        shell: bash
+      - name: Check formatting and patch cleanliness
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('core/internal/businessapi/mail_account_import_export.go')
-          source = path.read_text()
-          old = '''\tif provider == "GMAIL" {
-          \t\treturn "GMAIL_APP_PASSWORD"
-          \t}
-          \treturn provider + "_IMAP_SMTP"
-          '''
-          new = '''\tif provider == "GMAIL" {
-          \t\treturn "GMAIL_APP_PASSWORD"
-          \t}
-          \tif provider == "CUSTOM_IMAP_SMTP" {
-          \t\treturn "CUSTOM_IMAP_SMTP"
-          \t}
-          \treturn provider + "_IMAP_SMTP"
-          '''
-          if source.count(old) != 1:
-              raise SystemExit('mailImportToken patch anchor was not found exactly once')
-          path.write_text(source.replace(old, new))
-          PY
-          gofmt -w core/internal/businessapi/mail_account_import_export.go core/internal/businessapi/realistic_import_audit_test.go
+          test -z "$(gofmt -l core/internal/businessapi/mail_account_import_export.go core/internal/businessapi/realistic_import_audit_test.go)"
           git diff --check
-          git config user.name "all-Mail audit bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add core/internal/businessapi/mail_account_import_export.go core/internal/businessapi/realistic_import_audit_test.go
-          git commit -m "fix(import): preserve custom IMAP SMTP export token [skip ci]"
-          git push origin HEAD:"$GITHUB_REF_NAME"
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -112,17 +84,21 @@ jobs:
 
       - name: Capture current import workflow on desktop and mobile
         working-directory: web
+        shell: bash
         env:
           CI: "1"
-        run: npx playwright test e2e/import-ui-audit.spec.ts --reporter=line,html
+        run: |
+          set +e
+          npx playwright test e2e/import-ui-audit.spec.ts --reporter=line,html 2>&1 | tee "$RUNNER_TEMP/import-audit-playwright.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
 
       - name: Write audit manifest
         if: always()
         run: |
           cat > "$RUNNER_TEMP/import-audit-manifest.txt" <<EOF
           repository=feng123-new/all-Mail
-          source_commit=${GITHUB_SHA}
-          tested_commit=$(git rev-parse HEAD)
+          tested_commit=${GITHUB_SHA}
           branch=${GITHUB_REF_NAME}
           generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           scenarios=hotmail-vendor,gmail-oauth,qq-app-password,mailcom-app-password,custom-imap-smtp,two-invalid-lines
@@ -136,6 +112,7 @@ jobs:
           name: realistic-import-ui-audit-fixed
           path: |
             ${{ runner.temp }}/realistic-import-go.log
+            ${{ runner.temp }}/import-audit-playwright.log
             ${{ runner.temp }}/import-audit-manifest.txt
             web/import-audit-shots
             web/playwright-report
