@@ -75,21 +75,30 @@ jobs:
           exit "$status"
 
       - name: Install frontend dependencies
-        working-directory: web
-        run: ../scripts/sanitize-runtime-env.sh npm ci
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web ci
 
-      - name: Install Chromium for Playwright
-        working-directory: web
-        run: npx playwright install --with-deps chromium
+      - name: Install isolated Playwright browser audit dependency
+        shell: bash
+        run: |
+          playwright_home="$RUNNER_TEMP/import-audit-playwright"
+          mkdir -p "$playwright_home"
+          ./scripts/sanitize-runtime-env.sh npm --prefix "$playwright_home" install \
+            --no-save --no-package-lock --ignore-scripts @playwright/test@1.55.0
+          rm -rf web/node_modules/@playwright
+          ln -s "$playwright_home/node_modules/@playwright" web/node_modules/@playwright
+          (cd web && ../scripts/sanitize-runtime-env.sh \
+            "$playwright_home/node_modules/.bin/playwright" install --with-deps chromium)
 
       - name: Capture current import workflow on desktop and mobile
-        working-directory: web
         shell: bash
         env:
           CI: "1"
         run: |
           set +e
-          npx playwright test e2e/import-ui-audit.spec.ts --reporter=line,html 2>&1 | tee "$RUNNER_TEMP/import-audit-playwright.log"
+          playwright_home="$RUNNER_TEMP/import-audit-playwright"
+          (cd web && ../scripts/sanitize-runtime-env.sh \
+            "$playwright_home/node_modules/.bin/playwright" test e2e/import-ui-audit.spec.ts --reporter=line,html) \
+            2>&1 | tee "$RUNNER_TEMP/import-audit-playwright.log"
           status=${PIPESTATUS[0]}
           exit "$status"
 
