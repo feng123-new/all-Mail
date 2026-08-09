@@ -94,6 +94,21 @@ jobs:
         env:
           CI: "1"
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('web/e2e/import-ui-audit.spec.ts')
+          source = path.read_text()
+          source = source.replace(
+              "await expect(page.getByText('audit-hotmail@hotmail.com')).toBeVisible();",
+              "await expect(page.locator('.ant-table-tbody').getByText('audit-hotmail@hotmail.com', { exact: true })).toBeVisible();",
+          )
+          source = source.replace(
+              "await expect(page.getByText('audit-mailcom@mail.com')).toBeVisible();",
+              "await expect(page.locator('.ant-table-tbody').getByText('audit-mailcom@mail.com', { exact: true })).toBeVisible();",
+          )
+          path.write_text(source)
+          PY
           set +e
           playwright_home="$RUNNER_TEMP/import-audit-playwright"
           (cd web && ../scripts/sanitize-runtime-env.sh \
