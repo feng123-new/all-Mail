@@ -591,6 +591,9 @@ func mailImportToken(provider, authType string) string {
 	if provider == "GMAIL" {
 		return "GMAIL_APP_PASSWORD"
 	}
+	if provider == "CUSTOM_IMAP_SMTP" {
+		return "CUSTOM_IMAP_SMTP"
+	}
 	return provider + "_IMAP_SMTP"
 }
 
