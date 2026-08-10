@@ -3,7 +3,6 @@ import {
 	DownloadOutlined,
 	EditOutlined,
 	GroupOutlined,
-	InboxOutlined,
 	MoreOutlined,
 	PlusOutlined,
 	ReloadOutlined,
@@ -18,6 +17,7 @@ import {
 	Checkbox,
 	Dropdown,
 	Form,
+	Grid,
 	Input,
 	Modal,
 	message,
@@ -29,7 +29,6 @@ import {
 	Table,
 	Tabs,
 	Tag,
-	Tooltip,
 	Typography,
 	Upload,
 } from "antd";
@@ -55,7 +54,6 @@ import {
 	getDefaultAuthType,
 	getDefaultProfileForRepresentativeProtocol,
 	getProviderDefinition,
-	getProviderImportTemplates,
 	getProviderProfileDefinition,
 	getProviderProfileDefinitionByKey,
 	getProviderProfilesByRepresentativeProtocol,
@@ -108,7 +106,6 @@ import {
 	width160Style,
 	width170Style,
 	width200Style,
-	width260Style,
 	widthFullMarginTop8Style,
 } from "../../styles/common";
 import { getErrorMessage } from "../../utils/error";
@@ -117,6 +114,8 @@ import {
 	renderSanitizedEmailHtml,
 } from "../../utils/mailContent";
 import { requestData } from "../../utils/request";
+import MailImportWorkflow from "./ImportWorkflow";
+import MailboxRowActions from "./MailboxRowActions";
 import { emailsInlineI18n } from "./inlineMessages";
 import {
 	getOAuthProfileCapabilities,
@@ -628,7 +627,6 @@ const emailsPageI18n = {
 
 const { Text } = Typography;
 const { TextArea } = Input;
-const { Dragger } = Upload;
 const MAIL_FETCH_STRATEGY_OPTIONS = [
 	{
 		value: "GRAPH_FIRST",
@@ -1250,6 +1248,8 @@ const EmailsPage: FC = () => {
 	const navigate = useNavigate();
 	const { admin } = useAuthStore();
 	const [searchParams] = useSearchParams();
+	const screens = Grid.useBreakpoint();
+	const useCompactActions = screens.xs === true;
 	const initialKeyword = searchParams.get("keyword")?.trim() || "";
 	const initialFilterStatus = parseEmailStatus(searchParams.get("status"));
 	const initialFocusedEmailId = parsePositiveInt(searchParams.get("emailId"));
@@ -1261,6 +1261,7 @@ const EmailsPage: FC = () => {
 	const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
 	const [modalVisible, setModalVisible] = useState(false);
 	const [importModalVisible, setImportModalVisible] = useState(false);
+	const [toolMenuOpen, setToolMenuOpen] = useState(false);
 	const [mailModalVisible, setMailModalVisible] = useState(false);
 	const [editingId, setEditingId] = useState<number | null>(null);
 	const [keyword, setKeyword] = useState(initialKeyword);
@@ -1278,11 +1279,6 @@ const EmailsPage: FC = () => {
 	>(initialFilterStatus);
 	const [focusedEmailId, setFocusedEmailId] = useState<number | undefined>(
 		initialFocusedEmailId,
-	);
-	const [importContent, setImportContent] = useState("");
-	const [separator, setSeparator] = useState("----");
-	const [importGroupId, setImportGroupId] = useState<number | undefined>(
-		undefined,
 	);
 	const [mailList, setMailList] = useState<MailItem[]>([]);
 	const [mailLoading, setMailLoading] = useState(false);
@@ -1506,18 +1502,6 @@ const EmailsPage: FC = () => {
 			label: t(getProviderLabelMessage(option.value)),
 		}));
 	}, [filterRepresentativeProtocol, t]);
-	const importTemplates = useMemo(
-		() => getProviderImportTemplates(separator),
-		[separator],
-	);
-	const recommendedImportTemplates = useMemo(
-		() => importTemplates.slice(0, 3),
-		[importTemplates],
-	);
-	const legacyImportTemplates = useMemo(
-		() => importTemplates.slice(3),
-		[importTemplates],
-	);
 
 	const resetSecretRevealState = useCallback(() => {
 		setRevealModalVisible(false);
@@ -3131,59 +3115,12 @@ const EmailsPage: FC = () => {
 		</>
 	);
 
-	const handleImport = async () => {
-		if (!importContent.trim()) {
-			message.warning(t(emailsInlineI18n["emails.import.empty"]));
-			return;
-		}
-
-		try {
-			const res = await emailsContract.import(
-				importContent,
-				separator,
-				toOptionalNumber(importGroupId),
-			);
-			if (res.code === 200) {
-				const result = res.data as
-					| { success?: number; failed?: number; errors?: string[] }
-					| undefined;
-				const successCount = result?.success ?? 0;
-				const failedCount = result?.failed ?? 0;
-				const firstErrors = Array.isArray(result?.errors)
-					? result.errors.slice(0, 2)
-					: [];
-				if (failedCount > 0) {
-					message.warning(
-						`${t(emailsInlineI18n["emails.import.partialPrefix"], { successCount, failedCount })}${firstErrors.length ? `；${firstErrors.join("；")}` : ""}`,
-					);
-				} else {
-					message.success(
-						t(emailsInlineI18n["emails.import.successCount"], {
-							count: successCount,
-						}),
-					);
-				}
-				setImportModalVisible(false);
-				setImportContent("");
-				setImportGroupId(undefined);
-				fetchData();
-				fetchGroups();
-			} else {
-				message.error(t(emailsInlineI18n["emails.import.failed"]));
-			}
-		} catch (err: unknown) {
-			message.error(
-				getErrorMessage(err, t(emailsInlineI18n["emails.import.failed"])),
-			);
-		}
-	};
-
 	const handleExport = async () => {
 		try {
 			const ids =
 				selectedRowKeys.length > 0 ? (selectedRowKeys as number[]) : undefined;
 			const groupId = ids ? undefined : toOptionalNumber(filterGroupId);
-			const res = await emailsContract.export(ids, separator, groupId);
+			const res = await emailsContract.export(ids, "----", groupId);
 			if (res.code !== 200) {
 				message.error(t(emailsInlineI18n["emails.export.failed"]));
 				return;
@@ -3842,72 +3779,20 @@ const EmailsPage: FC = () => {
 			{
 				title: t(adminI18n.common.actions),
 				key: "action",
-				width: 220,
+				width: useCompactActions ? 154 : 220,
 				render: (_: unknown, record: EmailAccount) => (
-					<div style={emailStyles.actionCell}>
-						<Space wrap>
-							<Button
-								size="small"
-								type={
-									hasNewMailboxMessages(record, "INBOX") ? "primary" : "default"
-								}
-								onClick={() => handleViewMails(record, "INBOX")}
-							>
-								{t(adminI18n.emails.inbox)}
-							</Button>
-							<Button
-								size="small"
-								onClick={() => handleViewMails(record, "SENT")}
-							>
-								{t(adminI18n.emails.sent)}
-							</Button>
-							<Tooltip
-								title={
-									canRevealStoredAccountLoginPassword(record)
-										? t(emailsInlineI18n["emails.row.viewStoredLoginPassword"])
-										: record.hasStoredAccountLoginPassword
-											? t(
-													emailsInlineI18n[
-														"emails.row.loginPasswordStoredWith2fa"
-													],
-												)
-											: t(emailsInlineI18n["emails.row.noStoredLoginPassword"])
-								}
-							>
-								<Button
-									size="small"
-									type={
-										canRevealStoredAccountLoginPassword(record)
-											? "primary"
-											: "default"
-									}
-									aria-label={t(
-										emailsInlineI18n["emails.row.loginPasswordAriaLabel"],
-									)}
-									onClick={() => void handleRowPasswordReveal(record)}
-								>
-									{t(emailsInlineI18n["emails.row.loginPasswordButton"])}
-								</Button>
-							</Tooltip>
-							<Button
-								size="small"
-								onClick={() => void handleCheckSingleMailbox(record)}
-							>
-								{t(adminI18n.emails.checkConnection)}
-							</Button>
-							<Button size="small" onClick={() => handleEdit(record)}>
-								{t(adminI18n.common.edit)}
-							</Button>
-							<Popconfirm
-								title={t(emailsInlineI18n["emails.row.deleteConfirm"])}
-								onConfirm={() => handleDelete(record.id)}
-							>
-								<Button size="small" danger>
-									{t(adminI18n.common.remove)}
-								</Button>
-							</Popconfirm>
-						</Space>
-					</div>
+					<MailboxRowActions
+						compact={useCompactActions}
+						hasNewInboxMessages={hasNewMailboxMessages(record, "INBOX")}
+						canRevealPassword={canRevealStoredAccountLoginPassword(record)}
+						hasStoredPassword={record.hasStoredAccountLoginPassword}
+						onOpenInbox={() => void handleViewMails(record, "INBOX")}
+						onOpenSent={() => void handleViewMails(record, "SENT")}
+						onRevealPassword={() => void handleRowPasswordReveal(record)}
+						onCheckConnection={() => void handleCheckSingleMailbox(record)}
+						onEdit={() => void handleEdit(record)}
+						onDelete={() => handleDelete(record.id)}
+					/>
 				),
 			},
 		],
@@ -3918,6 +3803,7 @@ const EmailsPage: FC = () => {
 			handleRowPasswordReveal,
 			handleViewMails,
 			hasNewMailboxMessages,
+			useCompactActions,
 			t,
 		],
 	);
@@ -3980,7 +3866,10 @@ const EmailsPage: FC = () => {
 			key: "import",
 			icon: <UploadOutlined />,
 			label: t(adminI18n.common.import),
-			onClick: () => setImportModalVisible(true),
+			onClick: () => {
+				setToolMenuOpen(false);
+				setImportModalVisible(true);
+			},
 		},
 		{
 			key: "export",
@@ -4089,7 +3978,11 @@ const EmailsPage: FC = () => {
 				subtitle={t(adminI18n.emails.subtitle)}
 				extra={
 					<Space wrap>
-						<Dropdown menu={{ items: toolActionItems }}>
+						<Dropdown
+							open={toolMenuOpen}
+							onOpenChange={setToolMenuOpen}
+							menu={{ items: toolActionItems }}
+						>
 							<Button icon={<MoreOutlined />}>
 								{t(adminI18n.emails.tools)}
 							</Button>
@@ -5696,103 +5589,14 @@ const EmailsPage: FC = () => {
 				</Space>
 			</Modal>
 
-			{/* 批量导入 Modal */}
-			<Modal
-				title={t(emailsInlineI18n["emails.import.modalTitle"])}
+			<MailImportWorkflow
 				open={importModalVisible}
-				onOk={handleImport}
-				onCancel={() => setImportModalVisible(false)}
-				destroyOnHidden
-				width={700}
-			>
-				<Space orientation="vertical" style={fullWidthStyle} size="middle">
-					<div>
-						<Text type="secondary">
-							{t(emailsInlineI18n["emails.import.instructionsIntro"])}
-							<br />
-							{recommendedImportTemplates.map((template, index) => (
-								<span key={template}>
-									{template}
-									{index < recommendedImportTemplates.length - 1 ? (
-										<br />
-									) : null}
-								</span>
-							))}
-							<br />
-							{t(emailsInlineI18n["emails.import.basicFormatExplanation"])}
-							<br />
-							{t(emailsInlineI18n["emails.import.legacyFormatIntro"])}
-							<br />
-							{legacyImportTemplates.map((template, index) => (
-								<span key={template}>
-									{template}
-									{index < legacyImportTemplates.length - 1 ? <br /> : null}
-								</span>
-							))}
-							{t(emailsInlineI18n["emails.import.manualProvidersHint"])}
-						</Text>
-					</div>
-					<Input
-						addonBefore={t(emailsInlineI18n["emails.import.separatorLabel"])}
-						value={separator}
-						onChange={(e) => setSeparator(e.target.value)}
-						style={width200Style}
-					/>
-					<Select
-						placeholder={t(emailsInlineI18n["emails.import.groupPlaceholder"])}
-						allowClear
-						value={importGroupId}
-						options={groupOptions}
-						onChange={(value: number | string | undefined) =>
-							setImportGroupId(toOptionalNumber(value))
-						}
-						style={width260Style}
-					/>
-					<Dragger
-						beforeUpload={(file) => {
-							const reader = new FileReader();
-							reader.onload = (e) => {
-								const fileContent = e.target?.result as string;
-								if (fileContent) {
-									const normalizedContent = fileContent
-										.replace(/\r\n/g, "\n")
-										.trim();
-									const lines = normalizedContent
-										.split("\n")
-										.filter((line: string) => line.trim());
-									setImportContent(normalizedContent);
-									message.success(
-										t(emailsInlineI18n["emails.import.fileParsed"], {
-											count: lines.length,
-										}),
-									);
-								}
-							};
-							reader.readAsText(file);
-							return false;
-						}}
-						showUploadList={false}
-						maxCount={1}
-						accept=".txt,.csv"
-					>
-						<p className="ant-upload-drag-icon">
-							<InboxOutlined />
-						</p>
-						<p className="ant-upload-text">
-							{t(emailsInlineI18n["emails.import.draggerText"])}
-						</p>
-						<p className="ant-upload-hint">
-							{t(emailsInlineI18n["emails.import.draggerHint"])}
-						</p>
-					</Dragger>
-					<TextArea
-						rows={12}
-						value={importContent}
-						onChange={(e) => setImportContent(e.target.value)}
-						placeholder={importTemplates.join("\n")}
-					/>
-				</Space>
-			</Modal>
+				groups={groups}
+				onClose={() => setImportModalVisible(false)}
+				onImported={async () => {
+					await Promise.all([fetchData(), fetchGroups()]);
+				}}
+			/>
 
 			{/* 邮件列表 Modal */}
 			{mailModalVisible && (
