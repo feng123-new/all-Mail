@@ -133,6 +133,19 @@ type cloudflareEmailRoutingDNSResult struct {
 	Record []cloudflareDNSRecord `json:"record"`
 }
 
+func (result *cloudflareEmailRoutingDNSResult) UnmarshalJSON(data []byte) error {
+	if strings.HasPrefix(strings.TrimSpace(string(data)), "[") {
+		return json.Unmarshal(data, &result.Record)
+	}
+	type emailRoutingDNSResult cloudflareEmailRoutingDNSResult
+	var decoded emailRoutingDNSResult
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*result = cloudflareEmailRoutingDNSResult(decoded)
+	return nil
+}
+
 type cloudflareRoutingRule struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`

@@ -103,6 +103,32 @@ func TestDomainCloudflareConfigFingerprintChangesWithCredentialsAndZone(t *testi
 	}
 }
 
+func TestCloudflareEmailRoutingDNSResultAcceptsObjectAndArray(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		payload string
+	}{
+		{
+			name:    "object",
+			payload: `{"errors":[],"record":[{"type":"MX","name":"example.com","content":"route.mx.cloudflare.net"}]}`,
+		},
+		{
+			name:    "array",
+			payload: `[{"type":"MX","name":"example.com","content":"route.mx.cloudflare.net"}]`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var result cloudflareEmailRoutingDNSResult
+			if err := json.Unmarshal([]byte(test.payload), &result); err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Record) != 1 || result.Record[0].Type != "MX" {
+				t.Fatalf("Email Routing DNS result = %#v", result)
+			}
+		})
+	}
+}
+
 func TestValidateCloudflareDomainBuildsEquivalentChecksAndUsesConcurrentRequests(t *testing.T) {
 	var lock sync.Mutex
 	paths := make(map[string]int)
