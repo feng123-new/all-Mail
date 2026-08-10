@@ -1249,7 +1249,7 @@ const EmailsPage: FC = () => {
 	const { admin } = useAuthStore();
 	const [searchParams] = useSearchParams();
 	const screens = Grid.useBreakpoint();
-	const useCompactActions = screens.md === false;
+	const useCompactActions = screens.xs === true;
 	const initialKeyword = searchParams.get("keyword")?.trim() || "";
 	const initialFilterStatus = parseEmailStatus(searchParams.get("status"));
 	const initialFocusedEmailId = parsePositiveInt(searchParams.get("emailId"));

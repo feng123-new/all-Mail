@@ -450,7 +450,7 @@ const MailImportWorkflow: FC<MailImportWorkflowProps> = ({
 }) => {
   const { t } = useI18n();
   const screens = Grid.useBreakpoint();
-  const isMobile = screens.md === false;
+  const isMobile = screens.xs === true;
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [content, setContent] = useState('');
   const [separator, setSeparator] = useState('----');

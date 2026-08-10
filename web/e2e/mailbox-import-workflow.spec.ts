@@ -71,7 +71,7 @@ const importedRows = [
 const importContent = [
   'audit-hotmail@hotmail.com----mailbox-password----11111111-2222-3333-4444-555555555555----M.audit-refresh-token',
   'QQ_IMAP_SMTP----audit-qq@qq.com----qq-app-password',
-  'not-an-email----bad-password',
+  'broken@invalid----bad-password',
 ].join('\n');
 
 async function fulfillSuccess(route: Route, data: unknown) {
@@ -256,11 +256,11 @@ test('mailbox import previews valid rows, skips invalid rows, and keeps mobile a
   expect(payload?.separator).toBe('----');
   expect(payload?.content).toContain('audit-hotmail@hotmail.com');
   expect(payload?.content).toContain('audit-qq@qq.com');
-  expect(payload?.content).not.toContain('not-an-email');
+  expect(payload?.content).not.toContain('broken@invalid');
 
   await workflow.getByRole('button', { name: '仅编辑失败行' }).click();
   await expect(workflow.locator('textarea').first()).toHaveValue(
-    'not-an-email----bad-password',
+    'broken@invalid----bad-password',
   );
 
   await workflow.getByRole('button', { name: '取消' }).click();
