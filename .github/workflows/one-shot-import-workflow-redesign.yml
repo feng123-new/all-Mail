@@ -32,7 +32,6 @@ jobs:
               Path('web/e2e/mailbox-import-workflow.spec.ts'): [
                   ("'not-an-email----bad-password',", "'broken@invalid----bad-password',"),
                   ("expect(payload?.content).not.toContain('not-an-email');", "expect(payload?.content).not.toContain('broken@invalid');"),
-                  ("'not-an-email----bad-password',", "'broken@invalid----bad-password',"),
               ],
           }
 
