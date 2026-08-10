@@ -1,0 +1,435 @@
+name: One-shot mailbox import workflow redesign
+
+on:
+  push:
+    branches:
+      - agent/import-workflow-redesign
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout redesign branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Integrate import workflow into the mailbox page
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          index_path = Path('web/src/pages/emails/index.tsx')
+          source = index_path.read_text()
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              source = source.replace(old, new)
+
+          replace_once('\tInboxOutlined,\n', '', 'remove obsolete Inbox icon import')
+          replace_once('\tgetProviderImportTemplates,\n', '', 'remove inline template dependency')
+          replace_once(
+              '\tForm,\n\tInput,\n\tModal,',
+              '\tForm,\n\tGrid,\n\tInput,\n\tModal,',
+              'add responsive Grid import',
+          )
+          replace_once('\twidth260Style,\n', '', 'remove obsolete import width helper')
+          replace_once(
+              'import { emailsInlineI18n } from "./inlineMessages";\n',
+              'import MailImportWorkflow from "./ImportWorkflow";\nimport { emailsInlineI18n } from "./inlineMessages";\n',
+              'add mailbox import workflow component',
+          )
+          replace_once('const { Dragger } = Upload;\n', '', 'remove inline Dragger alias')
+          replace_once(
+              '\tbatchCheckFailed: defineMessage(\n',
+              '\trowMoreActions: defineMessage(\n'
+              '\t\t"emails.row.moreActions",\n'
+              '\t\t"更多操作",\n'
+              '\t\t"More actions",\n'
+              '\t),\n'
+              '\tbatchCheckFailed: defineMessage(\n',
+              'add compact row action label',
+          )
+          replace_once(
+              '\tconst [searchParams] = useSearchParams();\n',
+              '\tconst [searchParams] = useSearchParams();\n'
+              '\tconst screens = Grid.useBreakpoint();\n'
+              '\tconst useCompactActions = screens.md === false;\n',
+              'add responsive mailbox action breakpoint',
+          )
+          replace_once(
+              '\tconst [importModalVisible, setImportModalVisible] = useState(false);\n',
+              '\tconst [importModalVisible, setImportModalVisible] = useState(false);\n'
+              '\tconst [toolMenuOpen, setToolMenuOpen] = useState(false);\n',
+              'add controlled tools menu state',
+          )
+
+          state_pattern = re.compile(
+              r'\n\tconst \[importContent, setImportContent\] = useState\(""\);'
+              r'\n\tconst \[separator, setSeparator\] = useState\("----"\);'
+              r'\n\tconst \[importGroupId, setImportGroupId\] = useState<number \| undefined>\('
+              r'\n\t\tundefined,'
+              r'\n\t\);'
+          )
+          source, state_count = state_pattern.subn('', source)
+          if state_count != 1:
+              raise SystemExit(f'remove legacy import state: expected one match, found {state_count}')
+
+          template_pattern = re.compile(
+              r'\n\tconst importTemplates = useMemo\('
+              r'.*?'
+              r'\n\tconst legacyImportTemplates = useMemo\('
+              r'.*?'
+              r'\n\t\);',
+              re.S,
+          )
+          source, template_count = template_pattern.subn('', source)
+          if template_count != 1:
+              raise SystemExit(f'remove legacy import templates: expected one match, found {template_count}')
+
+          handler_pattern = re.compile(
+              r'\n\tconst handleImport = async \(\) => \{.*?\n\t\};\n\n\tconst handleExport = async \(\) => \{',
+              re.S,
+          )
+          source, handler_count = handler_pattern.subn(
+              '\n\tconst handleExport = async () => {',
+              source,
+          )
+          if handler_count != 1:
+              raise SystemExit(f'remove legacy import handler: expected one match, found {handler_count}')
+
+          replace_once(
+              'const res = await emailsContract.export(ids, separator, groupId);',
+              'const res = await emailsContract.export(ids, "----", groupId);',
+              'keep canonical export separator',
+          )
+          replace_once(
+              '\t\t\tonClick: () => setImportModalVisible(true),\n',
+              '\t\t\tonClick: () => {\n'
+              '\t\t\t\tsetToolMenuOpen(false);\n'
+              '\t\t\t\tsetImportModalVisible(true);\n'
+              '\t\t\t},\n',
+              'close tools menu before opening import workflow',
+          )
+          replace_once(
+              '<Dropdown menu={{ items: toolActionItems }}>',
+              '<Dropdown\n\t\t\t\t\t\t\topen={toolMenuOpen}\n\t\t\t\t\t\t\tonOpenChange={setToolMenuOpen}\n\t\t\t\t\t\t\tmenu={{ items: toolActionItems }}\n\t\t\t\t\t\t>',
+              'control tools dropdown visibility',
+          )
+
+          action_pattern = re.compile(
+              r'\t\t\t\{\n'
+              r'\t\t\t\ttitle: t\(adminI18n\.common\.actions\),\n'
+              r'\t\t\t\tkey: "action",\n'
+              r'\t\t\t\twidth: 220,\n'
+              r'\t\t\t\trender: \(_: unknown, record: EmailAccount\) => \(\n'
+              r'.*?'
+              r'\n\t\t\t\t\),\n'
+              r'\t\t\t\},\n',
+              re.S,
+          )
+          compact_action_block = '''\t\t\t{
+\t\t\t\ttitle: t(adminI18n.common.actions),
+\t\t\t\tkey: "action",
+\t\t\t\twidth: useCompactActions ? 154 : 220,
+\t\t\t\trender: (_: unknown, record: EmailAccount) => {
+\t\t\t\t\tconst compactActionItems = [
+\t\t\t\t\t\t{
+\t\t\t\t\t\t\tkey: "sent",
+\t\t\t\t\t\t\ticon: <SendOutlined />,
+\t\t\t\t\t\t\tlabel: t(adminI18n.emails.sent),
+\t\t\t\t\t\t\tonClick: () => void handleViewMails(record, "SENT"),
+\t\t\t\t\t\t},
+\t\t\t\t\t\t{
+\t\t\t\t\t\t\tkey: "password",
+\t\t\t\t\t\t\ticon: <SafetyCertificateOutlined />,
+\t\t\t\t\t\t\tlabel: t(emailsInlineI18n["emails.row.loginPasswordButton"]),
+\t\t\t\t\t\t\tonClick: () => void handleRowPasswordReveal(record),
+\t\t\t\t\t\t},
+\t\t\t\t\t\t{
+\t\t\t\t\t\t\tkey: "check",
+\t\t\t\t\t\t\ticon: <ReloadOutlined />,
+\t\t\t\t\t\t\tlabel: t(adminI18n.emails.checkConnection),
+\t\t\t\t\t\t\tonClick: () => void handleCheckSingleMailbox(record),
+\t\t\t\t\t\t},
+\t\t\t\t\t\t{
+\t\t\t\t\t\t\tkey: "edit",
+\t\t\t\t\t\t\ticon: <EditOutlined />,
+\t\t\t\t\t\t\tlabel: t(adminI18n.common.edit),
+\t\t\t\t\t\t\tonClick: () => void handleEdit(record),
+\t\t\t\t\t\t},
+\t\t\t\t\t\t{
+\t\t\t\t\t\t\tkey: "delete",
+\t\t\t\t\t\t\ticon: <DeleteOutlined />,
+\t\t\t\t\t\t\tlabel: t(adminI18n.common.remove),
+\t\t\t\t\t\t\tdanger: true,
+\t\t\t\t\t\t\tonClick: () => {
+\t\t\t\t\t\t\t\tModal.confirm({
+\t\t\t\t\t\t\t\t\ttitle: t(emailsInlineI18n["emails.row.deleteConfirm"]),
+\t\t\t\t\t\t\t\t\tokText: t(adminI18n.common.remove),
+\t\t\t\t\t\t\t\t\tcancelText: t(emailsInlineI18n["emails.reveal.cancelText"]),
+\t\t\t\t\t\t\t\t\tokButtonProps: { danger: true },
+\t\t\t\t\t\t\t\t\tonOk: () => handleDelete(record.id),
+\t\t\t\t\t\t\t\t});
+\t\t\t\t\t\t\t},
+\t\t\t\t\t\t},
+\t\t\t\t\t];
+
+\t\t\t\t\tif (useCompactActions) {
+\t\t\t\t\t\treturn (
+\t\t\t\t\t\t\t<Space wrap>
+\t\t\t\t\t\t\t\t<Button
+\t\t\t\t\t\t\t\t\tsize="small"
+\t\t\t\t\t\t\t\t\ttype={
+\t\t\t\t\t\t\t\t\t\thasNewMailboxMessages(record, "INBOX")
+\t\t\t\t\t\t\t\t\t\t\t? "primary"
+\t\t\t\t\t\t\t\t\t\t\t: "default"
+\t\t\t\t\t\t\t\t\t}
+\t\t\t\t\t\t\t\t\tonClick={() => void handleViewMails(record, "INBOX")}
+\t\t\t\t\t\t\t\t>
+\t\t\t\t\t\t\t\t\t{t(adminI18n.emails.inbox)}
+\t\t\t\t\t\t\t\t</Button>
+\t\t\t\t\t\t\t\t<Dropdown menu={{ items: compactActionItems }} trigger={["click"]}>
+\t\t\t\t\t\t\t\t\t<Button
+\t\t\t\t\t\t\t\t\t\tsize="small"
+\t\t\t\t\t\t\t\t\t\ticon={<MoreOutlined />}
+\t\t\t\t\t\t\t\t\t\taria-label={t(emailsPageI18n.rowMoreActions)}
+\t\t\t\t\t\t\t\t\t>
+\t\t\t\t\t\t\t\t\t\t{t(emailsPageI18n.rowMoreActions)}
+\t\t\t\t\t\t\t\t\t</Button>
+\t\t\t\t\t\t\t\t</Dropdown>
+\t\t\t\t\t\t\t</Space>
+\t\t\t\t\t\t);
+\t\t\t\t\t}
+
+\t\t\t\t\treturn (
+\t\t\t\t\t\t<div style={emailStyles.actionCell}>
+\t\t\t\t\t\t\t<Space wrap>
+\t\t\t\t\t\t\t\t<Button
+\t\t\t\t\t\t\t\t\tsize="small"
+\t\t\t\t\t\t\t\t\ttype={
+\t\t\t\t\t\t\t\t\t\thasNewMailboxMessages(record, "INBOX") ? "primary" : "default"
+\t\t\t\t\t\t\t\t\t}
+\t\t\t\t\t\t\t\t\tonClick={() => handleViewMails(record, "INBOX")}
+\t\t\t\t\t\t\t\t>
+\t\t\t\t\t\t\t\t\t{t(adminI18n.emails.inbox)}
+\t\t\t\t\t\t\t\t</Button>
+\t\t\t\t\t\t\t\t<Button
+\t\t\t\t\t\t\t\t\tsize="small"
+\t\t\t\t\t\t\t\t\tonClick={() => handleViewMails(record, "SENT")}
+\t\t\t\t\t\t\t\t>
+\t\t\t\t\t\t\t\t\t{t(adminI18n.emails.sent)}
+\t\t\t\t\t\t\t\t</Button>
+\t\t\t\t\t\t\t\t<Tooltip
+\t\t\t\t\t\t\t\t\ttitle={
+\t\t\t\t\t\t\t\t\t\tcanRevealStoredAccountLoginPassword(record)
+\t\t\t\t\t\t\t\t\t\t\t? t(emailsInlineI18n["emails.row.viewStoredLoginPassword"])
+\t\t\t\t\t\t\t\t\t\t\t: record.hasStoredAccountLoginPassword
+\t\t\t\t\t\t\t\t\t\t\t\t? t(
+\t\t\t\t\t\t\t\t\t\t\t\t\t\temailsInlineI18n[
+\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t"emails.row.loginPasswordStoredWith2fa"
+\t\t\t\t\t\t\t\t\t\t\t\t\t\t],
+\t\t\t\t\t\t\t\t\t\t\t\t\t)
+\t\t\t\t\t\t\t\t\t\t\t\t: t(emailsInlineI18n["emails.row.noStoredLoginPassword"])
+\t\t\t\t\t\t\t\t\t}
+\t\t\t\t\t\t\t\t>
+\t\t\t\t\t\t\t\t\t<Button
+\t\t\t\t\t\t\t\t\t\tsize="small"
+\t\t\t\t\t\t\t\t\t\ttype={
+\t\t\t\t\t\t\t\t\t\t\tcanRevealStoredAccountLoginPassword(record)
+\t\t\t\t\t\t\t\t\t\t\t\t? "primary"
+\t\t\t\t\t\t\t\t\t\t\t\t: "default"
+\t\t\t\t\t\t\t\t\t\t}
+\t\t\t\t\t\t\t\t\t\taria-label={t(
+\t\t\t\t\t\t\t\t\t\t\temailsInlineI18n["emails.row.loginPasswordAriaLabel"],
+\t\t\t\t\t\t\t\t\t\t)}
+\t\t\t\t\t\t\t\t\t\tonClick={() => void handleRowPasswordReveal(record)}
+\t\t\t\t\t\t\t\t\t>
+\t\t\t\t\t\t\t\t\t\t{t(emailsInlineI18n["emails.row.loginPasswordButton"])}
+\t\t\t\t\t\t\t\t\t</Button>
+\t\t\t\t\t\t\t\t</Tooltip>
+\t\t\t\t\t\t\t\t<Button
+\t\t\t\t\t\t\t\t\tsize="small"
+\t\t\t\t\t\t\t\t\tonClick={() => void handleCheckSingleMailbox(record)}
+\t\t\t\t\t\t\t\t>
+\t\t\t\t\t\t\t\t\t{t(adminI18n.emails.checkConnection)}
+\t\t\t\t\t\t\t\t</Button>
+\t\t\t\t\t\t\t\t<Button size="small" onClick={() => handleEdit(record)}>
+\t\t\t\t\t\t\t\t\t{t(adminI18n.common.edit)}
+\t\t\t\t\t\t\t\t</Button>
+\t\t\t\t\t\t\t\t<Popconfirm
+\t\t\t\t\t\t\t\t\ttitle={t(emailsInlineI18n["emails.row.deleteConfirm"])}
+\t\t\t\t\t\t\t\t\tonConfirm={() => handleDelete(record.id)}
+\t\t\t\t\t\t\t\t>
+\t\t\t\t\t\t\t\t\t<Button size="small" danger>
+\t\t\t\t\t\t\t\t\t\t{t(adminI18n.common.remove)}
+\t\t\t\t\t\t\t\t\t</Button>
+\t\t\t\t\t\t\t\t</Popconfirm>
+\t\t\t\t\t\t\t</Space>
+\t\t\t\t\t\t</div>
+\t\t\t\t\t);
+\t\t\t\t},
+\t\t\t},
+'''
+          source, action_count = action_pattern.subn(compact_action_block, source)
+          if action_count != 1:
+              raise SystemExit(f'replace mailbox action column: expected one match, found {action_count}')
+
+          replace_once(
+              '\t\t\thasNewMailboxMessages,\n\t\t\tt,\n',
+              '\t\t\thasNewMailboxMessages,\n\t\t\tuseCompactActions,\n\t\t\tt,\n',
+              'track responsive action dependency',
+          )
+
+          import_modal_pattern = re.compile(
+              r'\n\t\t\t\{/\* 批量导入 Modal \*/\}\n'
+              r'.*?'
+              r'\n\t\t\t</Modal>\n\n'
+              r'\t\t\t\{/\* 邮件列表 Modal \*/\}',
+              re.S,
+          )
+          workflow_mount = '''
+\t\t\t<MailImportWorkflow
+\t\t\t\topen={importModalVisible}
+\t\t\t\tgroups={groups}
+\t\t\t\tonClose={() => setImportModalVisible(false)}
+\t\t\t\tonImported={async () => {
+\t\t\t\t\tawait Promise.all([fetchData(), fetchGroups()]);
+\t\t\t\t}}
+\t\t\t/>
+
+\t\t\t{/* 邮件列表 Modal */}'''
+          source, modal_count = import_modal_pattern.subn(workflow_mount, source)
+          if modal_count != 1:
+              raise SystemExit(f'replace legacy import modal: expected one match, found {modal_count}')
+
+          forbidden = [
+              'setImportContent',
+              'recommendedImportTemplates',
+              'legacyImportTemplates',
+              'const handleImport =',
+              'const { Dragger }',
+          ]
+          for token in forbidden:
+              if token in source:
+                  raise SystemExit(f'legacy import token remains: {token}')
+
+          index_path.write_text(source)
+
+          preview_path = Path('web/src/pages/emails/importPreview.ts')
+          preview = preview_path.read_text()
+          preview = preview.replace(
+              'function maskParts(parts: string[], visibleIndexes: number[]): string {',
+              'function maskParts(\n  parts: string[],\n  visibleIndexes: number[],\n  separator: string,\n): string {',
+          )
+          preview = preview.replace("    .join('----');", '    .join(separator);')
+          preview = preview.replace(
+              '  profile: TokenProfile,\n): ImportPreviewRow {',
+              '  profile: TokenProfile,\n  separator: string,\n): ImportPreviewRow {',
+          )
+          preview = preview.replace(
+              'maskParts(parts, profile.visibleIndexes)',
+              'maskParts(parts, profile.visibleIndexes, separator)',
+          )
+          preview = preview.replace(
+              '  parts: string[],\n): ImportPreviewRow {\n  const email = parts[0]',
+              '  parts: string[],\n  separator: string,\n): ImportPreviewRow {\n  const email = parts[0]',
+          )
+          preview = preview.replace('maskParts(parts, [0])', 'maskParts(parts, [0], separator)')
+          preview = preview.replace('maskParts(parts, [])', 'maskParts(parts, [], separator)')
+          preview = preview.replace(
+              'return parseTokenizedLine(lineNumber, raw, parts, tokenProfile);',
+              'return parseTokenizedLine(\n      lineNumber,\n      raw,\n      parts,\n      tokenProfile,\n      separator,\n    );',
+          )
+          preview = preview.replace(
+              'return parseEmailFirstLine(lineNumber, raw, parts);',
+              'return parseEmailFirstLine(lineNumber, raw, parts, separator);',
+          )
+          if ".join('----')" in preview or 'maskParts(parts, [0])' in preview:
+              raise SystemExit('separator-aware preview patch was incomplete')
+          preview_path.write_text(preview)
+          PY
+
+          git diff --check
+          git config user.name "all-Mail frontend agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add web/src/pages/emails/index.tsx web/src/pages/emails/importPreview.ts
+          git commit -m "feat(web): integrate responsive mailbox import workflow [skip ci]"
+          git push origin HEAD:"$GITHUB_REF_NAME"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web ci
+
+      - name: Lint frontend
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web run lint
+
+      - name: Run frontend unit tests
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web run test
+
+      - name: Build frontend
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web run build
+
+      - name: Check frontend build budget
+        run: ./scripts/sanitize-runtime-env.sh npm --prefix web run check:budget
+
+      - name: Install isolated Playwright dependency
+        shell: bash
+        run: |
+          playwright_home="$RUNNER_TEMP/import-redesign-playwright"
+          mkdir -p "$playwright_home"
+          ./scripts/sanitize-runtime-env.sh npm --prefix "$playwright_home" install \
+            --no-save --no-package-lock --ignore-scripts @playwright/test@1.55.0
+          rm -rf web/node_modules/@playwright
+          ln -s "$playwright_home/node_modules/@playwright" web/node_modules/@playwright
+          (cd web && ../scripts/sanitize-runtime-env.sh \
+            "$playwright_home/node_modules/.bin/playwright" install --with-deps chromium)
+
+      - name: Run desktop and mobile browser regressions
+        shell: bash
+        run: |
+          set +e
+          playwright_home="$RUNNER_TEMP/import-redesign-playwright"
+          (cd web && ../scripts/sanitize-runtime-env.sh \
+            "$playwright_home/node_modules/.bin/playwright" test) \
+            2>&1 | tee "$RUNNER_TEMP/import-redesign-playwright.log"
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Write redesign manifest
+        if: always()
+        run: |
+          cat > "$RUNNER_TEMP/import-redesign-manifest.txt" <<EOF
+          repository=${GITHUB_REPOSITORY}
+          source_commit=${GITHUB_SHA}
+          tested_commit=$(git rev-parse HEAD)
+          branch=${GITHUB_REF_NAME}
+          generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          scope=three-step-import,mobile-full-screen-drawer,masked-preview,line-error-mapping,failed-row-retry,compact-mobile-actions
+          EOF
+
+      - name: Upload browser and test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mailbox-import-workflow-redesign
+          path: |
+            ${{ runner.temp }}/import-redesign-playwright.log
+            ${{ runner.temp }}/import-redesign-manifest.txt
+            web/playwright-report
+            web/test-results
+          if-no-files-found: warn
+          retention-days: 7
