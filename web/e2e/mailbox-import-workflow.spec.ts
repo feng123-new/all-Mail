@@ -263,7 +263,7 @@ test('mailbox import previews valid rows, skips invalid rows, and keeps mobile a
     'broken@invalid----bad-password',
   );
 
-  await workflow.getByRole('button', { name: '取消' }).click();
+  await workflow.getByRole('button', { name: /取\s*消/ }).click();
   await expect(page.locator('.mail-import-workflow:visible')).toHaveCount(0);
 
   if (testInfo.project.name === 'Mobile Chromium') {
