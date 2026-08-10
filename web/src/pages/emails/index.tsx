@@ -29,7 +29,6 @@ import {
 	Table,
 	Tabs,
 	Tag,
-	Tooltip,
 	Typography,
 	Upload,
 } from "antd";
