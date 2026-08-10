@@ -129,7 +129,11 @@ function inferDomainProfile(email: string) {
   return DOMAIN_PROFILES[domain];
 }
 
-function maskParts(parts: string[], visibleIndexes: number[]): string {
+function maskParts(
+  parts: string[],
+  visibleIndexes: number[],
+  separator: string,
+): string {
   const visible = new Set(visibleIndexes);
   return parts
     .map((part, index) => {
@@ -138,7 +142,7 @@ function maskParts(parts: string[], visibleIndexes: number[]): string {
       }
       return '••••••';
     })
-    .join('----');
+    .join(separator);
 }
 
 function parseTokenizedLine(
@@ -146,6 +150,7 @@ function parseTokenizedLine(
   raw: string,
   parts: string[],
   profile: TokenProfile,
+  separator: string,
 ): ImportPreviewRow {
   const email = parts[profile.emailIndex]?.trim() || null;
   const missingRequired = profile.requiredIndexes.some(
@@ -156,7 +161,7 @@ function parseTokenizedLine(
     return {
       lineNumber,
       raw,
-      masked: maskParts(parts, profile.visibleIndexes),
+      masked: maskParts(parts, profile.visibleIndexes, separator),
       email,
       provider: profile.provider,
       authType: profile.authType,
@@ -169,7 +174,7 @@ function parseTokenizedLine(
     return {
       lineNumber,
       raw,
-      masked: maskParts(parts, profile.visibleIndexes),
+      masked: maskParts(parts, profile.visibleIndexes, separator),
       email,
       provider: profile.provider,
       authType: profile.authType,
@@ -181,7 +186,7 @@ function parseTokenizedLine(
   return {
     lineNumber,
     raw,
-    masked: maskParts(parts, profile.visibleIndexes),
+    masked: maskParts(parts, profile.visibleIndexes, separator),
     email,
     provider: profile.provider,
     authType: profile.authType,
@@ -193,13 +198,14 @@ function parseEmailFirstLine(
   lineNumber: number,
   raw: string,
   parts: string[],
+  separator: string,
 ): ImportPreviewRow {
   const email = parts[0]?.trim() || null;
   if (!email || !isEmail(email)) {
     return {
       lineNumber,
       raw,
-      masked: maskParts(parts, [0]),
+      masked: maskParts(parts, [0], separator),
       email,
       provider: 'UNKNOWN',
       authType: 'UNKNOWN',
@@ -213,7 +219,7 @@ function parseEmailFirstLine(
     return {
       lineNumber,
       raw,
-      masked: maskParts(parts, [0]),
+      masked: maskParts(parts, [0], separator),
       email,
       provider: 'UNKNOWN',
       authType: 'UNKNOWN',
@@ -233,7 +239,7 @@ function parseEmailFirstLine(
   return {
     lineNumber,
     raw,
-    masked: maskParts(parts, [0]),
+    masked: maskParts(parts, [0], separator),
     email,
     provider: inferred.provider,
     authType: inferred.authType,
@@ -251,15 +257,21 @@ function parseImportLine(
   const token = parts[0]?.toUpperCase() || '';
   const tokenProfile = TOKEN_PROFILES[token];
   if (tokenProfile) {
-    return parseTokenizedLine(lineNumber, raw, parts, tokenProfile);
+    return parseTokenizedLine(
+      lineNumber,
+      raw,
+      parts,
+      tokenProfile,
+      separator,
+    );
   }
   if (parts[0]?.includes('@')) {
-    return parseEmailFirstLine(lineNumber, raw, parts);
+    return parseEmailFirstLine(lineNumber, raw, parts, separator);
   }
   return {
     lineNumber,
     raw,
-    masked: maskParts(parts, []),
+    masked: maskParts(parts, [], separator),
     email: null,
     provider: 'UNKNOWN',
     authType: 'UNKNOWN',
