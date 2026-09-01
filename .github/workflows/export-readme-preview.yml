@@ -1,0 +1,47 @@
+name: Export README preview
+
+on:
+  push:
+    branches: [docs/readme-preview-final]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  export:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout preview branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: docs/readme-preview-final
+
+      - name: Download reviewed Playwright artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/frontend-report"
+          mkdir -p "$RUNNER_TEMP/frontend-report"
+          gh run download 33473528693 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name frontend-browser-report \
+            --dir "$RUNNER_TEMP/frontend-report"
+
+          source_png="$RUNNER_TEMP/frontend-report/playwright-report/data/56156f297f996ef046d2e6573cb3d41ec5edad93.png"
+          test -s "$source_png"
+
+          mkdir -p docs/screenshots
+          cp "$source_png" docs/screenshots/admin-dashboard.png
+
+      - name: Commit reviewed preview image
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots/admin-dashboard.png
+          git diff --cached --quiet && exit 0
+          git commit -m "docs: add reviewed frontend preview screenshot"
+          git push origin HEAD:docs/readme-preview-final
