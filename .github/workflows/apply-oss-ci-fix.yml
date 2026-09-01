@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply patch
-        run: python3 scripts/patch-oss-ci.py
+        run: python3 scripts/patch-oss-ci-runner.py
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -51,7 +51,11 @@ jobs:
       - name: Commit fix branch
         run: |
           set -euo pipefail
-          rm -f .github/workflows/patch-oss-ci.yml .github/workflows/patch-oss-ci-v2.yml scripts/patch-oss-ci.py
+          rm -f \
+            .github/workflows/patch-oss-ci.yml \
+            .github/workflows/patch-oss-ci-v2.yml \
+            scripts/patch-oss-ci.py \
+            scripts/patch-oss-ci-runner.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
