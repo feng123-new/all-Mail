@@ -91,6 +91,12 @@ relevant service loader/tests
 - Do not weaken race, migration, Docker, dependency, or proxy-security gates to make a PR green.
 - For stacked PRs, state the base branch and merge order explicitly.
 
+## Licensing of contributions
+
+`all-Mail` is licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`). By submitting a contribution, you agree that your contribution may be distributed under the same license and that you have the right to submit it under those terms.
+
+No contributor license agreement is required for ordinary contributions. Do not submit code, documentation, assets, or generated material whose license is incompatible with `AGPL-3.0-only` or whose provenance you cannot explain.
+
 ## Secrets and local files
 
 Do not commit:
