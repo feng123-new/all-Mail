@@ -10,7 +10,19 @@
 
 The current stable release is **v2.1.2**. The v2 runtime is Go-first: Go owns the public gateway, private business API, migrations, authentication, provider operations, forwarding, retention, readiness, and runtime doctors. React provides the web interface and is compiled into the shared runtime image; Node.js is used only as a build tool.
 
-[Why all-Mail](#why-all-mail) · [Capabilities](#capabilities) · [Architecture](#stable-runtime-architecture) · [Quick start](#quick-start-from-v212) · [Operations](#operations-and-maintenance) · [Contributing](#contributing)
+[Preview](#preview) · [Why all-Mail](#why-all-mail) · [Capabilities](#capabilities) · [Architecture](#stable-runtime-architecture) · [Quick start](#quick-start-from-v212) · [Operations](#operations-and-maintenance) · [Contributing](#contributing)
+
+## Preview
+
+<p align="center">
+  <img src="docs/screenshots/admin-dashboard.png" alt="all-Mail administrator dashboard showing runtime health, provider distribution, and operational activity" width="900" />
+</p>
+
+<p align="center"><sub>Administrator dashboard rendered by the repository's Playwright end-to-end suite with deterministic fixture data.</sub></p>
+
+This is the real `all-Mail` frontend rather than a marketing mockup. The preview is exported from the repository's browser test artifact and uses deterministic test identities instead of production credentials, private mailbox content, or operator-owned addresses.
+
+The administrator experience brings mailbox connections, domain mail, automation, audit, health, and operational status into one workspace. The same end-to-end suite also exercises external-mailbox and mailbox-portal flows across desktop and mobile Chromium.
 
 ## Why all-Mail
 
