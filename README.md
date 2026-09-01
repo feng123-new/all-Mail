@@ -1,10 +1,10 @@
 # all-Mail v2
 
-`all-Mail` is a self-hosted email control plane for external provider mailboxes, domain mailboxes, signed inbound mail, outbound sending, mailbox portals, and automation APIs.
+`all-Mail` is an open-source, self-hosted email control plane for external provider mailboxes, domain mailboxes, signed inbound mail, outbound sending, mailbox portals, and automation APIs.
 
 **v2.1.2 is the current stable Go-only release; v2.0.0 was the first stable Go-only release.** Go owns the public gateway, private business API, schema initialization, migrations, authentication, provider operations, forwarding, retention, health/readiness, and runtime doctors. React is compiled into the shared runtime image; Node.js is a build tool only.
 
-> **License:** this repository is source-available under the custom all-Mail Non-Commercial License in [`LICENSE`](./LICENSE). It is not distributed under an OSI-approved open-source license. Commercial deployment, resale, hosted service, or paid-support use requires prior written permission.
+> **Open source:** `all-Mail` is licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`). See [`LICENSE`](./LICENSE). The AGPL is an OSI-approved copyleft license designed for software used over computer networks.
 
 ## What v2 manages
 
@@ -152,6 +152,12 @@ These are stateful operations. Never run two revisions against one persisted sta
 
 Report vulnerabilities through [`SECURITY.md`](SECURITY.md), not a public issue.
 
+## Contributing
+
+Contributions, bug reports, documentation improvements, provider compatibility fixes, and operational feedback are welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md), use the repository issue templates for reproducible reports, and open focused pull requests with truthful verification evidence.
+
+Contributions are licensed under the same `AGPL-3.0-only` terms as the project. Security vulnerabilities should continue to follow [`SECURITY.md`](SECURITY.md) rather than public issue discussion.
+
 ## Development verification
 
 ```bash
@@ -162,3 +168,11 @@ npm run verify:release
 ```
 
 The required GitHub gates additionally run real PostgreSQL and Redis integrations, race tests, `govulncheck`, frontend bundle and desktop/mobile Chromium contracts, Docker startup, bootstrap rotation, an isolated destructive backup/restore rehearsal, network/secret/database boundaries, SBOM checks, all runtime doctors, OpenAPI consistency, cross-platform builds, and the release gate.
+
+## License
+
+Copyright (c) 2026 fengyong.
+
+`all-Mail` is free and open-source software licensed under the **GNU Affero General Public License v3.0 only** (`AGPL-3.0-only`). You may use, study, modify, redistribute, and use the software commercially subject to the license terms. In particular, modified versions made available to users over a computer network must provide those users an opportunity to obtain the corresponding source as required by AGPLv3.
+
+See [`LICENSE`](LICENSE) for the complete license text.
