@@ -1,4 +1,4 @@
-name: Export README preview
+name: Finalize README preview
 
 on:
   push:
@@ -6,10 +6,9 @@ on:
 
 permissions:
   contents: write
-  actions: read
 
 jobs:
-  export:
+  finalize:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -18,30 +17,51 @@ jobs:
         with:
           ref: docs/readme-preview-final
 
-      - name: Download reviewed Playwright artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Add Preview section and remove one-off workflow
         run: |
           set -euo pipefail
-          rm -rf "$RUNNER_TEMP/frontend-report"
-          mkdir -p "$RUNNER_TEMP/frontend-report"
-          gh run download 33473528693 \
-            --repo "$GITHUB_REPOSITORY" \
-            --name frontend-browser-report \
-            --dir "$RUNNER_TEMP/frontend-report"
+          test -s docs/screenshots/admin-dashboard.png
+          python - <<'PY'
+          from pathlib import Path
 
-          source_png="$RUNNER_TEMP/frontend-report/playwright-report/data/56156f297f996ef046d2e6573cb3d41ec5edad93.png"
-          test -s "$source_png"
+          path = Path("README.md")
+          text = path.read_text(encoding="utf-8")
 
-          mkdir -p docs/screenshots
-          cp "$source_png" docs/screenshots/admin-dashboard.png
+          old_nav = "[Why all-Mail](#why-all-mail) · [Capabilities](#capabilities) · [Architecture](#stable-runtime-architecture) · [Quick start](#quick-start-from-v212) · [Operations](#operations-and-maintenance) · [Contributing](#contributing)"
+          new_nav = "[Preview](#preview) · [Why all-Mail](#why-all-mail) · [Capabilities](#capabilities) · [Architecture](#stable-runtime-architecture) · [Quick start](#quick-start-from-v212) · [Operations](#operations-and-maintenance) · [Contributing](#contributing)"
 
-      - name: Commit reviewed preview image
-        run: |
-          set -euo pipefail
+          if old_nav not in text and new_nav not in text:
+              raise SystemExit("README navigation marker not found")
+          text = text.replace(old_nav, new_nav, 1)
+
+          if "\n## Preview\n" not in text:
+              marker = "\n## Why all-Mail\n"
+              if marker not in text:
+                  raise SystemExit("Why all-Mail marker not found")
+              preview = '''
+## Preview
+
+<p align="center">
+  <img src="docs/screenshots/admin-dashboard.png" alt="all-Mail administrator dashboard showing runtime health, provider distribution, and operational activity" width="900" />
+</p>
+
+<p align="center"><sub>Administrator dashboard rendered by the repository's Playwright end-to-end suite with deterministic fixture data.</sub></p>
+
+This is the real `all-Mail` frontend rather than a marketing mockup. The preview is exported from the repository's browser test artifact and uses deterministic test identities instead of production credentials, private mailbox content, or operator-owned addresses.
+
+The administrator experience brings mailbox connections, domain mail, automation, audit, health, and operational status into one workspace. The same end-to-end suite also exercises external-mailbox and mailbox-portal flows across desktop and mobile Chromium.
+'''
+              text = text.replace(marker, "\n" + preview + marker, 1)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          rm .github/workflows/export-readme-preview.yml
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f docs/screenshots/admin-dashboard.png
+          git add README.md
+          git add -u .github/workflows/export-readme-preview.yml
           git diff --cached --quiet && exit 0
-          git commit -m "docs: add reviewed frontend preview screenshot"
+          git commit -m "docs: add real frontend preview to README"
           git push origin HEAD:docs/readme-preview-final
