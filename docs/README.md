@@ -4,7 +4,7 @@
 
 The supported request path is the public Go `app` gateway forwarding owned business routes to the private Go `go-business-api`; `worker-forwarding` and `worker-retention` remain independent background runtimes. The method-aware ownership contract is documented in [`ROUTE-OWNERSHIP.md`](./ROUTE-OWNERSHIP.md).
 
-The project is **source-available under the custom all-Mail Non-Commercial License**. It is not distributed under an OSI-approved open-source license. Use that wording consistently in public material.
+The project is **free and open-source software licensed under `AGPL-3.0-only`**. Public material should use this canonical license identity consistently.
 
 ## Operator and product documentation
 
@@ -22,7 +22,7 @@ The project is **source-available under the custom all-Mail Non-Commercial Licen
 | Local Go API and React development | [`advanced-runtime.md`](./advanced-runtime.md) |
 | External mailbox operations | [`external-email-management-guide.md`](./external-email-management-guide.md) |
 | Provider evidence, live-canary boundaries, and account-tier caveats | [`PROVIDER-VALIDATION.md`](./PROVIDER-VALIDATION.md) |
-| Source-available release gate | [`source-available-release-checklist.md`](./source-available-release-checklist.md) |
+| Open-source release gate | [`open-source-release-checklist.md`](./open-source-release-checklist.md) |
 | Cloudflare Email Worker ingress | [`../CLOUDFLARE-DEPLOY.md`](../CLOUDFLARE-DEPLOY.md) |
 
 The repository homepage is [`../README.md`](../README.md), frontend developer boundaries are in [`../web/README.md`](../web/README.md), the security reporting policy is [`../SECURITY.md`](../SECURITY.md), and support expectations are in [`../SUPPORT.md`](../SUPPORT.md).

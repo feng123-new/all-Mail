@@ -65,6 +65,7 @@ local-backups/
 docs/screenshots/*
 !docs/screenshots/login-page.png
 !docs/screenshots/dashboard-home.png
+!docs/screenshots/admin-dashboard.png
 .all-mail-runtime/
 
 # OpenCode / local mailbox-ops artifacts

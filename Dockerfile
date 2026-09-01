@@ -12,7 +12,7 @@ COPY scripts/generate-openapi.mjs /src/scripts/generate-openapi.mjs
 COPY web ./
 RUN npm run build
 
-FROM golang:1.26.5-bookworm AS go-builder
+FROM golang:1.26.6-bookworm AS go-builder
 ARG ALL_MAIL_VERSION
 ARG ALL_MAIL_COMMIT
 ARG ALL_MAIL_BUILD_DATE
@@ -39,7 +39,7 @@ LABEL org.opencontainers.image.title="all-Mail" \
       org.opencontainers.image.version="${ALL_MAIL_VERSION}" \
       org.opencontainers.image.revision="${ALL_MAIL_COMMIT}" \
       org.opencontainers.image.created="${ALL_MAIL_BUILD_DATE}" \
-      org.opencontainers.image.licenses="LicenseRef-all-Mail-Non-Commercial"
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \
