@@ -1,6 +1,6 @@
 # Support
 
-`all-Mail` is source-available under the custom non-commercial license in [`LICENSE`](./LICENSE). Community support is best effort and does not create a service-level agreement or grant commercial-use rights.
+`all-Mail` is free and open-source software licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`); see [`LICENSE`](./LICENSE). Community support is best effort and does not create a service-level agreement. Commercial use is permitted subject to the license terms.
 
 ## Supported target
 
@@ -11,7 +11,7 @@ Support requests should reproduce on the latest stable `2.1.x` release or on the
 - **Bug or regression:** open a GitHub issue with a minimal reproduction.
 - **Feature request:** open a GitHub issue describing the operator use case and expected outcome.
 - **Security vulnerability:** follow [`SECURITY.md`](./SECURITY.md); never post sensitive details publicly.
-- **Commercial deployment or paid service:** obtain prior written permission from the repository owner as required by the license. Public issue support is not a commercial license.
+- **Commercial deployment or paid service:** commercial use is permitted under `AGPL-3.0-only`; support, warranty, and hosted-service arrangements are separate from the open-source license. Modified versions offered to users over a network must satisfy the AGPL source-availability obligations.
 
 ## Required diagnostics
 
@@ -58,4 +58,4 @@ The maintainer may ask you to:
 - reproduce frontend issues with the release-required desktop/mobile browser smoke;
 - provide a synthetic reproduction instead of production data.
 
-Requests may be closed when they rely on modified security boundaries, unsupported revisions, unlicensed commercial use, incomplete diagnostics, or secrets posted publicly.
+Requests may be closed when they rely on modified security boundaries, unsupported revisions, incomplete diagnostics, requests outside the project's support scope, or secrets posted publicly.

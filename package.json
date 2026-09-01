@@ -2,8 +2,8 @@
   "name": "all-mail",
   "private": true,
   "version": "2.1.2",
-  "description": "all-Mail v2 source-available Docker-first Go email control plane",
-  "license": "SEE LICENSE IN LICENSE",
+  "description": "all-Mail v2 open-source Docker-first Go email control plane",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/feng123-new/all-Mail.git"
@@ -14,7 +14,7 @@
     "self-hosted",
     "go",
     "react",
-    "source-available"
+    "open-source"
   ],
   "bin": {
     "all-mail": "bin/all-mail"

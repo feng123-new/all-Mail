@@ -1,6 +1,6 @@
 # Security policy
 
-`all-Mail` is a source-available project distributed under a custom non-commercial license. Security reports are welcome regardless of whether the reporter uses the software personally, for research, or under a separate commercial agreement.
+`all-Mail` is free and open-source software distributed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`). Security reports are welcome from users, researchers, operators, and contributors regardless of deployment model.
 
 ## Supported versions
 

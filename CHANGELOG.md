@@ -2,9 +2,14 @@
 
 All notable changes to `all-Mail` are documented here. The project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
-`all-Mail` is source-available under the custom all-Mail Non-Commercial License in [`LICENSE`](./LICENSE); it is not distributed under an OSI-approved open-source license.
+`all-Mail` is free and open-source software licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`); see [`LICENSE`](./LICENSE).
 
 ## [Unreleased]
+
+### Changed
+
+- Relicensed the project under `AGPL-3.0-only` and aligned public metadata, documentation, OCI labels, and release contracts with the open-source license.
+- Updated the current development and build toolchain to Go 1.26.6 to pick up standard-library security fixes detected by `govulncheck`.
 
 ### Fixed
 

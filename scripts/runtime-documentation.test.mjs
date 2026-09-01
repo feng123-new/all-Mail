@@ -39,7 +39,7 @@ test("operator documentation matches the canonical Compose topology", async () =
 		read("docs/DEPLOY.md"),
 		read("docs/RUNBOOK.md"),
 		read("docs/ENVIRONMENT.md"),
-		read("docs/source-available-release-checklist.md"),
+		read("docs/open-source-release-checklist.md"),
 	]);
 
 	const services = composeServices(compose);
@@ -62,7 +62,7 @@ test("all runtime doctors and private network checks are documented", async () =
 	const [deploy, runbook, release] = await Promise.all([
 		read("docs/DEPLOY.md"),
 		read("docs/RUNBOOK.md"),
-		read("docs/source-available-release-checklist.md"),
+		read("docs/open-source-release-checklist.md"),
 	]);
 	const combined = [deploy, runbook, release].join("\n");
 	for (const command of [
@@ -82,11 +82,11 @@ test("all runtime doctors and private network checks are documented", async () =
 	}
 });
 
-test("documentation describes aggregate readiness and source-available licensing truthfully", async () => {
+test("documentation describes aggregate readiness and AGPL open-source licensing truthfully", async () => {
 	const [deploy, runbook, release, license] = await Promise.all([
 		read("docs/DEPLOY.md"),
 		read("docs/RUNBOOK.md"),
-		read("docs/source-available-release-checklist.md"),
+		read("docs/open-source-release-checklist.md"),
 		read("LICENSE"),
 	]);
 	const operatorDocs = `${deploy}\n${runbook}`;
@@ -102,7 +102,9 @@ test("documentation describes aggregate readiness and source-available licensing
 	}
 	assert.doesNotMatch(operatorDocs, /server\/\.env|node -e/i);
 	assert.doesNotMatch(operatorDocs, /checks the built SPA and Fastify readiness/i);
-	assert.match(release, /source-available/i);
-	assert.match(release, /not distributed under an OSI-approved open-source license/i);
-	assert.match(license, /You may not use the Software for commercial purposes/i);
+	assert.match(release, /AGPL-3\.0-only/i);
+	assert.match(release, /Commercial use is permitted/i);
+	assert.match(release, /computer network[\s\S]*Corresponding Source/i);
+	assert.match(license, /GNU AFFERO GENERAL PUBLIC LICENSE/);
+	assert.match(license, /You may charge any price or no price/);
 });

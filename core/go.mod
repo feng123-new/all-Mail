@@ -2,7 +2,7 @@ module github.com/feng123-new/all-Mail/core
 
 go 1.26.0
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/dlclark/regexp2/v2 v2.5.2

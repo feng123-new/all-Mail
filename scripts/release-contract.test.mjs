@@ -7,9 +7,6 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relativePath) => readFile(path.join(root, relativePath), "utf8");
 
-const canonicalLicenseSentence =
-  "source-available under the custom all-Mail Non-Commercial License";
-
 async function readReleaseFiles() {
   const [version, packageJSON, changelog] = await Promise.all([
     read("VERSION"),
@@ -70,33 +67,36 @@ test("Go binary and OCI image receive injected release metadata", async () => {
   assert.match(helper, /allmail version --json/);
 });
 
-test("public project wording is consistently source-available", async () => {
+test("public project wording consistently reflects AGPL open-source licensing", async () => {
   const files = [
     "README.md",
     "SECURITY.md",
     "SUPPORT.md",
     "CHANGELOG.md",
     "docs/README.md",
-    "docs/source-available-release-checklist.md",
+    "docs/open-source-release-checklist.md",
   ];
   for (const file of files) {
     const content = await read(file);
-    assert.match(content, /source-available/i, `${file} lacks source-available wording`);
+    assert.match(content, /AGPL-3\.0-only/i, `${file} lacks the canonical AGPL license identifier`);
     assert.doesNotMatch(
       content,
-      /(?:is|as|an|the)\s+(?:an?\s+)?open[- ]source project/i,
-      `${file} incorrectly describes the project as open source`,
+      /custom all-Mail Non-Commercial License|not distributed under an OSI-approved open-source license/i,
+      `${file} still contains retired license wording`,
     );
   }
-  assert.match(await read("README.md"), new RegExp(canonicalLicenseSentence, "i"));
-  assert.match(await read("SUPPORT.md"), /commercial-use rights/i);
+  assert.match(await read("README.md"), /free and open-source software/i);
+  assert.match(await read("SUPPORT.md"), /Commercial use is permitted/i);
   assert.match(await read("SECURITY.md"), /Report a vulnerability/i);
+  assert.match(await read("Dockerfile"), /org\.opencontainers\.image\.licenses="AGPL-3\.0-only"/);
+  assert.match(await read("package.json"), /"license": "AGPL-3\.0-only"/);
 });
 
-test("retired open-source checklist name is removed", async () => {
-  await assert.rejects(access(path.join(root, "docs/open-source-release-checklist.md")));
-  await access(path.join(root, "docs/source-available-release-checklist.md"));
-  assert.doesNotMatch(await read("docs/README.md"), /open-source-release-checklist/);
+test("open-source release checklist is canonical", async () => {
+  await access(path.join(root, "docs/open-source-release-checklist.md"));
+  await assert.rejects(access(path.join(root, "docs/source-available-release-checklist.md")));
+  assert.match(await read("docs/README.md"), /open-source-release-checklist/);
+  assert.doesNotMatch(await read("docs/README.md"), /source-available-release-checklist/);
 });
 
 test("upgrade and restore docs cover the complete state set", async () => {

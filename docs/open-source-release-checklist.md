@@ -1,6 +1,6 @@
-# Source-available release checklist
+# Open-source release checklist
 
-This checklist is the release closure loop for `all-Mail`. The repository is source-available under the custom non-commercial license in [`../LICENSE`](../LICENSE); it is not distributed under an OSI-approved open-source license.
+This checklist is the release closure loop for `all-Mail`. The repository is free and open-source software licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`); see [`../LICENSE`](../LICENSE).
 
 ## 1. Release identity
 
@@ -10,12 +10,13 @@ This checklist is the release closure loop for `all-Mail`. The repository is sou
 - [ ] The tag is immutable and points to the release commit.
 - [ ] Release assets include checksums and are built from the tagged commit.
 
-## 2. Legal and public wording
+## 2. License and public wording
 
-- [ ] `LICENSE`, `README.md`, `SECURITY.md`, `SUPPORT.md`, `CHANGELOG.md`, and `docs/README.md` agree that the project is source-available under a custom non-commercial license.
-- [ ] No current public document claims that the license is OSI-approved or grants rights beyond `LICENSE`.
-- [ ] Commercial deployment, resale, hosted service, and paid-support use require prior written permission.
-- [ ] Code, screenshots, dependencies, and release assets are legally publishable.
+- [ ] `LICENSE`, `README.md`, `SECURITY.md`, `SUPPORT.md`, `CHANGELOG.md`, `package.json`, `Dockerfile`, and `docs/README.md` agree on `AGPL-3.0-only`.
+- [ ] Current public documentation describes `all-Mail` as free and open-source software and uses the canonical AGPL license identity consistently.
+- [ ] Commercial use is permitted subject to `AGPL-3.0-only`; support and warranty arrangements are separate from the license.
+- [ ] Operators who modify the program and make that modified version available to users over a computer network provide those users an opportunity to obtain the Corresponding Source as required by AGPLv3 section 13.
+- [ ] Code, screenshots, dependencies, and release assets are legally publishable and license-compatible.
 
 ## 3. Security and credentials
 
@@ -45,6 +46,14 @@ redis
 - [ ] Runtime database identities are generated, non-owner, and table-scoped.
 - [ ] The master secret volume is initializer-only.
 
+Private-port verification remains explicit:
+
+```bash
+! docker compose port go-business-api 3200
+! docker compose port postgres 5432
+! docker compose port redis 6379
+```
+
 ## 5. Engineering verification
 
 - [ ] Go formatting, race tests, unit/integration tests, vet, build, and `govulncheck` pass.
@@ -56,6 +65,15 @@ redis
 - [ ] Production dependency audit passes.
 - [ ] Fresh, repeated, historical-ledger, malformed-schema, OAuth, API-key, forwarding, and retention database tests pass.
 - [ ] Full Docker startup, bootstrap rotation, network/secret boundaries, doctors, SBOM, and release gate pass.
+
+Runtime doctors remain part of the release evidence:
+
+```bash
+docker compose exec -T app allmail doctor api
+docker compose exec -T go-business-api allmail doctor business-api
+docker compose exec -T worker-forwarding allmail doctor worker forwarding
+docker compose exec -T worker-retention allmail doctor worker retention
+```
 
 ## 6. Upgrade and recovery
 
@@ -69,5 +87,6 @@ redis
 
 - [ ] The GitHub Release is created only after all required checks pass.
 - [ ] The multi-architecture GHCR image and release archives report the same injected version and commit.
+- [ ] The OCI image carries `org.opencontainers.image.licenses=AGPL-3.0-only`.
 - [ ] Release notes are generated from the dated changelog section.
-- [ ] Merged `agent/*` and `fix/*` branches are deleted after successful publication; unmerged branches are preserved.
+- [ ] Merged maintenance branches are removed only after their changes are safely present on `main`; unmerged branches are preserved.
