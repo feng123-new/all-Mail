@@ -12,7 +12,7 @@ COPY scripts/generate-openapi.mjs /src/scripts/generate-openapi.mjs
 COPY web ./
 RUN npm run build
 
-FROM golang:1.26.6-bookworm AS go-builder
+FROM golang:1.27.0-bookworm AS go-builder
 ARG ALL_MAIL_VERSION
 ARG ALL_MAIL_COMMIT
 ARG ALL_MAIL_BUILD_DATE
