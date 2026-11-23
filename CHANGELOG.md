@@ -6,10 +6,16 @@ All notable changes to `all-Mail` are documented here. The project follows [Keep
 
 ## [Unreleased]
 
+### Added
+
+- Added a Gmail workspace for Google authorization, a combined view of recent inbox and sent mail, and composing from an authorized Gmail account. Google app passwords can be used for the current workspace or saved explicitly.
+- Added optional encrypted Google login details per saved Gmail account: the account password, a verification code generated from a stored authenticator key, and plain-text notes. Viewing or changing these details requires administrator 2FA and does not change the mail connection. Upgrade through the normal database initialization workflow to apply the new schema migration.
+
 ### Changed
 
 - Relicensed the project under `AGPL-3.0-only` and aligned public metadata, documentation, OCI labels, and release contracts with the open-source license.
 - Updated the current development and build toolchain to Go 1.26.6 to pick up standard-library security fixes detected by `govulncheck`.
+- Updated Axios and affected transitive web dependencies to resolve production dependency audit findings.
 
 ### Fixed
 

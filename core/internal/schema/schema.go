@@ -49,6 +49,7 @@ var migrationOrder = []string{
 	"202607301700_durable_environment_config",
 	"20260731_api_key_explicit_permissions",
 	"20260731_revocable_sessions",
+	"20261124_gmail_login_details",
 }
 
 var migrationChecksums = map[string]string{
@@ -66,6 +67,7 @@ var migrationChecksums = map[string]string{
 	"202607301700_durable_environment_config":                           "902c0afd34649dd67b1c6cf0412f5fa637f69747201db6b2108303a41169f530",
 	"20260731_api_key_explicit_permissions":                             "84421012fd399eb4eee3c55fd54d5502830bdb8b6940e45cdbce3bcdf032cc39",
 	"20260731_revocable_sessions":                                       "c12f43fceaf1775662bbc4656c43ecf28723a67de2bc81e455806b79870ac4ec",
+	"20261124_gmail_login_details":                                      "d1f709cce08ba0b28c2abd007803914b8ac7b5aa791e2483cb6555b3ece8e0cf",
 }
 
 var businessTables = []string{
@@ -219,13 +221,24 @@ func ApplyPrismaHistory(ctx context.Context, databaseURL string, logger *slog.Lo
 				return err
 			}
 		case applicationExists:
-			if err := validateFinalContract(ctx, transaction, descriptors); err != nil {
+			var hasLoginDetails bool
+			if err := transaction.QueryRow(ctx, columnExistsSQL("email_accounts", "gmail_totp_secret")).Scan(&hasLoginDetails); err != nil {
+				return fmt.Errorf("inspect ledgerless Gmail login details: %w", err)
+			}
+			adopted, fingerprint := descriptors, expectedCatalogFingerprint
+			if !hasLoginDetails {
+				adopted, fingerprint = descriptors[:preGmailLoginMigrationCount], preGmailLoginCatalogFingerprint
+			}
+			if err := validateFinalContract(ctx, transaction, adopted, fingerprint); err != nil {
 				return fmt.Errorf("ledgerless database is not a complete Prisma schema: %w", err)
 			}
-			for _, descriptor := range descriptors {
+			for _, descriptor := range adopted {
 				if err := recordCanonical(ctx, transaction, descriptor, "adopted-catalog"); err != nil {
 					return err
 				}
+			}
+			if err := applyPending(ctx, transaction, descriptors[len(adopted):], "executed", logger); err != nil {
+				return err
 			}
 		default:
 			if err := ensurePrismaLedger(ctx, transaction); err != nil {
@@ -237,7 +250,7 @@ func ApplyPrismaHistory(ctx context.Context, databaseURL string, logger *slog.Lo
 		}
 	}
 
-	if err := validateFinalContract(ctx, transaction, descriptors); err != nil {
+	if err := validateFinalContract(ctx, transaction, descriptors, expectedCatalogFingerprint); err != nil {
 		return err
 	}
 	if err := ensurePrismaLedger(ctx, transaction); err != nil {
@@ -500,7 +513,7 @@ func recordPrismaCompatibility(ctx context.Context, tx pgx.Tx, descriptor Descri
 	return nil
 }
 
-func validateFinalContract(ctx context.Context, tx pgx.Tx, descriptors []Descriptor) error {
+func validateFinalContract(ctx context.Context, tx pgx.Tx, descriptors []Descriptor, expectedFingerprint string) error {
 	for _, descriptor := range descriptors {
 		if err := validatePostcondition(ctx, tx, descriptor.ID); err != nil {
 			return fmt.Errorf("final schema contract failed at %s: %w", descriptor.ID, err)
@@ -545,7 +558,7 @@ func validateFinalContract(ctx context.Context, tx pgx.Tx, descriptors []Descrip
 	if err := tx.QueryRow(ctx, catalogFingerprintSQL).Scan(&fingerprint); err != nil {
 		return fmt.Errorf("calculate business schema fingerprint: %w", err)
 	}
-	if fingerprint != expectedCatalogFingerprint {
+	if fingerprint != expectedFingerprint {
 		return fmt.Errorf("business schema fingerprint mismatch: %s", fingerprint)
 	}
 	return nil
@@ -589,6 +602,10 @@ func validatePostcondition(ctx context.Context, tx pgx.Tx, id string) error {
 		query = `SELECT NOT EXISTS (SELECT 1 FROM api_keys WHERE permissions IS NULL OR permissions = '{}'::jsonb)`
 	case "20260731_revocable_sessions":
 		query = `SELECT ` + columnNotNullSQLExpression("admins", "session_version") + ` AND ` + columnNotNullSQLExpression("mailbox_users", "session_version") + ` AND ` + constraintExistsSQLExpression("admins", "admins_session_version_positive") + ` AND ` + constraintExistsSQLExpression("mailbox_users", "mailbox_users_session_version_positive") + ` AND to_regprocedure('all_mail_bump_admin_session_version()') IS NOT NULL AND to_regprocedure('all_mail_bump_mailbox_user_session_version()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'admins_bump_session_version' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'mailbox_users_bump_session_version' AND NOT tgisinternal)`
+	case "20261124_gmail_login_details":
+		query = `SELECT count(*) = 3 FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = 'email_accounts' AND data_type = 'text'
+			  AND is_nullable = 'YES' AND column_name IN ('account_login_password', 'gmail_totp_secret', 'gmail_login_notes')`
 	default:
 		return fmt.Errorf("unknown schema migration %s", id)
 	}
@@ -661,7 +678,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS allmail_prisma_migration_name_active_key
     ON _prisma_migrations (migration_name) WHERE rolled_back_at IS NULL;
 `
 
-const expectedCatalogFingerprint = "3015ccb01658e3ad91a7acda8697059a"
+const expectedCatalogFingerprint = "5e9946014e275d9466104c9b4442676e"
+const preGmailLoginCatalogFingerprint = "3015ccb01658e3ad91a7acda8697059a"
+const preGmailLoginMigrationCount = 14
 
 const expectedRuntimeCatalogFingerprint = "ea5b5dbf10912a942f7b4010cf41909b"
 

@@ -3,6 +3,7 @@ import {
 	DownloadOutlined,
 	EditOutlined,
 	GroupOutlined,
+	MailOutlined,
 	MoreOutlined,
 	PlusOutlined,
 	ReloadOutlined,
@@ -114,8 +115,10 @@ import {
 	renderSanitizedEmailHtml,
 } from "../../utils/mailContent";
 import { requestData } from "../../utils/request";
+import GmailWorkspace from "./GmailWorkspace";
 import MailImportWorkflow from "./ImportWorkflow";
 import MailboxRowActions from "./MailboxRowActions";
+import { gmailWorkspaceI18n } from "./gmailWorkspaceMessages";
 import { emailsInlineI18n } from "./inlineMessages";
 import {
 	getOAuthProfileCapabilities,
@@ -127,6 +130,7 @@ import {
 } from "./oauthProfiles";
 
 const emailsPageI18n = {
+	gmailWorkspace: defineMessage("emails.tab.gmail", "Gmail", "Gmail"),
 	fetchStrategyGraphFirstVerbose: defineMessage(
 		"emails.fetchStrategy.graphFirstVerbose",
 		"Graph 优先（失败回退 IMAP）",
@@ -1260,6 +1264,10 @@ const EmailsPage: FC = () => {
 	const [pageSize, setPageSize] = useState(10);
 	const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
 	const [modalVisible, setModalVisible] = useState(false);
+	const [externalEmailTab, setExternalEmailTab] = useState(() =>
+		searchParams.get("oauth_provider") === "GMAIL" ? "gmail" : "emails",
+	);
+	const [gmailAuthorizationRevision, setGmailAuthorizationRevision] = useState(0);
 	const [importModalVisible, setImportModalVisible] = useState(false);
 	const [toolMenuOpen, setToolMenuOpen] = useState(false);
 	const [mailModalVisible, setMailModalVisible] = useState(false);
@@ -1863,6 +1871,7 @@ const EmailsPage: FC = () => {
 
 			if (result.provider === "GMAIL") {
 				if (result.status !== "error") {
+					setGmailAuthorizationRevision((revision) => revision + 1);
 					closeEmailModal();
 				}
 				resetGoogleOAuthFlow();
@@ -2122,8 +2131,12 @@ const EmailsPage: FC = () => {
 		[applyProfileSelection],
 	);
 
-	const handleCreate = (protocol: RepresentativeProtocol = "oauth_api") => {
-		const defaultProfile = getDefaultProfileForRepresentativeProtocol(protocol);
+	const handleCreate = (
+		protocol: RepresentativeProtocol = "oauth_api",
+		provider?: EmailProvider,
+	) => {
+		const defaultProfile = (provider && getProviderProfilesByRepresentativeProtocol(protocol)
+			.find((profile) => profile.provider === provider)) || getDefaultProfileForRepresentativeProtocol(protocol);
 		setEditingId(null);
 		setEmailEditLoading(false);
 		resetAllOAuthFlows();
@@ -3978,6 +3991,9 @@ const EmailsPage: FC = () => {
 				subtitle={t(adminI18n.emails.subtitle)}
 				extra={
 					<Space wrap>
+						<Button icon={<MailOutlined />} onClick={() => setExternalEmailTab("gmail")}>
+							{t(gmailWorkspaceI18n.title)}
+						</Button>
 						<Dropdown
 							open={toolMenuOpen}
 							onOpenChange={setToolMenuOpen}
@@ -3996,10 +4012,24 @@ const EmailsPage: FC = () => {
 				}
 			/>
 			<Tabs
-				defaultActiveKey="emails"
+				activeKey={externalEmailTab}
+				onChange={setExternalEmailTab}
 				animated={false}
 				destroyOnHidden
 				items={[
+					{
+						key: "gmail",
+						label: t(emailsPageI18n.gmailWorkspace),
+						children: (
+							<GmailWorkspace
+								gmailConfigured={isGmailOAuthConfigured}
+								onConfigure={() => handleCreate("oauth_api", "GMAIL")}
+								minimalScope={oauthProviderStatuses.GMAIL.scopeProfile === "minimal"}
+								authorizationRevision={gmailAuthorizationRevision}
+								onSaved={() => void fetchData()}
+							/>
+						),
+					},
 					{
 						key: "emails",
 						label: t(adminI18n.emails.mailboxList),

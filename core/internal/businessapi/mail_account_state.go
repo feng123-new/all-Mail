@@ -26,7 +26,7 @@ func (s *PostgresStore) updateMailAccount(ctx context.Context, id int64, input m
 	clientSecret := row.ClientSecret
 	refreshToken := row.RefreshToken
 	password := row.Password
-	loginPassword := row.AccountLoginPassword
+	var loginPassword sql.NullString
 	status := row.Status
 	errorMessage := row.ErrorMessage
 	groupID := row.GroupID
@@ -150,31 +150,40 @@ func (s *PostgresStore) updateMailAccount(ctx context.Context, id int64, input m
 	} else if !password.Valid {
 		return nil, validationError("app-password mail accounts require password")
 	}
-	_, err = s.pool.Exec(ctx, `
+	result, err := s.pool.Exec(ctx, `
 		UPDATE email_accounts
-		SET email = $2,
+		SET email = $2::varchar,
 		    provider = $3::"MailProvider",
 		    auth_type = $4::"MailAuthType",
 		    client_id = $5,
 		    client_secret = $6,
 		    refresh_token = $7,
 		    password = $8,
-		    account_login_password = $9,
+		    account_login_password = CASE WHEN $15 THEN $9
+		        WHEN (provider = 'GMAIL' OR $3::"MailProvider" = 'GMAIL')
+		             AND (email <> $2::varchar OR provider <> $3::"MailProvider") THEN NULL
+		        ELSE account_login_password END,
+		    gmail_totp_secret = CASE WHEN email <> $2::varchar OR provider <> $3::"MailProvider" THEN NULL ELSE gmail_totp_secret END,
+		    gmail_login_notes = CASE WHEN email <> $2::varchar OR provider <> $3::"MailProvider" THEN NULL ELSE gmail_login_notes END,
 		    status = $10::"EmailStatus",
 		    group_id = $11,
 		    provider_config = $12::jsonb,
 		    capabilities = $13::jsonb,
 		    error_message = $14,
 		    updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1
+		WHERE id = $1 AND email = $16::varchar AND provider = $17::"MailProvider"
 	`, id, email, provider, authType, nullableAnyString(clientID), nullableAnyString(clientSecret),
 		nullableAnyString(refreshToken), nullableAnyString(password), nullableAnyString(loginPassword), status,
-		nullableAnyInt64(groupID), string(providerConfig), string(capabilities), nullableAnyString(errorMessage))
+		nullableAnyInt64(groupID), string(providerConfig), string(capabilities), nullableAnyString(errorMessage),
+		input.AccountLoginPasswordPresent, row.Email, row.Provider)
 	if err != nil {
 		if managementPGCode(err) == "23505" {
 			return nil, managementConflict("EMAIL_EXISTS", err)
 		}
 		return nil, fmt.Errorf("update mail account: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return nil, managementConflict("MAIL_ACCOUNT_CHANGED", nil)
 	}
 	return s.getMailAccount(ctx, id)
 }

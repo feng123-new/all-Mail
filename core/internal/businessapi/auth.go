@@ -226,7 +226,7 @@ func signSessionJWT(claims sessionJWTClaims, secret string, now time.Time, lifet
 }
 
 func signAdminRevealGrant(admin Admin, secret string, now time.Time) (string, time.Time, error) {
-	expiresAt := now.Add(adminRevealGrantTTL)
+	expiresAt := now.Add(adminRevealGrantTTL).Truncate(time.Second)
 	sessionVersion := admin.SessionVersion
 	if sessionVersion == 0 {
 		sessionVersion = 1

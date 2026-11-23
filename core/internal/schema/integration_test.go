@@ -48,7 +48,7 @@ func TestGoSchemaInitializationMatrix(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		assertScalar(t, databaseURL, `SELECT count(*)::text FROM allmail_schema_migrations`, "18")
+		assertScalar(t, databaseURL, `SELECT count(*)::text FROM allmail_schema_migrations`, "19")
 	})
 
 	t.Run("Prisma ledger adoption", func(t *testing.T) {
@@ -60,7 +60,7 @@ func TestGoSchemaInitializationMatrix(t *testing.T) {
 		if err := schema.ApplyPrismaHistory(ctx, databaseURL, logger); err != nil {
 			t.Fatal(err)
 		}
-		assertScalar(t, databaseURL, `SELECT count(*)::text FROM allmail_schema_migrations WHERE outcome = 'adopted-prisma-ledger'`, "14")
+		assertScalar(t, databaseURL, `SELECT count(*)::text FROM allmail_schema_migrations WHERE outcome = 'adopted-prisma-ledger'`, "15")
 	})
 
 	t.Run("empty Prisma ledger catalog adoption", func(t *testing.T) {
@@ -72,7 +72,26 @@ func TestGoSchemaInitializationMatrix(t *testing.T) {
 		if err := schema.ApplyPrismaHistory(ctx, databaseURL, logger); err != nil {
 			t.Fatal(err)
 		}
+		assertScalar(t, databaseURL, `SELECT count(*)::text FROM allmail_schema_migrations WHERE outcome = 'adopted-catalog'`, "15")
+	})
+
+	t.Run("older ledgerless catalog preserves login passwords", func(t *testing.T) {
+		resetDatabase(t, databaseURL)
+		manifest, err := schema.Manifest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, migration := range manifest[:14] {
+			execSQL(t, databaseURL, migration.SQL)
+		}
+		execSQL(t, databaseURL, `
+			INSERT INTO email_accounts (email, provider, auth_type, account_login_password, status, created_at, updated_at)
+			VALUES ('legacy@example.test', 'GMAIL', 'GOOGLE_OAUTH', 'legacy-ciphertext-fixture', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+		`)
+		runSchemaOnly(t, cfg, logger)
 		assertScalar(t, databaseURL, `SELECT count(*)::text FROM allmail_schema_migrations WHERE outcome = 'adopted-catalog'`, "14")
+		assertScalar(t, databaseURL, `SELECT outcome FROM allmail_schema_migrations WHERE migration_id = '20261124_gmail_login_details'`, "executed")
+		assertScalar(t, databaseURL, `SELECT account_login_password FROM email_accounts WHERE email = 'legacy@example.test' AND gmail_totp_secret IS NULL AND gmail_login_notes IS NULL`, "legacy-ciphertext-fixture")
 	})
 
 	t.Run("business type drift rejection", func(t *testing.T) {

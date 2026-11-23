@@ -26,7 +26,8 @@ import (
 const microsoftIMAPScope = "https://outlook.office.com/IMAP.AccessAsUser.All"
 
 type imapSMTPProvider struct {
-	server *Server
+	server          *Server
+	requireSMTPAuth bool
 }
 
 func (p imapSMTPProvider) Fetch(ctx context.Context, account mailAccountCredentials, mailbox string, limit int) (providerFetchResult, error) {
@@ -95,7 +96,7 @@ func (p imapSMTPProvider) ListSummaries(ctx context.Context, account mailAccount
 		return providerSummaryResult{}, err
 	}
 	defer client.Logout()
-	selected, err := client.Select(folder, false)
+	selected, err := client.Select(folder, true)
 	if err != nil {
 		return providerSummaryResult{}, providerFailure("MAILBOX_SELECT_FAILED", err)
 	}
@@ -155,7 +156,7 @@ func (p imapSMTPProvider) GetMessage(ctx context.Context, account mailAccountCre
 	defer client.Logout()
 	stopCancellation := context.AfterFunc(ctx, func() { _ = client.Terminate() })
 	defer stopCancellation()
-	selected, err := client.Select(folder, false)
+	selected, err := client.Select(folder, true)
 	if err != nil {
 		return providerMessage{}, providerFailure("MAILBOX_SELECT_FAILED", err)
 	}
@@ -356,6 +357,8 @@ func (p imapSMTPProvider) Send(ctx context.Context, account mailAccountCredentia
 		if err := client.Auth(smtp.PlainAuth("", account.Email, password, config.SMTPHost)); err != nil {
 			return providerSendResult{}, providerFailure("SMTP_AUTH_FAILED", err)
 		}
+	} else if p.requireSMTPAuth {
+		return providerSendResult{}, providerFailure("SMTP_AUTH_FAILED", fmt.Errorf("SMTP server did not advertise authentication"))
 	}
 	if err := client.Mail(account.Email); err != nil {
 		return providerSendResult{}, providerFailure("MAIL_SEND_FAILED", err)

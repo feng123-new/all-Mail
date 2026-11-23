@@ -84,8 +84,11 @@ func (s *Server) registerMailAccountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/emails/stats", s.withAdministrator(s.mailAccountStats))
 	mux.HandleFunc("POST /admin/emails/reveal-unlock", s.withAdministrator(s.revealMailAccountUnlock))
 	mux.HandleFunc("POST /admin/emails/{id}/reveal-secrets", s.withAdministrator(s.revealMailAccountSecrets))
+	mux.HandleFunc("POST /admin/emails/{id}/login-details", s.withAdministrator(s.gmailLoginDetails))
+	mux.HandleFunc("PATCH /admin/emails/{id}/login-details", s.withAdministrator(s.gmailLoginDetails))
 	mux.HandleFunc("GET /admin/emails/{id}", s.withAdministrator(s.getMailAccount))
 	mux.HandleFunc("POST /admin/emails", s.withAdministrator(s.createMailAccount))
+	mux.HandleFunc("POST /admin/emails/gmail/temporary", s.withAdministratorProvider(s.useTemporaryGmail))
 	mux.HandleFunc("PUT /admin/emails/{id}", s.withAdministrator(s.updateMailAccount))
 	mux.HandleFunc("DELETE /admin/emails/{id}", s.withAdministrator(s.deleteMailAccount))
 	mux.HandleFunc("POST /admin/emails/batch-delete", s.withAdministrator(s.batchDeleteMailAccounts))
@@ -440,14 +443,9 @@ func (s *Server) sendMailAccountMessage(w http.ResponseWriter, r *http.Request, 
 		s.writeRequestError(w, r, err)
 		return
 	}
-	body.To, err = validateRecipientList(body.To)
+	input, err := validateAccountSend(body)
 	if err != nil {
 		s.writeRequestError(w, r, err)
-		return
-	}
-	body.Subject = strings.TrimSpace(body.Subject)
-	if body.Subject == "" || len(body.Subject) > 500 || (strings.TrimSpace(body.Text) == "" && strings.TrimSpace(body.HTML) == "") {
-		s.writeRequestError(w, r, validationError("subject and at least one message body are required"))
 		return
 	}
 	account, err := s.loadProviderMailAccount(r.Context(), store, id)
@@ -455,10 +453,8 @@ func (s *Server) sendMailAccountMessage(w http.ResponseWriter, r *http.Request, 
 		s.writeStoreError(w, r, "load mail account", err)
 		return
 	}
-	result, err := s.sendAccountMessage(r.Context(), account, providerSendInput{
-		FromEmail: account.Email, FromName: strings.TrimSpace(body.FromName), To: body.To,
-		Subject: body.Subject, Text: body.Text, HTML: body.HTML,
-	})
+	input.FromEmail = account.Email
+	result, err := s.sendAccountMessage(r.Context(), account, input)
 	if err != nil {
 		s.writeRequestError(w, r, err)
 		return
@@ -838,6 +834,21 @@ func validateRecipientList(values []string) ([]string, error) {
 		}
 	}
 	return values, nil
+}
+
+func validateAccountSend(body accountSendRequest) (providerSendInput, error) {
+	recipients, err := validateRecipientList(body.To)
+	if err != nil {
+		return providerSendInput{}, err
+	}
+	subject, fromName := strings.TrimSpace(body.Subject), strings.TrimSpace(body.FromName)
+	if subject == "" || len(subject) > 500 || (strings.TrimSpace(body.Text) == "" && strings.TrimSpace(body.HTML) == "") {
+		return providerSendInput{}, validationError("subject and at least one message body are required")
+	}
+	if strings.ContainsAny(subject, "\r\n") || strings.ContainsAny(fromName, "\r\n") {
+		return providerSendInput{}, validationError("subject and sender name must be single lines")
+	}
+	return providerSendInput{FromName: fromName, To: recipients, Subject: subject, Text: body.Text, HTML: body.HTML}, nil
 }
 
 func (s *PostgresStore) selectMailAccountIDs(ctx context.Context, input batchMailOperationRequest) ([]int64, error) {

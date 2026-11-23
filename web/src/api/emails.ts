@@ -13,15 +13,20 @@ import {
 } from "./core";
 
 export const emailApi = {
-	getList: <T = Record<string, unknown>>(params?: {
-		page?: number;
-		pageSize?: number;
-		status?: string;
-		keyword?: string;
-		groupId?: number;
-		provider?: EmailProvider;
-		representativeProtocol?: RepresentativeProtocol;
-	}) => requestGet<ApiPagedList<T>>("/admin/emails", { params, cacheMs: 800 }),
+	getList: <T = Record<string, unknown>>(
+		params?: {
+			page?: number;
+			pageSize?: number;
+			status?: string;
+			keyword?: string;
+			groupId?: number;
+			provider?: EmailProvider;
+			representativeProtocol?: RepresentativeProtocol;
+		},
+		signal?: AbortSignal,
+	) => requestGet<ApiPagedList<T>>("/admin/emails", {
+		params, ...(signal ? { signal, dedupe: false } : { cacheMs: 800 }),
+	}),
 
 	getStats: <T = Record<string, unknown>>() =>
 		requestGet<T>("/admin/emails/stats"),
@@ -194,11 +199,13 @@ export const emailApi = {
 		id: number,
 		mailbox?: string,
 		markAsSeen: boolean = false,
+		options?: { signal: AbortSignal; limit: number },
 	) =>
 		requestGet<{ messages: T[] }>(`/admin/emails/${id}/mails`, {
-			params: { mailbox, markAsSeen },
-				timeout: LONG_RUNNING_CHECK_TIMEOUT_MS,
-			}),
+			params: { mailbox, markAsSeen, ...(options ? { limit: options.limit } : {}) },
+			timeout: LONG_RUNNING_CHECK_TIMEOUT_MS,
+			...(options ? { signal: options.signal, dedupe: false } : {}),
+		}),
 
 	viewMailDetail: <T = Record<string, unknown>>(
 		id: number,

@@ -535,13 +535,17 @@ func TestIMAPFixtureLoginSelectFetchStoreDeleteExpunge(t *testing.T) {
 	}
 	staleAccount := account
 	staleAccount.MailboxStatus = map[string]any{"INBOX": map[string]any{"uidValidity": float64(8)}}
-	_, err = provider.Delete(ctx, staleAccount, "INBOX", []string{"uid:42"})
 	var requestErr *requestError
+	_, err = provider.GetMessage(ctx, staleAccount, "INBOX", "uid:42")
+	if !errors.As(err, &requestErr) || requestErr.Status != http.StatusConflict || requestErr.Code != "IMAP_MAILBOX_RESYNC_REQUIRED" {
+		t.Fatalf("stale IMAP detail error = %#v", err)
+	}
+	_, err = provider.Delete(ctx, staleAccount, "INBOX", []string{"uid:42"})
 	if !errors.As(err, &requestErr) || requestErr.Status != http.StatusConflict || requestErr.Code != "IMAP_MAILBOX_RESYNC_REQUIRED" {
 		t.Fatalf("stale IMAP delete error = %#v", err)
 	}
 	commands := strings.ToUpper(strings.Join(fixture.Commands(), "\n"))
-	for _, expected := range []string{"LOGIN", "SELECT INBOX", "FETCH", "UID FETCH", "UID STORE", "\\DELETED", "EXPUNGE"} {
+	for _, expected := range []string{"LOGIN", "SELECT INBOX", "EXAMINE INBOX", "FETCH", "UID FETCH", "UID STORE", "\\DELETED", "EXPUNGE"} {
 		if !strings.Contains(commands, expected) {
 			t.Fatalf("IMAP commands missing %q:\n%s", expected, commands)
 		}
@@ -672,8 +676,12 @@ func (fixture *imapFixture) serve(connection net.Conn) {
 				return
 			}
 			_, _ = io.WriteString(connection, tag+" OK AUTHENTICATE completed\r\n")
-		case "SELECT":
-			_, _ = io.WriteString(connection, "* FLAGS (\\Seen \\Deleted)\r\n* 1 EXISTS\r\n* OK [UIDVALIDITY 7] valid\r\n"+tag+" OK [READ-WRITE] SELECT completed\r\n")
+		case "SELECT", "EXAMINE":
+			mode := "READ-WRITE"
+			if command == "EXAMINE" {
+				mode = "READ-ONLY"
+			}
+			_, _ = fmt.Fprintf(connection, "* FLAGS (\\Seen \\Deleted)\r\n* 1 EXISTS\r\n* OK [UIDVALIDITY 7] valid\r\n%s OK [%s] %s completed\r\n", tag, mode, command)
 		case "FETCH":
 			message := "From: Sender <sender@example.test>\r\nTo: Receiver <receiver@example.test>\r\nSubject: Fixture subject\r\nDate: Fri, 31 Jul 2026 00:00:00 +0000\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nFixture body\r\n"
 			envelope := "(\"Fri, 31 Jul 2026 00:00:00 +0000\" \"Fixture subject\" ((\"Sender\" NIL \"sender\" \"example.test\")) ((\"Sender\" NIL \"sender\" \"example.test\")) ((\"Sender\" NIL \"sender\" \"example.test\")) ((\"Receiver\" NIL \"receiver\" \"example.test\")) NIL NIL NIL \"<fixture@example.test>\")"

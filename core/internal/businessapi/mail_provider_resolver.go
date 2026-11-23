@@ -285,6 +285,13 @@ func mailAccountSupportsClear(account mailAccountCredentials) bool {
 }
 
 func mailAccountSupportsSend(account mailAccountCredentials) bool {
+	if account.AuthType == "GOOGLE_OAUTH" && account.Provider == "GMAIL" {
+		scopes := account.ProviderConfig.OAuthScopes
+		return hasOAuthScope(scopes, "https://www.googleapis.com/auth/gmail.send") ||
+			hasOAuthScope(scopes, "https://www.googleapis.com/auth/gmail.modify") ||
+			hasOAuthScope(scopes, "https://www.googleapis.com/auth/gmail.compose") ||
+			hasOAuthScope(scopes, "https://mail.google.com/")
+	}
 	if account.AuthType != "MICROSOFT_OAUTH" || account.Provider != "OUTLOOK" {
 		return true
 	}

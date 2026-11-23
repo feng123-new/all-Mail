@@ -9,7 +9,7 @@ func TestManifestContainsImmutablePrismaHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(manifest) != len(migrationOrder) || len(manifest) != 14 {
+	if len(manifest) != len(migrationOrder) || len(manifest) != 15 {
 		t.Fatalf("manifest length = %d", len(manifest))
 	}
 	for index, item := range manifest {

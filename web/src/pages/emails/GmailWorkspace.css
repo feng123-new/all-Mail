@@ -1,0 +1,26 @@
+.gmail-workspace__messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gmail-workspace__messages li {
+  border-block-end: 1px solid var(--ant-color-border-secondary);
+  padding-block: var(--ant-padding-sm);
+}
+
+.gmail-workspace__text {
+  overflow-wrap: anywhere;
+}
+
+.gmail-workspace__messages button,
+.gmail-workspace__reconnect {
+  height: auto;
+  max-width: 100%;
+  text-align: start;
+  white-space: normal;
+}
+
+.gmail-workspace__messages button {
+  padding-inline: 0;
+}

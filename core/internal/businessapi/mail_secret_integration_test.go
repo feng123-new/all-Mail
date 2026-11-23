@@ -164,4 +164,110 @@ func TestPostgresMailSecretStepUpIntegration(t *testing.T) {
 	if unlockTotal != 2 || unlockSuccess != 1 || unlockFailure != 1 || revealSuccess != 1 {
 		t.Fatalf("secret audit counts = unlock total %d success %d failure %d, reveal success %d", unlockTotal, unlockSuccess, unlockFailure, revealSuccess)
 	}
+
+	t.Run("Gmail login details are independent of OAuth", func(t *testing.T) {
+		const gmailKey = "JBSWY3DPEHPK3PXP"
+		const notes = "旅行备用\n<html>plain text</html>"
+		email := "gmail-vault-" + suffix + "@example.test"
+		oauthToken := "fixture-oauth-refresh"
+		created, err := store.createMailAccount(ctx, mailAccountCreateInput{
+			Email: email, Provider: "GMAIL", AuthType: "GOOGLE_OAUTH",
+			ClientID: stringPointer("fixture-oauth-client"), RefreshToken: &oauthToken,
+			AccountLoginPassword: stringPointer("original-login-password"), ProviderConfig: defaultProviderConfig("GMAIL"),
+		}, encryptionKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id := created["id"].(int64)
+		defer func() { _, _ = store.pool.Exec(ctx, `DELETE FROM email_accounts WHERE id = $1`, id) }()
+		path := fmt.Sprintf("/admin/emails/%d/login-details", id)
+		call := func(method, target string, status int, fields map[string]any) map[string]any {
+			t.Helper()
+			fields["grantToken"] = unlock.Data.GrantToken
+			if _, exists := fields["email"]; !exists {
+				fields["email"] = email
+			}
+			payload, err := json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := httptest.NewRecorder()
+			server.Handler().ServeHTTP(result, request(method, target, string(payload)))
+			if result.Code != status || result.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("%s %s = %d %s", method, target, result.Code, result.Body.String())
+			}
+			if strings.Contains(result.Body.String(), gmailKey) {
+				t.Fatal("Gmail authenticator key was returned to the caller")
+			}
+			var envelope struct{ Data map[string]any }
+			if err := json.Unmarshal(result.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			return envelope.Data
+		}
+		loaded := call(http.MethodPost, path, 200, map[string]any{})
+		if loaded["password"] != "original-login-password" || loaded["code"] != nil || loaded["notes"] != nil {
+			t.Fatalf("legacy login password not preserved: %#v", loaded)
+		}
+		call(http.MethodPatch, path, 200, map[string]any{"totpSecret": "jbsw y3dp ehpk 3pxp", "notes": notes})
+		var storedKey, storedNotes string
+		if err := store.pool.QueryRow(ctx, `SELECT gmail_totp_secret, gmail_login_notes FROM email_accounts WHERE id = $1`, id).Scan(&storedKey, &storedNotes); err != nil {
+			t.Fatal(err)
+		}
+		for ciphertext, expect := range map[string]string{storedKey: gmailKey, storedNotes: notes} {
+			plain, err := legacycrypto.Decrypt(encryptionKey, ciphertext)
+			if ciphertext == expect || plain != expect || err != nil {
+				t.Fatal("Gmail login data did not round trip as encrypted ciphertext")
+			}
+		}
+		loaded = call(http.MethodPost, path, 200, map[string]any{})
+		key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(gmailKey)
+		if err != nil || loaded["notes"] != notes || loaded["code"] != totpCode(key, now.Unix()/30) || loaded["codeExpiresAt"] != now.Add(30*time.Second).Format(time.RFC3339) {
+			t.Fatalf("unexpected notes or code: %#v", loaded)
+		}
+		now = now.Add(30 * time.Second)
+		code := call(http.MethodPost, path, 200, map[string]any{"codeOnly": true})
+		if len(code) != 3 || code["code"] != totpCode(key, now.Unix()/30) || code["code"] == loaded["code"] {
+			t.Fatalf("rotating code response returned other data or the wrong code: %#v", code)
+		}
+		call(http.MethodPost, fmt.Sprintf("/admin/emails/%d/login-details", accountID), 404, map[string]any{})
+		call(http.MethodPatch, path, 200, map[string]any{"password": "", "notes": ""})
+		if remaining := call(http.MethodPost, path, 200, map[string]any{}); remaining["password"] != nil || remaining["notes"] != nil || remaining["code"] == nil {
+			t.Fatalf("clearing password and notes touched the authenticator: %#v", remaining)
+		}
+		call(http.MethodPatch, path, 200, map[string]any{"totpSecret": ""})
+		if remaining := call(http.MethodPost, path, 200, map[string]any{}); remaining["code"] != nil || remaining["codeExpiresAt"] != nil {
+			t.Fatalf("clearing the authenticator did not remove its code: %#v", remaining)
+		}
+		call(http.MethodPatch, path, 200, map[string]any{"password": "new-fixture-password", "notes": notes, "totpSecret": gmailKey})
+		if _, err := store.updateMailAccount(ctx, id, mailAccountUpdateInput{StatusPresent: true, Status: "ACTIVE"}, encryptionKey); err != nil {
+			t.Fatal(err)
+		}
+		if preserved := call(http.MethodPost, path, 200, map[string]any{}); preserved["password"] != "new-fixture-password" || preserved["notes"] != notes || preserved["code"] == nil {
+			t.Fatalf("ordinary account edit touched stored login details: %#v", preserved)
+		}
+		account, err := store.loadMailAccountCredentials(ctx, id, encryptionKey)
+		if err != nil || account.RefreshToken != oauthToken {
+			t.Fatalf("Gmail vault edits touched OAuth credentials: %v", err)
+		}
+		if _, err := store.updateMailAccount(ctx, id, mailAccountUpdateInput{EmailPresent: true, Email: "renamed-" + email}, encryptionKey); err != nil {
+			t.Fatal(err)
+		}
+		call(http.MethodPost, path, 404, map[string]any{})
+		call(http.MethodPatch, path, 404, map[string]any{"notes": "stale save"})
+		if cleared := call(http.MethodPost, path, 200, map[string]any{"email": "renamed-" + email}); cleared["password"] != nil || cleared["notes"] != nil || cleared["code"] != nil {
+			t.Fatalf("private details followed a changed Gmail identity: %#v", cleared)
+		}
+		if _, err := store.updateMailAccount(ctx, accountID, mailAccountUpdateInput{ProviderPresent: true, Provider: "GMAIL", AuthTypePresent: true, AuthType: "APP_PASSWORD"}, encryptionKey); err != nil {
+			t.Fatal(err)
+		}
+		if converted := call(http.MethodPost, fmt.Sprintf("/admin/emails/%d/login-details", accountID), 200,
+			map[string]any{"email": "pr35-step-up-" + suffix + "@example.test"}); converted["password"] != nil {
+			t.Fatalf("other provider's login password became a Gmail login password: %#v", converted)
+		}
+		var leaked bool
+		if err := store.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM api_logs WHERE email_account_id = $1 AND (metadata::text LIKE '%' || $2 || '%' OR metadata::text LIKE '%new-fixture-password%'))`, id, gmailKey).Scan(&leaked); err != nil || leaked {
+			t.Fatalf("private Gmail details leaked into log metadata: %v", err)
+		}
+	})
 }

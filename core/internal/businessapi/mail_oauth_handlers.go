@@ -403,6 +403,9 @@ func (s *Server) completeOAuthAuthorization(r *http.Request, provider string) (o
 	if refreshToken == "" {
 		return finish(oauthCompletionResult{Provider: provider, Status: "error", Code: "OAUTH_REFRESH_TOKEN_MISSING"})
 	}
+	if provider == "GMAIL" {
+		providerConfig.Scopes = gmailGrantedScopes(providerConfig.Scopes, tokenPayload)
+	}
 	email, remoteErr := s.verifyOAuthRemoteIdentity(r, provider, accessToken)
 	if remoteErr != nil {
 		return finish(oauthCompletionResult{Provider: provider, Status: "error", Code: oauthErrorCode(remoteErr)})
@@ -538,7 +541,7 @@ func buildOAuthAuthorizationURL(config oauthProviderConfig, state string) string
 	if config.Provider == "GMAIL" {
 		values.Set("access_type", "offline")
 		values.Set("include_granted_scopes", "true")
-		values.Set("prompt", "consent")
+		values.Set("prompt", "select_account consent")
 	} else {
 		tenant := strings.TrimSpace(config.Tenant)
 		if tenant == "" {
@@ -565,6 +568,13 @@ func oauthScopes(config oauthProviderConfig) string {
 func oauthPayloadString(payload map[string]any, key string) string {
 	value, _ := payload[key].(string)
 	return strings.TrimSpace(value)
+}
+
+func gmailGrantedScopes(requested string, tokenPayload map[string]any) string {
+	if granted := oauthPayloadString(tokenPayload, "scope"); granted != "" {
+		return granted
+	}
+	return requested
 }
 
 func oauthErrorCode(err error) string {
