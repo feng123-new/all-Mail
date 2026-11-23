@@ -143,8 +143,9 @@ jobs:
         run: |
           ./allmail migrate
           ./allmail migrate
-          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM allmail_schema_migrations')" = "18"
-          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM _prisma_migrations')" = "14"
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM allmail_schema_migrations')" = "19"
+          test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM _prisma_migrations')" = "15"
+          test "$(psql "$DATABASE_URL" -Atqc "SELECT outcome FROM allmail_schema_migrations WHERE migration_id = '20261124_gmail_login_details'")" = "executed"
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations')" = "4"
           test "$(psql "$DATABASE_URL" -Atqc 'SELECT count(*) FROM runtime_migrations WHERE checksum IS NULL OR length(checksum) <> 64')" = "0"
           test "$(psql "$DATABASE_URL" -Atqc "SELECT datetime_precision FROM information_schema.columns WHERE table_name = 'mailbox_forward_jobs' AND column_name = 'lease_expires_at'")" = "3"
