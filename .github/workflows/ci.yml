@@ -241,12 +241,15 @@ jobs:
         env:
           ALL_MAIL_MIGRATION_DIR: ${{ github.workspace }}/core/migrations
           ALLMAIL_SCHEMA_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/allmail_schema_integration?sslmode=disable
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: |
+          set -o pipefail
           createdb -h 127.0.0.1 -U postgres allmail_schema_integration
           go test -run TestGoSchemaInitializationMatrix -count=1 ./internal/schema
           createdb -h 127.0.0.1 -U postgres allmail_schema_restore
-          pg_dump "$ALLMAIL_SCHEMA_TEST_DATABASE_URL" -Fc | \
-            pg_restore -d 'postgresql://postgres:postgres@127.0.0.1:5432/allmail_schema_restore?sslmode=disable' --no-owner --no-privileges
+          docker exec "$POSTGRES_CONTAINER" pg_dump -U postgres -d allmail_schema_integration -Fc | \
+            docker exec -i "$POSTGRES_CONTAINER" pg_restore -U postgres -d allmail_schema_restore \
+              --exit-on-error --no-owner --no-privileges
           DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/allmail_schema_restore?sslmode=disable' ./allmail migrate
 
       - name: Verify API-key and external-route state machine
